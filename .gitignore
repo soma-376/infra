@@ -152,3 +152,6 @@ node_modules
 # CDK asset staging directory
 .cdk.staging
 cdk.out
+
+# AWS 계정별 조회 결과가 포함되는 CDK 로컬 context 캐시
+cdk.context.json

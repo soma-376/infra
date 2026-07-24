@@ -1,20 +1,45 @@
 #!/opt/homebrew/opt/node/bin/node
-import * as cdk from 'aws-cdk-lib/core';
-import { InfraStack } from '../lib/infra-stack';
+import { App } from 'aws-cdk-lib/core';
+import { applyCommonTags, loadConfig } from '../lib/config';
+import { NetworkStack } from '../lib/network-stack';
+import { DataStack } from '../lib/data-stack';
+import { ApplicationStack } from '../lib/application-stack';
+import { EdgeStack } from '../lib/edge-stack';
 
-const app = new cdk.App();
-new InfraStack(app, 'InfraStack', {
-  /* If you don't specify 'env', this stack will be environment-agnostic.
-   * Account/Region-dependent features and context lookups will not work,
-   * but a single synthesized template can be deployed anywhere. */
+const app = new App();
+const config = loadConfig(app);
 
-  /* Uncomment the next line to specialize this stack for the AWS Account
-   * and Region that are implied by the current CLI configuration. */
-  // env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+// 전 스택의 태그 지원 리소스에 공통 태그를 전파한다 (비용 배분/소유권 식별용).
+applyCommonTags(app);
 
-  /* Uncomment the next line if you know exactly what Account and Region you
-   * want to deploy the stack to. */
-  // env: { account: '123456789012', region: 'us-east-1' },
+const env = {
+  account: process.env.CDK_DEFAULT_ACCOUNT,
+  region: process.env.CDK_DEFAULT_REGION,
+};
 
-  /* For more information, see https://docs.aws.amazon.com/cdk/latest/guide/environments.html */
+const network = new NetworkStack(app, 'NetworkStack', { env });
+
+const data = new DataStack(app, 'DataStack', {
+  env,
+  vpc: network.vpc,
+  auroraSecurityGroup: network.auroraSecurityGroup,
+});
+
+const application = new ApplicationStack(app, 'ApplicationStack', {
+  env,
+  vpc: network.vpc,
+  dbSecret: data.dbSecret,
+  rawSignalBucket: data.rawSignalBucket,
+  collectorSecurityGroup: network.collectorSecurityGroup,
+  dashboardSecurityGroup: network.dashboardSecurityGroup,
+  clickhouseSecurityGroup: network.clickhouseSecurityGroup,
+});
+
+new EdgeStack(app, 'EdgeStack', {
+  env,
+  vpc: network.vpc,
+  collectorService: application.collectorService,
+  dashboardService: application.dashboardService,
+  albSecurityGroup: network.albSecurityGroup,
+  edge: config.edge,
 });
