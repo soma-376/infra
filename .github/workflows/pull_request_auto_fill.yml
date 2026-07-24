@@ -1,0 +1,97 @@
+name: PR Auto Fill
+
+on:
+  pull_request:
+    types: [opened, reopened]
+    branches: ["develop"]
+
+jobs:
+  set-pr-title-and-body:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Set PR Title and Body
+        uses: actions/github-script@v9
+        env:
+          JIRA_SITE: ${{ vars.JIRA_SITE }}
+          JIRA_SPACE_KEY: ${{ vars.JIRA_SPACE_KEY }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // Jira 환경변수 주입하기
+            const jiraSite = process.env.JIRA_SITE;
+            const spaceKey = process.env.JIRA_SPACE_KEY;
+            const jiraEmail = process.env.JIRA_USER_EMAIL;
+            const jiraToken = process.env.JIRA_API_TOKEN;
+
+            if (!jiraSite || !spaceKey || !jiraEmail || !jiraToken) {
+              console.log('Jira 설정이 없어 건너뜁니다.');
+              return;
+            }
+
+            // 브랜치명 가져오기
+            const branchName = context.payload.pull_request.head.ref;
+            console.log(`Branch name: ${branchName}`);
+
+            // 브랜치명 컨벤션 일치 여부 확인하기: type/KEY-숫자-슬러그
+            const branchPattern = new RegExp(
+              `^(feat|feature|fix|docs|refactor|chore|test|style|perf|build|ci)/(${spaceKey}-\\d+)-.*$`
+            );
+            const branchMatch = branchName.match(branchPattern);
+            if (!branchMatch) {
+              console.log('브랜치명이 컨벤션 형식과 일치하지 않아 건너뜁니다.');
+              return;
+            }
+
+            // 브랜치명에서 type과 Jira 키 추출하기
+            const [, typeName, issueKey] = branchMatch;
+            const newTypeName = typeName === 'feature' ? 'feat' : typeName;
+            console.log(`Type: ${newTypeName}, Issue Key: ${issueKey}`);
+
+            try {
+              // Jira REST API v3로 이슈 summary 조회하기
+              const auth = Buffer.from(`${jiraEmail}:${jiraToken}`).toString('base64');
+              const res = await fetch(
+                `https://${jiraSite}/rest/api/3/issue/${issueKey}?fields=summary`,
+                { headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' } }
+              );
+              if (!res.ok) {
+                throw new Error(`Jira API ${res.status} ${res.statusText}`);
+              }
+              const data = await res.json();
+              const issueTitle = data.fields.summary;
+              console.log(`Jira issue title: ${issueTitle}`);
+
+              // PR 제목: <KEY> feat: <이슈 제목>
+              const prTitle = `${issueKey} ${newTypeName}: ${issueTitle}`;
+              console.log(`New PR title: ${prTitle}`);
+
+              // PR 본문: placeholder -> Jira 티켓 링크
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+              });
+              let prBody = pr.body || '';
+              const jiraLink = `**[${issueKey} ${issueTitle}](https://${jiraSite}/browse/${issueKey})**`;
+              if (prBody.includes('{jira-ticket-placeholder-do-not-modify}')) {
+                prBody = prBody.replaceAll('{jira-ticket-placeholder-do-not-modify}', jiraLink);
+                console.log('본문 placeholder를 Jira 링크로 치환했습니다.');
+              } else {
+                console.log('본문에 Jira placeholder가 없습니다.');
+              }
+
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                title: prTitle,
+                body: prBody,
+              });
+              console.log('PR 제목/본문 업데이트 완료');
+            } catch (error) {
+              console.error(`Error: ${error.message}`);
+            }
