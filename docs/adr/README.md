@@ -1,5 +1,7 @@
 # Architecture Decision Records
 
+> 레포 전체 구조, 불변 규칙, 미해결 작업 목록은 루트의 [AGENTS.md](../../AGENTS.md)를 참고한다.
+
 | 번호 | 제목 | Status |
 |---|---|---|
 | 0001 | [컴퓨트 런타임으로 ECS 채택](0001-adopt-ecs-as-compute-runtime.md) | Accepted |
