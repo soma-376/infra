@@ -27,12 +27,20 @@ export function applyCommonTags(app: App): void {
 }
 
 /**
+ * ECR 레포지토리 네임스페이스 (ADR-0007). `COMMON_TAGS.Org` 와 같은 값을 쓰는 것은 의도이며,
+ * 태그 기반 비용 배분 축과 레지스트리 경로를 같은 식별자로 정렬하기 위함이다.
+ * 두 값은 함께 바뀌어야 한다.
+ */
+export const ECR_NAMESPACE = 'soma-376';
+
+/**
  * ECR 레포지토리 이름 (ADR-0007: CDK 밖에서 선생성, fromRepositoryName 참조만).
+ * 자체 빌드 이미지의 레포는 반드시 `${ECR_NAMESPACE}/` 아래에 둔다.
  */
 export const ECR_REPOS = {
-  postProcessor: 'post-processor',
-  apiServer: 'api-server',
-  batchProcessor: 'batch-processor',
+  postProcessor: `${ECR_NAMESPACE}/post-processor`,
+  apiServer: `${ECR_NAMESPACE}/api-server`,
+  batchProcessor: `${ECR_NAMESPACE}/batch-processor`,
 } as const;
 
 /**

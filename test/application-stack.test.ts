@@ -1,5 +1,5 @@
 import { Template, Match } from 'aws-cdk-lib/assertions';
-import { COMMON_TAGS } from '../lib/config';
+import { COMMON_TAGS, ECR_NAMESPACE, ECR_REPOS } from '../lib/config';
 import { buildApp } from './helpers';
 
 describe('ApplicationStack', () => {
@@ -125,6 +125,30 @@ describe('ApplicationStack', () => {
         (definition: any) => definition.Name === containerName,
       );
       expect(container.Secrets).toBeUndefined();
+    }
+  });
+
+  test('자체 빌드 이미지는 soma-376 네임스페이스의 ECR 레포를 가리킨다 (ADR-0007)', () => {
+    const ownBuiltImages: ReadonlyArray<[string, string]> = [
+      ['post-processor', ECR_REPOS.postProcessor],
+      ['api-server', ECR_REPOS.apiServer],
+      ['batch-processor', ECR_REPOS.batchProcessor],
+    ];
+
+    for (const [containerName, repositoryName] of ownBuiltImages) {
+      expect(repositoryName.startsWith(`${ECR_NAMESPACE}/`)).toBe(true);
+
+      const task = taskDefinitionWithContainer(containerName);
+      const container = task.Properties.ContainerDefinitions.find(
+        (definition: any) => definition.Name === containerName,
+      );
+
+      // fromEcrRepository 는 Image 를 계정/리전 조각과 레포 이름의 Fn::Join 으로 만든다.
+      // URLSuffix 같은 Ref 조각을 빼고 리터럴만 이어붙여 레포 경로를 확인한다.
+      const imageLiterals: string[] = container.Image['Fn::Join'][1].filter(
+        (part: unknown) => typeof part === 'string',
+      );
+      expect(imageLiterals.join('')).toContain(`/${repositoryName}:`);
     }
   });
 
