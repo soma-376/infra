@@ -1,9 +1,11 @@
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import { load } from 'js-yaml';
 import {
+  CLICKHOUSE_CONTAINER_ENV,
   CLICKHOUSE_DEFAULT_DB,
   CLICKHOUSE_HOST,
   CLICKHOUSE_HTTP_URL,
+  CLICKHOUSE_IMAGE,
   COMMON_TAGS,
   CONTROL_DB_NAME,
   ECR_NAMESPACE,
@@ -170,6 +172,47 @@ describe('ApplicationStack', () => {
       );
       expect(names).not.toContain('DB_NAME');
     }
+  });
+
+  describe('ClickHouse 컨테이너 런타임 계약 (ADR-0019)', () => {
+    function clickhouse(): any {
+      return taskDefinitionWithContainer(
+        'clickhouse',
+      ).Properties.ContainerDefinitions.find(
+        (definition: any) => definition.Name === 'clickhouse',
+      );
+    }
+
+    const envMap = (): Record<string, unknown> =>
+      Object.fromEntries(
+        (clickhouse().Environment ?? []).map((entry: any) => [
+          entry.Name,
+          entry.Value,
+        ]),
+      );
+
+    // 태그가 없으면 latest 로 해석되어 재기동마다 메이저 버전이 바뀔 수 있고,
+    // 아래 env 가 의존하는 entrypoint 분기 로직 자체가 버전에 따라 변한다.
+    test('이미지 태그를 고정한다', () => {
+      expect(clickhouse().Image).toBe(CLICKHOUSE_IMAGE);
+      expect(clickhouse().Image).not.toBe('clickhouse/clickhouse-server');
+    });
+
+    // 이 env 가 비면 이미지 entrypoint 가 default 유저를 루프백 전용으로 잠가
+    // post-processor 의 모든 적재가 403(인증 실패)으로 죽는다. 배포에서 실제로 깨졌다.
+    test('compose 와 같은 사용자 설정 env 를 전부 준다', () => {
+      expect(envMap()).toMatchObject(CLICKHOUSE_CONTAINER_ENV);
+    });
+
+    // 나머지 셋은 지워도 동작이 같지만 이 값 하나만 entrypoint 분기를 연다.
+    test('CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT 는 0 이 아니다', () => {
+      expect(envMap().CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT).not.toBe('0');
+    });
+
+    // 서버가 만드는 DB 와 post-processor 의 ENRICHMENT_CH_DB 가 갈라지면 안 된다.
+    test('컨테이너 DB 이름은 post-processor 가 쓰는 DB 와 같다', () => {
+      expect(envMap().CLICKHOUSE_DB).toBe(CLICKHOUSE_DEFAULT_DB);
+    });
   });
 
   describe('post-processor 런타임 계약 (ADR-0018)', () => {

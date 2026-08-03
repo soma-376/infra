@@ -40,9 +40,11 @@ import { IBucket } from 'aws-cdk-lib/aws-s3';
 import { DnsRecordType, PrivateDnsNamespace } from 'aws-cdk-lib/aws-servicediscovery';
 import { Repository } from 'aws-cdk-lib/aws-ecr';
 import {
+  CLICKHOUSE_CONTAINER_ENV,
   CLICKHOUSE_DEFAULT_DB,
   CLICKHOUSE_HOST,
   CLICKHOUSE_HTTP_URL,
+  CLICKHOUSE_IMAGE,
   CLICKHOUSE_SERVICE_NAME,
   CLOUD_MAP_NAMESPACE,
   CONTROL_DB_NAME,
@@ -354,7 +356,10 @@ export class ApplicationStack extends Stack {
     });
 
     const container = task.addContainer('clickhouse', {
-      image: ContainerImage.fromRegistry('clickhouse/clickhouse-server'),
+      image: ContainerImage.fromRegistry(CLICKHOUSE_IMAGE),
+      // 이 env 가 없으면 이미지 entrypoint 가 default 유저를 루프백 전용으로 잠가
+      // post-processor 의 모든 적재가 인증 실패로 죽는다. 지우지 않는다. (ADR-0019)
+      environment: { ...CLICKHOUSE_CONTAINER_ENV },
       memoryReservationMiB: 1024,
       portMappings: [
         { containerPort: PORTS.clickhouseHttp },

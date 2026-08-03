@@ -45,7 +45,7 @@ NetworkStack ──> DataStack ──┐
 |---|---|---|
 | `CollectorTask` (Fargate **ARM64**, 512/1024) | `otel-collector` (public image, :4318), `post-processor` (ECR) | |
 | `DashboardTask` (Fargate **ARM64**, 512/2048) | `api-server` (ECR, :8080), `batch-processor` (ECR) | Spring Boot 고려. Fargate는 CPU/메모리 조합이 고정이라 512 CPU에는 1024/2048/3072/4096만 쓸 수 있다 (1536은 생성 실패) |
-| `ClickhouseTask` (EC2, awsvpc) | `clickhouse` (public image, :8123/:9000) | 호스트 볼륨 `/data/clickhouse` |
+| `ClickhouseTask` (EC2, awsvpc) | `clickhouse` (public image **`:24.8-alpine` 고정**, :8123/:9000) | 호스트 볼륨 `/data/clickhouse` |
 
 ---
 
@@ -63,6 +63,7 @@ NetworkStack ──> DataStack ──┐
 | **`AsgCapacityProvider`의 `enableManagedTerminationProtection: false`** | 단일 인스턴스 교체 배포를 관리형 종료 보호가 막는다. (`lib/application-stack.ts:258`) |
 | **DB 시크릿은 참조만 노출한다** | `data.dbSecret`(`ISecret`)을 넘길 뿐, **합성 시점에 값을 평문으로 읽는 코드**는 절대 넣지 않는다. 컨테이너에는 `Secret.fromSecretsManager`로 주입한다. **예외는 `DataStack`의 `PostProcessorPgDsn` 파생 시크릿 하나뿐이며**, 거기서도 `unsafeUnwrap()`이 돌려주는 건 평문이 아니라 `{{resolve:secretsmanager:...}}` 동적 참조 토큰이다(합성 산출물은 `Fn::Join` + `Ref`뿐). 새 예외를 만들려면 ADR-0018을 먼저 갱신한다. (`lib/data-stack.ts`, ADR-0018) |
 | **`post-processor`의 환경변수 이름은 앱 소스가 권위다** | 앱은 `ENRICHMENT_CH_URL` / `ENRICHMENT_CH_DB` / `ENRICHMENT_PG_DSN` **세 개만** 읽는다 (`ai-telemetry-pipeline`의 `src/enrichment/sink_clickhouse.py:43,47`, `src/enrichment/rds.py:21`). 이름이 하나라도 틀리면 앱은 예외 없이 compose 전용 기본값으로 **조용히 폴백**하고, ECS에서는 DNS가 안 풀려 모든 insert가 `BackendUnavailable` → HTTP 503이 된다. **synth도 테스트도 배포도 전부 통과한다** — 인프라 테스트는 "앱이 그 이름을 읽는가"를 원리적으로 검증할 수 없다. 죽은 계약(`CLICKHOUSE_HOST`·`DB_CREDS`·`DB_NAME`)을 다시 넣지 않는다. (`lib/config.ts`의 `ENRICHMENT_ENV`, ADR-0018) |
+| **ClickHouse 컨테이너의 `CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1'`과 고정 태그를 지우지 않는다** | 이미지 entrypoint는 `CLICKHOUSE_USER`/`CLICKHOUSE_PASSWORD`/`CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT`가 전부 비면 `default` 유저를 **루프백 전용**으로 잠근다(`disabling network access for user 'default'`). 그러면 `post-processor`의 모든 적재가 403 `Code: 516 ... Authentication failed`로 죽고 앱이 그걸 `BackendUnavailable`→503으로 바꾼다. **synth도 테스트도 배포도 전부 통과한다** — 실제로 이렇게 깨졌다. 조건식상 `USER='default'`와 `PASSWORD=''`는 분기를 못 열고 **`DEFAULT_ACCESS_MANAGEMENT`만 연다**(나머지 셋은 compose 정합성용). 태그를 빼면 `latest`가 되어 재기동마다 이 entrypoint 로직 자체가 바뀔 수 있다. 비밀번호가 없는 것도 의도다 — 앱이 자격증명을 아예 보내지 않으므로 접근 통제는 `clickhouseSecurityGroup`이 담당한다. (`lib/config.ts`의 `CLICKHOUSE_IMAGE`·`CLICKHOUSE_CONTAINER_ENV`, ADR-0019) |
 | **Aurora 자동 생성 비밀번호의 `ExcludeCharacters`와 따옴표 없는 libpq DSN은 한 몸이다** | `buildLibpqDsn()`은 값을 따옴표로 감싸지 않는다 — 합성 시점에 user/password는 토큰이라 감쌀 방법이 없다. aws-rds의 `DEFAULT_PASSWORD_EXCLUDE_CHARS`가 공백·`'`·`"`·`\` 넷을 전부 빼주기 때문에만 성립하는 **우연한 커플링**이다. 깨지면 배포는 성공하고 `post-processor`만 런타임에 죽는다. 그 상수는 공개 export가 아니므로 `test/data-stack.test.ts`가 **합성 템플릿의 `ExcludeCharacters`** 로 고정한다. (ADR-0018) |
 | **`batch-processor`·`api-server`의 계약과 `RAW_BUCKET`은 건드리지 않는다** | 두 컨테이너는 소스 코드가 확보되지 않아 실제로 무엇을 읽는지 알 수 없다. `post-processor`를 고쳤다는 이유로 함께 "정리"하면 멀쩡한 계약을 깨뜨린다. `post-processor`의 `RAW_BUCKET`도 같은 이유로 남긴다 — ADR-0017의 `awss3` exporter 전환용이며 태스크 역할의 `grantReadWrite`와 한 몸이다. (ADR-0018) |
 | **Fargate 태스크는 ARM64로 고정한다** | `runtimePlatform`을 빼면 CDK 기본값(미지정)으로 돌아가 x86_64가 된다. 앱 레포도 반드시 `linux/arm64` 이미지를 push해야 하며, amd64를 올리면 synth와 테스트는 통과하지만 런타임에 이미지 pull이 실패한다. ClickHouse EC2(t4g)와 아키텍처를 맞추고 x86 대비 약 20% 저렴하다. (`lib/application-stack.ts`의 `FARGATE_RUNTIME_PLATFORM`, ADR-0015) |
@@ -80,7 +81,7 @@ NetworkStack ──> DataStack ──┐
 - 계정/리전은 `CDK_DEFAULT_ACCOUNT` / `CDK_DEFAULT_REGION`에서만 온다. 코드에 하드코딩된 계정은 없다.
 - `cdk.context.json`은 계정별 조회 결과가 기록되는 로컬 캐시이므로 commit하지 않는다.
 - 배포별 가변값은 **CDK context 키 3개뿐**이다: `certificateArn`, `domainName`, `cognitoDomainPrefix` (`lib/config.ts`의 `loadConfig`).
-- 공유 상수(`PORTS`, `CLICKHOUSE_HOST`, `CLICKHOUSE_HTTP_URL`, `CLICKHOUSE_DEFAULT_DB`, `ENRICHMENT_ENV`, `SUBNET_GROUP`, `ECR_NAMESPACE`, `ECR_REPOS`, `CONTROL_DB_NAME`, `CONTROL_DB_SSLMODE`, `COMMON_TAGS`)는 **전부 `lib/config.ts`에 있다.** 순수 헬퍼(`buildLibpqDsn`)도 마찬가지다. 스택에 리터럴을 새로 박지 말고 여기서 import 한다. 새 상수도 여기에 추가한다.
+- 공유 상수(`PORTS`, `CLICKHOUSE_HOST`, `CLICKHOUSE_HTTP_URL`, `CLICKHOUSE_DEFAULT_DB`, `CLICKHOUSE_IMAGE`, `CLICKHOUSE_CONTAINER_ENV`, `ENRICHMENT_ENV`, `SUBNET_GROUP`, `ECR_NAMESPACE`, `ECR_REPOS`, `CONTROL_DB_NAME`, `CONTROL_DB_SSLMODE`, `COMMON_TAGS`)는 **전부 `lib/config.ts`에 있다.** 순수 헬퍼(`buildLibpqDsn`)도 마찬가지다. 스택에 리터럴을 새로 박지 말고 여기서 import 한다. 새 상수도 여기에 추가한다.
 - 공통 태그 `{ Org: 'soma-376', Env: 'mvp', ManagedBy: 'cdk' }`는 App 스코프에 `applyCommonTags(app)`로 한 번만 적용한다. 스택별로 중복 호출하지 않는다.
 - **dev/stg/prod 환경 분리 메커니즘은 없다.** 스택 ID는 리터럴이고 `Env: 'mvp'`는 하드코딩이다. 환경 분리가 필요해지면 그건 새 ADR 대상이다.
 
@@ -120,7 +121,7 @@ DB는 `api-server`와 같은 `controlplane`을 공유한다.
 |---|---|---|
 | ClickHouse 호스트명 | 환경변수 `CLICKHOUSE_HOST` | `batch-processor` (소스 미확보 — 손대지 않는다) |
 | collector 설정 YAML 전문 | 환경변수 `OTEL_CONFIG` (+ `--config=env:OTEL_CONFIG`) | `otel-collector` |
-| — | 없음 | `clickhouse` |
+| `CLICKHOUSE_DB` / `CLICKHOUSE_USER` / `CLICKHOUSE_PASSWORD` / `CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT` | 환경변수 (`lib/config.ts`의 `CLICKHOUSE_CONTAINER_ENV`) | `clickhouse` (이미지 entrypoint — ADR-0019) |
 
 `OTEL_CONFIG`는 DB 자격증명이 아니라 collector 설정 본문이다.
 
@@ -202,13 +203,13 @@ ADR-0018이 `post-processor`용 파생 DSN 시크릿을 도입했지만, **그 D
 - subnet 이동은 ClickHouse EC2 교체와 로컬 EBS 데이터 유실 가능성이 있으므로,
   전환 시 최근 Raw Signal 재처리와 배포 절차를 함께 준비해야 한다.
 
-### (F) ADR-0019 — 로그 그룹 정책 기록
+### (F) ADR-0020 — 로그 그룹 정책 기록
 
 현재 `ApplicationStack`은 컨테이너별 CloudWatch Logs 로그 그룹 5개를 만들고,
 보존 기간을 14일, 삭제 정책을 `RemovalPolicy.DESTROY`로 설정한다. 이 구성은
 구현되어 있지만 운영·비용·보안 관점의 결정 근거가 ADR에 없다.
 
-인프라 코드를 변경하기 전에 ADR-0019에서 다음 항목을 결정한다.
+인프라 코드를 변경하기 전에 ADR-0020에서 다음 항목을 결정한다.
 
 - 컨테이너별 로그 그룹을 유지할지 서비스 단위로 통합할지와 로그 그룹 명명 규칙
 - 14일 보존 기간의 트래픽·장애 조사·비용 근거와 환경별 보존 기간 필요 여부
@@ -222,7 +223,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(`0020`)를 쓴다. `0018`은 post-processor 런타임 계약으로 이미 쓰였고, `0019`는 위 (F)의 로그 그룹 정책용으로 예약되어 있다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(`0021`)를 쓴다. `0018`은 post-processor 런타임 계약, `0019`는 ClickHouse 컨테이너 런타임 계약으로 이미 쓰였고, `0020`은 위 (F)의 로그 그룹 정책용으로 예약되어 있다.
    템플릿: `Status` / `Context` / `Decision` / `Alternatives Considered` / `Consequences` (+ 필요 시 `Constraints`, `Open Questions`, `Revisit Trigger`).
 3. 상수는 `lib/config.ts`에 추가하고 스택에서 import 한다.
 4. `test/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`를 재사용한다.

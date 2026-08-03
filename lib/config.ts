@@ -81,10 +81,61 @@ export const CLICKHOUSE_HTTP_URL = `http://${CLICKHOUSE_HOST}:${PORTS.clickhouse
 /**
  * post-processor 가 쓰는 ClickHouse 데이터베이스 이름.
  *
- * ClickHouse 컨테이너에 `CLICKHOUSE_DB` 오버라이드를 주지 않으므로 기본 DB 는
- * `default` 다. 컨테이너에 DB 를 새로 만들면 이 값도 함께 바꾼다. (ADR-0018)
+ * 아래 `CLICKHOUSE_CONTAINER_ENV.CLICKHOUSE_DB` 와 같은 값이어야 한다 - 서버가 만드는
+ * DB 와 앱이 조회하는 DB 가 갈라지면 적재 대상 테이블이 서로 다른 DB 에 생긴다.
+ * 두 값의 일치는 `test/config.test.ts` 가 고정한다. (ADR-0018, ADR-0019)
  */
 export const CLICKHOUSE_DEFAULT_DB = 'default';
+
+/**
+ * ClickHouse 컨테이너 이미지 (ADR-0019).
+ *
+ * **태그를 반드시 붙인다.** 태그가 없으면 `latest` 로 해석되어 태스크가 재기동될 때마다
+ * 메이저 버전이 바뀔 수 있고, 아래 `CLICKHOUSE_CONTAINER_ENV` 가 의존하는 entrypoint 의
+ * 분기 로직 자체가 버전에 따라 변한다.
+ *
+ * 값은 앱 레포 compose(`ai-telemetry-pipeline/docker-compose.dev.yml`)와 같은 태그다.
+ * 로컬에서 검증한 동작을 ECS 에서 그대로 재현하는 것이 목적이므로 함께 바꾼다.
+ *
+ * 이 태그의 매니페스트는 `linux/arm64` 를 포함한다 - ClickHouse 는 t4g(Graviton)
+ * 인스턴스에서 돌기 때문에 arm64 가 없는 태그로 바꾸면 이미지 pull 이 실패한다. (ADR-0015)
+ *
+ * **버전을 올릴 때는 데이터 디렉터리 호환성을 먼저 확인한다.** ClickHouse 는 다운그레이드를
+ * 지원하지 않아, 더 높은 버전이 초기화한 `/data/clickhouse` 위에서는 기동에 실패한다.
+ */
+export const CLICKHOUSE_IMAGE = 'clickhouse/clickhouse-server:24.8-alpine';
+
+/**
+ * ClickHouse 컨테이너 환경변수 (ADR-0019). compose 와 같은 조합이다.
+ *
+ * **실제로 동작을 바꾸는 값은 `CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1'` 하나뿐이다.**
+ * 이미지 entrypoint 의 분기 조건이
+ *
+ *   [ -n "$USER" ] && [ "$USER" != "default" ] || [ -n "$PASSWORD" ] || [ "$ACCESS_MGMT" != "0" ]
+ *
+ * 이라, `CLICKHOUSE_USER='default'` 는 두 번째 검사에서, `CLICKHOUSE_PASSWORD=''` 는
+ * `-n` 검사에서 각각 탈락한다. 세 번째 항만 참이 되어 "유저를 `<ip>::/0</ip>` 로 재생성"
+ * 분기를 탄다.
+ *
+ * 셋 다 비면 entrypoint 는 마지막 else 로 떨어져 `default` 유저를 **루프백 전용**으로
+ * 잠근다(`disabling network access for user 'default'`). 그러면 post-processor 의 모든
+ * 적재가 HTTP 403 - `Code: 516 ... Authentication failed` 로 죽고, 앱이 그걸
+ * `BackendUnavailable` 로 감싸 리시버가 503 을 뱉는다. **synth 도 테스트도 배포도 전부
+ * 통과한다** - 실제로 배포에서 이렇게 깨졌다.
+ *
+ * 나머지 세 개는 compose 와의 문서적 정합성을 위해 남긴다. 지워도 동작은 같지만
+ * `CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT` 를 지우면 즉시 위 장애로 회귀한다.
+ *
+ * `default` 유저에 비밀번호가 없는 것은 의도다 - 앱이 자격증명을 아예 보내지 않기
+ * 때문이다(`src/enrichment/sink_clickhouse.py` 의 `execute()` 는 쿼리 파라미터만 붙인다).
+ * 접근 통제의 실체는 `NetworkStack` 의 `clickhouseSecurityGroup` 이다.
+ */
+export const CLICKHOUSE_CONTAINER_ENV: Readonly<Record<string, string>> = {
+  CLICKHOUSE_DB: CLICKHOUSE_DEFAULT_DB,
+  CLICKHOUSE_USER: 'default',
+  CLICKHOUSE_PASSWORD: '',
+  CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1',
+};
 
 /**
  * Aurora control plane 데이터베이스 이름.
