@@ -29,6 +29,7 @@ const application = new ApplicationStack(app, 'ApplicationStack', {
   env,
   vpc: network.vpc,
   dbSecret: data.dbSecret,
+  postProcessorPgDsnSecret: data.postProcessorPgDsnSecret,
   rawSignalBucket: data.rawSignalBucket,
   collectorSecurityGroup: network.collectorSecurityGroup,
   dashboardSecurityGroup: network.dashboardSecurityGroup,

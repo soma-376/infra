@@ -54,6 +54,7 @@ export function buildApp(edgeConfig: EdgeConfig = DEFAULT_EDGE): BuiltApp {
     env,
     vpc: network.vpc,
     dbSecret: data.dbSecret,
+    postProcessorPgDsnSecret: data.postProcessorPgDsnSecret,
     rawSignalBucket: data.rawSignalBucket,
     collectorSecurityGroup: network.collectorSecurityGroup,
     dashboardSecurityGroup: network.dashboardSecurityGroup,

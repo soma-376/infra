@@ -21,5 +21,6 @@
 | 0015 | [Fargate 태스크를 ARM64로 통일](0015-arm64-fargate-for-cost-savings.md) | Accepted |
 | 0016 | [운영자 접속은 SSM 기반으로 (EC2는 Session Manager, Fargate는 ECS Exec)](0016-ssm-based-operator-access.md) | Accepted |
 | 0017 | [Collector config를 env provider로 주입](0017-inject-collector-config-via-env-provider.md) | Accepted |
+| 0018 | [post-processor 런타임 계약을 앱 환경변수에 맞추고 PG DSN을 파생 시크릿으로 주입](0018-post-processor-runtime-contract-via-derived-dsn-secret.md) | Accepted |
 
-새 ADR을 작성할 때는 다음 미사용 번호(`0018-...`)를 사용하고 위 ADR들과 같은 템플릿(Status / Context / Decision / Alternatives Considered / Consequences)을 따른다.
+새 ADR을 작성할 때는 다음 미사용 번호(`0020-...`)를 사용하고 위 ADR들과 같은 템플릿(Status / Context / Decision / Alternatives Considered / Consequences)을 따른다. `0019`는 로그 그룹 정책 ADR용으로 예약되어 있다(`AGENTS.md` 섹션 5 (F)).

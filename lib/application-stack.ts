@@ -40,11 +40,14 @@ import { IBucket } from 'aws-cdk-lib/aws-s3';
 import { DnsRecordType, PrivateDnsNamespace } from 'aws-cdk-lib/aws-servicediscovery';
 import { Repository } from 'aws-cdk-lib/aws-ecr';
 import {
+  CLICKHOUSE_DEFAULT_DB,
   CLICKHOUSE_HOST,
+  CLICKHOUSE_HTTP_URL,
   CLICKHOUSE_SERVICE_NAME,
   CLOUD_MAP_NAMESPACE,
   CONTROL_DB_NAME,
   ECR_REPOS,
+  ENRICHMENT_ENV,
   PORTS,
   PRIMARY_AZ_INDEX,
   SUBNET_GROUP,
@@ -79,7 +82,10 @@ const COLLECTOR_CONFIG_ENV = 'OTEL_CONFIG';
 
 export interface ApplicationStackProps extends StackProps {
   readonly vpc: IVpc;
+  /** api-server 의 DB_CREDS 용 Aurora 마스터 시크릿. */
   readonly dbSecret: ISecret;
+  /** post-processor 의 ENRICHMENT_PG_DSN 용 파생 시크릿. (ADR-0018) */
+  readonly postProcessorPgDsnSecret: ISecret;
   readonly rawSignalBucket: IBucket;
   readonly collectorSecurityGroup: ISecurityGroup;
   readonly dashboardSecurityGroup: ISecurityGroup;
@@ -178,14 +184,25 @@ export class ApplicationStack extends Stack {
           ECR_REPOS.postProcessor,
         ),
       ),
+      // 이 이름들은 앱 소스(ai-telemetry-pipeline)가 권위다. 앱이 os.environ 으로
+      // 읽는 이름과 한 글자라도 다르면 조용히 compose 전용 기본값으로 폴백하고,
+      // ECS 에서는 DNS 가 안 풀려 모든 insert 가 503 이 된다. (ADR-0018)
       environment: {
-        CLICKHOUSE_HOST: CLICKHOUSE_HOST,
+        [ENRICHMENT_ENV.clickhouseUrl]: CLICKHOUSE_HTTP_URL,
+        [ENRICHMENT_ENV.clickhouseDb]: CLICKHOUSE_DEFAULT_DB,
+        // 앱은 아직 이 값을 읽지 않는다. ADR-0017 이 예고한 collector 의 awss3
+        // exporter 전환에 대비해 위 grantReadWrite 와 함께 의도적으로 남겨둔다.
+        // 지금 지우면 전환 시점에 둘 다 되살려야 한다.
         RAW_BUCKET: props.rawSignalBucket.bucketName,
-        // DB_CREDS 시크릿에는 dbname 이 없다. DB 이름은 여기서만 전달한다.
-        DB_NAME: CONTROL_DB_NAME,
       },
+      // DSN 에는 DB 비밀번호가 통째로 들어 있으므로 environment 가 아니라 secrets 로
+      // 넣는다. 그래야 `aws ecs describe-task-definition` 과 ECS 콘솔에 valueFrom(ARN)
+      // 만 보이고 평문이 남지 않는다. addContainer 가 execution role 에 grantRead 를
+      // 자동으로 붙여준다. (ADR-0018)
       secrets: {
-        DB_CREDS: EcsSecret.fromSecretsManager(props.dbSecret),
+        [ENRICHMENT_ENV.pgDsn]: EcsSecret.fromSecretsManager(
+          props.postProcessorPgDsnSecret,
+        ),
       },
       // awsvpc 에서 기능상 필수는 아니지만, collector 가 localhost 의 이 포트로
       // OTLP 를 밀어넣는다는 계약을 태스크 정의에 남긴다. (ADR-0017)

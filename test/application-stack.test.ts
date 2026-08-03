@@ -1,11 +1,14 @@
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import { load } from 'js-yaml';
 import {
+  CLICKHOUSE_DEFAULT_DB,
   CLICKHOUSE_HOST,
+  CLICKHOUSE_HTTP_URL,
   COMMON_TAGS,
   CONTROL_DB_NAME,
   ECR_NAMESPACE,
   ECR_REPOS,
+  ENRICHMENT_ENV,
   PORTS,
 } from '../lib/config';
 import { buildApp } from './helpers';
@@ -76,7 +79,7 @@ describe('ApplicationStack', () => {
     });
   });
 
-  test('DB 시크릿 조회 권한은 DB_CREDS 주입 태스크의 execution role에만 부여한다', () => {
+  test('시크릿 조회 권한은 시크릿을 주입받는 태스크의 execution role에만 부여한다', () => {
     const collectorTask = taskDefinitionWithContainer('post-processor');
     const dashboardTask = taskDefinitionWithContainer('api-server');
     const clickhouseTask = taskDefinitionWithContainer('clickhouse');
@@ -109,8 +112,10 @@ describe('ApplicationStack', () => {
     }
   });
 
+  // post-processor 는 DB_CREDS 를 파싱하지 않으므로 대상이 아니다. 대신 파생 DSN
+  // 시크릿을 받으며, 그건 아래 'post-processor 런타임 계약' 블록이 검증한다. (ADR-0018)
   test('DB_CREDS는 대상 컨테이너에만 주입한다', () => {
-    for (const containerName of ['post-processor', 'api-server']) {
+    for (const containerName of ['api-server']) {
       template.hasResourceProperties('AWS::ECS::TaskDefinition', {
         ContainerDefinitions: Match.arrayWith([
           Match.objectLike({
@@ -137,7 +142,7 @@ describe('ApplicationStack', () => {
   });
 
   test('DB_NAME은 DB_CREDS를 받는 컨테이너에만 주입한다', () => {
-    for (const containerName of ['post-processor', 'api-server']) {
+    for (const containerName of ['api-server']) {
       template.hasResourceProperties('AWS::ECS::TaskDefinition', {
         ContainerDefinitions: Match.arrayWith([
           Match.objectLike({
@@ -154,6 +159,7 @@ describe('ApplicationStack', () => {
       'otel-collector',
       'batch-processor',
       'clickhouse',
+      'post-processor',
     ]) {
       const task = taskDefinitionWithContainer(containerName);
       const container = task.Properties.ContainerDefinitions.find(
@@ -164,6 +170,126 @@ describe('ApplicationStack', () => {
       );
       expect(names).not.toContain('DB_NAME');
     }
+  });
+
+  describe('post-processor 런타임 계약 (ADR-0018)', () => {
+    function postProcessor(): any {
+      return taskDefinitionWithContainer(
+        'post-processor',
+      ).Properties.ContainerDefinitions.find(
+        (definition: any) => definition.Name === 'post-processor',
+      );
+    }
+
+    const envMap = (): Record<string, unknown> =>
+      Object.fromEntries(
+        (postProcessor().Environment ?? []).map((entry: any) => [
+          entry.Name,
+          entry.Value,
+        ]),
+      );
+
+    const secretNames = (): string[] =>
+      (postProcessor().Secrets ?? []).map((entry: any) => entry.Name);
+
+    // 앱이 os.environ 으로 읽는 이름 그대로여야 한다. 하나라도 틀리면 앱은
+    // compose 전용 기본값으로 폴백하고 ECS 에서는 전부 503 이 된다.
+    test('앱이 읽는 3개 값을 정확한 이름으로 준다', () => {
+      expect(envMap()[ENRICHMENT_ENV.clickhouseUrl]).toBe(CLICKHOUSE_HTTP_URL);
+      expect(envMap()[ENRICHMENT_ENV.clickhouseDb]).toBe(CLICKHOUSE_DEFAULT_DB);
+      expect(secretNames()).toContain(ENRICHMENT_ENV.pgDsn);
+    });
+
+    // ClickHouse URL 은 Cloud Map FQDN + 8123 이어야 한다. 짧은 이름(`clickhouse`)은
+    // Fargate awsvpc 에서 해석되지 않는다.
+    test('ClickHouse URL 은 Cloud Map FQDN 과 HTTP 포트로 조립된다', () => {
+      expect(envMap()[ENRICHMENT_ENV.clickhouseUrl]).toBe(
+        `http://${CLICKHOUSE_HOST}:${PORTS.clickhouseHttp}`,
+      );
+    });
+
+    // DSN 에는 비밀번호가 통째로 들어 있다. environment 로 새면 콘솔에 평문이 남는다.
+    test('ENRICHMENT_PG_DSN 은 environment 가 아니라 secrets 로만 준다', () => {
+      expect(Object.keys(envMap())).not.toContain(ENRICHMENT_ENV.pgDsn);
+
+      const entry = (postProcessor().Secrets ?? []).find(
+        (secret: any) => secret.Name === ENRICHMENT_ENV.pgDsn,
+      );
+      expect(entry.ValueFrom).toBeDefined();
+      expect(JSON.stringify(entry.ValueFrom)).not.toMatch(/password=/);
+    });
+
+    // 앱이 읽지 않는 이름을 남겨두면 "설정했으니 되겠지"라는 착시가 다시 생긴다.
+    test('앱이 읽지 않는 죽은 계약을 남기지 않는다', () => {
+      const names = [...Object.keys(envMap()), ...secretNames()];
+      for (const dead of ['DB_CREDS', 'DB_NAME', 'CLICKHOUSE_HOST']) {
+        expect(names).not.toContain(dead);
+      }
+    });
+
+    // ADR-0017 의 awss3 exporter 전환 대비. env 와 task role 권한은 한 몸이다.
+    test('RAW_BUCKET 과 태스크 role 의 S3 쓰기 권한은 함께 남아 있다', () => {
+      expect(Object.keys(envMap())).toContain('RAW_BUCKET');
+
+      const taskRoleId = roleLogicalId(
+        taskDefinitionWithContainer('post-processor').Properties.TaskRoleArn,
+      );
+      expect(policyActionsForRole(taskRoleId)).toEqual(
+        expect.arrayContaining(['s3:PutObject']),
+      );
+    });
+
+    // batch-processor 는 소스가 확보되지 않았다. 같이 "정리"하면 안 된다.
+    test('batch-processor 의 CLICKHOUSE_HOST 는 건드리지 않는다', () => {
+      const batch = taskDefinitionWithContainer(
+        'batch-processor',
+      ).Properties.ContainerDefinitions.find(
+        (definition: any) => definition.Name === 'batch-processor',
+      );
+      expect(batch.Environment).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            Name: 'CLICKHOUSE_HOST',
+            Value: CLICKHOUSE_HOST,
+          }),
+        ]),
+      );
+    });
+
+    // post-processor 는 마스터 시크릿이 아니라 파생 DSN 시크릿만 읽어야 한다.
+    test('collector 와 dashboard 의 execution role 은 서로 다른 시크릿을 읽는다', () => {
+      const secretResources = (roleId: string): string[] =>
+        Object.values(template.findResources('AWS::IAM::Policy'))
+          .filter((resource: any) =>
+            resource.Properties.Roles.some((role: any) => role.Ref === roleId),
+          )
+          .flatMap(
+            (resource: any) => resource.Properties.PolicyDocument.Statement,
+          )
+          .filter((statement: any) =>
+            (Array.isArray(statement.Action)
+              ? statement.Action
+              : [statement.Action]
+            ).some((action: string) => action.startsWith('secretsmanager:')),
+          )
+          .map((statement: any) => JSON.stringify(statement.Resource));
+
+      const collector = secretResources(
+        roleLogicalId(
+          taskDefinitionWithContainer('post-processor').Properties
+            .ExecutionRoleArn,
+        ),
+      );
+      const dashboard = secretResources(
+        roleLogicalId(
+          taskDefinitionWithContainer('api-server').Properties.ExecutionRoleArn,
+        ),
+      );
+
+      expect(collector).toHaveLength(1);
+      expect(dashboard).toHaveLength(1);
+      expect(collector[0]).not.toBe(dashboard[0]);
+    });
   });
 
   test('ECS Exec은 Fargate 서비스에만 켜고 task role에 ssmmessages가 붙는다 (ADR-0016)', () => {

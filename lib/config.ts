@@ -1,4 +1,4 @@
-import { App, Tags } from 'aws-cdk-lib/core';
+import { App, Tags, Token } from 'aws-cdk-lib/core';
 
 /**
  * 전 스택 공통 태그. 비용 배분(Cost Explorer 태그 분해)과 소유권 식별에 쓴다.
@@ -67,6 +67,26 @@ export const PORTS = {
 } as const;
 
 /**
+ * post-processor 앱이 읽는 ClickHouse HTTP 엔드포인트 (ADR-0018).
+ *
+ * 개념상 위 Cloud Map 블록에 속하지만 `PORTS` 를 참조하므로 여기 둔다.
+ * 51행 옆으로 올리면 TDZ 로 `Cannot access 'PORTS' before initialization` 이다.
+ *
+ * **끝에 슬래시를 붙이지 않는다.** 앱이 이 값 뒤에 `/?query=...&database=...` 를
+ * 그대로 이어붙이므로(`src/enrichment/sink_clickhouse.py`), 슬래시가 있으면
+ * `//?query=` 가 되어 ClickHouse 가 404 를 돌려준다.
+ */
+export const CLICKHOUSE_HTTP_URL = `http://${CLICKHOUSE_HOST}:${PORTS.clickhouseHttp}`;
+
+/**
+ * post-processor 가 쓰는 ClickHouse 데이터베이스 이름.
+ *
+ * ClickHouse 컨테이너에 `CLICKHOUSE_DB` 오버라이드를 주지 않으므로 기본 DB 는
+ * `default` 다. 컨테이너에 DB 를 새로 만들면 이 값도 함께 바꾼다. (ADR-0018)
+ */
+export const CLICKHOUSE_DEFAULT_DB = 'default';
+
+/**
  * Aurora control plane 데이터베이스 이름.
  *
  * `control`은 RDS가 엔진 예약어로 거부한다(400 InvalidParameterValue).
@@ -75,6 +95,38 @@ export const PORTS = {
  * 아예 없는 단어를 고른다. (ADR-0012)
  */
 export const CONTROL_DB_NAME = 'controlplane';
+
+/**
+ * post-processor 가 Aurora 에 붙을 때 쓰는 libpq `sslmode`.
+ *
+ * Aurora PostgreSQL 16 은 TLS 를 강제하지 않는다 - `rds.force_ssl` 기본값은
+ * PG 17 이상에서 1, 16 이하에서 0 이다. 따라서 이건 서버 요구사항이 아니라
+ * 클라이언트 측 하드닝 선택이다. `require` 는 CA 검증을 하지 않으므로 컨테이너에
+ * RDS CA 번들이 필요 없다(`verify-full` 은 이미지 변경이 필요해 앱 레포 몫이다).
+ *
+ * psycopg 의 TLS 가 문제되면 이 한 곳만 `'prefer'` 로 낮춘다. (ADR-0018)
+ */
+export const CONTROL_DB_SSLMODE = 'require';
+
+/**
+ * post-processor 컨테이너가 실제로 읽는 환경변수/시크릿 이름 (ADR-0018).
+ *
+ * **권위 소스는 앱 레포(`ai-telemetry-pipeline`)다.** 아래 이름 중 하나라도 틀리면
+ * 앱은 예외를 던지지 않고 compose 전용 기본값으로 조용히 폴백하며, ECS 에서는
+ * 그 호스트명이 안 풀려 모든 insert 가 `BackendUnavailable` -> HTTP 503 이 된다.
+ * synth 도 테스트도 배포도 전부 통과하므로 여기가 유일한 방어선이다.
+ *
+ *   - ENRICHMENT_CH_URL : src/enrichment/sink_clickhouse.py:43
+ *   - ENRICHMENT_CH_DB  : src/enrichment/sink_clickhouse.py:47
+ *   - ENRICHMENT_PG_DSN : src/enrichment/rds.py:21
+ *
+ * 앱이 읽는 이름이 바뀌면 여기와 앱을 같은 PR 로 함께 바꾼다.
+ */
+export const ENRICHMENT_ENV = {
+  clickhouseUrl: 'ENRICHMENT_CH_URL',
+  clickhouseDb: 'ENRICHMENT_CH_DB',
+  pgDsn: 'ENRICHMENT_PG_DSN',
+} as const;
 
 /**
  * VPC 서브넷 그룹 이름 (network-stack 과 소비 스택이 공유).
@@ -128,3 +180,60 @@ export function loadConfig(app: App): InfraConfig {
  * Cognito 호스팅 도메인 prefix 는 리전 내 전역 유일해야 하므로 suffix 를 붙인 기본값.
  */
 export const DEFAULT_COGNITO_DOMAIN_PREFIX = 'soma-376-mvp-auth';
+
+/**
+ * libpq keyword/value DSN 의 구성 요소. `psycopg.connect()` 가 그대로 받는다.
+ */
+export interface LibpqDsnParts {
+  readonly host: string;
+  readonly port: number;
+  readonly dbname: string;
+  readonly user: string;
+  readonly password: string;
+  /** 생략하면 sslmode 키를 아예 넣지 않는다. */
+  readonly sslmode?: string;
+}
+
+/**
+ * 따옴표 없는 값이 libpq keyword/value DSN 을 깨뜨리는 문자.
+ * 공백은 키 구분자, `'` 와 `"` 는 인용 부호, `\` 는 이스케이프 문자다.
+ */
+const LIBPQ_UNQUOTED_UNSAFE = /[\s'"\\]/;
+
+/**
+ * libpq keyword/value DSN 한 줄을 만든다 (ADR-0018).
+ *
+ * 형식: `host=H port=P dbname=D user=U password=W sslmode=S`
+ * 앱의 compose 기본값(`src/enrichment/rds.py:21`)과 같은 형식이라 로컬과 ECS 사이에
+ * 형식 차이가 생기지 않는다.
+ *
+ * **값을 따옴표로 감싸지 않는다.** user/password 는 합성 시점에 아직 CloudFormation
+ * 토큰이라 여기서 이스케이프할 방법이 없다. 대신 Aurora 자동 생성 비밀번호가 위험
+ * 문자 4개(공백, `'`, `"`, `\`)를 전부 제외한다는 사실에 의존한다
+ * (aws-rds 의 `DEFAULT_PASSWORD_EXCLUDE_CHARS`). **이 커플링은 우연히 성립하는
+ * 것이므로** `test/data-stack.test.ts` 가 합성 템플릿의 `ExcludeCharacters` 로 고정한다.
+ *
+ * 토큰이 아닌(= 합성 시점에 값이 확정된) 조각은 여기서 즉시 검증해, 조용히 깨진
+ * DSN 이 배포되는 것을 막는다.
+ */
+export function buildLibpqDsn(parts: LibpqDsnParts): string {
+  const pairs: ReadonlyArray<readonly [string, string]> = [
+    ['host', parts.host],
+    ['port', String(parts.port)],
+    ['dbname', parts.dbname],
+    ['user', parts.user],
+    ['password', parts.password],
+    ...(parts.sslmode ? ([['sslmode', parts.sslmode]] as const) : []),
+  ];
+
+  for (const [key, value] of pairs) {
+    // 토큰은 합성 이후에야 값이 정해지므로 검사할 수 없다. 리터럴만 본다.
+    if (!Token.isUnresolved(value) && LIBPQ_UNQUOTED_UNSAFE.test(value)) {
+      throw new Error(
+        `libpq DSN 값에 따옴표 없이 쓸 수 없는 문자가 있다: ${key}=${value}`,
+      );
+    }
+  }
+
+  return pairs.map(([key, value]) => `${key}=${value}`).join(' ');
+}

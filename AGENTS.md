@@ -61,7 +61,10 @@ NetworkStack ──> DataStack ──┐
 | **`batch-processor`는 `essential: false`** | 배치 실패가 같은 태스크의 api-server를 함께 내리면 안 된다. (`lib/application-stack.ts:201`, ADR-0004) |
 | **ClickHouse `Ec2Service`는 `minHealthyPercent: 0` / `maxHealthyPercent: 100`** | 인스턴스 1대 + awsvpc ENI 한도상 롤링 배포가 불가능하다. 강제 교체 배포만 가능하다. (`lib/application-stack.ts:306-307`) |
 | **`AsgCapacityProvider`의 `enableManagedTerminationProtection: false`** | 단일 인스턴스 교체 배포를 관리형 종료 보호가 막는다. (`lib/application-stack.ts:258`) |
-| **DB 시크릿은 참조만 노출한다** | `data.dbSecret`(`ISecret`)을 넘길 뿐, 값을 읽는 코드는 절대 넣지 않는다. 컨테이너에는 `Secret.fromSecretsManager`로 주입한다. (`lib/data-stack.ts`) |
+| **DB 시크릿은 참조만 노출한다** | `data.dbSecret`(`ISecret`)을 넘길 뿐, **합성 시점에 값을 평문으로 읽는 코드**는 절대 넣지 않는다. 컨테이너에는 `Secret.fromSecretsManager`로 주입한다. **예외는 `DataStack`의 `PostProcessorPgDsn` 파생 시크릿 하나뿐이며**, 거기서도 `unsafeUnwrap()`이 돌려주는 건 평문이 아니라 `{{resolve:secretsmanager:...}}` 동적 참조 토큰이다(합성 산출물은 `Fn::Join` + `Ref`뿐). 새 예외를 만들려면 ADR-0018을 먼저 갱신한다. (`lib/data-stack.ts`, ADR-0018) |
+| **`post-processor`의 환경변수 이름은 앱 소스가 권위다** | 앱은 `ENRICHMENT_CH_URL` / `ENRICHMENT_CH_DB` / `ENRICHMENT_PG_DSN` **세 개만** 읽는다 (`ai-telemetry-pipeline`의 `src/enrichment/sink_clickhouse.py:43,47`, `src/enrichment/rds.py:21`). 이름이 하나라도 틀리면 앱은 예외 없이 compose 전용 기본값으로 **조용히 폴백**하고, ECS에서는 DNS가 안 풀려 모든 insert가 `BackendUnavailable` → HTTP 503이 된다. **synth도 테스트도 배포도 전부 통과한다** — 인프라 테스트는 "앱이 그 이름을 읽는가"를 원리적으로 검증할 수 없다. 죽은 계약(`CLICKHOUSE_HOST`·`DB_CREDS`·`DB_NAME`)을 다시 넣지 않는다. (`lib/config.ts`의 `ENRICHMENT_ENV`, ADR-0018) |
+| **Aurora 자동 생성 비밀번호의 `ExcludeCharacters`와 따옴표 없는 libpq DSN은 한 몸이다** | `buildLibpqDsn()`은 값을 따옴표로 감싸지 않는다 — 합성 시점에 user/password는 토큰이라 감쌀 방법이 없다. aws-rds의 `DEFAULT_PASSWORD_EXCLUDE_CHARS`가 공백·`'`·`"`·`\` 넷을 전부 빼주기 때문에만 성립하는 **우연한 커플링**이다. 깨지면 배포는 성공하고 `post-processor`만 런타임에 죽는다. 그 상수는 공개 export가 아니므로 `test/data-stack.test.ts`가 **합성 템플릿의 `ExcludeCharacters`** 로 고정한다. (ADR-0018) |
+| **`batch-processor`·`api-server`의 계약과 `RAW_BUCKET`은 건드리지 않는다** | 두 컨테이너는 소스 코드가 확보되지 않아 실제로 무엇을 읽는지 알 수 없다. `post-processor`를 고쳤다는 이유로 함께 "정리"하면 멀쩡한 계약을 깨뜨린다. `post-processor`의 `RAW_BUCKET`도 같은 이유로 남긴다 — ADR-0017의 `awss3` exporter 전환용이며 태스크 역할의 `grantReadWrite`와 한 몸이다. (ADR-0018) |
 | **Fargate 태스크는 ARM64로 고정한다** | `runtimePlatform`을 빼면 CDK 기본값(미지정)으로 돌아가 x86_64가 된다. 앱 레포도 반드시 `linux/arm64` 이미지를 push해야 하며, amd64를 올리면 synth와 테스트는 통과하지만 런타임에 이미지 pull이 실패한다. ClickHouse EC2(t4g)와 아키텍처를 맞추고 x86 대비 약 20% 저렴하다. (`lib/application-stack.ts`의 `FARGATE_RUNTIME_PLATFORM`, ADR-0015) |
 | **Collector 설정은 `config/otel-collector.yaml`에만 둔다** | synth 시점에 파일을 읽어 `OTEL_CONFIG` 환경변수로 주입하고 `--config=env:OTEL_CONFIG`로 기동한다. 파일 경로·환경변수 이름·`command` 세 가지는 한 몸이라 함께 바꿔야 한다. **이 값은 CFN 템플릿과 ECS 콘솔에 평문으로 남으므로 시크릿을 넣으면 안 된다.** (`lib/application-stack.ts`의 `COLLECTOR_CONFIG_PATH`, ADR-0017) |
 | **`otel-collector` 컨테이너는 root(`user: '0'`)로 돈다** | 이미지가 `User=10001:10001`인데 UID 10001이 쓸 수 있는 디렉터리가 하나도 없다(scratch 기반이라 `/tmp`도 없다). `file/*` exporter가 `/data`를 만들려면 root가 필요하다. 빼면 `mkdir /data: permission denied`로 기동 직후 exit 1이다. **file exporter와 `user: '0'`은 한 몸이라 함께 없애야 한다** — 이 커플링은 `test/application-stack.test.ts`가 고정한다. `awss3` exporter로 옮기면 root가 필요 없어진다. (ADR-0017) |
@@ -77,28 +80,49 @@ NetworkStack ──> DataStack ──┐
 - 계정/리전은 `CDK_DEFAULT_ACCOUNT` / `CDK_DEFAULT_REGION`에서만 온다. 코드에 하드코딩된 계정은 없다.
 - `cdk.context.json`은 계정별 조회 결과가 기록되는 로컬 캐시이므로 commit하지 않는다.
 - 배포별 가변값은 **CDK context 키 3개뿐**이다: `certificateArn`, `domainName`, `cognitoDomainPrefix` (`lib/config.ts`의 `loadConfig`).
-- 공유 상수(`PORTS`, `CLICKHOUSE_HOST`, `SUBNET_GROUP`, `ECR_NAMESPACE`, `ECR_REPOS`, `CONTROL_DB_NAME`, `COMMON_TAGS`)는 **전부 `lib/config.ts`에 있다.** 스택에 리터럴을 새로 박지 말고 여기서 import 한다. 새 상수도 여기에 추가한다.
+- 공유 상수(`PORTS`, `CLICKHOUSE_HOST`, `CLICKHOUSE_HTTP_URL`, `CLICKHOUSE_DEFAULT_DB`, `ENRICHMENT_ENV`, `SUBNET_GROUP`, `ECR_NAMESPACE`, `ECR_REPOS`, `CONTROL_DB_NAME`, `CONTROL_DB_SSLMODE`, `COMMON_TAGS`)는 **전부 `lib/config.ts`에 있다.** 순수 헬퍼(`buildLibpqDsn`)도 마찬가지다. 스택에 리터럴을 새로 박지 말고 여기서 import 한다. 새 상수도 여기에 추가한다.
 - 공통 태그 `{ Org: 'soma-376', Env: 'mvp', ManagedBy: 'cdk' }`는 App 스코프에 `applyCommonTags(app)`로 한 번만 적용한다. 스택별로 중복 호출하지 않는다.
 - **dev/stg/prod 환경 분리 메커니즘은 없다.** 스택 ID는 리터럴이고 `Env: 'mvp'`는 하드코딩이다. 환경 분리가 필요해지면 그건 새 ADR 대상이다.
 
-### 컨테이너 DB 접속 계약 (앱 레포와의 인터페이스)
+### 컨테이너 런타임 계약 (앱 레포와의 인터페이스)
 
-DB 접속에 필요한 값은 **두 경로로 나뉘어** 전달된다. 앱은 어느 쪽도 하드코딩하지 않는다.
+**컨테이너마다 계약이 다르다.** 앱이 실제로 읽는 이름이 권위이며, 앱은 어느 값도 하드코딩하지 않는다. 주입 범위(대상 / 비대상)는 `test/application-stack.test.ts`가 양쪽 모두 검증한다.
 
-| 값 | 전달 경로 | 대상 컨테이너 |
-|---|---|---|
-| host, port, engine, username, password, dbClusterIdentifier | 시크릿 `DB_CREDS` (JSON) | `api-server`, `post-processor` |
-| 데이터베이스 이름 | 환경변수 `DB_NAME` | `api-server`, `post-processor` |
+#### `api-server` (Spring Boot — 소스 미확보)
+
+| 값 | 전달 경로 |
+|---|---|
+| host, port, engine, username, password, dbClusterIdentifier | 시크릿 `DB_CREDS` (JSON) |
+| 데이터베이스 이름 | 환경변수 `DB_NAME` |
 
 **`DB_CREDS`에 `dbname` 키는 없다.** CDK `DatabaseCluster`가 자동 생성하는 시크릿은 `defaultDatabaseName`을 시크릿에 넣지 않기 때문이다. 그래서 DB 이름만 `DB_NAME` 환경변수로 따로 준다. 시크릿에서 `dbname`을 읽으려 하면 `undefined`가 나온다.
 
-`batch-processor`, `otel-collector`, `clickhouse`에는 둘 다 주입하지 않는다. 주입 범위는 `test/application-stack.test.ts`가 양쪽(주입 대상 / 비대상) 모두 검증한다.
+#### `post-processor` (`ai-telemetry-pipeline`, Python — ADR-0018)
 
-`otel-collector`가 받는 환경변수는 `OTEL_CONFIG` 하나뿐이며, 이것은 DB 자격증명이 아니라 collector 설정 본문이다. 아래 표를 참고한다.
+앱은 아래 **세 개만** 읽는다. 그 외에는 무엇을 넣어도 무시된다.
 
-| 값 | 전달 경로 | 대상 컨테이너 |
+| 값 | 전달 경로 | 앱 소스 |
 |---|---|---|
+| ClickHouse HTTP URL (`http://clickhouse.obs.local:8123`) | 환경변수 `ENRICHMENT_CH_URL` | `src/enrichment/sink_clickhouse.py:43` |
+| ClickHouse DB 이름 (`default`) | 환경변수 `ENRICHMENT_CH_DB` | `src/enrichment/sink_clickhouse.py:47` |
+| libpq keyword/value DSN 한 줄 | **시크릿** `ENRICHMENT_PG_DSN` | `src/enrichment/rds.py:21` |
+
+`post-processor`는 `DB_CREDS` JSON을 파싱하지 않는다. 그래서 `DataStack`이 `aurora.clusterEndpoint.hostname`과 마스터 시크릿에서 DSN을 조립한 **파생 시크릿**(`PostProcessorPgDsn`)을 만들고 ECS `secrets`로 넣는다 — `environment`에 넣으면 `aws ecs describe-task-definition`에 DB 비밀번호가 평문으로 드러난다.
+
+DSN 형식: `host=… port=5432 dbname=controlplane user=… password=… sslmode=require`
+DB는 `api-server`와 같은 `controlplane`을 공유한다.
+
+`RAW_BUCKET`(버킷 이름)도 함께 주입되지만 **현재 앱은 읽지 않는다.** ADR-0017이 예고한 collector의 `awss3` exporter 전환에 대비해 태스크 역할의 S3 권한과 함께 남겨둔 것이다.
+
+#### `batch-processor` / `otel-collector` / `clickhouse`
+
+| 값 | 전달 경로 | 대상 |
+|---|---|---|
+| ClickHouse 호스트명 | 환경변수 `CLICKHOUSE_HOST` | `batch-processor` (소스 미확보 — 손대지 않는다) |
 | collector 설정 YAML 전문 | 환경변수 `OTEL_CONFIG` (+ `--config=env:OTEL_CONFIG`) | `otel-collector` |
+| — | 없음 | `clickhouse` |
+
+`OTEL_CONFIG`는 DB 자격증명이 아니라 collector 설정 본문이다.
 
 ### EdgeStack 모드 A / B
 
@@ -163,6 +187,8 @@ DB 접속에 필요한 값은 **두 경로로 나뉘어** 전달된다. 앱은 �
 
 위 결정이 끝나기 전에는 현재 master secret 주입 방식을 운영 환경의 확정 구성으로 간주하지 않는다.
 
+ADR-0018이 `post-processor`용 파생 DSN 시크릿을 도입했지만, **그 DSN 안에 든 것은 여전히 마스터 자격 증명이다.** 실질적인 권한 축소가 아니라 주입 형식의 정합화일 뿐이다. 또한 파생 시크릿은 `cdk deploy` 시점의 스냅샷이라 마스터 시크릿이 회전해도 자동 갱신되지 않는다(회전은 현재 설정하지 않았다). 따라서 이 항목의 ADR은 runtime DB user 분리와 함께 **파생 시크릿의 재생성·회전 방식까지** 결정해야 한다. 회전을 켜는 순간 파생 시크릿 방식은 "앱이 `DB_CREDS` JSON을 파싱"으로 교체해야 한다.
+
 ### (E) ADR-0014 — MVP ClickHouse 전용 subnet 분리 보류 `Proposed`
 
 `docs/adr/0014-keep-clickhouse-in-app-subnet-for-mvp.md`
@@ -176,13 +202,13 @@ DB 접속에 필요한 값은 **두 경로로 나뉘어** 전달된다. 앱은 �
 - subnet 이동은 ClickHouse EC2 교체와 로컬 EBS 데이터 유실 가능성이 있으므로,
   전환 시 최근 Raw Signal 재처리와 배포 절차를 함께 준비해야 한다.
 
-### (F) ADR-0018 — 로그 그룹 정책 기록
+### (F) ADR-0019 — 로그 그룹 정책 기록
 
 현재 `ApplicationStack`은 컨테이너별 CloudWatch Logs 로그 그룹 5개를 만들고,
 보존 기간을 14일, 삭제 정책을 `RemovalPolicy.DESTROY`로 설정한다. 이 구성은
 구현되어 있지만 운영·비용·보안 관점의 결정 근거가 ADR에 없다.
 
-인프라 코드를 변경하기 전에 ADR-0018에서 다음 항목을 결정한다.
+인프라 코드를 변경하기 전에 ADR-0019에서 다음 항목을 결정한다.
 
 - 컨테이너별 로그 그룹을 유지할지 서비스 단위로 통합할지와 로그 그룹 명명 규칙
 - 14일 보존 기간의 트래픽·장애 조사·비용 근거와 환경별 보존 기간 필요 여부
@@ -196,7 +222,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(`0018`)를 쓴다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(`0020`)를 쓴다. `0018`은 post-processor 런타임 계약으로 이미 쓰였고, `0019`는 위 (F)의 로그 그룹 정책용으로 예약되어 있다.
    템플릿: `Status` / `Context` / `Decision` / `Alternatives Considered` / `Consequences` (+ 필요 시 `Constraints`, `Open Questions`, `Revisit Trigger`).
 3. 상수는 `lib/config.ts`에 추가하고 스택에서 import 한다.
 4. `test/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`를 재사용한다.
@@ -204,6 +230,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 
 ### (H) 알려진 잔여 이슈 (여유가 있으면)
 
+- **RDS 조직 스키마를 아무도 부트스트랩하지 않는다.** `post-processor`는 ClickHouse DDL만 기동 시 멱등 적용하고(`ensure_schema`), PostgreSQL의 `company` / `department` / `employee` / `employee_department_assignment`는 compose의 `/docker-entrypoint-initdb.d` 마운트에 의존한다. ECS에는 그 메커니즘이 없다 → **접속은 성공하고 첫 조회에서 `relation "employee" does not exist`로 깨진다.** ADR-0018이 이 문제를 드러냈지만 해결하지는 않았다. 해결 주체는 위 (D)의 마이그레이션 ADR이다.
 - `bin/infra.ts:1` shebang이 `#!/opt/homebrew/opt/node/bin/node` — 로컬 Homebrew 경로 하드코딩. `cdk.json`이 `npx tsx`로 실행하므로 동작에는 무해하지만 비포터블하다.
 - `README.md`가 `cdk init` 보일러플레이트 그대로다. ADR-0007이 명시적으로 요구하는 **배포 런북이 어디에도 없다.**
 - 빌드/테스트 CI가 없다. GitHub Actions는 PR 제목 자동 채우기와 assignee 지정뿐이고, `npm test` / `cdk synth`를 아무도 돌리지 않는다.
@@ -312,6 +339,7 @@ aws ecs execute-command --cluster <cluster> \
 ## 7. 테스트 작성 규칙
 
 - `aws-cdk-lib/assertions` 기반 **template assertion만** 쓴다. 스냅샷 테스트는 쓰지 않는다.
+  - 예외: `lib/config.ts`의 **순수 함수**(예: `buildLibpqDsn`)는 CDK 리소스를 만들지 않으므로 `test/config.test.ts`에서 일반 단위 테스트로 검증한다. 스택을 합성하는 테스트는 여전히 template assertion만 쓴다.
 - **`new App()`을 직접 쓰지 말고 `test/helpers.ts`의 `buildApp()`을 쓴다.**
   bare `App`은 `cdk.json`의 피처 플래그를 읽지 않아 CLI synth와 산출물이 달라진다 (예: ASG가 `LaunchTemplate` 대신 `LaunchConfiguration`을 생성). `buildApp()`이 context 주입과 `applyCommonTags()`를 대신 처리한다.
 - 모드 A 테스트는 `MODE_A_EDGE`를, 모드 B는 인자 없이 기본값을 쓴다.
