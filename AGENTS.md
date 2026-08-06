@@ -167,13 +167,13 @@ DB 접속에 필요한 값은 **두 경로로 나뉘어** 전달된다. 앱은 �
 - subnet 이동은 ClickHouse EC2 교체와 로컬 EBS 데이터 유실 가능성이 있으므로,
   전환 시 최근 Raw Signal 재처리와 배포 절차를 함께 준비해야 한다.
 
-### (F) ADR-0016 — 로그 그룹 정책 기록
+### (F) ADR-0017 — 로그 그룹 정책 기록
 
 현재 `ApplicationStack`은 컨테이너별 CloudWatch Logs 로그 그룹 5개를 만들고,
 보존 기간을 14일, 삭제 정책을 `RemovalPolicy.DESTROY`로 설정한다. 이 구성은
 구현되어 있지만 운영·비용·보안 관점의 결정 근거가 ADR에 없다.
 
-인프라 코드를 변경하기 전에 ADR-0016에서 다음 항목을 결정한다.
+인프라 코드를 변경하기 전에 ADR-0017에서 다음 항목을 결정한다.
 
 - 컨테이너별 로그 그룹을 유지할지 서비스 단위로 통합할지와 로그 그룹 명명 규칙
 - 14일 보존 기간의 트래픽·장애 조사·비용 근거와 환경별 보존 기간 필요 여부
@@ -187,7 +187,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(`0016`)를 쓴다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(`0017`)를 쓴다.
    템플릿: `Status` / `Context` / `Decision` / `Alternatives Considered` / `Consequences` (+ 필요 시 `Constraints`, `Open Questions`, `Revisit Trigger`).
 3. 상수는 `lib/config.ts`에 추가하고 스택에서 import 한다.
 4. `test/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`를 재사용한다.
@@ -206,7 +206,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ## 6. 명령어
 
 ```bash
-npm test              # jest (@swc/jest) — 5 스위트, 39 테스트
+npm test              # jest (@swc/jest) — 5 스위트, 41 테스트
 npm run build         # tsc --noEmit (순수 타입 체크, 산출물 없음)
 npx cdk synth         # cdk.json: `npx tsc && npx tsx bin/infra.ts`
 npx cdk diff
@@ -246,6 +246,57 @@ docker buildx build --platform linux/arm64 \
 ```bash
 aws ecs update-service --cluster <cluster> --service <service> --force-new-deployment
 ```
+
+### 운영자 접속 (ADR-0016)
+
+SSH 인그레스도 키페어도 없다. 접속은 전부 SSM 채널을 쓴다. 실행 환경에 따라 수단이 갈린다.
+
+| 대상 | 수단 | 필요한 운영자 IAM 권한 |
+|---|---|---|
+| `clickhouse` (EC2) | `aws ssm start-session` | `ssm:StartSession` |
+| `post-processor`, `api-server` (Fargate) | `aws ecs execute-command` | `ecs:ExecuteCommand` |
+
+두 방식 모두 로컬에 **Session Manager plugin**이 설치되어 있어야 한다. 없으면 명령 자체가 실패한다.
+
+#### ClickHouse EC2
+
+```bash
+# 인스턴스 ID 조회
+aws ec2 describe-instances --region ap-northeast-2 \
+  --filters "Name=tag:Org,Values=soma-376" "Name=instance-state-name,Values=running" \
+  --query 'Reservations[].Instances[].InstanceId' --output text
+
+# 접속
+aws ssm start-session --target <instance-id> --region ap-northeast-2
+```
+
+주의할 점 두 가지.
+
+- **접근 통제는 인스턴스가 아니라 운영자 IAM에 있다.** 인스턴스 역할의 `AmazonSSMManagedInstanceCore`는 "SSM에 관리될 수 있다"만 정한다. 실제로 누가 들어올 수 있는지는 `ssm:StartSession` 권한이 결정하며, 그 정책은 이 레포가 관리하지 않는다.
+- **기본 세션 사용자 `ssm-user`는 passwordless sudo를 가진다.** 접속하면 사실상 root다.
+
+인스턴스가 목록에 안 뜨면 SSM Agent가 없거나 죽은 것이다. 먼저 확인한다.
+
+```bash
+aws ssm describe-instance-information --region ap-northeast-2 \
+  --query 'InstanceInformationList[].[InstanceId,PingStatus,AgentVersion]' --output table
+```
+
+#### Fargate 컨테이너 (ECS Exec)
+
+`CollectorService`와 `DashboardService`에만 `enableExecuteCommand: true`가 켜져 있다. ClickHouse는 위의 EC2 접속으로 대신한다.
+
+```bash
+# 태스크 ID 조회
+aws ecs list-tasks --cluster <cluster> --service-name <service> --region ap-northeast-2
+
+# 접속
+aws ecs execute-command --cluster <cluster> \
+  --task <task-id> --container api-server \
+  --interactive --command "/bin/sh" --region ap-northeast-2
+```
+
+**컨테이너 이미지에 셸이 없으면 실패한다.** distroless나 JRE-slim 기반이면 `/bin/sh`가 없어 권한과 무관하게 접속되지 않는다. 이건 인프라가 아니라 앱 레포의 Dockerfile이 결정하는 부분이다.
 
 ---
 

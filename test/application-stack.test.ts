@@ -163,6 +163,61 @@ describe('ApplicationStack', () => {
     }
   });
 
+  test('ECS Exec은 Fargate 서비스에만 켜고 task role에 ssmmessages가 붙는다 (ADR-0016)', () => {
+    const services = template.findResources('AWS::ECS::Service');
+    const enabled = Object.values(services).filter(
+      (service: any) => service.Properties.EnableExecuteCommand === true,
+    );
+    expect(enabled).toHaveLength(2);
+
+    // ClickHouse(EC2 launch type)는 SSM 호스트 접속으로 대신하므로 제외한다.
+    const clickhouse = Object.values(services).find((service: any) =>
+      JSON.stringify(service.Properties).includes('ClickhouseTask'),
+    ) as any;
+    expect(clickhouse.Properties.EnableExecuteCommand).toBeUndefined();
+
+    // CDK 가 task role 에 자동 부여하는 4개 액션.
+    for (const containerName of ['post-processor', 'api-server']) {
+      const roleId = roleLogicalId(
+        taskDefinitionWithContainer(containerName).Properties.TaskRoleArn,
+      );
+      const actions = policyActionsForRole(roleId);
+      for (const action of [
+        'ssmmessages:CreateControlChannel',
+        'ssmmessages:CreateDataChannel',
+        'ssmmessages:OpenControlChannel',
+        'ssmmessages:OpenDataChannel',
+      ]) {
+        expect(actions).toContain(action);
+      }
+    }
+  });
+
+  test('ClickHouse 인스턴스 역할에 SSM 접속 권한을 부여한다 (ADR-0016)', () => {
+    // Lambda drain hook 역할도 ManagedPolicyArns 를 가지므로 principal 로 구분한다.
+    template.hasResourceProperties('AWS::IAM::Role', {
+      AssumeRolePolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Principal: { Service: 'ec2.amazonaws.com' },
+          }),
+        ]),
+      }),
+      ManagedPolicyArns: Match.arrayWith([
+        {
+          'Fn::Join': [
+            '',
+            [
+              'arn:',
+              { Ref: 'AWS::Partition' },
+              ':iam::aws:policy/AmazonSSMManagedInstanceCore',
+            ],
+          ],
+        },
+      ]),
+    });
+  });
+
   test('Fargate 태스크는 ARM64로 고정한다 (ADR-0015)', () => {
     for (const containerName of ['otel-collector', 'api-server']) {
       const task = taskDefinitionWithContainer(containerName);

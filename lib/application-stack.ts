@@ -31,6 +31,7 @@ import {
   RuntimePlatform,
   Secret as EcsSecret,
 } from 'aws-cdk-lib/aws-ecs';
+import { ManagedPolicy } from 'aws-cdk-lib/aws-iam';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { ISecret } from 'aws-cdk-lib/aws-secretsmanager';
 import { IBucket } from 'aws-cdk-lib/aws-s3';
@@ -166,6 +167,9 @@ export class ApplicationStack extends Stack {
       vpcSubnets: this.primaryAppSubnetSelection(props.vpc),
       securityGroups: [props.collectorSecurityGroup],
       assignPublicIp: false,
+      // ECS Exec. CDK 가 task role 에 ssmmessages 4개 액션을 자동으로 붙인다.
+      // 컨테이너 이미지에 셸이 있어야 실제로 접속된다. (ADR-0016)
+      enableExecuteCommand: true,
       // 서비스 태그(= App 스코프 공통 태그)를 실행 중인 태스크까지 내린다.
       propagateTags: PropagatedTagSource.SERVICE,
     });
@@ -233,6 +237,9 @@ export class ApplicationStack extends Stack {
       vpcSubnets: this.primaryAppSubnetSelection(props.vpc),
       securityGroups: [props.dashboardSecurityGroup],
       assignPublicIp: false,
+      // ECS Exec. CDK 가 task role 에 ssmmessages 4개 액션을 자동으로 붙인다.
+      // 컨테이너 이미지에 셸이 있어야 실제로 접속된다. (ADR-0016)
+      enableExecuteCommand: true,
       propagateTags: PropagatedTagSource.SERVICE,
     });
   }
@@ -266,6 +273,13 @@ export class ApplicationStack extends Stack {
     });
 
     asg.addUserData(...clickhouseUserData());
+
+    // Session Manager 로 인스턴스에 접속하기 위한 최소 권한. 인바운드 포트나
+    // 키페어 없이 접속하므로 SSH 를 열지 않아도 된다. 접근 통제의 실체는
+    // 운영자 IAM 쪽 ssm:StartSession 권한이며 이 레포 범위 밖이다. (ADR-0016)
+    asg.role.addManagedPolicy(
+      ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),
+    );
 
     const capacityProvider = new AsgCapacityProvider(
       this,
