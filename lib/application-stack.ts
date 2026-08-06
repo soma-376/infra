@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { RemovalPolicy, Stack, StackProps } from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
 import {
@@ -58,6 +60,22 @@ const FARGATE_RUNTIME_PLATFORM: RuntimePlatform = {
   cpuArchitecture: CpuArchitecture.ARM64,
   operatingSystemFamily: OperatingSystemFamily.LINUX,
 };
+
+/**
+ * Collector config 파일 경로. 소비처가 이 파일 하나뿐이라 `config.ts` 가 아니라
+ * 여기 둔다. (ADR-0015 의 `FARGATE_RUNTIME_PLATFORM` 과 같은 판단)
+ */
+const COLLECTOR_CONFIG_PATH = join(
+  __dirname,
+  '..',
+  'config',
+  'otel-collector.yaml',
+);
+
+/**
+ * Collector 가 config 를 읽어갈 환경변수 이름. `--config=env:<이름>` 과 짝이다.
+ */
+const COLLECTOR_CONFIG_ENV = 'OTEL_CONFIG';
 
 export interface ApplicationStackProps extends StackProps {
   readonly vpc: IVpc;
@@ -130,6 +148,21 @@ export class ApplicationStack extends Stack {
       image: ContainerImage.fromRegistry(
         'otel/opentelemetry-collector-contrib',
       ),
+      // 이 이미지는 User=10001:10001 로 도는데, config 의 file exporter 가
+      // /data 를 만들려면 루트 파일시스템에 써야 한다. 이미지에 UID 10001 이
+      // 쓸 수 있는 디렉터리가 하나도 없어서(scratch 기반이라 /tmp 도 없다)
+      // root 로 실행한다. 이걸 빼면 `mkdir /data: permission denied` 로
+      // 기동 직후 exit 1 이다. config 에서 file exporter 를 없애면 이 줄도
+      // 함께 없앤다 — 둘은 한 몸이다. (ADR-0017)
+      user: '0',
+      // 이미지의 ENTRYPOINT(/otelcol-contrib)는 유지되고 CMD 만 대체된다.
+      // 즉 최종 실행은 `/otelcol-contrib --config=env:OTEL_CONFIG`. (ADR-0017)
+      command: [`--config=env:${COLLECTOR_CONFIG_ENV}`],
+      environment: {
+        // config 본문 전체를 환경변수로 넘긴다. 이 값은 CloudFormation 템플릿과
+        // ECS 콘솔에 평문으로 남으므로 config 에 시크릿을 넣으면 안 된다.
+        [COLLECTOR_CONFIG_ENV]: readFileSync(COLLECTOR_CONFIG_PATH, 'utf8'),
+      },
       portMappings: [{ containerPort: PORTS.otlp }],
       logging: LogDriver.awsLogs({
         streamPrefix: 'otel-collector',
@@ -154,6 +187,9 @@ export class ApplicationStack extends Stack {
       secrets: {
         DB_CREDS: EcsSecret.fromSecretsManager(props.dbSecret),
       },
+      // awsvpc 에서 기능상 필수는 아니지만, collector 가 localhost 의 이 포트로
+      // OTLP 를 밀어넣는다는 계약을 태스크 정의에 남긴다. (ADR-0017)
+      portMappings: [{ containerPort: PORTS.postProcessor }],
       logging: LogDriver.awsLogs({
         streamPrefix: 'post-processor',
         logGroup: this.makeLogGroup('PostProcessorLog', '/ecs/post-processor'),

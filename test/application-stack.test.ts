@@ -1,9 +1,12 @@
 import { Template, Match } from 'aws-cdk-lib/assertions';
+import { load } from 'js-yaml';
 import {
+  CLICKHOUSE_HOST,
   COMMON_TAGS,
   CONTROL_DB_NAME,
   ECR_NAMESPACE,
   ECR_REPOS,
+  PORTS,
 } from '../lib/config';
 import { buildApp } from './helpers';
 
@@ -319,6 +322,178 @@ describe('ApplicationStack', () => {
   test('clickhouse service registers with Cloud Map (ServiceRegistries present)', () => {
     template.hasResourceProperties('AWS::ECS::Service', {
       ServiceRegistries: Match.anyValue(),
+    });
+  });
+
+  // ============================================================
+  // Collector config 주입 (ADR-0017)
+  // ============================================================
+  describe('otel-collector config 주입', () => {
+    function collectorContainer(): any {
+      const task = taskDefinitionWithContainer('otel-collector');
+      return task.Properties.ContainerDefinitions.find(
+        (definition: any) => definition.Name === 'otel-collector',
+      );
+    }
+
+    /** 합성 템플릿에 실제로 박힌 config 본문. 파일이 아니라 산출물을 검사한다. */
+    function injectedConfigText(): string {
+      const entry = (collectorContainer().Environment ?? []).find(
+        (item: any) => item.Name === 'OTEL_CONFIG',
+      );
+      expect(entry).toBeDefined();
+      expect(typeof entry.Value).toBe('string');
+      return entry.Value as string;
+    }
+
+    function injectedConfig(): any {
+      return load(injectedConfigText());
+    }
+
+    test('env provider 로 config 를 읽도록 command 를 덮어쓴다', () => {
+      expect(collectorContainer().Command).toEqual([
+        '--config=env:OTEL_CONFIG',
+      ]);
+    });
+
+    test('OTEL_CONFIG 환경변수에 config 본문이 들어간다', () => {
+      const config = injectedConfig();
+      expect(config.receivers).toBeDefined();
+      expect(config.exporters).toBeDefined();
+      expect(config.service.pipelines).toBeDefined();
+    });
+
+    // cdk synth 도 npm test 도 config 를 문자열로만 다루므로 컴포넌트 이름 오타를
+    // 그냥 통과시킨다. 이 레포엔 빌드 CI 가 없어 컨테이너가 죽고 나서야 드러난다.
+    test('파이프라인이 참조하는 컴포넌트가 전부 정의되어 있다', () => {
+      const config = injectedConfig();
+      const pipelines = Object.entries<any>(config.service.pipelines);
+      expect(pipelines.length).toBeGreaterThan(0);
+
+      for (const [pipelineName, pipeline] of pipelines) {
+        for (const kind of ['receivers', 'processors', 'exporters'] as const) {
+          const defined = Object.keys(config[kind] ?? {});
+          for (const component of pipeline[kind] ?? []) {
+            // 실패 메시지에 어느 파이프라인인지 남기려고 라벨을 함께 비교한다.
+            expect({
+              pipeline: pipelineName,
+              missing: defined.includes(component) ? null : `${kind}/${component}`,
+            }).toEqual({ pipeline: pipelineName, missing: null });
+          }
+        }
+      }
+    });
+
+    test('정의만 되고 어느 파이프라인도 쓰지 않는 컴포넌트가 없다', () => {
+      const config = injectedConfig();
+      const used = new Set<string>();
+      for (const pipeline of Object.values<any>(config.service.pipelines)) {
+        for (const kind of ['receivers', 'processors', 'exporters'] as const) {
+          for (const component of pipeline[kind] ?? []) {
+            used.add(`${kind}/${component}`);
+          }
+        }
+      }
+
+      const orphans: string[] = [];
+      for (const kind of ['receivers', 'processors', 'exporters'] as const) {
+        for (const component of Object.keys(config[kind] ?? {})) {
+          if (!used.has(`${kind}/${component}`)) {
+            orphans.push(`${kind}/${component}`);
+          }
+        }
+      }
+      expect(orphans).toEqual([]);
+    });
+
+    // SG(network-stack)와 ALB 타깃 그룹(edge-stack)이 4318 만 다룬다. config 에만
+    // 4317 을 열면 아무도 도달 못 하는 포트를 바인딩하게 된다. (ADR-0017)
+    test('gRPC(4317) 를 열지 않고 HTTP(4318) 만 수신한다', () => {
+      const protocols = injectedConfig().receivers.otlp.protocols;
+
+      // 주석에도 4317 이 나오므로 원문 문자열이 아니라 구조를 본다.
+      expect(Object.keys(protocols)).toEqual(['http']);
+      expect(protocols.http.endpoint).toBe(`0.0.0.0:${PORTS.otlp}`);
+    });
+
+    // Fargate 는 awsvpc 라 같은 태스크의 컨테이너가 netns 를 공유한다.
+    // Cloud Map 주소나 compose 서비스명이 아니라 localhost 여야 한다. (ADR-0017)
+    test('post-processor 로는 localhost 로 내보낸다', () => {
+      const exporters = injectedConfig().exporters;
+
+      expect(exporters['otlphttp/telemetry_pipeline'].endpoint).toBe(
+        `http://localhost:${PORTS.postProcessor}`,
+      );
+
+      // ClickHouse 직접 export 는 ADR-0004 파이프라인을 우회한다. 그렇게 바꾸려면
+      // ADR 을 먼저 갱신해야 하므로, 조용히 들어오는 것을 막는다.
+      const endpoints = Object.values<any>(exporters)
+        .map((exporter) => exporter?.endpoint)
+        .filter((endpoint): endpoint is string => typeof endpoint === 'string');
+      expect(
+        endpoints.filter((endpoint) => endpoint.includes(CLICKHOUSE_HOST)),
+      ).toEqual([]);
+    });
+
+    test('post-processor 컨테이너가 그 포트를 노출한다', () => {
+      const task = taskDefinitionWithContainer('post-processor');
+      const container = task.Properties.ContainerDefinitions.find(
+        (definition: any) => definition.Name === 'post-processor',
+      );
+
+      expect(container.PortMappings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ ContainerPort: PORTS.postProcessor }),
+        ]),
+      );
+    });
+
+    // config 는 CloudFormation 템플릿과 ECS 콘솔에 평문으로 남는다. (ADR-0017)
+    test('config 를 secrets 가 아니라 environment 로 넘긴다', () => {
+      expect(collectorContainer().Secrets).toBeUndefined();
+    });
+
+    // 태스크 정의 전체가 64 KiB 를 넘으면 RegisterTaskDefinition 이 거부한다.
+    // 지금은 약 5 KB 라 여유가 크지만, 조용히 한도에 접근하는 것을 막는다.
+    test('config 가 태스크 정의 한도를 위협할 만큼 커지지 않았다', () => {
+      expect(Buffer.byteLength(injectedConfigText(), 'utf8')).toBeLessThan(
+        16 * 1024,
+      );
+    });
+
+    // 이 이미지는 User=10001:10001 이고 UID 10001 이 쓸 수 있는 디렉터리가 없다
+    // (scratch 기반이라 /tmp 도 없다). file exporter 가 /data 를 만들려면 root 가
+    // 필요하다. 최초 배포가 정확히 이것 때문에 exit 1 로 죽었다. (ADR-0017)
+    test('collector 를 root 로 실행한다', () => {
+      expect(collectorContainer().User).toBe('0');
+    });
+
+    // 이번 장애의 재발 방지 핵심.
+    // file exporter 와 root 실행은 한 몸이다. 한쪽만 지우면 여기서 걸린다.
+    // - file exporter 를 남긴 채 user 를 지우면 → 런타임에 exit 1
+    // - awss3 로 옮기면서 user 를 안 지우면 → 불필요한 root 권한 잔존
+    test('file exporter 와 root 실행은 함께 존재하거나 함께 사라진다', () => {
+      const exporters = injectedConfig().exporters;
+      const usesFileExporter = Object.keys(exporters).some((name) =>
+        name.startsWith('file/'),
+      );
+      const runsAsRoot = collectorContainer().User === '0';
+
+      expect({ usesFileExporter, runsAsRoot }).toEqual({
+        usesFileExporter: runsAsRoot,
+        runsAsRoot,
+      });
+    });
+
+    // root 범위를 collector 한 컨테이너로 한정한다. post-processor 는 자체 이미지라
+    // 쓰기 가능한 유저로 빌드하면 될 문제지 root 로 올릴 이유가 없다.
+    test('root 실행은 collector 에만 적용한다', () => {
+      const task = taskDefinitionWithContainer('post-processor');
+      const container = task.Properties.ContainerDefinitions.find(
+        (definition: any) => definition.Name === 'post-processor',
+      );
+
+      expect(container.User).toBeUndefined();
     });
   });
 });

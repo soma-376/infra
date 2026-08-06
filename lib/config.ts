@@ -55,6 +55,9 @@ export const CLICKHOUSE_HOST = `${CLICKHOUSE_SERVICE_NAME}.${CLOUD_MAP_NAMESPACE
  */
 export const PORTS = {
   otlp: 4318,
+  // Collector 가 같은 태스크의 post-processor 로 OTLP/HTTP 를 밀어넣는 포트.
+  // apiServer 와 값은 같지만 다른 태스크의 다른 계약이므로 따로 둔다. (ADR-0017)
+  postProcessor: 8080,
   apiServer: 8080,
   clickhouseHttp: 8123,
   clickhouseNative: 9000,

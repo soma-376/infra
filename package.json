@@ -12,8 +12,9 @@
     "@swc/jest": "^0.2.39",
     "@types/jest": "^30",
     "@types/node": "^24.10.1",
-    "jest": "^30",
     "aws-cdk": "2.1132.0",
+    "jest": "^30",
+    "js-yaml": "^5.2.3",
     "tsx": "^4.23.0",
     "typescript": "~7.0.2"
   },

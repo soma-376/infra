@@ -89,7 +89,7 @@ ssmmessages:OpenDataChannel
 
 ## Open Questions
 
-- 세션 감사 로그를 CloudWatch Logs 또는 S3로 남길 것인가. 남긴다면 KMS 암호화 여부, 보존 기간, 그리고 로그 그룹 정책 전반을 다룰 ADR-0017과 함께 결정한다.
+- 세션 감사 로그를 CloudWatch Logs 또는 S3로 남길 것인가. 남긴다면 KMS 암호화 여부, 보존 기간, 그리고 로그 그룹 정책 전반을 다룰 ADR-0018과 함께 결정한다.
 - `ssm-user`의 sudo 권한을 제한할 것인가. 운영자가 늘어나면 읽기 전용 세션과 관리 세션을 나눌 필요가 생길 수 있다.
 - 배포와 조회에 쓰는 `cfn-user`에 `ssm:DescribeInstanceInformation`과 `ssm:StartSession` 권한을 어떤 범위로 부여할 것인가.
 
