@@ -1,0 +1,157 @@
+# OpenTelemetry Collector 설정 (ADR-0017)
+#
+# 이 파일은 synth 시점에 lib/application-stack.ts 가 통째로 읽어
+# otel-collector 컨테이너의 환경변수 OTEL_CONFIG 로 주입하고,
+# 컨테이너는 `--config=env:OTEL_CONFIG` 로 기동한다.
+#
+# 주의 1 - 시크릿 금지.
+#   이 내용은 CloudFormation 템플릿과 ECS 콘솔에 평문으로 노출된다.
+#   아래 blocked_values 는 마스킹 "패턴"일 뿐 자격증명이 아니다.
+#   실제 시크릿이 필요해지면 ECS secrets 로 분리하고 여기서 ${env:...} 로 참조한다.
+#
+# 주의 2 - `$` 이스케이프.
+#   Collector 의 confmap 이 `${...}` 와 `$VAR` 를 확장한다. 리터럴 `$` 가 필요하면
+#   (예: 정규식 끝 앵커 `...$`) 반드시 `$$` 로 써야 한다. 현재 패턴에는 `$` 가 없다.
+
+receivers:
+  otlp:
+    protocols:
+      # gRPC(4317)는 열지 않는다. 보안 그룹과 ALB 타깃 그룹이 4318 만 다루므로
+      # 여기서만 열면 아무도 도달할 수 없는 포트를 바인딩하게 된다. (ADR-0017)
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+
+  # 원본 아카이브를 발생 제품별로 분리한다. 조건이 참이면 레코드를
+  # 드롭하는 processor이므로, 각 제품의 service.name 이 아닌 데이터를 버린다.
+  filter/codex:
+    error_mode: silent
+    trace_conditions:
+      - 'resource.attributes["service.name"] != "codex_cli_rs"'
+    metric_conditions:
+      - 'resource.attributes["service.name"] != "codex_cli_rs"'
+    log_conditions:
+      - 'resource.attributes["service.name"] != "codex_cli_rs"'
+
+  filter/claude_code:
+    error_mode: silent
+    trace_conditions:
+      - 'resource.attributes["service.name"] != "claude-code"'
+    metric_conditions:
+      - 'resource.attributes["service.name"] != "claude-code"'
+    log_conditions:
+      - 'resource.attributes["service.name"] != "claude-code"'
+
+  redaction/secrets:
+    allow_all_keys: true # 모든 속성 키 유지 (신원 필드 삭제 안 함)
+    redact_all_types: false # 문자열 값만 스캔
+    summary: silent # 테스트 시 debug 로 바꾸면 마스킹 카운트 확인 가능
+    blocked_values:
+      # --- Provider API keys / tokens ---
+      - 'sk-ant-[A-Za-z0-9\-_]{20,}' # Anthropic
+      - "sk-[A-Za-z0-9]{20,}" # OpenAI 계열
+      - "ghp_[A-Za-z0-9]{36}" # GitHub PAT (classic)
+      - "github_pat_[A-Za-z0-9_]{22,}" # GitHub PAT (fine-grained)
+      - "gh[orsu]_[A-Za-z0-9]{36}" # GitHub oauth/refresh/server/user
+      - 'glpat-[A-Za-z0-9\-_]{20}' # GitLab PAT
+      - 'xox[baprs]-[A-Za-z0-9\-]{10,}' # Slack
+      - 'AIza[0-9A-Za-z\-_]{35}' # Google API key
+      - "AKIA[0-9A-Z]{16}" # AWS Access Key ID
+      # --- Structured tokens ---
+      - 'eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+' # JWT
+      - '-----BEGIN[\s\S]*?PRIVATE KEY-----[\s\S]*?-----END[\s\S]*?-----' # PEM private key
+      # --- Bearer auth ---
+      - '(?i)bearer\s+[A-Za-z0-9._\-]{10,}'
+      # --- DB/URL 자격증명 (scheme://user:pass@) ---
+      - '[a-zA-Z][a-zA-Z0-9+.\-]*://[^:/?#\s]+:[^@/?#\s]+@'
+      # --- key=value / key: value 형태 시크릿 (키 이름 포함 매칭) ---
+      - "(?i)(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret|auth[_-]?token)[\"']?\\s*[:=]\\s*[\"']?[^\\s\"',}]{6,}"
+
+exporters:
+  # 원본 OTLP 아카이브 (보존 · 재생용). 정규화는 여기서 하지 않는다.
+  #
+  # 주의: Fargate 임시 스토리지에 쓰므로 태스크가 재시작되면 사라진다.
+  # MVP 에서 의도적으로 감수한 트레이드오프다. append: true 는 rotation 과
+  # 함께 쓸 수 없어 파일이 무한 증가한다 (기본 20 GiB 를 채우면 태스크가 죽는다).
+  # 보존이 필요해지면 awss3 exporter 로 전환한다 - task role 에 S3 쓰기 권한이
+  # 이미 있어 IAM 변경 없이 이 블록만 바꾸면 된다. (ADR-0017)
+  #
+  # create_directory 가 없으면 부모 디렉터리가 없어 기동 직후 죽는다.
+  file/codex_metrics:
+    path: /data/codex/metrics.jsonl
+    append: true
+    create_directory: true
+  file/codex_logs:
+    path: /data/codex/logs.jsonl
+    append: true
+    create_directory: true
+  file/codex_traces:
+    path: /data/codex/traces.jsonl
+    append: true
+    create_directory: true
+  file/claude_code_metrics:
+    path: /data/claude_code/metrics.jsonl
+    append: true
+    create_directory: true
+  file/claude_code_logs:
+    path: /data/claude_code/logs.jsonl
+    append: true
+    create_directory: true
+  file/claude_code_traces:
+    path: /data/claude_code/traces.jsonl
+    append: true
+    create_directory: true
+
+  # 같은 태스크에 co-locate 된 post-processor 로 push 한다. (ADR-0004)
+  # Fargate 는 awsvpc 네트워크 모드라 같은 태스크의 컨테이너가 네트워크
+  # 네임스페이스를 공유하므로 Cloud Map 이 아니라 localhost 다. (ADR-0017)
+  # endpoint 뒤에 /v1/{logs,traces,metrics} 는 exporter 가 자동으로 붙인다.
+  otlphttp/telemetry_pipeline:
+    endpoint: http://localhost:8080
+    encoding: json
+
+service:
+  pipelines:
+    # 실시간 정규화 스트림. 제품별 원본 아카이브와 독립적으로 모두 전달한다.
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/telemetry_pipeline]
+    logs:
+      receivers: [otlp]
+      processors: [redaction/secrets, batch]
+      exporters: [otlphttp/telemetry_pipeline]
+    traces:
+      receivers: [otlp]
+      processors: [redaction/secrets, batch]
+      exporters: [otlphttp/telemetry_pipeline]
+
+    # Codex 원본 아카이브.
+    metrics/codex_archive:
+      receivers: [otlp]
+      processors: [filter/codex, batch]
+      exporters: [file/codex_metrics]
+    logs/codex_archive:
+      receivers: [otlp]
+      processors: [redaction/secrets, filter/codex, batch]
+      exporters: [file/codex_logs]
+    traces/codex_archive:
+      receivers: [otlp]
+      processors: [redaction/secrets, filter/codex, batch]
+      exporters: [file/codex_traces]
+
+    # Claude Code 원본 아카이브.
+    metrics/claude_code_archive:
+      receivers: [otlp]
+      processors: [filter/claude_code, batch]
+      exporters: [file/claude_code_metrics]
+    logs/claude_code_archive:
+      receivers: [otlp]
+      processors: [redaction/secrets, filter/claude_code, batch]
+      exporters: [file/claude_code_logs]
+    traces/claude_code_archive:
+      receivers: [otlp]
+      processors: [redaction/secrets, filter/claude_code, batch]
+      exporters: [file/claude_code_traces]
