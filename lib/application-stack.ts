@@ -164,7 +164,10 @@ export class ApplicationStack extends Stack {
   ): FargateService {
     const task = new FargateTaskDefinition(this, 'DashboardTask', {
       cpu: 512,
-      memoryLimitMiB: 1536, // Spring Boot 고려
+      // Fargate 는 CPU/메모리 조합이 고정이다. 512 CPU 에 허용되는 메모리는
+      // 1024 / 2048 / 3072 / 4096 뿐이라 1536 은 태스크 정의 생성 자체가 실패한다.
+      // Spring Boot 를 고려해 1024 대신 2048 을 쓴다.
+      memoryLimitMiB: 2048,
     });
 
     task.addContainer('api-server', {

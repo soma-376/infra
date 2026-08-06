@@ -44,7 +44,7 @@ NetworkStack ──> DataStack ──┐
 | 태스크 | 컨테이너 | 비고 |
 |---|---|---|
 | `CollectorTask` (Fargate, 512/1024) | `otel-collector` (public image, :4318), `post-processor` (ECR) | |
-| `DashboardTask` (Fargate, 512/1536) | `api-server` (ECR, :8080), `batch-processor` (ECR) | 메모리 1536은 Spring Boot 고려 |
+| `DashboardTask` (Fargate, 512/2048) | `api-server` (ECR, :8080), `batch-processor` (ECR) | Spring Boot 고려. Fargate는 CPU/메모리 조합이 고정이라 512 CPU에는 1024/2048/3072/4096만 쓸 수 있다 (1536은 생성 실패) |
 | `ClickhouseTask` (EC2, awsvpc) | `clickhouse` (public image, :8123/:9000) | 호스트 볼륨 `/data/clickhouse` |
 
 ---

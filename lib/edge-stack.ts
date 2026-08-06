@@ -151,6 +151,10 @@ export class EdgeStack extends Stack {
       port: PORTS.apiServer,
       protocol: ApplicationProtocol.HTTP,
       targetType: TargetType.IP,
+      // Spring Boot 는 루트 매핑이 없으면 404 를 반환한다. ALB 기본 matcher(200)를
+      // 그대로 두면 타깃이 영영 healthy 가 되지 않아 ECS 재시작 루프에 빠진다.
+      // 앱이 actuator 를 노출하는 것이 확인되면 path 를 /actuator/health 로 좁힌다.
+      healthCheck: { path: '/', healthyHttpCodes: '200-404' },
     });
     tg.addTarget(
       props.dashboardService.loadBalancerTarget({
