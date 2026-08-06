@@ -21,5 +21,6 @@ ClickHouse만 EC2 launch type(EC2 Capacity Provider + EBS gp3)으로 운영하�
 
 - 앱 서비스는 인스턴스 관리 부담이 완전히 사라진다.
 - ClickHouse는 EBS 기반 영속 스토리지로 제 성능을 낸다.
-- 비용 측면에서는 Fargate 태스크 2개(0.5vCPU/1GB 상시 + 0.5vCPU/1.5GB 상시)와 t4g.small, NAT Gateway를 조합한 이 구성이 전부-EC2 단일 인스턴스안보다 월 몇만 원 더 나간다. 대신 앱 서비스의 인스턴스 관리와 메모리 경합 걱정이 사라지는 트레이드오프를 수용한다.
+- 비용 측면에서는 Fargate 태스크 2개(0.5vCPU/1GB 상시 + 0.5vCPU/2GB 상시)와 t4g.small, NAT Gateway를 조합한 이 구성이 전부-EC2 단일 인스턴스안보다 월 몇만 원 더 나간다. 대신 앱 서비스의 인스턴스 관리와 메모리 경합 걱정이 사라지는 트레이드오프를 수용한다.
+- 위 Fargate 비용 근거는 이후 [ADR-0015](0015-arm64-fargate-for-cost-savings.md)에서 ARM64 요금으로 갱신되었다. Fargate 태스크는 x86_64가 아니라 ARM64로 구동한다.
 - ClickHouse의 로컬 EBS 사용에 따른 데이터 내구성 트레이드오프는 [ADR-0006](0006-accept-local-ebs-durability-for-mvp.md) 참고.

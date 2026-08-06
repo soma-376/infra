@@ -163,6 +163,21 @@ describe('ApplicationStack', () => {
     }
   });
 
+  test('Fargate 태스크는 ARM64로 고정한다 (ADR-0015)', () => {
+    for (const containerName of ['otel-collector', 'api-server']) {
+      const task = taskDefinitionWithContainer(containerName);
+      expect(task.Properties.RuntimePlatform).toEqual({
+        CpuArchitecture: 'ARM64',
+        OperatingSystemFamily: 'LINUX',
+      });
+    }
+
+    // EC2 태스크는 인스턴스/AMI가 아키텍처를 결정한다. runtimePlatform은 Fargate 전용.
+    expect(
+      taskDefinitionWithContainer('clickhouse').Properties.RuntimePlatform,
+    ).toBeUndefined();
+  });
+
   test('자체 빌드 이미지는 soma-376 네임스페이스의 ECR 레포를 가리킨다 (ADR-0007)', () => {
     const ownBuiltImages: ReadonlyArray<[string, string]> = [
       ['post-processor', ECR_REPOS.postProcessor],

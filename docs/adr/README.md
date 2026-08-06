@@ -18,5 +18,6 @@
 | 0012 | [컨트롤 플레인 DB 엔진으로 PostgreSQL 검토](0012-aurora-postgresql-for-control-plane.md) | Proposed |
 | 0013 | [Raw Signal 보존 정책 - MVP에서는 최근 30일만 복구](0013-raw-signal-retention-for-mvp.md) | Proposed |
 | 0014 | [MVP에서는 ClickHouse를 app subnet에 유지](0014-keep-clickhouse-in-app-subnet-for-mvp.md) | Proposed |
+| 0015 | [Fargate 태스크를 ARM64로 통일](0015-arm64-fargate-for-cost-savings.md) | Accepted |
 
-새 ADR을 작성할 때는 다음 미사용 번호(`0015-...`)를 사용하고 위 ADR들과 같은 템플릿(Status / Context / Decision / Alternatives Considered / Consequences)을 따른다.
+새 ADR을 작성할 때는 다음 미사용 번호(`0016-...`)를 사용하고 위 ADR들과 같은 템플릿(Status / Context / Decision / Alternatives Considered / Consequences)을 따른다.

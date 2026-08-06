@@ -18,6 +18,7 @@ import {
   AsgCapacityProvider,
   Cluster,
   ContainerImage,
+  CpuArchitecture,
   Ec2Service,
   Ec2TaskDefinition,
   EcsOptimizedImage,
@@ -25,7 +26,9 @@ import {
   FargateTaskDefinition,
   LogDriver,
   NetworkMode,
+  OperatingSystemFamily,
   PropagatedTagSource,
+  RuntimePlatform,
   Secret as EcsSecret,
 } from 'aws-cdk-lib/aws-ecs';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
@@ -43,6 +46,17 @@ import {
   PRIMARY_AZ_INDEX,
   SUBNET_GROUP,
 } from './config';
+
+/**
+ * Fargate 태스크는 ARM64(Graviton)로 통일한다. ClickHouse EC2(t4g)와 아키텍처를
+ * 맞추고 x86 대비 약 20% 저렴하다. 앱 레포는 반드시 `linux/arm64` 이미지를
+ * push해야 한다. amd64 이미지를 올리면 합성과 테스트는 통과하지만 런타임에
+ * 이미지 pull이 실패한다. (ADR-0015)
+ */
+const FARGATE_RUNTIME_PLATFORM: RuntimePlatform = {
+  cpuArchitecture: CpuArchitecture.ARM64,
+  operatingSystemFamily: OperatingSystemFamily.LINUX,
+};
 
 export interface ApplicationStackProps extends StackProps {
   readonly vpc: IVpc;
@@ -105,6 +119,7 @@ export class ApplicationStack extends Stack {
     const task = new FargateTaskDefinition(this, 'CollectorTask', {
       cpu: 512,
       memoryLimitMiB: 1024,
+      runtimePlatform: FARGATE_RUNTIME_PLATFORM,
     });
 
     // 애플리케이션 런타임에 필요한 S3 권한만 task role에 부여한다.
@@ -168,6 +183,7 @@ export class ApplicationStack extends Stack {
       // 1024 / 2048 / 3072 / 4096 뿐이라 1536 은 태스크 정의 생성 자체가 실패한다.
       // Spring Boot 를 고려해 1024 대신 2048 을 쓴다.
       memoryLimitMiB: 2048,
+      runtimePlatform: FARGATE_RUNTIME_PLATFORM,
     });
 
     task.addContainer('api-server', {

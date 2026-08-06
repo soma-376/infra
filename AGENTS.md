@@ -43,8 +43,8 @@ NetworkStack ──> DataStack ──┐
 
 | 태스크 | 컨테이너 | 비고 |
 |---|---|---|
-| `CollectorTask` (Fargate, 512/1024) | `otel-collector` (public image, :4318), `post-processor` (ECR) | |
-| `DashboardTask` (Fargate, 512/2048) | `api-server` (ECR, :8080), `batch-processor` (ECR) | Spring Boot 고려. Fargate는 CPU/메모리 조합이 고정이라 512 CPU에는 1024/2048/3072/4096만 쓸 수 있다 (1536은 생성 실패) |
+| `CollectorTask` (Fargate **ARM64**, 512/1024) | `otel-collector` (public image, :4318), `post-processor` (ECR) | |
+| `DashboardTask` (Fargate **ARM64**, 512/2048) | `api-server` (ECR, :8080), `batch-processor` (ECR) | Spring Boot 고려. Fargate는 CPU/메모리 조합이 고정이라 512 CPU에는 1024/2048/3072/4096만 쓸 수 있다 (1536은 생성 실패) |
 | `ClickhouseTask` (EC2, awsvpc) | `clickhouse` (public image, :8123/:9000) | 호스트 볼륨 `/data/clickhouse` |
 
 ---
@@ -62,6 +62,7 @@ NetworkStack ──> DataStack ──┐
 | **ClickHouse `Ec2Service`는 `minHealthyPercent: 0` / `maxHealthyPercent: 100`** | 인스턴스 1대 + awsvpc ENI 한도상 롤링 배포가 불가능하다. 강제 교체 배포만 가능하다. (`lib/application-stack.ts:306-307`) |
 | **`AsgCapacityProvider`의 `enableManagedTerminationProtection: false`** | 단일 인스턴스 교체 배포를 관리형 종료 보호가 막는다. (`lib/application-stack.ts:258`) |
 | **DB 시크릿은 참조만 노출한다** | `data.dbSecret`(`ISecret`)을 넘길 뿐, 값을 읽는 코드는 절대 넣지 않는다. 컨테이너에는 `Secret.fromSecretsManager`로 주입한다. (`lib/data-stack.ts`) |
+| **Fargate 태스크는 ARM64로 고정한다** | `runtimePlatform`을 빼면 CDK 기본값(미지정)으로 돌아가 x86_64가 된다. 앱 레포도 반드시 `linux/arm64` 이미지를 push해야 하며, amd64를 올리면 synth와 테스트는 통과하지만 런타임에 이미지 pull이 실패한다. ClickHouse EC2(t4g)와 아키텍처를 맞추고 x86 대비 약 20% 저렴하다. (`lib/application-stack.ts`의 `FARGATE_RUNTIME_PLATFORM`, ADR-0015) |
 | **DB 이름은 PostgreSQL 키워드 표에 없는 단어여야 한다** | RDS는 `DatabaseName`에 엔진 예약어 검사를 걸고, 그 목록이 PostgreSQL의 reserved 키워드보다 넓다. 실제로 `control`은 non-reserved인데도 400으로 거부됐다. 되돌리면 배포가 통째로 실패한다. (`lib/config.ts`의 `CONTROL_DB_NAME`, ADR-0012) |
 | **`maxAzs: 2`는 이중화가 아니라 의도된 하한이다** | 진짜 단일 AZ는 Aurora `DatabaseCluster`(서브넷 ≥2 요구)와 internet-facing ALB(퍼블릭 서브넷 2개 요구)가 막는다. 컴퓨트/데이터는 여전히 사실상 단일 AZ다. (`lib/network-stack.ts:34-35`, ADR-0011) |
 | **`RemovalPolicy.DESTROY` / `autoDeleteObjects`는 MVP 한정 의도다** | 실수가 아니다. 프로덕션 전환 시 일괄 재검토 대상이므로, 개별적으로 `RETAIN`으로 바꾸지 말고 ADR로 묶어서 처리한다. |
@@ -166,13 +167,13 @@ DB 접속에 필요한 값은 **두 경로로 나뉘어** 전달된다. 앱은 �
 - subnet 이동은 ClickHouse EC2 교체와 로컬 EBS 데이터 유실 가능성이 있으므로,
   전환 시 최근 Raw Signal 재처리와 배포 절차를 함께 준비해야 한다.
 
-### (F) ADR-0015 — 로그 그룹 정책 기록
+### (F) ADR-0016 — 로그 그룹 정책 기록
 
 현재 `ApplicationStack`은 컨테이너별 CloudWatch Logs 로그 그룹 5개를 만들고,
 보존 기간을 14일, 삭제 정책을 `RemovalPolicy.DESTROY`로 설정한다. 이 구성은
 구현되어 있지만 운영·비용·보안 관점의 결정 근거가 ADR에 없다.
 
-인프라 코드를 변경하기 전에 ADR-0015에서 다음 항목을 결정한다.
+인프라 코드를 변경하기 전에 ADR-0016에서 다음 항목을 결정한다.
 
 - 컨테이너별 로그 그룹을 유지할지 서비스 단위로 통합할지와 로그 그룹 명명 규칙
 - 14일 보존 기간의 트래픽·장애 조사·비용 근거와 환경별 보존 기간 필요 여부
@@ -186,7 +187,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(`0015`)를 쓴다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(`0016`)를 쓴다.
    템플릿: `Status` / `Context` / `Decision` / `Alternatives Considered` / `Consequences` (+ 필요 시 `Constraints`, `Open Questions`, `Revisit Trigger`).
 3. 상수는 `lib/config.ts`에 추가하고 스택에서 import 한다.
 4. `test/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`를 재사용한다.
@@ -205,7 +206,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ## 6. 명령어
 
 ```bash
-npm test              # jest (@swc/jest) — 5 스위트, 36 테스트
+npm test              # jest (@swc/jest) — 5 스위트, 39 테스트
 npm run build         # tsc --noEmit (순수 타입 체크, 산출물 없음)
 npx cdk synth         # cdk.json: `npx tsc && npx tsx bin/infra.ts`
 npx cdk diff
@@ -228,6 +229,17 @@ done
 ```
 
 레포 이름은 `lib/config.ts`의 `ECR_REPOS`와 정확히 일치해야 한다. **앱 레포 CI의 push 대상도 같은 `soma-376/` 네임스페이스를 써야 한다** (ADR-0007). 이 레포에서 강제할 수 없는 규칙이므로 배포 전에 앱 레포 쪽에 전달한다.
+
+**이미지는 반드시 `linux/arm64`로 빌드해야 한다** (ADR-0015). Fargate 태스크가 ARM64이므로 amd64 이미지를 올리면 태스크가 기동하지 못한다.
+
+```bash
+# 앱 레포에서 — 플랫폼을 항상 명시한다
+docker buildx build --platform linux/arm64 \
+  -t <account>.dkr.ecr.ap-northeast-2.amazonaws.com/soma-376/api-server:<tag> \
+  --push .
+```
+
+플랫폼을 생략하면 빌드 머신에 따라 결과가 갈린다. Apple Silicon에서는 arm64가, x86 CI 러너에서는 amd64가 나온다. 아키텍처 불일치는 `cdk synth`와 `npm test`로는 잡히지 않고(이미지 URI에 아키텍처가 없다) 태스크 기동 시점에 `image Manifest does not contain descriptor matching platform 'linux/arm64'`로만 드러난다. ECS가 이를 재시도하므로 배포가 실패로 끝나지 않고 길게 지연되는 형태가 된다.
 
 이후 앱 배포는 CDK를 거치지 않는다:
 
