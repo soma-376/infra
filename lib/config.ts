@@ -65,8 +65,13 @@ export const PORTS = {
 
 /**
  * Aurora control plane 데이터베이스 이름.
+ *
+ * `control`은 RDS가 엔진 예약어로 거부한다(400 InvalidParameterValue).
+ * RDS의 예약어 목록은 PostgreSQL의 reserved 키워드보다 넓어서
+ * non-reserved 키워드까지 막는다. 바꿀 때는 PostgreSQL 키워드 표에
+ * 아예 없는 단어를 고른다. (ADR-0012)
  */
-export const CONTROL_DB_NAME = 'control';
+export const CONTROL_DB_NAME = 'controlplane';
 
 /**
  * VPC 서브넷 그룹 이름 (network-stack 과 소비 스택이 공유).

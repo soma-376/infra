@@ -37,6 +37,7 @@ import {
   CLICKHOUSE_HOST,
   CLICKHOUSE_SERVICE_NAME,
   CLOUD_MAP_NAMESPACE,
+  CONTROL_DB_NAME,
   ECR_REPOS,
   PORTS,
   PRIMARY_AZ_INDEX,
@@ -131,6 +132,8 @@ export class ApplicationStack extends Stack {
       environment: {
         CLICKHOUSE_HOST: CLICKHOUSE_HOST,
         RAW_BUCKET: props.rawSignalBucket.bucketName,
+        // DB_CREDS 시크릿에는 dbname 이 없다. DB 이름은 여기서만 전달한다.
+        DB_NAME: CONTROL_DB_NAME,
       },
       secrets: {
         DB_CREDS: EcsSecret.fromSecretsManager(props.dbSecret),
@@ -173,6 +176,10 @@ export class ApplicationStack extends Stack {
         ),
       ),
       portMappings: [{ containerPort: PORTS.apiServer }],
+      environment: {
+        // DB_CREDS 시크릿에는 dbname 이 없다. DB 이름은 여기서만 전달한다.
+        DB_NAME: CONTROL_DB_NAME,
+      },
       secrets: {
         DB_CREDS: EcsSecret.fromSecretsManager(props.dbSecret),
       },

@@ -35,7 +35,7 @@ NetworkStack ──> DataStack ──┐
 | 스택 | 파일 | 주요 리소스 |
 |---|---|---|
 | `NetworkStack` | `lib/network-stack.ts` | VPC (2 AZ × 3 티어 = 6 서브넷, NAT 1개), S3 Gateway Endpoint, **SG 5개 전부 + 모든 cross-SG 룰** |
-| `DataStack` | `lib/data-stack.ts` | Aurora Serverless v2 PostgreSQL 16.6 (`control` DB, 0.5~2 ACU), Raw Signal S3 버킷 (30일 만료) |
+| `DataStack` | `lib/data-stack.ts` | Aurora Serverless v2 PostgreSQL 16.13 (`controlplane` DB, 0.5~2 ACU), Raw Signal S3 버킷 (30일 만료) |
 | `ApplicationStack` | `lib/application-stack.ts` | ECS 클러스터, Cloud Map `obs.local`, Fargate 서비스 2개, ClickHouse EC2 (t4g.small + ASG 캐패시티 프로바이더) |
 | `EdgeStack` | `lib/edge-stack.ts` | ALB (모드 A/B 분기), Cognito User Pool, CloudFront + 프론트엔드 S3 |
 
@@ -62,6 +62,7 @@ NetworkStack ──> DataStack ──┐
 | **ClickHouse `Ec2Service`는 `minHealthyPercent: 0` / `maxHealthyPercent: 100`** | 인스턴스 1대 + awsvpc ENI 한도상 롤링 배포가 불가능하다. 강제 교체 배포만 가능하다. (`lib/application-stack.ts:306-307`) |
 | **`AsgCapacityProvider`의 `enableManagedTerminationProtection: false`** | 단일 인스턴스 교체 배포를 관리형 종료 보호가 막는다. (`lib/application-stack.ts:258`) |
 | **DB 시크릿은 참조만 노출한다** | `data.dbSecret`(`ISecret`)을 넘길 뿐, 값을 읽는 코드는 절대 넣지 않는다. 컨테이너에는 `Secret.fromSecretsManager`로 주입한다. (`lib/data-stack.ts`) |
+| **DB 이름은 PostgreSQL 키워드 표에 없는 단어여야 한다** | RDS는 `DatabaseName`에 엔진 예약어 검사를 걸고, 그 목록이 PostgreSQL의 reserved 키워드보다 넓다. 실제로 `control`은 non-reserved인데도 400으로 거부됐다. 되돌리면 배포가 통째로 실패한다. (`lib/config.ts`의 `CONTROL_DB_NAME`, ADR-0012) |
 | **`maxAzs: 2`는 이중화가 아니라 의도된 하한이다** | 진짜 단일 AZ는 Aurora `DatabaseCluster`(서브넷 ≥2 요구)와 internet-facing ALB(퍼블릭 서브넷 2개 요구)가 막는다. 컴퓨트/데이터는 여전히 사실상 단일 AZ다. (`lib/network-stack.ts:34-35`, ADR-0011) |
 | **`RemovalPolicy.DESTROY` / `autoDeleteObjects`는 MVP 한정 의도다** | 실수가 아니다. 프로덕션 전환 시 일괄 재검토 대상이므로, 개별적으로 `RETAIN`으로 바꾸지 말고 ADR로 묶어서 처리한다. |
 
@@ -75,6 +76,19 @@ NetworkStack ──> DataStack ──┐
 - 공유 상수(`PORTS`, `CLICKHOUSE_HOST`, `SUBNET_GROUP`, `ECR_NAMESPACE`, `ECR_REPOS`, `CONTROL_DB_NAME`, `COMMON_TAGS`)는 **전부 `lib/config.ts`에 있다.** 스택에 리터럴을 새로 박지 말고 여기서 import 한다. 새 상수도 여기에 추가한다.
 - 공통 태그 `{ Org: 'soma-376', Env: 'mvp', ManagedBy: 'cdk' }`는 App 스코프에 `applyCommonTags(app)`로 한 번만 적용한다. 스택별로 중복 호출하지 않는다.
 - **dev/stg/prod 환경 분리 메커니즘은 없다.** 스택 ID는 리터럴이고 `Env: 'mvp'`는 하드코딩이다. 환경 분리가 필요해지면 그건 새 ADR 대상이다.
+
+### 컨테이너 DB 접속 계약 (앱 레포와의 인터페이스)
+
+DB 접속에 필요한 값은 **두 경로로 나뉘어** 전달된다. 앱은 어느 쪽도 하드코딩하지 않는다.
+
+| 값 | 전달 경로 | 대상 컨테이너 |
+|---|---|---|
+| host, port, engine, username, password, dbClusterIdentifier | 시크릿 `DB_CREDS` (JSON) | `api-server`, `post-processor` |
+| 데이터베이스 이름 | 환경변수 `DB_NAME` | `api-server`, `post-processor` |
+
+**`DB_CREDS`에 `dbname` 키는 없다.** CDK `DatabaseCluster`가 자동 생성하는 시크릿은 `defaultDatabaseName`을 시크릿에 넣지 않기 때문이다. 그래서 DB 이름만 `DB_NAME` 환경변수로 따로 준다. 시크릿에서 `dbname`을 읽으려 하면 `undefined`가 나온다.
+
+`batch-processor`, `otel-collector`, `clickhouse`에는 둘 다 주입하지 않는다. 주입 범위는 `test/application-stack.test.ts`가 양쪽(주입 대상 / 비대상) 모두 검증한다.
 
 ### EdgeStack 모드 A / B
 
@@ -124,7 +138,7 @@ NetworkStack ──> DataStack ──┐
 - Aurora MySQL, RDS PostgreSQL, DynamoDB, ClickHouse 통합 대안과 비교해야 한다.
 - 멘토의 MySQL 경험과 Microsoft SQL Server DBA 전문성은 서로 다른 후보에 활용할 수 있다. 팀원 중 한 명에게 PostgreSQL 프로젝트 경험이 없다는 점까지 포함해 학습 계획과 운영 책임자를 정해야 한다.
 - 같은 Spring Data JPA 대표 워크플로를 PostgreSQL과 MySQL에서 비교하고 RLS connection pool 격리와 GIN 실행계획을 검증한 뒤 `Accepted` 전환 여부를 결정한다.
-- 이 ADR은 DB 엔진만 다룬다. PostgreSQL 16.6, Aurora Serverless v2, `0.5~2 ACU`, `RemovalPolicy.DESTROY`의 근거는 별도 결정으로 남아 있다.
+- 이 ADR은 DB 엔진 선택과 마이너 버전 고정만 다룬다. 버전은 16 계열의 최신 마이너(`VER_16_13`)로 고정하고 `autoMinorVersionUpgrade` 기본값 `true`를 유지하기로 ADR-0012 안에서 결정했다. Aurora Serverless v2, `0.5~2 ACU`, `RemovalPolicy.DESTROY`의 근거는 별도 결정으로 남아 있다.
 
 ### (D) DB 자격 증명 분리 설계
 

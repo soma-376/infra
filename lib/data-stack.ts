@@ -38,7 +38,7 @@ export class DataStack extends Stack {
 
     this.aurora = new DatabaseCluster(this, 'Aurora', {
       engine: DatabaseClusterEngine.auroraPostgres({
-        version: AuroraPostgresEngineVersion.VER_16_6,
+        version: AuroraPostgresEngineVersion.VER_16_13,
       }),
       writer: ClusterInstance.serverlessV2('Writer', {
         // DB subnet group은 2 AZ를 유지하되 writer는 MVP primary AZ에 고정한다.

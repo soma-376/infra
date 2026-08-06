@@ -5,7 +5,7 @@
 
 ## Context
 
-현재 `DataStack`은 Aurora Serverless v2 PostgreSQL 16.6으로 `control` 데이터베이스를 생성한다. 이 구성은 CDK 구현 과정에서 먼저 만들어졌으며, PostgreSQL 엔진을 선택한 근거를 실제 컨트롤 플레인 스키마와 워크로드로 검증하지 않았다. ADR-0002와 ADR-0011도 Aurora PostgreSQL을 이미 정해진 전제처럼 참조하지만 엔진 선택 자체를 결정하지는 않는다.
+현재 `DataStack`은 Aurora Serverless v2 PostgreSQL 16.13으로 `controlplane` 데이터베이스를 생성한다. 이 구성은 CDK 구현 과정에서 먼저 만들어졌으며, PostgreSQL 엔진을 선택한 근거를 실제 컨트롤 플레인 스키마와 워크로드로 검증하지 않았다. ADR-0002와 ADR-0011도 Aurora PostgreSQL을 이미 정해진 전제처럼 참조하지만 엔진 선택 자체를 결정하지는 않는다.
 
 현재 PostgreSQL을 유력 후보로 보는 주요 이유는 다음 두 가지다.
 
@@ -24,7 +24,15 @@
 
 이 결정은 아직 확정하지 않는다. 멀티 테넌시 모델과 GIN 사용처가 미정이고, 실제 스키마와 워크로드 검증 및 팀의 운영 준비가 끝나지 않았으므로 `Proposed` 상태를 유지한다.
 
-이 ADR의 범위는 PostgreSQL 엔진 선택에 한정한다. Aurora Serverless v2와 RDS PostgreSQL 중 어떤 배포 모델을 사용할지, PostgreSQL 16.6을 유지할지, `serverlessV2MinCapacity: 0.5`와 `serverlessV2MaxCapacity: 2`가 적절한지, `RemovalPolicy.DESTROY`를 유지할지는 별도 결정이다.
+이 ADR의 범위는 PostgreSQL 엔진 선택과 그 마이너 버전 고정에 한정한다. Aurora Serverless v2와 RDS PostgreSQL 중 어떤 배포 모델을 사용할지, `serverlessV2MinCapacity: 0.5`와 `serverlessV2MaxCapacity: 2`가 적절한지, `RemovalPolicy.DESTROY`를 유지할지는 별도 결정이다.
+
+### 마이너 버전 고정
+
+PostgreSQL 16 계열 안에서 리전에 가용한 최신 마이너 버전으로 고정한다. 현재 값은 `AuroraPostgresEngineVersion.VER_16_13`이다. 메이저 버전 전환(16에서 17)은 이 결정의 범위가 아니며, 엔진 선택이 `Accepted`로 확정된 뒤 별도로 다룬다.
+
+- 직전 값이던 16.6에는 이후 마이너 릴리스에 누적된 보안 패치와 버그 픽스가 반영되어 있지 않다. MVP 단계에서 아직 운영 데이터가 없으므로 가장 최신 마이너로 시작하는 비용이 가장 낮다.
+- 마이너 버전 변경은 16 계열 안의 in-place 업그레이드다. 파라미터 그룹 패밀리가 `aurora-postgresql16`으로 유지되므로 클러스터 교체(replacement)를 유발하지 않는다. 다만 ADR-0011의 단일 writer 구성에서는 업그레이드 중 짧은 다운타임이 그대로 노출되므로 유지보수 창에서 배포한다.
+- `ClusterInstance.serverlessV2`의 `autoMinorVersionUpgrade`는 CDK 기본값인 `true`를 유지한다. 즉 AWS가 유지보수 창에서 마이너 버전을 자동으로 올릴 수 있고, 그 결과 CDK 코드에 고정한 값과 실제 클러스터 버전이 어긋날 수 있다. MVP 단계에서는 보안 패치가 자동 적용되는 이점이 이 drift보다 크다고 판단해 이를 의도적으로 수용한다. 대신 `cdk drift DataStack`으로 주기적으로 실제 버전을 확인하고, 어긋난 경우 코드 쪽 값을 실제 버전에 맞춘다.
 
 ## Alternatives Considered
 
@@ -39,7 +47,11 @@
 - PostgreSQL 고유 기능을 사용하면 RLS 정책, GIN 인덱스, 쿼리와 마이그레이션이 엔진에 종속된다.
 - PostgreSQL 경험이 없는 팀원의 학습과 운영 준비가 필요하다.
 - 검증 결과 RLS와 GIN의 실질적 이점이 작거나 MySQL의 팀 적합성이 더 높다면 현재 구현을 Aurora MySQL 등으로 교체할 수 있다.
-- 이 ADR은 현재 Aurora Serverless v2 구성의 비용, 용량, 버전, 삭제 정책을 정당화하지 않는다.
+- 이 ADR은 현재 Aurora Serverless v2 구성의 비용, 용량, 삭제 정책을 정당화하지 않는다.
+- `autoMinorVersionUpgrade`를 켜 둔 채 코드에 버전을 고정했으므로, 코드의 버전 값은 실제 클러스터 버전의 하한선일 뿐 정확한 사본이 아니다.
+- 데이터베이스 이름은 RDS의 엔진 예약어 검사를 통과해야 한다. RDS가 적용하는 목록은 PostgreSQL의 reserved 키워드보다 넓어서, 키워드 표에서 non-reserved로 분류된 `control`도 `DatabaseName control cannot be used. It is a reserved word for this engine` 400으로 거부됐다. 그래서 이름을 `controlplane`으로 정했다. 앞으로 이름을 바꿀 때는 PostgreSQL 키워드 표에 아예 등장하지 않는 단어를 고른다.
+- 엔진을 Aurora MySQL로 교체하면 예약어 목록이 달라지므로 데이터베이스 이름을 다시 검증해야 한다.
+- `DatabaseName`은 CloudFormation에서 `Update requires: Replacement`다. 이름을 바꾸려면 클러스터가 교체되므로, 운영 데이터가 생긴 뒤에는 이름 변경을 마이그레이션으로 다뤄야 한다.
 
 ## Open Questions
 
@@ -67,3 +79,6 @@
 - [PostgreSQL 16 - Index Types](https://www.postgresql.org/docs/16/indexes-types.html)
 - [PostgreSQL 16 - JSONB Indexing](https://www.postgresql.org/docs/16/datatype-json.html#JSON-INDEXING)
 - [Amazon Aurora - Aurora Serverless v2 작동 방식](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-serverless-v2.how-it-works.html)
+- [Amazon Aurora PostgreSQL 릴리스 노트](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraPostgreSQLReleaseNotes/AuroraPostgreSQL.Updates.html)
+- [Amazon RDS API - CreateDBInstance `DBName` 제약](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_CreateDBInstance.html)
+- [PostgreSQL 16 - SQL Key Words](https://www.postgresql.org/docs/16/sql-keywords-appendix.html)

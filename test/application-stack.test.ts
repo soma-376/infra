@@ -1,5 +1,10 @@
 import { Template, Match } from 'aws-cdk-lib/assertions';
-import { COMMON_TAGS, ECR_NAMESPACE, ECR_REPOS } from '../lib/config';
+import {
+  COMMON_TAGS,
+  CONTROL_DB_NAME,
+  ECR_NAMESPACE,
+  ECR_REPOS,
+} from '../lib/config';
 import { buildApp } from './helpers';
 
 describe('ApplicationStack', () => {
@@ -125,6 +130,36 @@ describe('ApplicationStack', () => {
         (definition: any) => definition.Name === containerName,
       );
       expect(container.Secrets).toBeUndefined();
+    }
+  });
+
+  test('DB_NAME은 DB_CREDS를 받는 컨테이너에만 주입한다', () => {
+    for (const containerName of ['post-processor', 'api-server']) {
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Name: containerName,
+            Environment: Match.arrayWith([
+              Match.objectLike({ Name: 'DB_NAME', Value: CONTROL_DB_NAME }),
+            ]),
+          }),
+        ]),
+      });
+    }
+
+    for (const containerName of [
+      'otel-collector',
+      'batch-processor',
+      'clickhouse',
+    ]) {
+      const task = taskDefinitionWithContainer(containerName);
+      const container = task.Properties.ContainerDefinitions.find(
+        (definition: any) => definition.Name === containerName,
+      );
+      const names = (container.Environment ?? []).map(
+        (entry: any) => entry.Name,
+      );
+      expect(names).not.toContain('DB_NAME');
     }
   });
 

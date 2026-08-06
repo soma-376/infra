@@ -1,14 +1,16 @@
 import { Template, Match } from 'aws-cdk-lib/assertions';
+import { CONTROL_DB_NAME } from '../lib/config';
 import { buildApp } from './helpers';
 
 describe('DataStack', () => {
   const { data } = buildApp();
   const template = Template.fromStack(data);
 
-  test('creates an Aurora PostgreSQL cluster named control with serverless v2 scaling', () => {
+  test('creates an Aurora PostgreSQL cluster named controlplane with serverless v2 scaling', () => {
     template.hasResourceProperties('AWS::RDS::DBCluster', {
       Engine: 'aurora-postgresql',
-      DatabaseName: 'control',
+      EngineVersion: '16.13',
+      DatabaseName: CONTROL_DB_NAME,
       ServerlessV2ScalingConfiguration: {
         MinCapacity: 0.5,
         MaxCapacity: 2,
