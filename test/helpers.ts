@@ -7,6 +7,12 @@ import { NetworkStack } from '../lib/prod/network-stack';
 import { DataStack } from '../lib/prod/data-stack';
 import { ApplicationStack } from '../lib/prod/application-stack';
 import { EdgeStack } from '../lib/prod/edge-stack';
+import { loadDevConfig } from '../lib/dev/config';
+import { synthDev } from '../lib/dev/app';
+import { DevNetworkStack } from '../lib/dev/network-stack';
+import { DevDataStack } from '../lib/dev/data-stack';
+import { DevApplicationStack } from '../lib/dev/application-stack';
+import { DevEdgeStack } from '../lib/dev/edge-stack';
 
 export const TEST_ENV = { account: '111111111111', region: 'ap-northeast-2' };
 
@@ -44,6 +50,36 @@ export function buildApp(edgeConfig: EdgeConfig = DEFAULT_EDGE): BuiltApp {
   const stacks = synthProd(app, {
     env: TEST_ENV,
     config: { edge: edgeConfig },
+  });
+
+  return { app, ...stacks };
+}
+
+export interface BuiltDevApp {
+  app: App;
+  network: DevNetworkStack;
+  data: DevDataStack;
+  application: DevApplicationStack;
+  edge: DevEdgeStack;
+}
+
+/**
+ * 고정 env 로 dev 4-스택을 조립하는 테스트 팩토리.
+ *
+ * `context` 로 dev context 키(`devAllowedCidr`, `devAppAsgMaxCapacity`,
+ * `devImageTag`)를 주입한다 - CLI 의 `-c key=value` 와 같은 자리다. cdk.json 의
+ * 피처 플래그 위에 덮어쓰므로 위 `buildApp()` 과 같은 합성 조건을 공유한다.
+ *
+ * 스택 조립은 bin/infra.ts(CLI)와 같은 `synthDev` 를 거친다. 손으로 복제하면
+ * CLI synth 결과와 조용히 갈라지며, 그게 ADR-0021 이 없앤 문제다.
+ */
+export function buildDevApp(
+  context: Record<string, unknown> = {},
+): BuiltDevApp {
+  const app = new App({ context: { ...loadCdkContext(), ...context } });
+  const stacks = synthDev(app, {
+    env: TEST_ENV,
+    config: loadDevConfig(app),
   });
 
   return { app, ...stacks };
