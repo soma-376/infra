@@ -1,7 +1,8 @@
-# ADR-0016: 운영자 접속은 SSM 기반으로 (EC2는 Session Manager, Fargate는 ECS Exec)
+# 0016. 운영자 접속은 SSM 기반으로 (EC2는 Session Manager, Fargate는 ECS Exec)
 
-- **Status**: Accepted
-- **Date**: 2026-08-02
+## Status
+
+Accepted
 
 ## Context
 
@@ -58,7 +59,7 @@ ssmmessages:OpenDataChannel
 
 **ClickHouse `Ec2Service`는 제외한다.** 두 가지 이유다. 첫째, SSM으로 호스트에 들어가면 `docker exec`으로 컨테이너에 접근할 수 있어 경로가 중복된다. 둘째, ClickHouse 서비스는 인스턴스 1대와 awsvpc ENI 한도 때문에 `minHealthyPercent: 0`으로 강제 교체 배포만 가능해(ADR-0003, ADR-0004의 제약) 서비스 속성을 바꾸는 비용이 크다.
 
-이 결정의 범위는 **접속 경로 확보까지**다. 세션 감사 로그는 아래 Open Questions로 남긴다.
+이 결정의 범위는 **접속 경로 확보까지**다. 세션 감사 로그는 아래 Follow-up으로 남긴다.
 
 ## Constraints
 
@@ -76,7 +77,13 @@ ssmmessages:OpenDataChannel
 - **EC2 Instance Connect Endpoint**: 인바운드 없이 SSH를 쓸 수 있어 매력적이지만 VPC endpoint를 추가해야 한다. "추가 VPC endpoint는 도입하지 않는다"는 [ADR-0014](0014-keep-clickhouse-in-app-subnet-for-mvp.md)의 결정과 충돌하므로 기각한다.
 - **SSM 인터페이스 VPC endpoint 추가**: NAT를 우회해 보안과 비용 면에서 유리할 수 있으나, 마찬가지로 ADR-0014와 충돌한다. NAT가 이미 있어 기능상 필요하지도 않다.
 
-## Consequences
+## Consequences/Tradeoffs
+
+### Positive
+
+- 이 결정의 이점(SSH 키페어와 인바운드 규칙 없이 접속 경로를 확보한다)은 Context와 Decision에 서술되어 있고, 결과 항목으로는 따로 기록되지 않았다.
+
+### Negative
 
 - **접근 통제의 실체는 인스턴스가 아니라 운영자 IAM에 있다.** 이 정책이 정하는 것은 "이 인스턴스가 SSM에 관리될 수 있다"까지이며, 실제로 누가 들어올 수 있는지는 `ssm:StartSession` 권한을 가진 주체가 결정한다. 그 IAM 정책은 이 레포가 관리하지 않으므로 **계정 차원에서 따로 통제해야 한다.** 이 ADR만으로 접근이 안전해졌다고 볼 수 없다.
 - **Session Manager의 기본 세션 사용자 `ssm-user`는 passwordless sudo 권한을 가진다.** 접속 = 사실상 root다. 읽기 전용 접근이 필요하다면 별도 설정이 필요하다.
@@ -87,17 +94,15 @@ ssmmessages:OpenDataChannel
 - **ECS Exec 세션 출력은 기본적으로 컨테이너의 awslogs 설정을 따른다.** 별도 감사 로그를 남기려면 Cluster의 `executeCommandConfiguration`을 설정해야 하며 이번 범위가 아니다.
 - task role에 붙는 `ssmmessages:*`는 `resources: ['*']`다. CDK 기본 동작이고 해당 액션들은 리소스 수준 제한이 불가능하다.
 
-## Open Questions
+## Follow-up
 
 - 세션 감사 로그를 CloudWatch Logs 또는 S3로 남길 것인가. 남긴다면 KMS 암호화 여부, 보존 기간, 그리고 로그 그룹 정책 전반을 다룰 ADR-0019와 함께 결정한다.
 - `ssm-user`의 sudo 권한을 제한할 것인가. 운영자가 늘어나면 읽기 전용 세션과 관리 세션을 나눌 필요가 생길 수 있다.
 - 배포와 조회에 쓰는 `cfn-user`에 `ssm:DescribeInstanceInformation`과 `ssm:StartSession` 권한을 어떤 범위로 부여할 것인가.
 
-## Revisit Trigger
-
 - 운영자가 늘어 접속 이력 추적이 필요해질 때.
 - 규제나 보안 요건으로 세션 기록이 요구될 때.
-- ClickHouse 전용 subnet이나 VPC endpoint 정책을 재검토하게 될 때(ADR-0014의 Revisit Trigger와 함께 다룬다).
+- ClickHouse 전용 subnet이나 VPC endpoint 정책을 재검토하게 될 때(ADR-0014의 Follow-up과 함께 다룬다).
 
 ## References
 

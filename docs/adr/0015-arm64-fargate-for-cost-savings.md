@@ -1,7 +1,8 @@
-# ADR-0015: Fargate 태스크를 ARM64로 통일
+# 0015. Fargate 태스크를 ARM64로 통일
 
-- **Status**: Accepted
-- **Date**: 2026-08-02
+## Status
+
+Accepted
 
 ## Context
 
@@ -53,7 +54,14 @@ t4g 인스턴스가 이미 Graviton이다. 컴퓨트 전체가 ARM64로 통일�
 - **현행 유지(미지정)**: 아무 이득 없이 CDK/ECS 기본값 변경에 노출되고, 빌드 계약이 문서화되지 않은 상태가 지속된다.
 - **ClickHouse를 x86으로 되돌려 통일**: 아키텍처는 일치하지만 t4g의 비용 이점을 버리는 역방향이라 기각한다. ADR-0003의 비용 판단을 뒤집을 근거가 없다.
 
-## Consequences
+## Consequences/Tradeoffs
+
+### Positive
+
+- [ADR-0003](0003-hybrid-launch-type-ec2-clickhouse-fargate-apps.md)의 Consequences/Tradeoffs에 적힌 Fargate 비용 근거는 이 ADR의 ARM64 요금으로 대체된다.
+- `runtimePlatform` 값은 `lib/config.ts`가 아니라 `lib/application-stack.ts`의 모듈 스코프 상수로 두었다. AGENTS.md의 "공유 상수는 config.ts에" 규칙은 스택 간에 공유되는 리터럴을 대상으로 하는데, 이 값은 CDK enum이고 소비처가 한 파일뿐이다. 현재 `config.ts`는 `aws-cdk-lib/core`만 import하는 가벼운 모듈이라 `aws-ecs` 의존을 새로 들이는 쪽이 손해다.
+
+### Negative
 
 - **앱 레포 3곳이 `linux/arm64`로 빌드해야 한다.** 이 레포는 앱 레포의 CI를 강제할 수 없다([ADR-0009](0009-single-infra-repo-stack-boundary.md), [ADR-0007](0007-precreate-ecr-outside-cdk.md)과 같은 종류의 레포 경계 문제다). 배포 전에 앱 레포 쪽에 전달해야 한다.
 - **이 불일치는 테스트로 잡히지 않는다.** 이미지 URI에는 아키텍처가 드러나지 않으므로 `cdk synth`도 `npm test`도 통과하고, 태스크 기동 시점에만 다음과 같이 실패한다.
@@ -63,11 +71,9 @@ t4g 인스턴스가 이미 Graviton이다. 컴퓨트 전체가 ARM64로 통일�
   ```
 
   ECS는 이 실패를 재시도하므로 배포가 실패로 끝나지 않고 장시간 지연되는 형태로 나타난다. `circuitBreaker`가 꺼져 있어 최대 3시간까지 끌 수 있다.
-- `runtimePlatform` 값은 `lib/config.ts`가 아니라 `lib/application-stack.ts`의 모듈 스코프 상수로 두었다. AGENTS.md의 "공유 상수는 config.ts에" 규칙은 스택 간에 공유되는 리터럴을 대상으로 하는데, 이 값은 CDK enum이고 소비처가 한 파일뿐이다. 현재 `config.ts`는 `aws-cdk-lib/core`만 import하는 가벼운 모듈이라 `aws-ecs` 의존을 새로 들이는 쪽이 손해다.
 - x86 전용 네이티브 바이너리에 의존하는 라이브러리가 앱에 있으면 재검토가 필요하다. JVM과 Go 기반이라면 대개 문제가 없다.
-- [ADR-0003](0003-hybrid-launch-type-ec2-clickhouse-fargate-apps.md)의 Consequences에 적힌 Fargate 비용 근거는 이 ADR의 ARM64 요금으로 대체된다.
 
-## Revisit Trigger
+## Follow-up
 
 - 앱이 arm64 빌드가 불가능한 의존성을 도입할 때. 이 경우 해당 태스크만 x86_64로 되돌릴 수 있다(태스크 정의 단위로 독립적이다).
 - ap-northeast-2에서 ARM 가용량 부족으로 태스크 기동이 지연될 때.

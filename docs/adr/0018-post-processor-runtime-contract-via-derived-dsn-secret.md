@@ -1,7 +1,8 @@
-# ADR-0018: post-processor 런타임 계약을 앱 환경변수에 맞추고 PG DSN을 파생 시크릿으로 주입
+# 0018. post-processor 런타임 계약을 앱 환경변수에 맞추고 PG DSN을 파생 시크릿으로 주입
 
-- **Status**: Accepted
-- **Date**: 2026-08-03
+## Status
+
+Accepted
 
 ## Context
 
@@ -160,7 +161,7 @@ this.postProcessorPgDsnSecret = new Secret(this, 'PostProcessorPgDsn', {
 - **앱이 `DB_CREDS` JSON을 파싱해 DSN을 조립하게 고친다.** 코드 8줄이면 되고 보안·로테이션
   양쪽에서 우월한 **최종 목표**다. 마스터 시크릿이 회전해도 앱이 매번 최신 값을 받는다.
   그러나 앱 레포 변경이 필요해 인프라 단독 배포가 불가능해지고(ADR-0009), compose 개발
-  경험(같은 DSN 형식)이 갈라진다. 이번 범위 밖이며 아래 Revisit Trigger가 이 전환 시점을
+  경험(같은 DSN 형식)이 갈라진다. 이번 범위 밖이며 아래 Follow-up이 이 전환 시점을
   규정한다.
 - **DSN을 `environment`에 동적 참조로 직접 넣는다.** AWS 문서상 `{{resolve:secretsmanager:...}}`는
   "can be used in all resource properties"지만 같은 문단이 경고한다 — "the secret value may
@@ -181,7 +182,9 @@ this.postProcessorPgDsnSecret = new Secret(this, 'PostProcessorPgDsn', {
   mode"이고(게다가 리터럴 IP가 필요한데 ClickHouse ENI 주소는 합성 시점에 알 수 없다),
   `dnsSearchDomains`는 Fargate 태스크 정의 파라미터 목록에 아예 없다.
 
-## Consequences
+## Consequences/Tradeoffs
+
+### Positive
 
 - **`post-processor`가 실제로 동작한다.** `/ecs/post-processor` 로그에
   `clickhouse schema ensured`가 뜨고 503이 사라진다. 이것이 이 ADR의 전부다.
@@ -189,6 +192,9 @@ this.postProcessorPgDsnSecret = new Secret(this, 'PostProcessorPgDsn', {
 - **collector 태스크의 execution role이 읽는 시크릿이 좁아진다.** 마스터 시크릿이 아니라
   파생 DSN 시크릿만 읽는다. `api-server`와 서로 다른 시크릿을 읽게 되어 최소권한에
   가까워진다 — 다만 아래 항목이 이 개선의 한계를 규정한다.
+
+### Negative
+
 - **DSN 안에는 여전히 마스터 비밀번호가 들어 있다.** 실질적인 권한 축소가 아니라 **주입
   형식의 정합화**다. runtime DB user 분리는 별도 과제로 남는다.
 - **파생 시크릿은 `cdk deploy` 시점의 스냅샷이다.** 소스 시크릿이 회전해도 CloudFormation이
@@ -208,7 +214,7 @@ this.postProcessorPgDsnSecret = new Secret(this, 'PostProcessorPgDsn', {
 - **`batch-processor`의 `CLICKHOUSE_HOST`는 여전히 죽은 계약일 가능성이 있다.**
   소스를 확보하면 같은 점검을 반복해야 한다. 이 ADR은 그것을 확인하지 않았다.
 
-## Open Questions
+## Follow-up
 
 - **RDS 조직 스키마를 아무도 부트스트랩하지 않는다.** 앱은 ClickHouse DDL만 기동 시
   멱등 적용하고, PostgreSQL의 `company`/`department`/`employee`/
@@ -220,9 +226,6 @@ this.postProcessorPgDsnSecret = new Secret(this, 'PostProcessorPgDsn', {
   있다(`company`, `employee`는 흔한 이름이다). 별도 DB 또는 스키마 분리는 후속 결정.
 - ClickHouse가 무인증 HTTP로 노출된다. 컨테이너에 user/password 환경변수가 없고 앱 sink에
   인증 헤더가 없다. 현재는 SG로만 막고 있다.
-
-## Revisit Trigger
-
 - **마스터 시크릿 로테이션을 켜는 시점** → 파생 시크릿 설계를 폐기하고 앱이 `DB_CREDS`
   JSON을 파싱하는 방식으로 전환한다. 이 둘은 양립하지 않는다.
 - runtime DB user를 분리하는 시점 → DSN 조립 대상이 마스터에서 그 user로 바뀐다.

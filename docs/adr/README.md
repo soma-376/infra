@@ -24,4 +24,24 @@
 | 0018 | [post-processor 런타임 계약을 앱 환경변수에 맞추고 PG DSN을 파생 시크릿으로 주입](0018-post-processor-runtime-contract-via-derived-dsn-secret.md) | Accepted |
 | 0019 | [ClickHouse 컨테이너 런타임 계약 - compose와 동일한 사용자 설정 + 이미지 태그 고정](0019-clickhouse-container-runtime-contract.md) | Accepted |
 
-새 ADR을 작성할 때는 다음 미사용 번호(`0021-...`)를 사용하고 위 ADR들과 같은 템플릿(Status / Context / Decision / Alternatives Considered / Consequences)을 따른다. `0020`은 로그 그룹 정책 ADR용으로 예약되어 있다(`AGENTS.md` 섹션 5 (F)).
+새 ADR을 작성할 때는 다음 미사용 번호(`0021-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 로그 그룹 정책 ADR용으로 예약되어 있다(`AGENTS.md` 섹션 5 (F)).
+
+섹션 순서는 다음과 같다. 괄호로 표시한 것은 내용이 있을 때만 둔다.
+
+```
+# NNNN. 제목
+
+## Status
+## Context
+## Decision
+## Constraints            (선택)
+## Alternatives Considered
+## Consequences/Tradeoffs
+### Positive
+### Negative
+## Follow-up              (선택 - 재검토 조건과 미결 질문)
+## Acceptance Criteria    (선택)
+## References             (선택)
+```
+
+작성일은 문서에 적지 않는다. `git log --follow <파일>`로 확인한다.

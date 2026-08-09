@@ -1,7 +1,8 @@
-# ADR-0014: MVP에서는 ClickHouse를 app subnet에 유지
+# 0014. MVP에서는 ClickHouse를 app subnet에 유지
 
-- **Status**: Proposed
-- **Date**: 2026-07-27
+## Status
+
+Proposed
 
 ## Context
 
@@ -43,18 +44,23 @@ subnet, 전용 Network ACL, 추가 VPC endpoint는 도입하지 않는다.
   상태 비저장 규칙과 ephemeral port까지 운영해야 한다. 현재 보안 그룹 정책으로
   요구사항을 충족하므로 보류한다.
 
-## Consequences
+## Consequences/Tradeoffs
+
+### Positive
 
 - VPC를 2 AZ × 3계층의 6개 subnet으로 유지하고 추가 CIDR과 route table을
   만들지 않는다.
-- ClickHouse와 Fargate 앱 서비스는 동일한 primary app subnet의 라우팅 및
-  NAT Gateway 장애 범위를 공유한다.
 - ClickHouse 보안 그룹이 워크로드 간 접근 경계를 계속 담당한다.
 - subnet 이동에 따른 ClickHouse EC2 교체와 로컬 EBS 데이터 유실 위험을
   현재 배포에 추가하지 않는다.
+
+### Negative
+
+- ClickHouse와 Fargate 앱 서비스는 동일한 primary app subnet의 라우팅 및
+  NAT Gateway 장애 범위를 공유한다.
 - subnet 단위의 독립 egress, Network ACL, IP 용량 관리는 제공하지 않는다.
 
-## Revisit Trigger
+## Follow-up
 
 다음 중 하나가 발생하면 ClickHouse 전용 subnet 도입을 다시 검토한다.
 

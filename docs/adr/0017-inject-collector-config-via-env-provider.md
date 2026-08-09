@@ -1,7 +1,8 @@
-# ADR-0017: Collector config를 env provider로 주입
+# 0017. Collector config를 env provider로 주입
 
-- **Status**: Accepted
-- **Date**: 2026-08-02
+## Status
+
+Accepted
 
 ## Context
 
@@ -108,7 +109,19 @@ config는 이 시스템의 데이터 처리 규칙 그 자체(무엇을 마스�
   써 주므로 형태가 비슷하다. 그러나 이미지를 교체해야 하고, contrib 전용인 `redaction`과
   `filter`의 OTTL 컴포넌트를 잃는다. 우리 config가 정확히 그 둘에 의존하므로 기각한다.
 
-## Consequences
+## Consequences/Tradeoffs
+
+### Positive
+
+- **`post-processor`로 보내는 endpoint는 `localhost`다.** Fargate는 `awsvpc` 네트워크 모드라
+  같은 태스크의 컨테이너가 네트워크 네임스페이스를 공유한다. Cloud Map
+  ([ADR-0005](0005-cloud-map-private-dns-discovery.md))도 컨테이너 링크도 아니다.
+  이것이 [ADR-0004](0004-task-level-colocation.md) co-location의 직접적 이득이다.
+- 상수 배치는 [ADR-0015](0015-arm64-fargate-for-cost-savings.md)의 판단을 따른다. `PORTS`처럼
+  스택 간 공유되는 리터럴만 `lib/config.ts`에 두고, config 파일 경로처럼 소비처가 한 곳인 값은
+  `lib/application-stack.ts`에 남긴다.
+
+### Negative
 
 - **config 변경에는 `cdk deploy`가 필요하다.** 운영자가 콘솔에서 즉시 고칠 수 없다.
   긴급 상황에서 마스킹 규칙 하나를 바꾸려 해도 인프라 배포 경로를 타야 한다.
@@ -139,10 +152,6 @@ config는 이 시스템의 데이터 처리 규칙 그 자체(무엇을 마스�
   포트를 바인딩하는 셈이다. 필요해지면 SG·타깃 그룹과 함께 열되, ALB의 gRPC 지원은 HTTP/2와
   TLS를 요구하므로 [ADR-0008](0008-dual-auth-alb-cognito-and-otlp-token.md)의 모드 B
   (HTTP 폴백)에서는 쓸 수 없다.
-- **`post-processor`로 보내는 endpoint는 `localhost`다.** Fargate는 `awsvpc` 네트워크 모드라
-  같은 태스크의 컨테이너가 네트워크 네임스페이스를 공유한다. Cloud Map
-  ([ADR-0005](0005-cloud-map-private-dns-discovery.md))도 컨테이너 링크도 아니다.
-  이것이 [ADR-0004](0004-task-level-colocation.md) co-location의 직접적 이득이다.
 - **config 오류는 기존 테스트로 잡히지 않는다.** `cdk synth`와 `npm test`는 문자열을 문자열로만
   다루므로 컴포넌트 이름 오타나 스키마 위반을 통과시킨다. 이를 보완하기 위해
   `test/application-stack.test.ts`에 파이프라인 참조 정합성 검사를 둔다.
@@ -162,11 +171,8 @@ config는 이 시스템의 데이터 처리 규칙 그 자체(무엇을 마스�
 
   `Everything is ready.`가 나와야 통과다. 정리할 때 `--filter ancestor=...` 같은 광범위
   매칭을 쓰면 같은 이미지를 쓰는 로컬 개발 컨테이너까지 지운다. 실제로 한 번 그랬다.
-- 상수 배치는 [ADR-0015](0015-arm64-fargate-for-cost-savings.md)의 판단을 따른다. `PORTS`처럼
-  스택 간 공유되는 리터럴만 `lib/config.ts`에 두고, config 파일 경로처럼 소비처가 한 곳인 값은
-  `lib/application-stack.ts`에 남긴다.
 
-## Revisit Trigger
+## Follow-up
 
 - 운영자가 재배포 없이 config를 고쳐야 하는 상황이 반복될 때 → SSM Parameter Store로 전환.
   단 크기 한도(Advanced 8 KB) 안에 들어오는지 먼저 확인한다.

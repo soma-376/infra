@@ -1,7 +1,8 @@
-# ADR-0004: 서비스 묶음 - 태스크 단위 co-location
+# 0004. 서비스 묶음 - 태스크 단위 co-location
 
-- **Status**: Accepted
-- **Date**: 2026-07-24
+## Status
+
+Accepted
 
 ## Context
 
@@ -22,11 +23,17 @@ ECS Cluster는 1개로 유지하고, 서비스 묶음은 태스크 정의 단위
 - **서비스 4개로 전부 분리**: 태스크 간 통신 오버헤드와 비용이 증가해 기각.
 - **처음부터 batch를 api-server에 내장**: 아직 결정되지 않아 채택하지 않음.
 
-## Consequences
+## Consequences/Tradeoffs
+
+### Positive
 
 - 같은 태스크 내 컨테이너는 localhost로 통신하므로, Collector와 Post Processor 간 신호 파이프라인이 단순해진다.
 - `batch-processor`가 API Server 소스로 흡수되는 시점에는 `addContainer("batch-processor")` 블록만 제거하면 이행이 끝난다. 같은 태스크에 배치해 둔 덕분에 이 전환이 자연스럽다.
 
-## Open Questions
+### Negative
+
+- 이 결정에 대해 원문에 기록된 부정적 결과는 없다. 트레이드오프는 위 Alternatives Considered의 기각 사유로 갈음한다.
+
+## Follow-up
 
 - Batch Processor를 API Server 소스로 흡수할지 여부는 아직 미결이다.
