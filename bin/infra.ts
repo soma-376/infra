@@ -1,6 +1,8 @@
 import { App } from 'aws-cdk-lib/core';
 import { loadConfig } from '../lib/prod/config';
 import { synthProd } from '../lib/prod/app';
+import { loadDevConfig } from '../lib/dev/config';
+import { synthDev } from '../lib/dev/app';
 
 const app = new App();
 
@@ -15,8 +17,8 @@ const env = {
 if (envName === 'prod') {
   synthProd(app, { env, config: loadConfig(app) });
 } else if (envName === 'dev') {
-  // lib/dev 는 후속 커밋에서 추가된다.
-  throw new Error('dev 환경은 아직 구현되지 않았다 (PROJ-37 후속 커밋).');
+  // loadDevConfig 는 App 노드의 context 를 읽으므로 App 생성 이후여야 한다.
+  synthDev(app, { env, config: loadDevConfig(app) });
 } else {
   throw new Error(`알 수 없는 env 컨텍스트: ${envName} (dev | prod)`);
 }
