@@ -7,7 +7,7 @@ import {
   CLICKHOUSE_HTTP_URL,
   CLICKHOUSE_IMAGE,
   PORTS,
-} from '../lib/config';
+} from '../../lib/common/config';
 
 // lib/config.ts 의 순수 함수/상수는 CDK 리소스를 만들지 않으므로 template assertion
 // 대신 일반 단위 테스트로 검증한다 (AGENTS.md 섹션 7 의 명시적 예외).

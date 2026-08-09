@@ -1,11 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { App } from 'aws-cdk-lib/core';
-import { applyCommonTags, EdgeConfig } from '../lib/config';
-import { NetworkStack } from '../lib/network-stack';
-import { DataStack } from '../lib/data-stack';
-import { ApplicationStack } from '../lib/application-stack';
-import { EdgeStack } from '../lib/edge-stack';
+import { EdgeConfig } from '../lib/prod/config';
+import { synthProd } from '../lib/prod/app';
+import { NetworkStack } from '../lib/prod/network-stack';
+import { DataStack } from '../lib/prod/data-stack';
+import { ApplicationStack } from '../lib/prod/application-stack';
+import { EdgeStack } from '../lib/prod/edge-stack';
 
 export const TEST_ENV = { account: '111111111111', region: 'ap-northeast-2' };
 
@@ -38,39 +39,14 @@ function loadCdkContext(): Record<string, unknown> {
 
 export function buildApp(edgeConfig: EdgeConfig = DEFAULT_EDGE): BuiltApp {
   const app = new App({ context: loadCdkContext() });
-  // bin/infra.ts 와 동일하게 공통 태그를 적용해 CLI synth 결과와 일치시킨다.
-  applyCommonTags(app);
-  const env = TEST_ENV;
-
-  const network = new NetworkStack(app, 'NetworkStack', { env });
-
-  const data = new DataStack(app, 'DataStack', {
-    env,
-    vpc: network.vpc,
-    auroraSecurityGroup: network.auroraSecurityGroup,
+  // 스택 조립과 공통 태그 적용은 bin/infra.ts 와 같은 `synthProd` 를 거친다.
+  // 손으로 복제하면 CLI synth 결과와 조용히 갈라진다.
+  const stacks = synthProd(app, {
+    env: TEST_ENV,
+    config: { edge: edgeConfig },
   });
 
-  const application = new ApplicationStack(app, 'ApplicationStack', {
-    env,
-    vpc: network.vpc,
-    dbSecret: data.dbSecret,
-    postProcessorPgDsnSecret: data.postProcessorPgDsnSecret,
-    rawSignalBucket: data.rawSignalBucket,
-    collectorSecurityGroup: network.collectorSecurityGroup,
-    dashboardSecurityGroup: network.dashboardSecurityGroup,
-    clickhouseSecurityGroup: network.clickhouseSecurityGroup,
-  });
-
-  const edge = new EdgeStack(app, 'EdgeStack', {
-    env,
-    vpc: network.vpc,
-    collectorService: application.collectorService,
-    dashboardService: application.dashboardService,
-    albSecurityGroup: network.albSecurityGroup,
-    edge: edgeConfig,
-  });
-
-  return { app, network, data, application, edge };
+  return { app, ...stacks };
 }
 
 /** 모드 A(HTTPS + ALB 인증) EdgeConfig. */

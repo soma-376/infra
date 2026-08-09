@@ -1,7 +1,7 @@
 import { Template } from 'aws-cdk-lib/assertions';
 import { CfnSubnet } from 'aws-cdk-lib/aws-ec2';
-import { PRIMARY_AZ_INDEX, SUBNET_GROUP } from '../lib/config';
-import { buildApp } from './helpers';
+import { PRIMARY_AZ_INDEX, SUBNET_GROUP } from '../../lib/prod/config';
+import { buildApp } from '../helpers';
 
 describe('전체 인프라', () => {
   test('애플리케이션 컴퓨트와 Aurora writer는 모두 primary AZ에 배치한다', () => {
