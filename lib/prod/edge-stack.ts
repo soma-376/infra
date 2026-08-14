@@ -28,7 +28,8 @@ import { AuthenticateCognitoAction } from 'aws-cdk-lib/aws-elasticloadbalancingv
 import { Distribution, ViewerProtocolPolicy } from 'aws-cdk-lib/aws-cloudfront';
 import { S3BucketOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
 import { BlockPublicAccess, Bucket } from 'aws-cdk-lib/aws-s3';
-import { EdgeConfig, PORTS, SUBNET_GROUP } from './config';
+import { PORTS } from '../common/config';
+import { EdgeConfig, SUBNET_GROUP } from './config';
 
 export interface EdgeStackProps extends StackProps {
   readonly vpc: IVpc;

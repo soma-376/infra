@@ -8,7 +8,8 @@ import {
   SubnetType,
   Vpc,
 } from 'aws-cdk-lib/aws-ec2';
-import { PORTS, SUBNET_GROUP } from './config';
+import { PORTS } from '../common/config';
+import { SUBNET_GROUP } from './config';
 
 /**
  * NetworkStack: VPC(단일 AZ, 3계층) + S3 게이트웨이 엔드포인트 + SG 5개 전부.

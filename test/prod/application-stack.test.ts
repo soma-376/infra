@@ -6,14 +6,14 @@ import {
   CLICKHOUSE_HOST,
   CLICKHOUSE_HTTP_URL,
   CLICKHOUSE_IMAGE,
-  COMMON_TAGS,
   CONTROL_DB_NAME,
   ECR_NAMESPACE,
   ECR_REPOS,
   ENRICHMENT_ENV,
   PORTS,
-} from '../lib/config';
-import { buildApp } from './helpers';
+} from '../../lib/common/config';
+import { COMMON_TAGS } from '../../lib/prod/config';
+import { buildApp } from '../helpers';
 
 describe('ApplicationStack', () => {
   const { application } = buildApp();

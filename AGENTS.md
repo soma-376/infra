@@ -18,13 +18,27 @@ AI Tool / 브라우저 → ALB → OTel Collector → ClickHouse (분석)
 - ADR-0009에 따라 **인프라는 이 레포에서만 관리한다.** 앱 레포(Collector & Processor, Dashboard Backend)의 CI는 이미지 빌드 → ECR push → `ecs update-service --force-new-deployment` 까지만 수행한다. 앱 배포가 `cdk deploy`를 유발하지 않는다.
 - 태스크 정의를 바꾸려면 **반드시 이 레포를 경유**해야 한다.
 - 대상 region은 **`ap-northeast-2`**다. account는 `CDK_DEFAULT_ACCOUNT`에서만 주입하며 코드와 문서에 기록하지 않는다.
+- **환경은 둘이다** — 운영(`lib/prod/`)과 개발(`lib/dev/`)이 **같은 계정·같은 리전**에 공존한다. 진입점 `bin/infra.ts`는 `-c env=dev|prod` 컨텍스트 하나만 읽고 `synthProd()` / `synthDev()`로 조립을 위임한다. **기본값은 `prod`**이므로 무인자 `cdk deploy`는 여전히 운영을 대상으로 한다. (ADR-0021, ADR-0022)
 - 설계 근거는 전부 `docs/adr/`에 있다. 코드와 ADR이 어긋나면 ADR이 기준이다.
 
 ---
 
 ## 2. 스택 구조와 의존 방향
 
-스택은 4개다. 의존 관계는 **`bin/infra.ts`에서 construct 참조를 props로 넘기는 방식**으로만 표현한다. 수동 `Fn::ImportValue`나 SSM 우회 참조를 새로 도입하지 않는다.
+환경마다 스택이 4개다. 의존 관계는 **`lib/prod/app.ts`의 `synthProd()` / `lib/dev/app.ts`의 `synthDev()`에서 construct 참조를 props로 넘기는 방식**으로만 표현한다. 수동 `Fn::ImportValue`나 SSM 우회 참조를 새로 도입하지 않는다.
+
+```
+lib/
+├── common/   환경 무관 계약 상수 + 순수 헬퍼 (config.ts, clickhouse-user-data.ts)
+├── prod/     운영 4스택 + app.ts(synthProd) + config.ts
+└── dev/      dev 4스택 + app.ts(synthDev) + config.ts
+test/
+├── prod/     운영 스위트 6개
+├── dev/      dev 스위트 5개
+└── helpers.ts   buildApp() / buildDevApp() / MODE_A_EDGE / TEST_ENV
+```
+
+폴더 간 의존 방향은 **`prod → common`, `dev → common` 단방향**이다 (ADR-0021 2번). 스택 간 의존 형태는 두 환경이 같다.
 
 ```
 NetworkStack ──> DataStack ──┐
@@ -32,12 +46,14 @@ NetworkStack ──> DataStack ──┐
      └───────────────────────┘
 ```
 
+### 운영 스택 (prod)
+
 | 스택 | 파일 | 주요 리소스 |
 |---|---|---|
-| `NetworkStack` | `lib/network-stack.ts` | VPC (2 AZ × 3 티어 = 6 서브넷, NAT 1개), S3 Gateway Endpoint, **SG 5개 전부 + 모든 cross-SG 룰** |
-| `DataStack` | `lib/data-stack.ts` | Aurora Serverless v2 PostgreSQL 16.13 (`controlplane` DB, 0.5~2 ACU), Raw Signal S3 버킷 (30일 만료) |
-| `ApplicationStack` | `lib/application-stack.ts` | ECS 클러스터, Cloud Map `obs.local`, Fargate 서비스 2개, ClickHouse EC2 (t4g.small + ASG 캐패시티 프로바이더) |
-| `EdgeStack` | `lib/edge-stack.ts` | ALB (모드 A/B 분기), Cognito User Pool, CloudFront + 프론트엔드 S3 |
+| `NetworkStack` | `lib/prod/network-stack.ts` | VPC (2 AZ × 3 티어 = 6 서브넷, NAT 1개), S3 Gateway Endpoint, **SG 5개 전부 + 모든 cross-SG 룰** |
+| `DataStack` | `lib/prod/data-stack.ts` | Aurora Serverless v2 PostgreSQL 16.13 (`controlplane` DB, 0.5~2 ACU), Raw Signal S3 버킷 (30일 만료) |
+| `ApplicationStack` | `lib/prod/application-stack.ts` | ECS 클러스터, Cloud Map `obs.local`, Fargate 서비스 2개, ClickHouse EC2 (t4g.small + ASG 캐패시티 프로바이더) |
+| `EdgeStack` | `lib/prod/edge-stack.ts` | ALB (모드 A/B 분기), Cognito User Pool, CloudFront + 프론트엔드 S3 |
 
 **서비스 구성** (ADR-0004: 태스크 단위 co-location)
 
@@ -47,6 +63,27 @@ NetworkStack ──> DataStack ──┐
 | `DashboardTask` (Fargate **ARM64**, 512/2048) | `api-server` (ECR, :8080), `batch-processor` (ECR) | Spring Boot 고려. Fargate는 CPU/메모리 조합이 고정이라 512 CPU에는 1024/2048/3072/4096만 쓸 수 있다 (1536은 생성 실패) |
 | `ClickhouseTask` (EC2, awsvpc) | `clickhouse` (public image **`:24.8-alpine` 고정**, :8123/:9000) | 호스트 볼륨 `/data/clickhouse` |
 
+### dev 스택
+
+스택 ID는 `Dev` 접두사를 쓴다. **같은 계정·같은 리전에서 CloudFormation 스택 이름이 유일해야 하므로, 이 접두사가 두 환경이 서로를 덮어쓰지 않게 하는 유일한 장치다** (ADR-0021 3번).
+
+| 스택 | 파일 | 주요 리소스 |
+|---|---|---|
+| `DevNetworkStack` | `lib/dev/network-stack.ts` | 전용 VPC (`10.1.0.0/16`, 2 AZ × public 1 티어, **NAT 0개**), S3 Gateway Endpoint, **SG 5개 전부 + 모든 cross-SG 룰** |
+| `DevDataStack` | `lib/dev/data-stack.ts` | RDS PostgreSQL 16.13 `db.t4g.micro` (`controlplane` DB, gp3 20GB, **`publiclyAccessible`**), post-processor 파생 DSN 시크릿, Raw Signal S3 버킷 (7일 만료) |
+| `DevApplicationStack` | `lib/dev/application-stack.ts` | ECS 클러스터, Cloud Map `obs.local`, ASG 2개 (앱 `t4g.medium` / ClickHouse `t4g.small`) + 캐패시티 프로바이더 2개, `Ec2Service` 3개 |
+| `DevEdgeStack` | `lib/dev/edge-stack.ts` | internet-facing ALB (:80, :8123), `CfnOutput` 6개. **Cognito·CloudFront·프론트엔드 S3는 만들지 않는다** |
+
+**dev 태스크 구성** — 세 태스크가 서로 다른 이유로 서로 다른 네트워크 모드를 요구한다 (ADR-0022 4번).
+
+| 태스크 | 컨테이너 | 네트워크 모드 | 그 모드여야 하는 이유 |
+|---|---|---|---|
+| `DevCollectorTask` | `otel-collector` (:4318), `post-processor` | **awsvpc** | `config/otel-collector.yaml`의 `http://localhost:8080` exporter는 태스크 내 네트워크 네임스페이스 공유가 전제다 |
+| `DevDashboardTask` | `api-server` (:8080, 동적 호스트 포트), `batch-processor` | **bridge** | 두 컨테이너 사이에 localhost 의존이 없다. 호스트 ENI를 타므로 인터넷 egress와 ECS Exec이 살아난다 |
+| `DevClickhouseTask` | `clickhouse` (:8123/:9000) | **awsvpc** | Cloud Map A 레코드(`clickhouse.obs.local`) 등록에는 태스크 전용 IP가 필요하다. bridge면 SRV만 등록된다 |
+
+세 서비스 모두 `desiredCount: 1` + `minHealthyPercent: 0` / `maxHealthyPercent: 100` 교체 배포다 (t4g의 인스턴스당 ENI 한도 3, ADR-0022 Constraints). ALB 타깃 타입도 네트워크 모드의 귀결이다 — awsvpc는 `ip`, bridge는 `instance`.
+
 ---
 
 ## 3. 반드시 지켜야 할 불변 규칙
@@ -55,24 +92,35 @@ NetworkStack ──> DataStack ──┐
 
 | 규칙 | 왜 |
 |---|---|
-| **SG 5개와 모든 cross-SG 룰은 `NetworkStack`에만 정의한다** | SG 참조가 스택 내부 참조가 되어 스택 간 순환 의존을 원천 차단한다. 하류 스택은 props로 주입만 받는다. (`lib/network-stack.ts:13-18` 헤더 주석) |
+| **SG 5개와 모든 cross-SG 룰은 `NetworkStack`에만 정의한다** | SG 참조가 스택 내부 참조가 되어 스택 간 순환 의존을 원천 차단한다. 하류 스택은 props로 주입만 받는다. (`lib/prod/network-stack.ts`의 클래스 헤더 주석. `DevNetworkStack`이 같은 규칙을 그대로 계승한다 - ADR-0022 2번) |
 | **ECR 레포를 CDK로 만들지 않는다** | `Repository.fromRepositoryName`으로 참조만 한다. CDK가 만들면 첫 배포에서 "이미지 없는 레포" → 태스크 기동 실패 → 롤백으로 레포까지 삭제되는 순환이 생긴다. (ADR-0007) |
-| **ECR 레포 이름은 `soma-376/` 네임스페이스 아래에 둔다** | 네임스페이스는 `COMMON_TAGS.Org`와 같은 값이다. 비용 배분 태그 축과 레지스트리 경로를 같은 식별자로 정렬한다. ECR은 레포 이름 변경이 불가능해 사후 교정에 재생성 + 이미지 재push가 든다. (`lib/config.ts`의 `ECR_NAMESPACE`, ADR-0007) |
-| **`batch-processor`는 `essential: false`** | 배치 실패가 같은 태스크의 api-server를 함께 내리면 안 된다. (`lib/application-stack.ts:201`, ADR-0004) |
-| **ClickHouse `Ec2Service`는 `minHealthyPercent: 0` / `maxHealthyPercent: 100`** | 인스턴스 1대 + awsvpc ENI 한도상 롤링 배포가 불가능하다. 강제 교체 배포만 가능하다. (`lib/application-stack.ts:306-307`) |
-| **`AsgCapacityProvider`의 `enableManagedTerminationProtection: false`** | 단일 인스턴스 교체 배포를 관리형 종료 보호가 막는다. (`lib/application-stack.ts:258`) |
-| **DB 시크릿은 참조만 노출한다** | `data.dbSecret`(`ISecret`)을 넘길 뿐, **합성 시점에 값을 평문으로 읽는 코드**는 절대 넣지 않는다. 컨테이너에는 `Secret.fromSecretsManager`로 주입한다. **예외는 `DataStack`의 `PostProcessorPgDsn` 파생 시크릿 하나뿐이며**, 거기서도 `unsafeUnwrap()`이 돌려주는 건 평문이 아니라 `{{resolve:secretsmanager:...}}` 동적 참조 토큰이다(합성 산출물은 `Fn::Join` + `Ref`뿐). 새 예외를 만들려면 ADR-0018을 먼저 갱신한다. (`lib/data-stack.ts`, ADR-0018) |
-| **`post-processor`의 환경변수 이름은 앱 소스가 권위다** | 앱은 `ENRICHMENT_CH_URL` / `ENRICHMENT_CH_DB` / `ENRICHMENT_PG_DSN` **세 개만** 읽는다 (`ai-telemetry-pipeline`의 `src/enrichment/sink_clickhouse.py:43,47`, `src/enrichment/rds.py:21`). 이름이 하나라도 틀리면 앱은 예외 없이 compose 전용 기본값으로 **조용히 폴백**하고, ECS에서는 DNS가 안 풀려 모든 insert가 `BackendUnavailable` → HTTP 503이 된다. **synth도 테스트도 배포도 전부 통과한다** — 인프라 테스트는 "앱이 그 이름을 읽는가"를 원리적으로 검증할 수 없다. 죽은 계약(`CLICKHOUSE_HOST`·`DB_CREDS`·`DB_NAME`)을 다시 넣지 않는다. (`lib/config.ts`의 `ENRICHMENT_ENV`, ADR-0018) |
-| **ClickHouse 컨테이너의 `CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1'`과 고정 태그를 지우지 않는다** | 이미지 entrypoint는 `CLICKHOUSE_USER`/`CLICKHOUSE_PASSWORD`/`CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT`가 전부 비면 `default` 유저를 **루프백 전용**으로 잠근다(`disabling network access for user 'default'`). 그러면 `post-processor`의 모든 적재가 403 `Code: 516 ... Authentication failed`로 죽고 앱이 그걸 `BackendUnavailable`→503으로 바꾼다. **synth도 테스트도 배포도 전부 통과한다** — 실제로 이렇게 깨졌다. 조건식상 `USER='default'`와 `PASSWORD=''`는 분기를 못 열고 **`DEFAULT_ACCESS_MANAGEMENT`만 연다**(나머지 셋은 compose 정합성용). 태그를 빼면 `latest`가 되어 재기동마다 이 entrypoint 로직 자체가 바뀔 수 있다. 비밀번호가 없는 것도 의도다 — 앱이 자격증명을 아예 보내지 않으므로 접근 통제는 `clickhouseSecurityGroup`이 담당한다. (`lib/config.ts`의 `CLICKHOUSE_IMAGE`·`CLICKHOUSE_CONTAINER_ENV`, ADR-0019) |
-| **Aurora 자동 생성 비밀번호의 `ExcludeCharacters`와 따옴표 없는 libpq DSN은 한 몸이다** | `buildLibpqDsn()`은 값을 따옴표로 감싸지 않는다 — 합성 시점에 user/password는 토큰이라 감쌀 방법이 없다. aws-rds의 `DEFAULT_PASSWORD_EXCLUDE_CHARS`가 공백·`'`·`"`·`\` 넷을 전부 빼주기 때문에만 성립하는 **우연한 커플링**이다. 깨지면 배포는 성공하고 `post-processor`만 런타임에 죽는다. 그 상수는 공개 export가 아니므로 `test/data-stack.test.ts`가 **합성 템플릿의 `ExcludeCharacters`** 로 고정한다. (ADR-0018) |
+| **ECR 레포 이름은 `soma-376/` 네임스페이스 아래에 둔다** | 네임스페이스는 `COMMON_TAGS.Org`와 같은 값이다. 비용 배분 태그 축과 레지스트리 경로를 같은 식별자로 정렬한다. ECR은 레포 이름 변경이 불가능해 사후 교정에 재생성 + 이미지 재push가 든다. (`lib/common/config.ts`의 `ECR_NAMESPACE`, ADR-0007) |
+| **`batch-processor`는 `essential: false`** | 배치 실패가 같은 태스크의 api-server를 함께 내리면 안 된다. (`lib/prod/application-stack.ts:279`, dev는 `lib/dev/application-stack.ts:462`, ADR-0004) |
+| **ClickHouse `Ec2Service`는 `minHealthyPercent: 0` / `maxHealthyPercent: 100`** | 인스턴스 1대 + awsvpc ENI 한도상 롤링 배포가 불가능하다. 강제 교체 배포만 가능하다. (`lib/prod/application-stack.ts:397-398`. dev는 세 서비스 전부 같은 값이며 `lib/dev/application-stack.ts`의 `REPLACEMENT_DEPLOYMENT` 상수가 이를 강제한다 - ADR-0022 Constraints) |
+| **`AsgCapacityProvider`의 `enableManagedTerminationProtection: false`** | 단일 인스턴스 교체 배포를 관리형 종료 보호가 막는다. (`lib/prod/application-stack.ts:346`, dev는 `lib/dev/application-stack.ts`의 `addCapacityProvider`) |
+| **DB 시크릿은 참조만 노출한다** | `data.dbSecret`(`ISecret`)을 넘길 뿐, **합성 시점에 값을 평문으로 읽는 코드**는 절대 넣지 않는다. 컨테이너에는 `Secret.fromSecretsManager`로 주입한다. **예외는 `DataStack`의 `PostProcessorPgDsn` 파생 시크릿 하나뿐이며**, 거기서도 `unsafeUnwrap()`이 돌려주는 건 평문이 아니라 `{{resolve:secretsmanager:...}}` 동적 참조 토큰이다(합성 산출물은 `Fn::Join` + `Ref`뿐). 새 예외를 만들려면 ADR-0018을 먼저 갱신한다. (`lib/prod/data-stack.ts`, dev는 `lib/dev/data-stack.ts`의 `DevPostProcessorPgDsn`, ADR-0018) |
+| **`post-processor`의 환경변수 이름은 앱 소스가 권위다** | 앱은 `ENRICHMENT_CH_URL` / `ENRICHMENT_CH_DB` / `ENRICHMENT_PG_DSN` **세 개만** 읽는다 (`ai-telemetry-pipeline`의 `src/enrichment/sink_clickhouse.py:43,47`, `src/enrichment/rds.py:21`). 이름이 하나라도 틀리면 앱은 예외 없이 compose 전용 기본값으로 **조용히 폴백**하고, ECS에서는 DNS가 안 풀려 모든 insert가 `BackendUnavailable` → HTTP 503이 된다. **synth도 테스트도 배포도 전부 통과한다** — 인프라 테스트는 "앱이 그 이름을 읽는가"를 원리적으로 검증할 수 없다. 죽은 계약(`CLICKHOUSE_HOST`·`DB_CREDS`·`DB_NAME`)을 다시 넣지 않는다. **dev도 같은 이름을 쓴다** - 계약이 환경마다 갈리면 "dev에서 검증했다"는 말의 의미가 사라진다. (`lib/common/config.ts`의 `ENRICHMENT_ENV`, ADR-0018, ADR-0021 2번) |
+| **ClickHouse 컨테이너의 `CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1'`과 고정 태그를 지우지 않는다** | 이미지 entrypoint는 `CLICKHOUSE_USER`/`CLICKHOUSE_PASSWORD`/`CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT`가 전부 비면 `default` 유저를 **루프백 전용**으로 잠근다(`disabling network access for user 'default'`). 그러면 `post-processor`의 모든 적재가 403 `Code: 516 ... Authentication failed`로 죽고 앱이 그걸 `BackendUnavailable`→503으로 바꾼다. **synth도 테스트도 배포도 전부 통과한다** — 실제로 이렇게 깨졌다. 조건식상 `USER='default'`와 `PASSWORD=''`는 분기를 못 열고 **`DEFAULT_ACCESS_MANAGEMENT`만 연다**(나머지 셋은 compose 정합성용). 태그를 빼면 `latest`가 되어 재기동마다 이 entrypoint 로직 자체가 바뀔 수 있다. 비밀번호가 없는 것도 의도다 — 앱이 자격증명을 아예 보내지 않으므로 접근 통제는 `clickhouseSecurityGroup`이 담당한다. (`lib/common/config.ts`의 `CLICKHOUSE_IMAGE`·`CLICKHOUSE_CONTAINER_ENV` - dev/prod가 같은 상수를 전개한다, ADR-0019) |
+| **Aurora 자동 생성 비밀번호의 `ExcludeCharacters`와 따옴표 없는 libpq DSN은 한 몸이다** | `buildLibpqDsn()`은 값을 따옴표로 감싸지 않는다 — 합성 시점에 user/password는 토큰이라 감쌀 방법이 없다. aws-rds의 `DEFAULT_PASSWORD_EXCLUDE_CHARS`가 공백·`'`·`"`·`\` 넷을 전부 빼주기 때문에만 성립하는 **우연한 커플링**이다. 깨지면 배포는 성공하고 `post-processor`만 런타임에 죽는다. 그 상수는 공개 export가 아니므로 `test/prod/data-stack.test.ts`가 **합성 템플릿의 `ExcludeCharacters`** 로 고정한다. dev의 `DatabaseInstance`도 같은 상수에 기대므로 `test/dev/data-stack.test.ts`가 같은 어서션을 갖는다. (ADR-0018, ADR-0022 7번) |
 | **`batch-processor`·`api-server`의 계약과 `RAW_BUCKET`은 건드리지 않는다** | 두 컨테이너는 소스 코드가 확보되지 않아 실제로 무엇을 읽는지 알 수 없다. `post-processor`를 고쳤다는 이유로 함께 "정리"하면 멀쩡한 계약을 깨뜨린다. `post-processor`의 `RAW_BUCKET`도 같은 이유로 남긴다 — ADR-0017의 `awss3` exporter 전환용이며 태스크 역할의 `grantReadWrite`와 한 몸이다. (ADR-0018) |
-| **Fargate 태스크는 ARM64로 고정한다** | `runtimePlatform`을 빼면 CDK 기본값(미지정)으로 돌아가 x86_64가 된다. 앱 레포도 반드시 `linux/arm64` 이미지를 push해야 하며, amd64를 올리면 synth와 테스트는 통과하지만 런타임에 이미지 pull이 실패한다. ClickHouse EC2(t4g)와 아키텍처를 맞추고 x86 대비 약 20% 저렴하다. (`lib/application-stack.ts`의 `FARGATE_RUNTIME_PLATFORM`, ADR-0015) |
-| **Collector 설정은 `config/otel-collector.yaml`에만 둔다** | synth 시점에 파일을 읽어 `OTEL_CONFIG` 환경변수로 주입하고 `--config=env:OTEL_CONFIG`로 기동한다. 파일 경로·환경변수 이름·`command` 세 가지는 한 몸이라 함께 바꿔야 한다. **이 값은 CFN 템플릿과 ECS 콘솔에 평문으로 남으므로 시크릿을 넣으면 안 된다.** (`lib/application-stack.ts`의 `COLLECTOR_CONFIG_PATH`, ADR-0017) |
-| **`otel-collector` 컨테이너는 root(`user: '0'`)로 돈다** | 이미지가 `User=10001:10001`인데 UID 10001이 쓸 수 있는 디렉터리가 하나도 없다(scratch 기반이라 `/tmp`도 없다). `file/*` exporter가 `/data`를 만들려면 root가 필요하다. 빼면 `mkdir /data: permission denied`로 기동 직후 exit 1이다. **file exporter와 `user: '0'`은 한 몸이라 함께 없애야 한다** — 이 커플링은 `test/application-stack.test.ts`가 고정한다. `awss3` exporter로 옮기면 root가 필요 없어진다. (ADR-0017) |
+| **Fargate 태스크는 ARM64로 고정한다** | `runtimePlatform`을 빼면 CDK 기본값(미지정)으로 돌아가 x86_64가 된다. 앱 레포도 반드시 `linux/arm64` 이미지를 push해야 하며, amd64를 올리면 synth와 테스트는 통과하지만 런타임에 이미지 pull이 실패한다. ClickHouse EC2(t4g)와 아키텍처를 맞추고 x86 대비 약 20% 저렴하다. dev도 같은 이유로 ARM64에 고정한다 - 호스트 ASG가 `EcsOptimizedImage.amazonLinux2023(AmiHardwareType.ARM)`이므로 `linux/arm64` 요구가 그대로 따라온다. (`lib/prod/application-stack.ts`의 `FARGATE_RUNTIME_PLATFORM`, ADR-0015) |
+| **Collector 설정은 `config/otel-collector.yaml`에만 둔다** | synth 시점에 파일을 읽어 `OTEL_CONFIG` 환경변수로 주입하고 `--config=env:OTEL_CONFIG`로 기동한다. 파일 경로·환경변수 이름·`command` 세 가지는 한 몸이라 함께 바꿔야 한다. **이 값은 CFN 템플릿과 ECS 콘솔에 평문으로 남으므로 시크릿을 넣으면 안 된다.** **dev도 같은 파일을 읽는다** - dev용으로 포크하면 collector 동작이 갈라져 dev의 검증 가치가 사라진다. (`lib/prod/application-stack.ts`·`lib/dev/application-stack.ts`의 `COLLECTOR_CONFIG_PATH`, ADR-0017, ADR-0022 4번) |
+| **`otel-collector` 컨테이너는 root(`user: '0'`)로 돈다** | 이미지가 `User=10001:10001`인데 UID 10001이 쓸 수 있는 디렉터리가 하나도 없다(scratch 기반이라 `/tmp`도 없다). `file/*` exporter가 `/data`를 만들려면 root가 필요하다. 빼면 `mkdir /data: permission denied`로 기동 직후 exit 1이다. **file exporter와 `user: '0'`은 한 몸이라 함께 없애야 한다** — 이 커플링은 `test/prod/application-stack.test.ts`와 `test/dev/application-stack.test.ts`가 각각 고정한다. `awss3` exporter로 옮기면 root가 필요 없어진다. (ADR-0017) |
 | **Collector config는 배포 전 실제로 기동해 봐야 한다** | `cdk synth`·`npm test`는 config를 문자열로만 다루고, `otelcol-contrib validate`조차 컴포넌트를 **해석만** 하고 start하지 않아 파일시스템·권한 실패를 못 잡는다. 최초 배포가 정확히 이 틈으로 빠져나가 죽었다. 관문은 `docker run -d --user 0:0 -e OTEL_CONFIG="$(cat config/otel-collector.yaml)" ... --config=env:OTEL_CONFIG` 후 로그에 `Everything is ready`가 뜨는지 확인하는 것이다. **정리는 컨테이너 ID를 지목한다. `--filter ancestor=...`를 쓰면 같은 이미지를 쓰는 로컬 개발 컨테이너까지 지운다.** (ADR-0017) |
-| **DB 이름은 PostgreSQL 키워드 표에 없는 단어여야 한다** | RDS는 `DatabaseName`에 엔진 예약어 검사를 걸고, 그 목록이 PostgreSQL의 reserved 키워드보다 넓다. 실제로 `control`은 non-reserved인데도 400으로 거부됐다. 되돌리면 배포가 통째로 실패한다. (`lib/config.ts`의 `CONTROL_DB_NAME`, ADR-0012) |
-| **`maxAzs: 2`는 이중화가 아니라 의도된 하한이다** | 진짜 단일 AZ는 Aurora `DatabaseCluster`(서브넷 ≥2 요구)와 internet-facing ALB(퍼블릭 서브넷 2개 요구)가 막는다. 컴퓨트/데이터는 여전히 사실상 단일 AZ다. (`lib/network-stack.ts:34-35`, ADR-0011) |
+| **DB 이름은 PostgreSQL 키워드 표에 없는 단어여야 한다** | RDS는 `DatabaseName`에 엔진 예약어 검사를 걸고, 그 목록이 PostgreSQL의 reserved 키워드보다 넓다. 실제로 `control`은 non-reserved인데도 400으로 거부됐다. 되돌리면 배포가 통째로 실패한다. (`lib/common/config.ts`의 `CONTROL_DB_NAME` - dev RDS도 같은 상수를 쓴다, ADR-0012) |
+| **`maxAzs: 2`는 이중화가 아니라 의도된 하한이다** | 진짜 단일 AZ는 Aurora `DatabaseCluster`(서브넷 ≥2 요구)와 internet-facing ALB(퍼블릭 서브넷 2개 요구)가 막는다. 컴퓨트/데이터는 여전히 사실상 단일 AZ다. (`lib/prod/network-stack.ts:35-36`. dev도 같은 이유로 `maxAzs: 2`다 - internet-facing ALB와 RDS DB subnet group이 각각 2 AZ를 요구한다) |
 | **`RemovalPolicy.DESTROY` / `autoDeleteObjects`는 MVP 한정 의도다** | 실수가 아니다. 프로덕션 전환 시 일괄 재검토 대상이므로, 개별적으로 `RETAIN`으로 바꾸지 말고 ADR로 묶어서 처리한다. |
+
+### dev 환경 전용 규칙
+
+| 규칙 | 왜 |
+|---|---|
+| **`lib/prod/`와 `lib/dev/`는 서로 import 하지 않는다** | 의존은 `prod → common`, `dev → common` 단방향뿐이다. 이 규칙 하나가 "dev를 고치다 운영이 깨진다"는 경로를 **컴파일 타임에** 차단한다. dev에 필요한 값이 `prod/`에 있으면 `common/`으로 올리거나 `dev/`에 복제한다. (ADR-0021 2번) |
+| **dev 태스크의 네트워크 모드 3종을 바꾸지 않는다** (awsvpc / bridge / awsvpc) | collector가 bridge가 되면 `config/otel-collector.yaml`의 `http://localhost:8080` exporter 계약이 깨진다(컨테이너마다 네임스페이스가 갈려 localhost가 자기 자신을 가리킨다). clickhouse가 bridge가 되면 Cloud Map이 A 레코드 대신 **SRV만** 등록해 `ENRICHMENT_CH_URL`이 깨진다. **둘 다 synth·test·deploy가 전부 통과하고 런타임에만 죽는다** - 앱은 이름이 안 풀려도 예외 없이 compose 기본값으로 조용히 폴백한다. `test/dev/application-stack.test.ts`의 `NetworkMode` 어서션이 유일한 방어선이다. (ADR-0022 4번) |
+| **dev 로그 그룹의 `/ecs/dev/` 접두사를 빼지 않는다** | 운영 `ApplicationStack`이 `logGroupName`에 `/ecs/collector` 같은 **물리 이름을 명시**하고, 로그 그룹 이름은 계정 + 리전에서 유일하다. 접두사를 빼면 첫 `cdk deploy`가 `Resource of type 'AWS::Logs::LogGroup' with identifier '/ecs/collector' already exists`로 스택째 롤백된다. (`lib/dev/config.ts`의 `DEV_LOG_GROUP_PREFIX`, ADR-0021 Constraints, ADR-0022 10번) |
+| **dev ALB 리스너의 `open: false`를 지우지 않는다** | CDK `addListener`의 기본값 `open: true`가 리스너 포트를 `0.0.0.0/0`에 여는 인그레스를 ALB SG에 자동 추가한다. 운영에서는 `NetworkStack`이 이미 anyIpv4 룰을 갖고 있어 dedup되지만, dev는 CIDR을 좁히는 것이 목적이라 그 자동 룰이 좁힌 룰 옆에 남아 **`devAllowedCidr` 제한을 통째로 무력화한다.** **이번 구현에서 실제로 발생했던 버그다.** `test/dev/network-stack.test.ts`의 "전면 공개 인그레스가 어디에도 남지 않는다"가 이를 고정한다. (`lib/dev/edge-stack.ts`, ADR-0022 2번/9번) |
+| **`applyCommonTags`는 태그 맵을 인자로 받는다** | prod는 `COMMON_TAGS`(`Env: 'mvp'` **유지**), dev는 `DEV_COMMON_TAGS`(`Env: 'dev'`)다. 태그는 App 스코프에서 전 리소스로 전파되므로, prod의 `Env`를 `'prod'`로 "정정"하면 VPC·서브넷·SG·ECS·로그 그룹·Aurora·S3까지 전 리소스에 태그 diff가 생기고 일부는 교체될 수 있다. **이 레포에서 환경 식별자는 태그가 아니라 스택 ID 접두사다.** (`lib/common/config.ts`의 `applyCommonTags`, ADR-0021 4번) |
+| **`bin/infra.ts`와 `test/helpers.ts`는 직접 스택을 조립하지 않는다** | 양쪽 다 `synthProd`/`synthDev`를 거쳐야 테스트 픽스처와 실제 배포 조립이 갈라지지 않는다. 예전에는 두 파일이 4스택 조립을 각각 손으로 들고 있었고, 한쪽만 고치면 통과하는 조립과 배포되는 조립이 달라졌다. (ADR-0021 1번) |
 
 ---
 
@@ -80,14 +128,51 @@ NetworkStack ──> DataStack ──┐
 
 - 계정/리전은 `CDK_DEFAULT_ACCOUNT` / `CDK_DEFAULT_REGION`에서만 온다. 코드에 하드코딩된 계정은 없다.
 - `cdk.context.json`은 계정별 조회 결과가 기록되는 로컬 캐시이므로 commit하지 않는다.
-- 배포별 가변값은 **CDK context 키 3개뿐**이다: `certificateArn`, `domainName`, `cognitoDomainPrefix` (`lib/config.ts`의 `loadConfig`).
-- 공유 상수(`PORTS`, `CLICKHOUSE_HOST`, `CLICKHOUSE_HTTP_URL`, `CLICKHOUSE_DEFAULT_DB`, `CLICKHOUSE_IMAGE`, `CLICKHOUSE_CONTAINER_ENV`, `ENRICHMENT_ENV`, `SUBNET_GROUP`, `ECR_NAMESPACE`, `ECR_REPOS`, `CONTROL_DB_NAME`, `CONTROL_DB_SSLMODE`, `COMMON_TAGS`)는 **전부 `lib/config.ts`에 있다.** 순수 헬퍼(`buildLibpqDsn`)도 마찬가지다. 스택에 리터럴을 새로 박지 말고 여기서 import 한다. 새 상수도 여기에 추가한다.
-- 공통 태그 `{ Org: 'soma-376', Env: 'mvp', ManagedBy: 'cdk' }`는 App 스코프에 `applyCommonTags(app)`로 한 번만 적용한다. 스택별로 중복 호출하지 않는다.
-- **dev/stg/prod 환경 분리 메커니즘은 없다.** 스택 ID는 리터럴이고 `Env: 'mvp'`는 하드코딩이다. 환경 분리가 필요해지면 그건 새 ADR 대상이다.
+- 공통 태그는 App 스코프에 `applyCommonTags(app, <태그 맵>)`로 한 번만 적용한다. 스택별로 중복 호출하지 않는다. prod는 `{ Org: 'soma-376', Env: 'mvp', ManagedBy: 'cdk' }`, dev는 `Env: 'dev'`만 다르다.
+
+### 환경 분리 메커니즘 (ADR-0021, ADR-0022)
+
+이전 판의 "dev/stg/prod 환경 분리 메커니즘은 없다"는 문장은 **ADR-0021/0022로 해결되었다.** 두 환경은 같은 계정·같은 리전에 공존하며, 가르는 일은 전부 CDK 코드 안에서 일어난다.
+
+| 축 | 메커니즘 |
+|---|---|
+| 진입점 | `bin/infra.ts`가 `-c env=dev\|prod` 하나만 읽고 `synthDev()` / `synthProd()`로 위임한다. 기본값 `prod` |
+| 코드 경계 | `lib/{common,prod,dev}` 폴더 + `prod ↔ dev` import 금지 |
+| 리소스 이름 충돌 | 스택 ID의 `Dev` 접두사(스택 이름은 계정 + 리전 유일), 로그 그룹의 `/ecs/dev/` 접두. S3 버킷은 스택명 유도라 자동 분리, Cognito는 dev가 만들지 않아 해당 없음 |
+| 비용 축 | `Env` 태그 — **prod는 `mvp`, dev는 `dev`.** 이 불일치는 의도된 것이다(위 3장). Cost Explorer에서 `Env=mvp` = 운영으로 읽는다 |
+| 공유하는 것 | ECR 레포(태그로만 분리), Cloud Map 네임스페이스 `obs.local`(VPC 스코프라 충돌 없음) |
+
+### 상수는 어디에 두는가
+
+새 상수를 넣기 전에 **"이 값이 dev에서 달라야 할 이유가 있는가"**를 먼저 묻는다. 없으면 `common/`, 있으면 각 환경 폴더다. 스택에 리터럴을 새로 박지 말고 아래에서 import 한다.
+
+| 파일 | 성격 | 내용 |
+|---|---|---|
+| `lib/common/config.ts` | **환경 무관 계약** | `PORTS`, `CLOUD_MAP_NAMESPACE`, `CLICKHOUSE_SERVICE_NAME`, `CLICKHOUSE_HOST`, `CLICKHOUSE_HTTP_URL`, `CLICKHOUSE_DEFAULT_DB`, `CLICKHOUSE_IMAGE`, `CLICKHOUSE_CONTAINER_ENV`, `ENRICHMENT_ENV`, `ECR_NAMESPACE`, `ECR_REPOS`, `CONTROL_DB_NAME`, `CONTROL_DB_SSLMODE`, `LibpqDsnParts`, `buildLibpqDsn`, `applyCommonTags` |
+| `lib/common/clickhouse-user-data.ts` | 환경 무관 | `/dev/xvdb` 포맷 + `/data/clickhouse` 마운트 user data (dev/prod 공용) |
+| `lib/prod/config.ts` | 운영 전용 | `COMMON_TAGS`, `PRIMARY_AZ_INDEX`, `SUBNET_GROUP`, `EdgeConfig`, `InfraConfig`, `loadConfig`, `DEFAULT_COGNITO_DOMAIN_PREFIX` |
+| `lib/dev/config.ts` | dev 전용 | `DEV_COMMON_TAGS`, `DEV_VPC_CIDR`, `DEV_SUBNET_GROUP`, `DEV_LOG_GROUP_PREFIX`, 인스턴스 타입/볼륨 상수, `DEV_OPEN_CIDR`, `DevConfig`, `loadDevConfig`, `warnOnOpenIngress` |
+
+`common/`이 커지면 "환경 무관"의 경계가 흐려져 예전 `lib/config.ts`가 그대로 재현된다. 애매하면 `common/`이 아니라 각 환경 폴더에 둔다 (ADR-0021 Negative).
+
+### 배포별 가변값 (CDK context 키)
+
+| 환경 | 키 | 기본값 | 비고 |
+|---|---|---|---|
+| prod | `certificateArn` | 없음 | 있으면 모드 A(HTTPS + ALB 인증), 없으면 모드 B |
+| prod | `domainName` | 없음 | Cognito callback URL 기준 주소와 일치해야 한다 |
+| prod | `cognitoDomainPrefix` | `soma-376-mvp-auth` | 리전 내 전역 유일 |
+| dev | `devAllowedCidr` | **`0.0.0.0/0`** | ALB(80/8123)와 RDS(5432)의 인바운드 소스. 쉼표로 여러 개 가능. **미지정(또는 명시)이면 synth 경고 `infra:dev-open-ingress`** |
+| dev | `devAppAsgMaxCapacity` | `1` | 앱 호스트 ASG 최대 용량. 부하 테스트 확장 손잡이. 1 미만이거나 정수가 아니면 즉시 throw |
+| dev | `devImageTag` | `latest` | dev/prod가 같은 ECR 레포를 공유하고 태그로만 갈린다 |
+
+prod는 `lib/prod/config.ts`의 `loadConfig`, dev는 `lib/dev/config.ts`의 `loadDevConfig`가 읽는다.
 
 ### 컨테이너 런타임 계약 (앱 레포와의 인터페이스)
 
-**컨테이너마다 계약이 다르다.** 앱이 실제로 읽는 이름이 권위이며, 앱은 어느 값도 하드코딩하지 않는다. 주입 범위(대상 / 비대상)는 `test/application-stack.test.ts`가 양쪽 모두 검증한다.
+**이 절은 dev/prod 공통이다.** 같은 이미지, 같은 환경변수 이름, 같은 `clickhouse.obs.local` — 계약이 환경마다 갈리면 "dev에서 검증했다"는 말의 의미가 사라진다. **이게 dev를 두는 목적이다** (ADR-0021 2번/5번).
+
+**컨테이너마다 계약이 다르다.** 앱이 실제로 읽는 이름이 권위이며, 앱은 어느 값도 하드코딩하지 않는다. 주입 범위(대상 / 비대상)는 `test/prod/application-stack.test.ts`와 `test/dev/application-stack.test.ts`가 양쪽 모두 검증한다.
 
 #### `api-server` (Spring Boot — 소스 미확보)
 
@@ -121,13 +206,13 @@ DB는 `api-server`와 같은 `controlplane`을 공유한다.
 |---|---|---|
 | ClickHouse 호스트명 | 환경변수 `CLICKHOUSE_HOST` | `batch-processor` (소스 미확보 — 손대지 않는다) |
 | collector 설정 YAML 전문 | 환경변수 `OTEL_CONFIG` (+ `--config=env:OTEL_CONFIG`) | `otel-collector` |
-| `CLICKHOUSE_DB` / `CLICKHOUSE_USER` / `CLICKHOUSE_PASSWORD` / `CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT` | 환경변수 (`lib/config.ts`의 `CLICKHOUSE_CONTAINER_ENV`) | `clickhouse` (이미지 entrypoint — ADR-0019) |
+| `CLICKHOUSE_DB` / `CLICKHOUSE_USER` / `CLICKHOUSE_PASSWORD` / `CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT` | 환경변수 (`lib/common/config.ts`의 `CLICKHOUSE_CONTAINER_ENV`) | `clickhouse` (이미지 entrypoint — ADR-0019) |
 
 `OTEL_CONFIG`는 DB 자격증명이 아니라 collector 설정 본문이다.
 
 ### EdgeStack 모드 A / B
 
-`lib/edge-stack.ts`의 `const isHttps = Boolean(props.edge.certificateArn)` 한 줄이 전체 분기를 결정한다.
+`lib/prod/edge-stack.ts`의 `const isHttps = Boolean(props.edge.certificateArn)` 한 줄이 전체 분기를 결정한다.
 
 | | 모드 A (`-c certificateArn=...` 제공) | 모드 B (기본값) |
 |---|---|---|
@@ -136,6 +221,8 @@ DB는 `api-server`와 같은 `controlplane`을 공유한다.
 | `/api/*` | `AuthenticateCognitoAction` → dashboard TG | 인증 없이 forward |
 | 기본 액션 | fixed response 404 | fixed response 404 |
 | 기타 | — | synth 시 ADR-0008 폴백 경고 방출 |
+
+**`DevEdgeStack`에는 이 분기가 없다.** 인증 없는 HTTP 전용이며(:80 + :8123), Cognito도 CloudFront도 만들지 않는다. 방어선은 `devAllowedCidr` 하나뿐이다 (ADR-0022 8번/9번).
 
 ---
 
@@ -155,7 +242,7 @@ DB는 `api-server`와 같은 `controlplane`을 공유한다.
   4. CloudFront 프론트엔드에도 custom domain을 사용할지 별도로 결정한다. 사용한다면 CloudFront용 인증서와 DNS Alias를 추가하는 설계를 먼저 ADR에 반영한다.
   5. 모드 A로 배포해 HTTP→HTTPS 리다이렉트, `/api/*` Cognito 인증, `/v1/*` JWT 검증을 확인하고 실제 context 값과 DNS·인증서 연결 절차를 배포 런북에 기록한다.
 - 도메인 무산 시 → ADR-0008에 적힌 폴백(Spring Security + Cognito JWT 검증, Collector auth extension)으로 전환한다. 이건 **인프라가 아니라 앱 레이어 변경**이므로 별도 ADR(그 시점의 다음 번호)로 분리해 기록한다.
-- **문서 정정이 필요하다.** ADR-0008 Constraints의 마지막 항목 — *"jwt-validation은 비교적 최신 ALB 기능이라 CDK L2 construct에서 아직 지원하지 않을 수 있다. 이 경우 `CfnListenerRule`(L1)로 직접 정의해야 한다"* — 은 이미 무효다. `aws-cdk-lib ^2.261.0`의 L2 `ListenerAction.authenticateJwt`로 구현되어 있다 (`lib/edge-stack.ts`). 이 문장은 삭제한다.
+- **문서 정정이 필요하다.** ADR-0008 Constraints의 마지막 항목 — *"jwt-validation은 비교적 최신 ALB 기능이라 CDK L2 construct에서 아직 지원하지 않을 수 있다. 이 경우 `CfnListenerRule`(L1)로 직접 정의해야 한다"* — 은 이미 무효다. `aws-cdk-lib ^2.261.0`의 L2 `ListenerAction.authenticateJwt`로 구현되어 있다 (`lib/prod/edge-stack.ts`). 이 문장은 삭제한다.
 
 ### (B) ADR-0009 — 스택 경계 확정 `Proposed`
 
@@ -209,6 +296,10 @@ ADR-0018이 `post-processor`용 파생 DSN 시크릿을 도입했지만, **그 D
 보존 기간을 14일, 삭제 정책을 `RemovalPolicy.DESTROY`로 설정한다. 이 구성은
 구현되어 있지만 운영·비용·보안 관점의 결정 근거가 ADR에 없다.
 
+**`DevApplicationStack`도 같은 정책(14일, `RemovalPolicy.DESTROY`)을 쓰며
+`/ecs/dev/` 접두사만 다르다.** ADR-0022 10번이 이를 명시적으로 ADR-0020에
+위임했으므로, 아래 항목을 정할 때 **환경별 차등 여부**도 함께 결정한다.
+
 인프라 코드를 변경하기 전에 ADR-0020에서 다음 항목을 결정한다.
 
 - 컨테이너별 로그 그룹을 유지할지 서비스 단위로 통합할지와 로그 그룹 명명 규칙
@@ -223,35 +314,43 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(`0021`)를 쓴다. `0018`은 post-processor 런타임 계약, `0019`는 ClickHouse 컨테이너 런타임 계약으로 이미 쓰였고, `0020`은 위 (F)의 로그 그룹 정책용으로 예약되어 있다.
-   템플릿: `Status` / `Context` / `Decision` / `Alternatives Considered` / `Consequences` (+ 필요 시 `Constraints`, `Open Questions`, `Revisit Trigger`).
-3. 상수는 `lib/config.ts`에 추가하고 스택에서 import 한다.
-4. `test/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`를 재사용한다.
-5. `npm test && npx cdk synth` 통과를 확인한다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0023`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지로 이미 쓰였고, `0020`은 위 (F)의 로그 그룹 정책용으로 여전히 예약되어 있다.
+   형식은 `docs/adr/0000-adr-template.md`를 따른다.
+3. 상수는 **"이 값이 dev에서 달라야 할 이유가 있는가"**로 위치를 정한다 — 없으면 `lib/common/config.ts`, 운영 전용이면 `lib/prod/config.ts`, dev 전용이면 `lib/dev/config.ts`. 스택에서는 import만 한다 (4장).
+4. `test/prod/*.test.ts` 또는 `test/dev/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`(prod), `buildDevApp()`(dev)를 재사용한다.
+5. `npm test && npx cdk synth --all && npx cdk synth --all -c env=dev` 통과를 확인한다.
 
 ### (H) 알려진 잔여 이슈 (여유가 있으면)
 
 - **RDS 조직 스키마를 아무도 부트스트랩하지 않는다.** `post-processor`는 ClickHouse DDL만 기동 시 멱등 적용하고(`ensure_schema`), PostgreSQL의 `company` / `department` / `employee` / `employee_department_assignment`는 compose의 `/docker-entrypoint-initdb.d` 마운트에 의존한다. ECS에는 그 메커니즘이 없다 → **접속은 성공하고 첫 조회에서 `relation "employee" does not exist`로 깨진다.** ADR-0018이 이 문제를 드러냈지만 해결하지는 않았다. 해결 주체는 위 (D)의 마이그레이션 ADR이다.
-- `bin/infra.ts:1` shebang이 `#!/opt/homebrew/opt/node/bin/node` — 로컬 Homebrew 경로 하드코딩. `cdk.json`이 `npx tsx`로 실행하므로 동작에는 무해하지만 비포터블하다.
-- `README.md`가 `cdk init` 보일러플레이트 그대로다. ADR-0007이 명시적으로 요구하는 **배포 런북이 어디에도 없다.**
-- 빌드/테스트 CI가 없다. GitHub Actions는 PR 제목 자동 채우기와 assignee 지정뿐이고, `npm test` / `cdk synth`를 아무도 돌리지 않는다.
-- `EdgeStack` 외에 `CfnOutput`이 없다. 앱 팀이 VPC ID / 클러스터 이름 등을 가져갈 SSM 파라미터 export가 없다.
+- `README.md`가 `cdk init` 보일러플레이트 그대로다. ADR-0007이 명시적으로 요구하는 **배포 런북이 어디에도 없다** (6장이 그 자리를 임시로 메우고 있다).
+- 빌드/테스트 CI가 없다. GitHub Actions는 `pull_request_auto_fill.yml`과 `pull_request_auto_assign.yml` 둘뿐이고, `npm test` / `cdk synth`를 아무도 돌리지 않는다.
+- `EdgeStack` / `DevEdgeStack` 외에 `CfnOutput`이 없다. 앱 팀이 VPC ID / 클러스터 이름 등을 가져갈 SSM 파라미터 export가 없다.
 - `.DS_Store`가 루트 / `.github/` / `docs/`에 존재한다.
+- **`DevDashboardTask`를 bridge로 둔 것은 소스 미확보 상태의 추정이다.** `api-server`와 `batch-processor`가 서로를 localhost로 부르지 않는다고 단정할 수 없다. **배포 후 로그로 확인하고, 틀렸다면 awsvpc로 바꾼다** — 그 경우 인터넷 egress와 ECS Exec을 함께 잃는다. (ADR-0022 Follow-up)
+- **awsvpc 태스크(collector/clickhouse)에 인터넷 egress가 없다.** 태스크 ENI에는 퍼블릭 IP가 붙지 않고(EC2 launch type에는 `assignPublicIp` 옵션 자체가 없다) NAT도 없다. 외부 API를 부르는 코드가 들어오면 **synth·test·deploy가 전부 통과하고 기동도 성공한 뒤 그 코드 경로에서만 타임아웃으로 죽는다.** (ADR-0022 5(a))
+- **`devAllowedCidr` 기본값이 `0.0.0.0/0`이라 무인자 dev 배포는 ClickHouse(8123)와 RDS(5432)를 인터넷에 공개한다.** ClickHouse `default` 유저는 비밀번호가 없고 `access_management=1`이므로 8123에 닿는 주체는 사실상 관리자다. synth 경고가 유일한 방어선이다. (ADR-0022 9번)
+- **dev RDS와 운영 Aurora 둘 다 `StorageEncrypted`를 설정하지 않는다.** CFN 검증기가 경고를 낸다. 프로덕션 전환 시 `RemovalPolicy.DESTROY` 일괄 재검토와 함께 묶어서 다룬다.
 
 ---
 
 ## 6. 명령어
 
 ```bash
-npm test              # jest (@swc/jest) — 5 스위트, 41 테스트
-npm run build         # tsc --noEmit (순수 타입 체크, 산출물 없음)
-npx cdk synth         # cdk.json: `npx tsc && npx tsx bin/infra.ts`
-npx cdk diff
-npx cdk deploy --all
+npm test              # jest (@swc/jest) — 11 스위트, 150 테스트
+npm run build         # tsc (tsconfig의 noEmit: true — 순수 타입 체크)
+
+npm run synth         # = cdk synth --all       (prod. cdk.json: `npx tsc && npx tsx bin/infra.ts`)
+npm run diff          # = cdk diff --all
+npm run deploy        # = cdk deploy --all
+
+npm run synth:dev     # = cdk synth --all -c env=dev
+npm run diff:dev      # = cdk diff --all -c env=dev
+npm run deploy:dev    # = cdk deploy --all -c env=dev
 
 # 모드 A(HTTPS + ALB 인증)로 synth
-npx cdk synth -c certificateArn=arn:aws:acm:ap-northeast-2:<account>:certificate/<id> \
-              -c domainName=example.com
+npx cdk synth --all -c certificateArn=arn:aws:acm:ap-northeast-2:<account>:certificate/<id> \
+                    -c domainName=example.com
 ```
 
 ### 배포 전 필수 선행 절차 (ADR-0007)
@@ -265,9 +364,11 @@ done
 # 각 앱 레포에서 이미지 빌드 후 push → 그 다음에 cdk deploy
 ```
 
-레포 이름은 `lib/config.ts`의 `ECR_REPOS`와 정확히 일치해야 한다. **앱 레포 CI의 push 대상도 같은 `soma-376/` 네임스페이스를 써야 한다** (ADR-0007). 이 레포에서 강제할 수 없는 규칙이므로 배포 전에 앱 레포 쪽에 전달한다.
+레포 이름은 `lib/common/config.ts`의 `ECR_REPOS`와 정확히 일치해야 한다. **앱 레포 CI의 push 대상도 같은 `soma-376/` 네임스페이스를 써야 한다** (ADR-0007). 이 레포에서 강제할 수 없는 규칙이므로 배포 전에 앱 레포 쪽에 전달한다.
 
-**이미지는 반드시 `linux/arm64`로 빌드해야 한다** (ADR-0015). Fargate 태스크가 ARM64이므로 amd64 이미지를 올리면 태스크가 기동하지 못한다.
+**이 선행 절차는 dev에도 그대로 적용된다.** dev/prod가 **같은 ECR 레포를 공유**하고 태그로만 갈리므로(ADR-0021 5번) 레포는 한 번만 만들면 되지만, dev의 기본 태그 `latest`에 이미지가 없으면 dev 첫 배포도 같은 방식으로 실패한다. 태그를 갈아타려면 `-c devImageTag=<tag>`다.
+
+**이미지는 반드시 `linux/arm64`로 빌드해야 한다** (ADR-0015). Fargate 태스크가 ARM64이고 **dev의 EC2 호스트도 t4g(Graviton) + ARM AMI**이므로, amd64 이미지를 올리면 양쪽 다 태스크가 기동하지 못한다.
 
 ```bash
 # 앱 레포에서 — 플랫폼을 항상 명시한다
@@ -284,23 +385,68 @@ docker buildx build --platform linux/arm64 \
 aws ecs update-service --cluster <cluster> --service <service> --force-new-deployment
 ```
 
+### dev 배포 런북 (ADR-0022)
+
+**ADR-0017의 배포 전 게이트가 dev에도 그대로 적용된다.** dev가 운영과 **같은 `config/otel-collector.yaml`을 읽으므로**, collector config를 로컬 `docker run`으로 실제 기동해 `Everything is ready`를 확인하기 전에는 dev 배포도 하지 않는다. 정리할 때는 컨테이너 ID를 지목한다(`--filter ancestor=...`는 로컬 개발 컨테이너까지 지운다).
+
+```bash
+# dev 합성 — devAllowedCidr 를 안 주면 infra:dev-open-ingress 경고가 뜬다
+npx cdk synth --all -c env=dev
+npx cdk deploy --all -c env=dev -c devAllowedCidr=<내 IP>/32
+
+# 스택 목록이 섞이지 않는지
+npx cdk list                 # NetworkStack DataStack ApplicationStack EdgeStack
+npx cdk list -c env=dev      # DevNetworkStack DevDataStack DevApplicationStack DevEdgeStack
+```
+
+배포 후 검증은 네 가지 경로를 각각 밟는다. 엔드포인트는 `DevEdgeStack`의 `CfnOutput`(`AlbDnsName`, `OtlpEndpoint`, `ApiEndpoint`, `ClickhouseDebugUrl`, `RdsEndpoint`, `RdsSecretArn`)에서 가져온다.
+
+```bash
+# 1) OTLP 파이프라인 — ALB :80 /v1/* → collector → localhost:8080 → post-processor
+curl -X POST "http://<alb-dns>/v1/traces" -H 'Content-Type: application/json' -d '{"resourceSpans":[]}'
+aws logs tail /ecs/dev/post-processor --follow --region ap-northeast-2
+
+# 2) ClickHouse 직접 쿼리 — ALB :8123 리스너 (EC2 퍼블릭 IP는 인스턴스 교체마다 바뀐다)
+curl "http://<alb-dns>:8123/?query=SELECT%201"
+
+# 3) RDS 직접 접속 — publiclyAccessible + devAllowedCidr 가 이걸 위한 구성이다
+psql "host=<rds-endpoint> port=5432 dbname=controlplane user=postgres sslmode=require"
+
+# 4) 컨테이너 진입 — 호스트 SSM 후 docker
+aws ssm start-session --target <instance-id> --region ap-northeast-2
+sudo docker ps
+sudo docker exec -it <container-id> /bin/sh
+```
+
 ### 운영자 접속 (ADR-0016)
 
-SSH 인그레스도 키페어도 없다. 접속은 전부 SSM 채널을 쓴다. 실행 환경에 따라 수단이 갈린다.
+SSH 인그레스도 키페어도 없다. 접속은 전부 SSM 채널을 쓴다. **환경에 따라 수단이 갈린다.**
 
-| 대상 | 수단 | 필요한 운영자 IAM 권한 |
+| 환경 / 대상 | 수단 | 필요한 운영자 IAM 권한 |
 |---|---|---|
-| `clickhouse` (EC2) | `aws ssm start-session` | `ssm:StartSession` |
-| `post-processor`, `api-server` (Fargate) | `aws ecs execute-command` | `ecs:ExecuteCommand` |
+| prod `clickhouse` (EC2) | `aws ssm start-session` | `ssm:StartSession` |
+| prod `post-processor`, `api-server` (Fargate) | `aws ecs execute-command` | `ecs:ExecuteCommand` |
+| **dev — 전 컨테이너** | 호스트 `aws ssm start-session` + `sudo docker exec` | `ssm:StartSession` |
+
+**dev에는 ECS Exec이 없다.** 세 서비스 모두 `enableExecuteCommand`를 켜지 않았고, 켜도 awsvpc 태스크(collector/clickhouse)는 `ssmmessages` 엔드포인트에 도달할 경로가 없어 동작하지 않는다. **이건 결함이 아니라 티켓의 전제다** — 호스트에 SSM으로 붙으면 네트워크 모드와 무관하게 **모든** 컨테이너에 `docker exec`으로 들어갈 수 있고, `docker logs`·`docker inspect`·호스트에서의 `curl`까지 열린다 (ADR-0022 5(b), ADR-0016).
+
+dev 인스턴스는 `Env` 태그로 찾는다.
+
+```bash
+aws ec2 describe-instances --region ap-northeast-2 \
+  --filters "Name=tag:Env,Values=dev" "Name=instance-state-name,Values=running" \
+  --query 'Reservations[].Instances[].[InstanceId,InstanceType,PublicIpAddress]' --output table
+```
 
 두 방식 모두 로컬에 **Session Manager plugin**이 설치되어 있어야 한다. 없으면 명령 자체가 실패한다.
 
 #### ClickHouse EC2
 
 ```bash
-# 인스턴스 ID 조회
+# 인스턴스 ID 조회 — Org 태그는 dev 호스트에도 붙으므로 Env=mvp 로 운영만 좁힌다
 aws ec2 describe-instances --region ap-northeast-2 \
-  --filters "Name=tag:Org,Values=soma-376" "Name=instance-state-name,Values=running" \
+  --filters "Name=tag:Org,Values=soma-376" "Name=tag:Env,Values=mvp" \
+            "Name=instance-state-name,Values=running" \
   --query 'Reservations[].Instances[].InstanceId' --output text
 
 # 접속
@@ -335,16 +481,40 @@ aws ecs execute-command --cluster <cluster> \
 
 **컨테이너 이미지에 셸이 없으면 실패한다.** distroless나 JRE-slim 기반이면 `/bin/sh`가 없어 권한과 무관하게 접속되지 않는다. 이건 인프라가 아니라 앱 레포의 Dockerfile이 결정하는 부분이다.
 
+### 운영 스택 리팩터링 회귀 검증
+
+운영 스택을 옮기거나 정리할 때는 **합성 템플릿이 바이트 단위로 같은지**를 게이트로 쓴다. ADR-0021의 `lib/prod/` 이동이 이 방식으로 검증됐고, 앞으로도 같은 종류의 작업에 그대로 쓸 수 있다.
+
+```bash
+git stash && npx cdk synth --all -q -o /tmp/before
+git stash pop && npx cdk synth --all -q -o /tmp/after
+diff /tmp/before/NetworkStack.template.json /tmp/after/NetworkStack.template.json  # 4개 모두
+```
+
+**`*.template.json`만 비교하면 된다.** `*.metadata.json`은 CDK construct의 스택 트레이스 문자열을 담고 있어 파일 경로가 바뀌면 필연적으로 달라진다 — 그 차이는 회귀가 아니다. 템플릿이 한 글자라도 다르면 "이동"이 아니라 변경이 섞인 것이다.
+
 ---
 
 ## 7. 테스트 작성 규칙
 
+테스트는 `test/prod/`(6 스위트)와 `test/dev/`(5 스위트)로 나뉘고, 픽스처 `helpers.ts`만 루트에 둔다.
+
 - `aws-cdk-lib/assertions` 기반 **template assertion만** 쓴다. 스냅샷 테스트는 쓰지 않는다.
-  - 예외: `lib/config.ts`의 **순수 함수**(예: `buildLibpqDsn`)는 CDK 리소스를 만들지 않으므로 `test/config.test.ts`에서 일반 단위 테스트로 검증한다. 스택을 합성하는 테스트는 여전히 template assertion만 쓴다.
-- **`new App()`을 직접 쓰지 말고 `test/helpers.ts`의 `buildApp()`을 쓴다.**
-  bare `App`은 `cdk.json`의 피처 플래그를 읽지 않아 CLI synth와 산출물이 달라진다 (예: ASG가 `LaunchTemplate` 대신 `LaunchConfiguration`을 생성). `buildApp()`이 context 주입과 `applyCommonTags()`를 대신 처리한다.
-- 모드 A 테스트는 `MODE_A_EDGE`를, 모드 B는 인자 없이 기본값을 쓴다.
+  - 예외: `lib/common/config.ts`의 **순수 함수**(예: `buildLibpqDsn`)와 `lib/dev/config.ts`의 `loadDevConfig` 파싱 로직은 CDK 리소스를 만들지 않으므로 `test/prod/config.test.ts` / `test/dev/config.test.ts`에서 일반 단위 테스트로 검증한다. 스택을 합성하는 테스트는 여전히 template assertion만 쓴다.
+- **`new App()`을 직접 쓰지 말고 `test/helpers.ts`의 `buildApp()`(prod) / `buildDevApp()`(dev)을 쓴다.**
+  bare `App`은 `cdk.json`의 피처 플래그를 읽지 않아 CLI synth와 산출물이 달라진다 (예: ASG가 `LaunchTemplate` 대신 `LaunchConfiguration`을 생성). **dev도 ASG를 쓰므로 같은 함정이 그대로 적용된다** — `test/dev/application-stack.test.ts`가 `LaunchConfiguration` 0개를 어서션한다.
+  두 팩토리 모두 진입점과 **같은 `synthProd` / `synthDev`를 거치므로** 픽스처 조립과 실제 배포 조립이 갈라질 수 없다 (ADR-0021 1번).
+- 모드 A 테스트는 `MODE_A_EDGE`를, 모드 B는 인자 없이 기본값을 쓴다. dev context 키는 `buildDevApp({ devAllowedCidr: '203.0.113.10/32' })`처럼 객체로 주입한다 — CLI의 `-c key=value`와 같은 자리다.
 - 고정 env는 `TEST_ENV = { account: '111111111111', region: 'ap-northeast-2' }`다.
+
+**dev 테스트가 고정하는 핵심 계약** — 전부 "synth·test·deploy는 통과하고 런타임에만 죽는" 종류라 어서션이 유일한 방어선이다.
+
+| 계약 | 스위트 |
+|---|---|
+| 태스크 `NetworkMode` 3종 (awsvpc / bridge / awsvpc) | `test/dev/application-stack.test.ts` |
+| 리스너 `open: false` — 좁힌 CIDR 옆에 `0.0.0.0/0` 인그레스가 남지 않는다 | `test/dev/network-stack.test.ts` |
+| 로그 그룹 5개의 `/ecs/dev/` 접두 (그리고 운영 이름을 하나도 쓰지 않음) | `test/dev/application-stack.test.ts` |
+| 자동 생성 비밀번호의 `ExcludeCharacters` (따옴표 없는 libpq DSN의 전제) | `test/dev/data-stack.test.ts` |
 
 ```ts
 import { Template } from 'aws-cdk-lib/assertions';
@@ -363,5 +533,5 @@ Template.fromStack(edge).hasResourceProperties('AWS::ElasticLoadBalancingV2::Lis
 - 브랜치명: `^(feat|feature|fix|docs|refactor|chore|test|style|perf|build|ci)/(PROJ-\d+)-.*$`
 - 커밋 / PR 제목: `<KEY> <type>: <summary>` — 예) `PROJ-22 docs: 핸드오프 문서 추가`
 - PR 대상 브랜치는 `develop`이다. `.github/workflows/pull_request_auto_fill.yml`이 브랜치명에서 Jira 키를 파싱해 제목을 재작성하고 본문에 링크를 넣는다. (`feature`는 `feat`으로 정규화된다.)
-- 현재 브랜치 `feature/PROJ-22-mvp-infrastructure`는 `origin/main` · `origin/develop`보다 **4커밋 앞서 있고 아직 push되지 않았다.**
+- **현재 브랜치명(`PROJ-37-development-environment`)은 위 규칙에 맞지 않는다.** 타입 접두사가 없어 `pull_request_auto_fill.yml`의 Jira 키 파싱이 실패한다. PR을 올리기 전에 `feat/PROJ-37-...` 형태로 정리하거나, 워크플로가 제목을 재작성하지 못한다는 점을 감안한다. (브랜치가 origin보다 얼마나 앞서는지는 금방 낡으므로 여기 적지 않는다 — `git log --oneline origin/main..HEAD`로 확인한다.)
 - 문서와 코드 주석은 한국어로 작성한다.

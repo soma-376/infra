@@ -1,7 +1,8 @@
-# ADR-0012: 컨트롤 플레인 DB 엔진으로 PostgreSQL 검토
+# 0012. 컨트롤 플레인 DB 엔진으로 PostgreSQL 검토
 
-- **Status**: Proposed
-- **Date**: 2026-07-26
+## Status
+
+Proposed
 
 ## Context
 
@@ -41,19 +42,24 @@ PostgreSQL 16 계열 안에서 리전에 가용한 최신 마이너 버전으로
 - **DynamoDB**: 운영 부담과 자동 확장 측면의 장점이 있지만 컨트롤 플레인 데이터의 관계, 트랜잭션, 접근 패턴이 확정되지 않아 적합성을 판단할 수 없다.
 - **ClickHouse로 통합**: 데이터 저장소를 하나로 줄일 수 있지만 트랜잭션 컨트롤 플레인과 텔레메트리 플레인을 분리하는 ADR-0002의 원칙을 포기해야 한다.
 
-## Consequences
+## Consequences/Tradeoffs
+
+### Positive
 
 - 현재 `DataStack` 구현은 유력 후보와 일치하므로 조사 기간에는 코드를 유지할 수 있다.
+- 검증 결과 RLS와 GIN의 실질적 이점이 작거나 MySQL의 팀 적합성이 더 높다면 현재 구현을 Aurora MySQL 등으로 교체할 수 있다.
+
+### Negative
+
 - PostgreSQL 고유 기능을 사용하면 RLS 정책, GIN 인덱스, 쿼리와 마이그레이션이 엔진에 종속된다.
 - PostgreSQL 경험이 없는 팀원의 학습과 운영 준비가 필요하다.
-- 검증 결과 RLS와 GIN의 실질적 이점이 작거나 MySQL의 팀 적합성이 더 높다면 현재 구현을 Aurora MySQL 등으로 교체할 수 있다.
 - 이 ADR은 현재 Aurora Serverless v2 구성의 비용, 용량, 삭제 정책을 정당화하지 않는다.
 - `autoMinorVersionUpgrade`를 켜 둔 채 코드에 버전을 고정했으므로, 코드의 버전 값은 실제 클러스터 버전의 하한선일 뿐 정확한 사본이 아니다.
 - 데이터베이스 이름은 RDS의 엔진 예약어 검사를 통과해야 한다. RDS가 적용하는 목록은 PostgreSQL의 reserved 키워드보다 넓어서, 키워드 표에서 non-reserved로 분류된 `control`도 `DatabaseName control cannot be used. It is a reserved word for this engine` 400으로 거부됐다. 그래서 이름을 `controlplane`으로 정했다. 앞으로 이름을 바꿀 때는 PostgreSQL 키워드 표에 아예 등장하지 않는 단어를 고른다.
 - 엔진을 Aurora MySQL로 교체하면 예약어 목록이 달라지므로 데이터베이스 이름을 다시 검증해야 한다.
 - `DatabaseName`은 CloudFormation에서 `Update requires: Replacement`다. 이름을 바꾸려면 클러스터가 교체되므로, 운영 데이터가 생긴 뒤에는 이름 변경을 마이그레이션으로 다뤄야 한다.
 
-## Open Questions
+## Follow-up
 
 - 컨트롤 플레인은 사용자, 조직, 프로젝트, API 토큰, 대시보드 설정 중 무엇을 저장하며 관계와 트랜잭션 경계는 어떻게 되는가?
 - shared schema 기반 멀티 테넌시가 필요한가? 필요하다면 connection pool에서 tenant context를 안전하게 설정하고 RLS 우회 권한을 차단할 수 있는가?

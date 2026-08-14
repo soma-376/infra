@@ -1,7 +1,8 @@
-# ADR-0005: 서비스 디스커버리 - Cloud Map 프라이빗 DNS
+# 0005. 서비스 디스커버리 - Cloud Map 프라이빗 DNS
 
-- **Status**: Accepted
-- **Date**: 2026-07-24
+## Status
+
+Accepted
 
 ## Context
 
@@ -17,8 +18,13 @@ Cloud Map 프라이빗 네임스페이스(`obs.local`)를 생성하고, ClickHou
 - **인스턴스 IP를 환경변수로 주입**: 인스턴스가 교체되면 즉시 깨지는 구성이라 기각.
 - **bridge 모드 + SRV 레코드**: 클라이언트 쪽 복잡도가 증가해 기각.
 
-## Consequences
+## Consequences/Tradeoffs
+
+### Positive
 
 - t4g.small 인스턴스의 ENI 한도(3개) 내에서 ClickHouse 태스크 1개를 awsvpc 모드로 돌리는 것은 문제가 없다.
-- 다만 같은 인스턴스에 태스크를 추가로 배치할 계획이 생기면, ENI 트렁킹 또는 bridge 모드 전환을 재검토해야 한다.
 - Fargate 태스크들은 ClickHouse를 `clickhouse.obs.local:8123`(HTTP) 및 `9000`(네이티브) 포트로 접근한다.
+
+### Negative
+
+- 다만 같은 인스턴스에 태스크를 추가로 배치할 계획이 생기면, ENI 트렁킹 또는 bridge 모드 전환을 재검토해야 한다.

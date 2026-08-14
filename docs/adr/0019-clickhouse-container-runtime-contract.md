@@ -1,7 +1,8 @@
-# ADR-0019: ClickHouse 컨테이너 런타임 계약 - compose와 동일한 사용자 설정 + 이미지 태그 고정
+# 0019. ClickHouse 컨테이너 런타임 계약 - compose와 동일한 사용자 설정 + 이미지 태그 고정
 
-- **Status**: Accepted
-- **Date**: 2026-08-03
+## Status
+
+Accepted
 
 ## Context
 
@@ -128,10 +129,17 @@ access management 권한이 실제 문제로 떠오르면 이 안으로 전환�
 당장의 인증 실패는 사라지지만, entrypoint 분기 로직이 바뀌는 메이저 업그레이드가
 재기동만으로 유입되는 경로가 남는다. 이 ADR이 문서화한 동작의 유효기간을 보장할 수 없다.
 
-## Consequences
+## Consequences/Tradeoffs
+
+### Positive
 
 - `post-processor`의 적재가 성공한다. 기동 로그에 `clickhouse schema ensured`가 뜨고
   503이 사라진다.
+- 앞으로 ClickHouse 버전 업그레이드는 `CLICKHOUSE_IMAGE` 한 줄을 바꾸는 **명시적 결정**이
+  된다. 데이터 디렉터리 호환성을 그 시점에 함께 확인해야 한다.
+
+### Negative
+
 - **`default` 유저는 비밀번호가 없고 `access_management=1`을 가진다.** VPC 안에서
   8123에 닿을 수 있는 주체는 ClickHouse에 대해 사실상 관리자다. 유일한 방어선이
   security group이라는 뜻이며, 이는 MVP 한정 수용이다. 실 운영 전환 시
@@ -144,8 +152,6 @@ access management 권한이 실제 문제로 떠오르면 이 안으로 전환�
   데이터 유실을 수용하고 있으므로, 충돌 시 서비스를 0으로 내리고 SSM으로 접속해
   ([ADR-0016](0016-ssm-based-operator-access.md)) `/data/clickhouse` 내용을 비운 뒤
   재배포한다. 스키마는 `post-processor`가 기동 시 `ensure_schema()`로 멱등 재적용한다.
-- 앞으로 ClickHouse 버전 업그레이드는 `CLICKHOUSE_IMAGE` 한 줄을 바꾸는 **명시적 결정**이
-  된다. 데이터 디렉터리 호환성을 그 시점에 함께 확인해야 한다.
 - 합성 템플릿이 이미지 태그와 환경변수 4개를 갖는지는 `test/application-stack.test.ts`가,
   `DEFAULT_ACCESS_MANAGEMENT`가 `'0'`이 아니라는 불변식은 `test/config.test.ts`가 고정한다.
   다만 인프라 테스트는 "ClickHouse가 실제로 그 값을 어떻게 해석하는가"를 검사할 수 없다.

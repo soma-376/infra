@@ -3,8 +3,8 @@ import {
   CONTROL_DB_NAME,
   CONTROL_DB_SSLMODE,
   PORTS,
-} from '../lib/config';
-import { buildApp } from './helpers';
+} from '../../lib/common/config';
+import { buildApp } from '../helpers';
 
 describe('DataStack', () => {
   const { data } = buildApp();

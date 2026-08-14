@@ -1,5 +1,5 @@
 import { Template, Match, Annotations } from 'aws-cdk-lib/assertions';
-import { buildApp, MODE_A_EDGE } from './helpers';
+import { buildApp, MODE_A_EDGE } from '../helpers';
 
 describe('EdgeStack mode A (HTTPS + ALB auth)', () => {
   const { edge } = buildApp(MODE_A_EDGE);

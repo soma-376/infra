@@ -1,11 +1,18 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { App } from 'aws-cdk-lib/core';
-import { applyCommonTags, EdgeConfig } from '../lib/config';
-import { NetworkStack } from '../lib/network-stack';
-import { DataStack } from '../lib/data-stack';
-import { ApplicationStack } from '../lib/application-stack';
-import { EdgeStack } from '../lib/edge-stack';
+import { EdgeConfig } from '../lib/prod/config';
+import { synthProd } from '../lib/prod/app';
+import { NetworkStack } from '../lib/prod/network-stack';
+import { DataStack } from '../lib/prod/data-stack';
+import { ApplicationStack } from '../lib/prod/application-stack';
+import { EdgeStack } from '../lib/prod/edge-stack';
+import { loadDevConfig } from '../lib/dev/config';
+import { synthDev } from '../lib/dev/app';
+import { DevNetworkStack } from '../lib/dev/network-stack';
+import { DevDataStack } from '../lib/dev/data-stack';
+import { DevApplicationStack } from '../lib/dev/application-stack';
+import { DevEdgeStack } from '../lib/dev/edge-stack';
 
 export const TEST_ENV = { account: '111111111111', region: 'ap-northeast-2' };
 
@@ -38,39 +45,44 @@ function loadCdkContext(): Record<string, unknown> {
 
 export function buildApp(edgeConfig: EdgeConfig = DEFAULT_EDGE): BuiltApp {
   const app = new App({ context: loadCdkContext() });
-  // bin/infra.ts 와 동일하게 공통 태그를 적용해 CLI synth 결과와 일치시킨다.
-  applyCommonTags(app);
-  const env = TEST_ENV;
-
-  const network = new NetworkStack(app, 'NetworkStack', { env });
-
-  const data = new DataStack(app, 'DataStack', {
-    env,
-    vpc: network.vpc,
-    auroraSecurityGroup: network.auroraSecurityGroup,
+  // 스택 조립과 공통 태그 적용은 bin/infra.ts 와 같은 `synthProd` 를 거친다.
+  // 손으로 복제하면 CLI synth 결과와 조용히 갈라진다.
+  const stacks = synthProd(app, {
+    env: TEST_ENV,
+    config: { edge: edgeConfig },
   });
 
-  const application = new ApplicationStack(app, 'ApplicationStack', {
-    env,
-    vpc: network.vpc,
-    dbSecret: data.dbSecret,
-    postProcessorPgDsnSecret: data.postProcessorPgDsnSecret,
-    rawSignalBucket: data.rawSignalBucket,
-    collectorSecurityGroup: network.collectorSecurityGroup,
-    dashboardSecurityGroup: network.dashboardSecurityGroup,
-    clickhouseSecurityGroup: network.clickhouseSecurityGroup,
+  return { app, ...stacks };
+}
+
+export interface BuiltDevApp {
+  app: App;
+  network: DevNetworkStack;
+  data: DevDataStack;
+  application: DevApplicationStack;
+  edge: DevEdgeStack;
+}
+
+/**
+ * 고정 env 로 dev 4-스택을 조립하는 테스트 팩토리.
+ *
+ * `context` 로 dev context 키(`devAllowedCidr`, `devAppAsgMaxCapacity`,
+ * `devImageTag`)를 주입한다 - CLI 의 `-c key=value` 와 같은 자리다. cdk.json 의
+ * 피처 플래그 위에 덮어쓰므로 위 `buildApp()` 과 같은 합성 조건을 공유한다.
+ *
+ * 스택 조립은 bin/infra.ts(CLI)와 같은 `synthDev` 를 거친다. 손으로 복제하면
+ * CLI synth 결과와 조용히 갈라지며, 그게 ADR-0021 이 없앤 문제다.
+ */
+export function buildDevApp(
+  context: Record<string, unknown> = {},
+): BuiltDevApp {
+  const app = new App({ context: { ...loadCdkContext(), ...context } });
+  const stacks = synthDev(app, {
+    env: TEST_ENV,
+    config: loadDevConfig(app),
   });
 
-  const edge = new EdgeStack(app, 'EdgeStack', {
-    env,
-    vpc: network.vpc,
-    collectorService: application.collectorService,
-    dashboardService: application.dashboardService,
-    albSecurityGroup: network.albSecurityGroup,
-    edge: edgeConfig,
-  });
-
-  return { app, network, data, application, edge };
+  return { app, ...stacks };
 }
 
 /** 모드 A(HTTPS + ALB 인증) EdgeConfig. */

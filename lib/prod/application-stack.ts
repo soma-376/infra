@@ -51,9 +51,9 @@ import {
   ECR_REPOS,
   ENRICHMENT_ENV,
   PORTS,
-  PRIMARY_AZ_INDEX,
-  SUBNET_GROUP,
-} from './config';
+} from '../common/config';
+import { clickhouseUserData } from '../common/clickhouse-user-data';
+import { PRIMARY_AZ_INDEX, SUBNET_GROUP } from './config';
 
 /**
  * Fargate 태스크는 ARM64(Graviton)로 통일한다. ClickHouse EC2(t4g)와 아키텍처를
@@ -72,6 +72,7 @@ const FARGATE_RUNTIME_PLATFORM: RuntimePlatform = {
  */
 const COLLECTOR_CONFIG_PATH = join(
   __dirname,
+  '..',
   '..',
   'config',
   'otel-collector.yaml',
@@ -397,30 +398,4 @@ export class ApplicationStack extends Stack {
       maxHealthyPercent: 100,
     });
   }
-}
-
-/**
- * ClickHouse 데이터 볼륨(xvdb) 포맷 + /data/clickhouse 마운트 userData.
- *
- * Nitro 인스턴스에서는 /dev/xvdb symlink 가 없을 수 있어 lsblk 로 미마운트
- * 데이터 디바이스를 탐색하는 폴백을 둔다. blkid 가드로 idempotent 하게 만들고
- * /etc/fstab 에 등록해 재부팅 후에도 유지되게 한다.
- */
-function clickhouseUserData(): string[] {
-  return [
-    'set -euxo pipefail',
-    'MOUNT=/data/clickhouse',
-    'mkdir -p "$MOUNT"',
-    // 우선 /dev/xvdb, 없으면 lsblk 로 마운트되지 않은 빈 디스크를 찾는다.
-    'DEV=/dev/xvdb',
-    'if [ ! -b "$DEV" ]; then',
-    "  DEV=$(lsblk -rpno NAME,TYPE,MOUNTPOINT | awk '$2==\"disk\" && $3==\"\" {print $1}' | grep -v -E 'nvme0n1$|xvda$' | head -n1)",
-    'fi',
-    'if [ -z "$DEV" ]; then echo "no data device found" >&2; exit 1; fi',
-    // 파일시스템이 없을 때만 포맷 (idempotent).
-    'if ! blkid "$DEV"; then mkfs -t xfs "$DEV"; fi',
-    'UUID=$(blkid -s UUID -o value "$DEV")',
-    'grep -q "$UUID" /etc/fstab || echo "UUID=$UUID $MOUNT xfs defaults,nofail 0 2" >> /etc/fstab',
-    'mountpoint -q "$MOUNT" || mount "$MOUNT"',
-  ];
 }

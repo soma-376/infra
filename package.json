@@ -5,7 +5,13 @@
     "build": "tsc",
     "watch": "tsc -w",
     "test": "jest",
-    "cdk": "cdk"
+    "cdk": "cdk",
+    "synth": "cdk synth --all",
+    "diff": "cdk diff --all",
+    "deploy": "cdk deploy --all",
+    "synth:dev": "cdk synth --all -c env=dev",
+    "diff:dev": "cdk diff --all -c env=dev",
+    "deploy:dev": "cdk deploy --all -c env=dev"
   },
   "devDependencies": {
     "@swc/core": "^1.15.0",

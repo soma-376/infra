@@ -1,6 +1,6 @@
 import { Template } from 'aws-cdk-lib/assertions';
 import { CfnSecurityGroup, SecurityGroup } from 'aws-cdk-lib/aws-ec2';
-import { buildApp } from './helpers';
+import { buildApp } from '../helpers';
 
 describe('NetworkStack', () => {
   const { network } = buildApp();

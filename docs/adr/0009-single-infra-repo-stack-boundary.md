@@ -1,7 +1,8 @@
-# ADR-0009: CDK 스택 경계 - 인프라 레포 단일 관리 + 앱 레포는 이미지 배포만
+# 0009. CDK 스택 경계 - 인프라 레포 단일 관리 + 앱 레포는 이미지 배포만
 
-- **Status**: Proposed
-- **Date**: 2026-07-24
+## Status
+
+Proposed
 
 ## Context
 
@@ -19,13 +20,18 @@ ClickHouse는 분석 데이터를 저장하지만, MVP에서는 독립 관리형
 - **ClickHouse를 DataStack으로 이동**: ClickHouse만 옮기면 `DataStack`이 `ApplicationStack`의 ECS Cluster, Cloud Map namespace, task execution role을 참조해야 한다. 반대로 `ApplicationStack`은 이미 `DataStack`의 DB secret과 Raw Signal S3 버킷을 참조하므로 스택 간 순환 의존이 발생한다. ECS Cluster까지 함께 옮기면 `DataStack`이 앱 런타임을 소유해 책임 경계가 불명확해지므로 채택하지 않음.
 - **ClickHouse를 AnalyticsStack으로 분리**: ECS Cluster와 Cloud Map namespace를 별도 공유 런타임 스택으로 분리하거나 cross-stack 참조를 추가해야 한다. ClickHouse의 독립 배포 필요성이 확인되지 않은 MVP 단계에서는 스택 수와 배포 순서의 복잡도만 늘어나므로 보류.
 
-## Consequences
+## Consequences/Tradeoffs
+
+### Positive
+
+- ClickHouse 인프라 변경도 다른 ECS 워크로드와 동일하게 `ApplicationStack` 배포를 통해 수행한다.
+
+### Negative
 
 - 태스크 정의 변경은 항상 인프라 레포를 경유해야 한다.
-- ClickHouse 인프라 변경도 다른 ECS 워크로드와 동일하게 `ApplicationStack` 배포를 통해 수행한다.
+
+## Follow-up
+
 - ClickHouse에 독립적인 배포, 복구 또는 보존 수명주기가 필요해지면 공유 런타임 스택과 `AnalyticsStack` 분리를 재검토한다.
 - "앱 팀이 인프라 레포를 수정하는 것이 부담"이라는 문제가 실제 병목으로 드러나면, 그 시점에 스택 분리로 전환한다. 이는 논리적 재배치 수준의 변경으로 가능하다고 판단한다.
-
-## Revisit Trigger
-
-앱 팀의 인프라 레포 수정 부담이 실제 병목이 되면 스택 분리 전환.
+- 앱 팀의 인프라 레포 수정 부담이 실제 병목이 되면 스택 분리 전환.

@@ -24,9 +24,8 @@ import {
   CONTROL_DB_NAME,
   CONTROL_DB_SSLMODE,
   PORTS,
-  PRIMARY_AZ_INDEX,
-  SUBNET_GROUP,
-} from './config';
+} from '../common/config';
+import { PRIMARY_AZ_INDEX, SUBNET_GROUP } from './config';
 
 export interface DataStackProps extends StackProps {
   readonly vpc: IVpc;
