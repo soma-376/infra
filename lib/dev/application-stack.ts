@@ -52,6 +52,10 @@ import {
   ENRICHMENT_ENV,
   PORTS,
 } from '../common/config';
+import {
+  ECS_CLUSTER_NAMES,
+  ECS_SERVICE_NAMES,
+} from '../common/deploy-targets';
 import { clickhouseUserData } from '../common/clickhouse-user-data';
 import {
   DevConfig,
@@ -159,6 +163,12 @@ export class DevApplicationStack extends Stack {
 
     this.cluster = new Cluster(this, 'DevCluster', {
       vpc: props.vpc,
+      // 물리 이름을 명시한다. 앱 레포 워크플로우의 `--cluster` 인자이자 `DeployStack` 이
+      // IAM 서비스 ARN 을 조립하는 조각이다. **클러스터 이름은 계정 + 리전에서 유일해야
+      // 하므로 이 값이 운영과 달라야 한다** - 로그 그룹의 `/ecs/dev/` 접두와 같은 사정이다.
+      // 교체 유발 속성이라 이미 배포된 스택에 추가하면 재생성된다 (AGENTS.md 6장 런북).
+      // (ADR-0021 Constraints, ADR-0024 6번)
+      clusterName: ECS_CLUSTER_NAMES.dev,
     });
 
     // 네임스페이스 이름은 운영과 **같은 `obs.local`** 이다. private DNS
@@ -409,6 +419,13 @@ export class DevApplicationStack extends Stack {
     return new Ec2Service(this, 'DevCollectorService', {
       cluster: this.cluster,
       taskDefinition: task,
+      // 이름은 운영과 같다. 유일성 스코프가 클러스터 안이고 `DevCluster` 가 이미
+      // `soma-376-dev` 로 갈려 있으므로 충돌하지 않는다. 이렇게 두면 워크플로우가
+      // `--cluster` 하나만 갈아끼워 환경을 바꾼다. (ADR-0024 6번)
+      //
+      // 아래 `cloudMapOptions.name` 과 값이 같지만 **다른 계약이다** - 이건 ECS 서비스
+      // 식별자이고 저건 `collector.obs.local` 의 DNS 레이블이다. 상수도 따로 둔다.
+      serviceName: ECS_SERVICE_NAMES.collector,
       desiredCount: 1,
       // awsvpc 태스크만 태스크 ENI 를 받으므로 여기에만 SG/서브넷을 준다.
       // `assignPublicIp` 는 **EC2 launch type 에 존재하지 않는다** - 퍼블릭 IP
@@ -504,6 +521,9 @@ export class DevApplicationStack extends Stack {
     return new Ec2Service(this, 'DevAuthProxyService', {
       cluster: this.cluster,
       taskDefinition: task,
+      // **운영에는 이 서비스가 없다** (ADR-0023). 그래서 prod 파이프라인 배포 역할에도
+      // 이 ARN 이 없다 - 없는 서비스의 권한을 주면 죽은 계약이다. (ADR-0024 4번)
+      serviceName: ECS_SERVICE_NAMES.authProxy,
       desiredCount: 1,
       // bridge 태스크에는 태스크 ENI 가 없으므로 vpcSubnets/securityGroups 를 줄 수
       // 없다(CDK 가 합성 단계에서 거부한다). 이 태스크의 네트워크 정체성은 호스트 ENI 와
@@ -587,6 +607,7 @@ export class DevApplicationStack extends Stack {
     return new Ec2Service(this, 'DevDashboardService', {
       cluster: this.cluster,
       taskDefinition: task,
+      serviceName: ECS_SERVICE_NAMES.dashboard,
       desiredCount: 1,
       // bridge 태스크에는 태스크 ENI 가 없으므로 vpcSubnets/securityGroups 를 줄 수
       // 없다(CDK 가 합성 단계에서 거부한다). 이 태스크의 네트워크 정체성은
@@ -645,6 +666,9 @@ export class DevApplicationStack extends Stack {
     return new Ec2Service(this, 'DevClickhouseService', {
       cluster: this.cluster,
       taskDefinition: task,
+      // 이름만 고정한다. 공개 이미지 고정 태그라(ADR-0019) 앱 레포가 재배포할 대상이
+      // 아니고, 어느 배포 역할에도 이 ARN 이 없다.
+      serviceName: ECS_SERVICE_NAMES.clickhouse,
       desiredCount: 1,
       vpcSubnets: { subnetType: SubnetType.PUBLIC },
       securityGroups: [props.clickhouseSecurityGroup],

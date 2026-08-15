@@ -109,10 +109,19 @@ const DEV_DEFAULT_APP_ASG_MAX_CAPACITY = 1;
 
 /**
  * `devImageTag` 기본값. dev/prod 가 같은 ECR 레포를 공유하고 태그로만 갈린다
- * (ADR-0021 5번). 운영이 같은 태그를 쓰면 dev 빌드가 곧 운영 이미지가 되므로
- * 방어선은 인프라가 아니라 앱 레포의 태그 규율이다.
+ * (ADR-0021 5번).
+ *
+ * **예전 값은 `latest` 였고 운영도 태그를 주지 않아 `latest` 를 읽었다** - 그래서 dev 빌드가
+ * 곧 운영 이미지가 됐다. ADR-0021 이 Negative 로 남겨 둔 그 구멍을 ADR-0024 가 두 환경에
+ * 서로 다른 고정 태그를 주어 닫았다. 운영 쪽 상수는 `lib/prod/config.ts` 의 `PROD_IMAGE_TAG` 다.
+ *
+ * 태그가 갈렸다고 규율이 강제되는 것은 아니다. ECR 은 이미지 태그 기반 IAM 조건 키를 주지
+ * 않으므로, dev 배포 역할이 `prod` 태그를 push 하는 것을 인프라가 막을 수단이 없다.
+ * 방어선은 여전히 앱 레포 워크플로우다 (ADR-0024 Negative).
+ *
+ * `-c devImageTag=pr-42` 로 갈아탈 수 있다. 이 손잡이는 dev 에만 있다.
  */
-const DEV_DEFAULT_IMAGE_TAG = 'latest';
+const DEV_DEFAULT_IMAGE_TAG = 'dev';
 
 /**
  * dev 배포별 가변값. context 키 3개에서만 온다.

@@ -52,8 +52,12 @@ import {
   ENRICHMENT_ENV,
   PORTS,
 } from '../common/config';
+import {
+  ECS_CLUSTER_NAMES,
+  ECS_SERVICE_NAMES,
+} from '../common/deploy-targets';
 import { clickhouseUserData } from '../common/clickhouse-user-data';
-import { PRIMARY_AZ_INDEX, SUBNET_GROUP } from './config';
+import { PRIMARY_AZ_INDEX, PROD_IMAGE_TAG, SUBNET_GROUP } from './config';
 
 /**
  * Fargate 태스크는 ARM64(Graviton)로 통일한다. ClickHouse EC2(t4g)와 아키텍처를
@@ -111,6 +115,12 @@ export class ApplicationStack extends Stack {
 
     this.cluster = new Cluster(this, 'Cluster', {
       vpc: props.vpc,
+      // 물리 이름을 명시한다. 앱 레포 워크플로우가 `aws ecs update-service --cluster`
+      // 인자로 이 값을 쓰고, `DeployStack` 이 이 값으로 IAM 서비스 ARN 을 조립한다.
+      // **이 속성은 교체 유발 속성이다** - 이미 배포된 스택에 추가하면 클러스터가
+      // 재생성되며, ASG user data 에 클러스터 이름이 박혀 있어 in-place 로는 끝나지
+      // 않는다. 교체 절차는 AGENTS.md 6장. (ADR-0024 6번)
+      clusterName: ECS_CLUSTER_NAMES.prod,
     });
 
     this.namespace = new PrivateDnsNamespace(this, 'Namespace', {
@@ -186,6 +196,9 @@ export class ApplicationStack extends Stack {
           'PostProcessorRepo',
           ECR_REPOS.postProcessor,
         ),
+        // 태그를 생략하면 `latest` 로 해석되고, dev 기본 태그도 예전엔 `latest` 라
+        // dev 빌드가 곧 운영 이미지가 됐다. (ADR-0021 5번의 Negative, ADR-0024 7번)
+        PROD_IMAGE_TAG,
       ),
       // 이 이름들은 앱 소스(ai-telemetry-pipeline)가 권위다. 앱이 os.environ 으로
       // 읽는 이름과 한 글자라도 다르면 조용히 compose 전용 기본값으로 폴백하고,
@@ -219,6 +232,9 @@ export class ApplicationStack extends Stack {
     return new FargateService(this, 'CollectorService', {
       cluster: this.cluster,
       taskDefinition: task,
+      // 이름은 dev 와 같다. 유일성 스코프가 클러스터 안이라 충돌하지 않고, 워크플로우가
+      // `--cluster` 하나만 갈아끼워 환경을 바꿀 수 있다. (ADR-0024 6번)
+      serviceName: ECS_SERVICE_NAMES.collector,
       desiredCount: 1,
       vpcSubnets: this.primaryAppSubnetSelection(props.vpc),
       securityGroups: [props.collectorSecurityGroup],
@@ -253,6 +269,7 @@ export class ApplicationStack extends Stack {
           'ApiServerRepo',
           ECR_REPOS.apiServer,
         ),
+        PROD_IMAGE_TAG,
       ),
       portMappings: [{ containerPort: PORTS.apiServer }],
       environment: {
@@ -275,6 +292,7 @@ export class ApplicationStack extends Stack {
           'BatchRepo',
           ECR_REPOS.batchProcessor,
         ),
+        PROD_IMAGE_TAG,
       ),
       essential: false, // 배치 실패가 api-server 태스크를 내리지 않게 함 (ADR-0004)
       environment: {
@@ -289,6 +307,7 @@ export class ApplicationStack extends Stack {
     return new FargateService(this, 'DashboardService', {
       cluster: this.cluster,
       taskDefinition: task,
+      serviceName: ECS_SERVICE_NAMES.dashboard,
       desiredCount: 1,
       vpcSubnets: this.primaryAppSubnetSelection(props.vpc),
       securityGroups: [props.dashboardSecurityGroup],
@@ -380,6 +399,9 @@ export class ApplicationStack extends Stack {
     new Ec2Service(this, 'ClickhouseService', {
       cluster: this.cluster,
       taskDefinition: task,
+      // 이름만 고정한다. ClickHouse 는 공개 이미지를 고정 태그로 쓰므로(ADR-0019)
+      // 앱 레포가 재배포할 대상이 아니고, 어느 배포 역할에도 이 ARN 이 없다.
+      serviceName: ECS_SERVICE_NAMES.clickhouse,
       desiredCount: 1,
       vpcSubnets: this.primaryAppSubnetSelection(props.vpc),
       securityGroups: [props.clickhouseSecurityGroup],
