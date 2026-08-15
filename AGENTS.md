@@ -70,19 +70,24 @@ NetworkStack ──> DataStack ──┐
 | 스택 | 파일 | 주요 리소스 |
 |---|---|---|
 | `DevNetworkStack` | `lib/dev/network-stack.ts` | 전용 VPC (`10.1.0.0/16`, 2 AZ × public 1 티어, **NAT 0개**), S3 Gateway Endpoint, **SG 5개 전부 + 모든 cross-SG 룰** |
-| `DevDataStack` | `lib/dev/data-stack.ts` | RDS PostgreSQL 16.13 `db.t4g.micro` (`controlplane` DB, gp3 20GB, **`publiclyAccessible`**), post-processor 파생 DSN 시크릿, Raw Signal S3 버킷 (7일 만료) |
-| `DevApplicationStack` | `lib/dev/application-stack.ts` | ECS 클러스터, Cloud Map `obs.local`, ASG 2개 (앱 `t4g.medium` / ClickHouse `t4g.small`) + 캐패시티 프로바이더 2개, `Ec2Service` 3개 |
-| `DevEdgeStack` | `lib/dev/edge-stack.ts` | internet-facing ALB (:80, :8123), `CfnOutput` 6개. **Cognito·CloudFront·프론트엔드 S3는 만들지 않는다** |
+| `DevDataStack` | `lib/dev/data-stack.ts` | RDS PostgreSQL 16.13 `db.t4g.micro` (`controlplane` DB, gp3 20GB, **`publiclyAccessible`**), 시크릿 4개 (마스터 + post-processor 파생 DSN + auth-proxy 파생 URI + 토큰 해시 키), Raw Signal S3 버킷 (7일 만료) |
+| `DevApplicationStack` | `lib/dev/application-stack.ts` | ECS 클러스터, Cloud Map `obs.local`, ASG 2개 (앱 `t4g.medium` / ClickHouse `t4g.small`) + 캐패시티 프로바이더 2개, `Ec2Service` 4개 |
+| `DevEdgeStack` | `lib/dev/edge-stack.ts` | internet-facing ALB (:80, :4318, :8123), `CfnOutput` 8개. **Cognito·CloudFront·프론트엔드 S3는 만들지 않는다** |
 
-**dev 태스크 구성** — 세 태스크가 서로 다른 이유로 서로 다른 네트워크 모드를 요구한다 (ADR-0022 4번).
+**dev 태스크 구성** — 태스크마다 네트워크 모드가 다르다. ADR-0022 4번이 **awsvpc를 강제하는 조건을 둘만 인정**하고(태스크 내 `localhost` 의존 / Cloud Map A 레코드 등록 대상), 나머지는 bridge로 두어 인터넷 egress와 ENI 여유를 얻는다는 규칙이다 (ADR-0023 2번).
 
 | 태스크 | 컨테이너 | 네트워크 모드 | 그 모드여야 하는 이유 |
 |---|---|---|---|
 | `DevCollectorTask` | `otel-collector` (:4318), `post-processor` | **awsvpc** | `config/otel-collector.yaml`의 `http://localhost:8080` exporter는 태스크 내 네트워크 네임스페이스 공유가 전제다 |
+| `DevAuthProxyTask` | `auth-proxy` (:4316, 동적 호스트 포트) | **bridge** | 단일 컨테이너라 localhost 의존이 없고, 디스커버리의 **클라이언트**라 Cloud Map 등록 대상도 아니다. 강제 조건이 없으므로 ENI 여유와 egress를 취한다 (ADR-0023 2번) |
 | `DevDashboardTask` | `api-server` (:8080, 동적 호스트 포트), `batch-processor` | **bridge** | 두 컨테이너 사이에 localhost 의존이 없다. 호스트 ENI를 타므로 인터넷 egress와 ECS Exec이 살아난다 |
 | `DevClickhouseTask` | `clickhouse` (:8123/:9000) | **awsvpc** | Cloud Map A 레코드(`clickhouse.obs.local`) 등록에는 태스크 전용 IP가 필요하다. bridge면 SRV만 등록된다 |
 
-세 서비스 모두 `desiredCount: 1` + `minHealthyPercent: 0` / `maxHealthyPercent: 100` 교체 배포다 (t4g의 인스턴스당 ENI 한도 3, ADR-0022 Constraints). ALB 타깃 타입도 네트워크 모드의 귀결이다 — awsvpc는 `ip`, bridge는 `instance`.
+네 서비스 모두 `desiredCount: 1` + `minHealthyPercent: 0` / `maxHealthyPercent: 100` 교체 배포다 (t4g의 인스턴스당 ENI 한도 3, ADR-0022 Constraints). ALB 타깃 타입도 네트워크 모드의 귀결이다 — awsvpc는 `ip`, bridge는 `instance`.
+
+**호스트 배치.** auth-proxy는 새 ASG를 만들지 않고 기존 `DevAppAsg`(t4g.medium 1대)에 얹힌다. 그 호스트는 collector 태스크(awsvpc, ENI 1개) + dashboard·auth-proxy(bridge, ENI 0개)를 함께 돌리므로 **ENI는 3 중 2를 쓴다.** `memoryReservation` 합계는 2304 MiB로 전부 소프트 예약이다.
+
+**OTLP 경로에 인증이 생겼다** (ADR-0023). ALB `:80`의 `/v1/*`는 auth-proxy를 거치고, auth-proxy가 `collector.obs.local`(Cloud Map A 레코드)로 Collector에 전달한다. 인증 없이 Collector로 직행하는 기존 경로는 **`:4318` 디버그 리스너**로 남아 있다 — 프록시 장애와 파이프라인 장애를 가르는 용도이며, ALB는 forward 시 URL을 재작성하지 않으므로 경로가 아니라 포트로 나눈다.
 
 ---
 
@@ -96,7 +101,7 @@ NetworkStack ──> DataStack ──┐
 | **ECR 레포를 CDK로 만들지 않는다** | `Repository.fromRepositoryName`으로 참조만 한다. CDK가 만들면 첫 배포에서 "이미지 없는 레포" → 태스크 기동 실패 → 롤백으로 레포까지 삭제되는 순환이 생긴다. (ADR-0007) |
 | **ECR 레포 이름은 `soma-376/` 네임스페이스 아래에 둔다** | 네임스페이스는 `COMMON_TAGS.Org`와 같은 값이다. 비용 배분 태그 축과 레지스트리 경로를 같은 식별자로 정렬한다. ECR은 레포 이름 변경이 불가능해 사후 교정에 재생성 + 이미지 재push가 든다. (`lib/common/config.ts`의 `ECR_NAMESPACE`, ADR-0007) |
 | **`batch-processor`는 `essential: false`** | 배치 실패가 같은 태스크의 api-server를 함께 내리면 안 된다. (`lib/prod/application-stack.ts:279`, dev는 `lib/dev/application-stack.ts:462`, ADR-0004) |
-| **ClickHouse `Ec2Service`는 `minHealthyPercent: 0` / `maxHealthyPercent: 100`** | 인스턴스 1대 + awsvpc ENI 한도상 롤링 배포가 불가능하다. 강제 교체 배포만 가능하다. (`lib/prod/application-stack.ts:397-398`. dev는 세 서비스 전부 같은 값이며 `lib/dev/application-stack.ts`의 `REPLACEMENT_DEPLOYMENT` 상수가 이를 강제한다 - ADR-0022 Constraints) |
+| **ClickHouse `Ec2Service`는 `minHealthyPercent: 0` / `maxHealthyPercent: 100`** | 인스턴스 1대 + awsvpc ENI 한도상 롤링 배포가 불가능하다. 강제 교체 배포만 가능하다. (`lib/prod/application-stack.ts:397-398`. dev는 네 서비스 전부 같은 값이며 `lib/dev/application-stack.ts`의 `REPLACEMENT_DEPLOYMENT` 상수가 이를 강제한다 - ADR-0022 Constraints) |
 | **`AsgCapacityProvider`의 `enableManagedTerminationProtection: false`** | 단일 인스턴스 교체 배포를 관리형 종료 보호가 막는다. (`lib/prod/application-stack.ts:346`, dev는 `lib/dev/application-stack.ts`의 `addCapacityProvider`) |
 | **DB 시크릿은 참조만 노출한다** | `data.dbSecret`(`ISecret`)을 넘길 뿐, **합성 시점에 값을 평문으로 읽는 코드**는 절대 넣지 않는다. 컨테이너에는 `Secret.fromSecretsManager`로 주입한다. **예외는 `DataStack`의 `PostProcessorPgDsn` 파생 시크릿 하나뿐이며**, 거기서도 `unsafeUnwrap()`이 돌려주는 건 평문이 아니라 `{{resolve:secretsmanager:...}}` 동적 참조 토큰이다(합성 산출물은 `Fn::Join` + `Ref`뿐). 새 예외를 만들려면 ADR-0018을 먼저 갱신한다. (`lib/prod/data-stack.ts`, dev는 `lib/dev/data-stack.ts`의 `DevPostProcessorPgDsn`, ADR-0018) |
 | **`post-processor`의 환경변수 이름은 앱 소스가 권위다** | 앱은 `ENRICHMENT_CH_URL` / `ENRICHMENT_CH_DB` / `ENRICHMENT_PG_DSN` **세 개만** 읽는다 (`ai-telemetry-pipeline`의 `src/enrichment/sink_clickhouse.py:43,47`, `src/enrichment/rds.py:21`). 이름이 하나라도 틀리면 앱은 예외 없이 compose 전용 기본값으로 **조용히 폴백**하고, ECS에서는 DNS가 안 풀려 모든 insert가 `BackendUnavailable` → HTTP 503이 된다. **synth도 테스트도 배포도 전부 통과한다** — 인프라 테스트는 "앱이 그 이름을 읽는가"를 원리적으로 검증할 수 없다. 죽은 계약(`CLICKHOUSE_HOST`·`DB_CREDS`·`DB_NAME`)을 다시 넣지 않는다. **dev도 같은 이름을 쓴다** - 계약이 환경마다 갈리면 "dev에서 검증했다"는 말의 의미가 사라진다. (`lib/common/config.ts`의 `ENRICHMENT_ENV`, ADR-0018, ADR-0021 2번) |
@@ -117,6 +122,9 @@ NetworkStack ──> DataStack ──┐
 |---|---|
 | **`lib/prod/`와 `lib/dev/`는 서로 import 하지 않는다** | 의존은 `prod → common`, `dev → common` 단방향뿐이다. 이 규칙 하나가 "dev를 고치다 운영이 깨진다"는 경로를 **컴파일 타임에** 차단한다. dev에 필요한 값이 `prod/`에 있으면 `common/`으로 올리거나 `dev/`에 복제한다. (ADR-0021 2번) |
 | **dev 태스크의 네트워크 모드 3종을 바꾸지 않는다** (awsvpc / bridge / awsvpc) | collector가 bridge가 되면 `config/otel-collector.yaml`의 `http://localhost:8080` exporter 계약이 깨진다(컨테이너마다 네임스페이스가 갈려 localhost가 자기 자신을 가리킨다). clickhouse가 bridge가 되면 Cloud Map이 A 레코드 대신 **SRV만** 등록해 `ENRICHMENT_CH_URL`이 깨진다. **둘 다 synth·test·deploy가 전부 통과하고 런타임에만 죽는다** - 앱은 이름이 안 풀려도 예외 없이 compose 기본값으로 조용히 폴백한다. `test/dev/application-stack.test.ts`의 `NetworkMode` 어서션이 유일한 방어선이다. (ADR-0022 4번) |
+| **auth-proxy의 `DATABASE_URL`에 libpq DSN을 넣지 않는다** | `pg`의 파서는 URI 전용이라 keyword/value 문자열은 공백이 `%20`으로 인코딩되며 망가진다. 그리고 URI 쿼리의 **`uselibpqcompat=true`를 빼면** `sslmode=require`가 `verify-full`의 별칭이 되어 RDS 기본 CA 검증에 실패한다 — 두 경우 다 배포는 성공하고 auth-proxy만 런타임에 죽는다. `buildLibpqDsn`과 `buildPostgresUri`가 나란히 있는 것이 중복이 아닌 이유다. (`lib/common/config.ts`, ADR-0023) |
+| **`DevCollectorService`의 `cloudMapOptions`를 지우지 않는다** | auth-proxy가 Collector를 찾는 유일한 수단이다(`collector.obs.local`). **A 레코드여야 하며** bridge/host면 Cloud Map이 SRV만 등록해 HTTP 클라이언트가 해석하지 못한다. 지우면 ALB 헬스체크(`/health`)는 계속 통과하고 전달만 `upstream_unreachable`로 죽는다. (`lib/dev/application-stack.ts`, ADR-0005, ADR-0023 1번) |
+| **`DevCollectorSg` ← `DevAppHostSg` : 4318 룰을 지우지 않는다** | auth-proxy가 bridge라 아웃바운드가 호스트 ENI를 타므로 출발 SG가 태스크 SG가 아니라 호스트 SG다. `batch-processor` → ClickHouse 룰과 같은 사정이며, "아무도 안 쓰는 것 같다"고 지우면 auth-proxy만 조용히 타임아웃으로 죽는다. (`lib/dev/network-stack.ts`, ADR-0022 4번, ADR-0023 2번) |
 | **dev 로그 그룹의 `/ecs/dev/` 접두사를 빼지 않는다** | 운영 `ApplicationStack`이 `logGroupName`에 `/ecs/collector` 같은 **물리 이름을 명시**하고, 로그 그룹 이름은 계정 + 리전에서 유일하다. 접두사를 빼면 첫 `cdk deploy`가 `Resource of type 'AWS::Logs::LogGroup' with identifier '/ecs/collector' already exists`로 스택째 롤백된다. (`lib/dev/config.ts`의 `DEV_LOG_GROUP_PREFIX`, ADR-0021 Constraints, ADR-0022 10번) |
 | **dev ALB 리스너의 `open: false`를 지우지 않는다** | CDK `addListener`의 기본값 `open: true`가 리스너 포트를 `0.0.0.0/0`에 여는 인그레스를 ALB SG에 자동 추가한다. 운영에서는 `NetworkStack`이 이미 anyIpv4 룰을 갖고 있어 dedup되지만, dev는 CIDR을 좁히는 것이 목적이라 그 자동 룰이 좁힌 룰 옆에 남아 **`devAllowedCidr` 제한을 통째로 무력화한다.** **이번 구현에서 실제로 발생했던 버그다.** `test/dev/network-stack.test.ts`의 "전면 공개 인그레스가 어디에도 남지 않는다"가 이를 고정한다. (`lib/dev/edge-stack.ts`, ADR-0022 2번/9번) |
 | **`applyCommonTags`는 태그 맵을 인자로 받는다** | prod는 `COMMON_TAGS`(`Env: 'mvp'` **유지**), dev는 `DEV_COMMON_TAGS`(`Env: 'dev'`)다. 태그는 App 스코프에서 전 리소스로 전파되므로, prod의 `Env`를 `'prod'`로 "정정"하면 VPC·서브넷·SG·ECS·로그 그룹·Aurora·S3까지 전 리소스에 태그 diff가 생기고 일부는 교체될 수 있다. **이 레포에서 환경 식별자는 태그가 아니라 스택 ID 접두사다.** (`lib/common/config.ts`의 `applyCommonTags`, ADR-0021 4번) |
@@ -199,6 +207,27 @@ DSN 형식: `host=… port=5432 dbname=controlplane user=… password=… sslmod
 DB는 `api-server`와 같은 `controlplane`을 공유한다.
 
 `RAW_BUCKET`(버킷 이름)도 함께 주입되지만 **현재 앱은 읽지 않는다.** ADR-0017이 예고한 collector의 `awss3` exporter 전환에 대비해 태스크 역할의 S3 권한과 함께 남겨둔 것이다.
+
+#### `auth-proxy` (`ai-telemetry-pipeline`의 `apps/auth-proxy`, Node/TypeScript — ADR-0023)
+
+**현재 dev에만 있다.** 권위 소스는 `apps/auth-proxy/src/config/env.ts`다.
+
+| 값 | 전달 경로 | 비고 |
+|---|---|---|
+| Collector OTLP 주소 (`http://collector.obs.local:4318`) | 환경변수 `COLLECTOR_BASE_URL` | 뒤에 `/v1/traces` 등을 이어붙인다. **끝 슬래시 금지** |
+| Postgres 접속 문자열 | **시크릿** `DATABASE_URL` | **URI 형식** |
+| Bearer 토큰 HMAC-SHA256 키 | **시크릿** `TOKEN_HASH_SECRET` | enrollment 서버와 공유 |
+| 로그 레벨 | 환경변수 `LOG_LEVEL` | dev는 `debug`. PROJ-51이 앱 쪽에 도입 중 |
+
+`PORT`(기본 4316)와 `MAX_OTLP_BODY_SIZE`(기본 10MiB)는 기본값을 쓰므로 주입하지 않는다.
+
+**`DATABASE_URL`은 `post-processor`의 `ENRICHMENT_PG_DSN`과 형식이 다르다. 재사용하면 안 된다.** psycopg는 libpq keyword/value를 읽지만 `pg`의 파서(`pg-connection-string`)는 `new URL()` 기반의 **URI 전용**이다. keyword/value를 넣으면 공백이 `%20`으로 인코딩되어 통째로 망가진다. 그래서 `lib/common/config.ts`에 `buildLibpqDsn()`과 `buildPostgresUri()`가 나란히 있다 — 중복이 아니라 두 앱이 다른 형식을 요구한다는 사실이다.
+
+**URI 쿼리의 `uselibpqcompat=true`를 빼면 안 된다.** `pg-connection-string`은 이 플래그가 없으면 `sslmode=require`를 **`verify-full`의 별칭**으로 취급한다(라이브러리가 직접 경고를 낸다). 그러면 `rejectUnauthorized`가 켜지고 RDS 기본 CA는 Node 기본 CA 번들에 없으므로 **접속 자체가 실패한다.** `CONTROL_DB_SSLMODE = 'require'`의 "CA 검증을 하지 않는다"는 주석은 libpq에서만 참이다.
+
+**`TOKEN_HASH_SECRET`은 회전할 수 없다.** 키가 바뀌면 이미 발급된 모든 토큰의 `token_hash`가 매칭 불가가 되어 전 클라이언트가 401을 받는다. 회전하려면 토큰 전량 재발급이나 이중 키 검증이 선행되어야 한다.
+
+**앱은 필수 값이 비면 즉시 throw하고 기동에 실패한다.** `post-processor`와 달리 조용한 폴백이 없어, 이름 오타는 태스크 재시작 루프와 `/ecs/dev/auth-proxy` 로그로 드러난다.
 
 #### `batch-processor` / `otel-collector` / `clickhouse`
 
@@ -314,7 +343,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0023`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지로 이미 쓰였고, `0020`은 위 (F)의 로그 그룹 정책용으로 여전히 예약되어 있다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0024`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy로 이미 쓰였고, `0020`은 위 (F)의 로그 그룹 정책용으로 여전히 예약되어 있다.
    형식은 `docs/adr/0000-adr-template.md`를 따른다.
 3. 상수는 **"이 값이 dev에서 달라야 할 이유가 있는가"**로 위치를 정한다 — 없으면 `lib/common/config.ts`, 운영 전용이면 `lib/prod/config.ts`, dev 전용이면 `lib/dev/config.ts`. 스택에서는 import만 한다 (4장).
 4. `test/prod/*.test.ts` 또는 `test/dev/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`(prod), `buildDevApp()`(dev)를 재사용한다.
@@ -322,6 +351,9 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 
 ### (H) 알려진 잔여 이슈 (여유가 있으면)
 
+- **auth-proxy의 `enrollment` 스키마도 아무도 부트스트랩하지 않는다.** 아래 항목과 같은 문제다. 접속은 성공하고 첫 인증 요청에서 `relation "enrollment.telemetry_tokens" does not exist`로 깨진다. dev에서는 `publiclyAccessible` RDS에 `psql`로 직접 넣어 우회한다. (ADR-0023 Follow-up)
+- **enrollment 서버(PROJ-43)가 dev 인프라에 없다.** 토큰 발급 주체가 없으므로 당분간 토큰을 손으로 넣어야 하고, 그쪽이 배포될 때 `TOKEN_HASH_SECRET`(`TokenHashSecretArn` 출력)을 같은 값으로 공유하는 방법을 확정해야 한다.
+- **`:4318` 디버그 리스너는 인증 우회 경로다.** 의도적으로 남긴 것이지만 `devAllowedCidr` 기본값이 `0.0.0.0/0`이면 인증 없는 OTLP 수신구가 인터넷에 열린다. `infra:dev-open-ingress` 경고가 이를 함께 알린다.
 - **RDS 조직 스키마를 아무도 부트스트랩하지 않는다.** `post-processor`는 ClickHouse DDL만 기동 시 멱등 적용하고(`ensure_schema`), PostgreSQL의 `company` / `department` / `employee` / `employee_department_assignment`는 compose의 `/docker-entrypoint-initdb.d` 마운트에 의존한다. ECS에는 그 메커니즘이 없다 → **접속은 성공하고 첫 조회에서 `relation "employee" does not exist`로 깨진다.** ADR-0018이 이 문제를 드러냈지만 해결하지는 않았다. 해결 주체는 위 (D)의 마이그레이션 ADR이다.
 - `README.md`가 `cdk init` 보일러플레이트 그대로다. ADR-0007이 명시적으로 요구하는 **배포 런북이 어디에도 없다** (6장이 그 자리를 임시로 메우고 있다).
 - 빌드/테스트 CI가 없다. GitHub Actions는 `pull_request_auto_fill.yml`과 `pull_request_auto_assign.yml` 둘뿐이고, `npm test` / `cdk synth`를 아무도 돌리지 않는다.
@@ -337,7 +369,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ## 6. 명령어
 
 ```bash
-npm test              # jest (@swc/jest) — 11 스위트, 150 테스트
+npm test              # jest (@swc/jest) — 11 스위트, 163 테스트
 npm run build         # tsc (tsconfig의 noEmit: true — 순수 타입 체크)
 
 npm run synth         # = cdk synth --all       (prod. cdk.json: `npx tsc && npx tsx bin/infra.ts`)
@@ -358,7 +390,7 @@ npx cdk synth --all -c certificateArn=arn:aws:acm:ap-northeast-2:<account>:certi
 **ECR 레포를 먼저 만들고 이미지를 push해야 한다. 안 하면 첫 `cdk deploy`가 롤백된다.**
 
 ```bash
-for repo in soma-376/post-processor soma-376/api-server soma-376/batch-processor; do
+for repo in soma-376/post-processor soma-376/auth-proxy soma-376/api-server soma-376/batch-processor; do
   aws ecr create-repository --repository-name "$repo" --region ap-northeast-2
 done
 # 각 앱 레포에서 이미지 빌드 후 push → 그 다음에 cdk deploy
@@ -399,24 +431,39 @@ npx cdk list                 # NetworkStack DataStack ApplicationStack EdgeStack
 npx cdk list -c env=dev      # DevNetworkStack DevDataStack DevApplicationStack DevEdgeStack
 ```
 
-배포 후 검증은 네 가지 경로를 각각 밟는다. 엔드포인트는 `DevEdgeStack`의 `CfnOutput`(`AlbDnsName`, `OtlpEndpoint`, `ApiEndpoint`, `ClickhouseDebugUrl`, `RdsEndpoint`, `RdsSecretArn`)에서 가져온다.
+배포 후 검증은 아래 경로를 각각 밟는다. 엔드포인트는 `DevEdgeStack`의 `CfnOutput`(`AlbDnsName`, `OtlpEndpoint`, `OtlpDebugEndpoint`, `ApiEndpoint`, `ClickhouseDebugUrl`, `RdsEndpoint`, `RdsSecretArn`, `TokenHashSecretArn`)에서 가져온다.
+
+**선행 조건 — `enrollment` 스키마를 먼저 넣어야 한다.** auth-proxy는 `enrollment.telemetry_tokens` / `installations` / `members` / `tenants`를 조회하는데 아무도 이를 부트스트랩하지 않는다(5장 (H)). 스키마가 없으면 접속은 성공하고 첫 인증에서 `relation "enrollment.telemetry_tokens" does not exist`로 깨진다. 아래 3)의 `psql`로 직접 넣는다.
 
 ```bash
-# 1) OTLP 파이프라인 — ALB :80 /v1/* → collector → localhost:8080 → post-processor
-curl -X POST "http://<alb-dns>/v1/traces" -H 'Content-Type: application/json' -d '{"resourceSpans":[]}'
+# 1) 인증 — 토큰 없이 던지면 401 이어야 한다. 이게 ADR-0023 의 목적이다
+curl -i -X POST "http://<alb-dns>/v1/traces" \
+  -H 'Content-Type: application/json' -d '{"resourceSpans":[]}'
+
+# 2) OTLP 파이프라인 — ALB :80 /v1/* → auth-proxy → collector.obs.local:4318
+#    → localhost:8080 → post-processor
+curl -i -X POST "http://<alb-dns>/v1/traces" -H "Authorization: Bearer <token>" \
+  -H 'Content-Type: application/json' -d '{"resourceSpans":[]}'
+aws logs tail /ecs/dev/auth-proxy --follow --region ap-northeast-2
 aws logs tail /ecs/dev/post-processor --follow --region ap-northeast-2
 
-# 2) ClickHouse 직접 쿼리 — ALB :8123 리스너 (EC2 퍼블릭 IP는 인스턴스 교체마다 바뀐다)
+# 2-1) 인증을 건너뛰고 collector 만 검증 — :4318 디버그 리스너 (ADR-0023 3번)
+curl -i -X POST "http://<alb-dns>:4318/v1/traces" \
+  -H 'Content-Type: application/json' -d '{"resourceSpans":[]}'
+
+# 3) ClickHouse 직접 쿼리 — ALB :8123 리스너 (EC2 퍼블릭 IP는 인스턴스 교체마다 바뀐다)
 curl "http://<alb-dns>:8123/?query=SELECT%201"
 
-# 3) RDS 직접 접속 — publiclyAccessible + devAllowedCidr 가 이걸 위한 구성이다
+# 4) RDS 직접 접속 — publiclyAccessible + devAllowedCidr 가 이걸 위한 구성이다
 psql "host=<rds-endpoint> port=5432 dbname=controlplane user=postgres sslmode=require"
 
-# 4) 컨테이너 진입 — 호스트 SSM 후 docker
+# 5) 컨테이너 진입 — 호스트 SSM 후 docker
 aws ssm start-session --target <instance-id> --region ap-northeast-2
 sudo docker ps
 sudo docker exec -it <container-id> /bin/sh
 ```
+
+**auth-proxy가 401 대신 502/503을 준다면** Collector 도달 실패를 먼저 의심한다 — ALB 헬스체크는 `/health`만 보므로 타깃은 계속 healthy로 남는다. `docker exec`으로 들어가 `collector.obs.local`이 A 레코드로 풀리는지, `DevCollectorSg` ← `DevAppHostSg` : 4318 룰이 살아 있는지 확인한다.
 
 ### 운영자 접속 (ADR-0016)
 
@@ -428,7 +475,7 @@ SSH 인그레스도 키페어도 없다. 접속은 전부 SSM 채널을 쓴다. 
 | prod `post-processor`, `api-server` (Fargate) | `aws ecs execute-command` | `ecs:ExecuteCommand` |
 | **dev — 전 컨테이너** | 호스트 `aws ssm start-session` + `sudo docker exec` | `ssm:StartSession` |
 
-**dev에는 ECS Exec이 없다.** 세 서비스 모두 `enableExecuteCommand`를 켜지 않았고, 켜도 awsvpc 태스크(collector/clickhouse)는 `ssmmessages` 엔드포인트에 도달할 경로가 없어 동작하지 않는다. **이건 결함이 아니라 티켓의 전제다** — 호스트에 SSM으로 붙으면 네트워크 모드와 무관하게 **모든** 컨테이너에 `docker exec`으로 들어갈 수 있고, `docker logs`·`docker inspect`·호스트에서의 `curl`까지 열린다 (ADR-0022 5(b), ADR-0016).
+**dev에는 ECS Exec이 없다.** 네 서비스 모두 `enableExecuteCommand`를 켜지 않았고, 켜도 awsvpc 태스크(collector/clickhouse)는 `ssmmessages` 엔드포인트에 도달할 경로가 없어 동작하지 않는다. **이건 결함이 아니라 티켓의 전제다** — 호스트에 SSM으로 붙으면 네트워크 모드와 무관하게 **모든** 컨테이너에 `docker exec`으로 들어갈 수 있고, `docker logs`·`docker inspect`·호스트에서의 `curl`까지 열린다 (ADR-0022 5(b), ADR-0016).
 
 dev 인스턴스는 `Env` 태그로 찾는다.
 
@@ -511,10 +558,15 @@ diff /tmp/before/NetworkStack.template.json /tmp/after/NetworkStack.template.jso
 
 | 계약 | 스위트 |
 |---|---|
-| 태스크 `NetworkMode` 3종 (awsvpc / bridge / awsvpc) | `test/dev/application-stack.test.ts` |
+| 태스크 `NetworkMode` 4종 (awsvpc / bridge / bridge / awsvpc) | `test/dev/application-stack.test.ts` |
 | 리스너 `open: false` — 좁힌 CIDR 옆에 `0.0.0.0/0` 인그레스가 남지 않는다 | `test/dev/network-stack.test.ts` |
-| 로그 그룹 5개의 `/ecs/dev/` 접두 (그리고 운영 이름을 하나도 쓰지 않음) | `test/dev/application-stack.test.ts` |
-| 자동 생성 비밀번호의 `ExcludeCharacters` (따옴표 없는 libpq DSN의 전제) | `test/dev/data-stack.test.ts` |
+| 로그 그룹 6개의 `/ecs/dev/` 접두 (그리고 운영 이름을 하나도 쓰지 않음) | `test/dev/application-stack.test.ts` |
+| 자동 생성 비밀번호의 `ExcludeCharacters` (따옴표 없는 libpq DSN **과 URI** 의 전제) | `test/dev/data-stack.test.ts` |
+| auth-proxy가 읽는 환경변수·시크릿 이름 4개와 `COLLECTOR_BASE_URL` 값 | `test/dev/application-stack.test.ts` |
+| collector 서비스의 Cloud Map **A** 레코드 등록 | `test/dev/application-stack.test.ts` |
+| `DevCollectorSg` ← `DevAppHostSg` : 4318 (bridge auth-proxy의 유일한 통로) | `test/dev/network-stack.test.ts` |
+| `/v1/*`가 auth-proxy TG로, `:4318`이 collector TG로 간다 | `test/dev/edge-stack.test.ts` |
+| auth-proxy URI DSN의 `uselibpqcompat=true` (없으면 TLS 검증이 켜져 접속 실패) | `test/dev/data-stack.test.ts` |
 
 ```ts
 import { Template } from 'aws-cdk-lib/assertions';
