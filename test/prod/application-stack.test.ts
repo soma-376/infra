@@ -12,7 +12,11 @@ import {
   ENRICHMENT_ENV,
   PORTS,
 } from '../../lib/common/config';
-import { COMMON_TAGS } from '../../lib/prod/config';
+import { COMMON_TAGS, PROD_IMAGE_TAG } from '../../lib/prod/config';
+import {
+  ECS_CLUSTER_NAMES,
+  ECS_SERVICE_NAMES,
+} from '../../lib/common/deploy-targets';
 import { buildApp } from '../helpers';
 
 describe('ApplicationStack', () => {
@@ -59,6 +63,76 @@ describe('ApplicationStack', () => {
       },
     );
   }
+
+  /**
+   * fromEcrRepository 는 Image 를 계정/리전 조각과 레포 이름의 Fn::Join 으로 만든다.
+   * URLSuffix 같은 Ref 조각을 빼고 리터럴만 이어붙인다.
+   * (`test/dev/application-stack.test.ts` 의 같은 이름 헬퍼와 짝이다.)
+   */
+  const imageLiterals = (containerName: string): string => {
+    const definition = taskDefinitionWithContainer(
+      containerName,
+    ).Properties.ContainerDefinitions.find(
+      (c: any) => c.Name === containerName,
+    );
+
+    return (definition.Image['Fn::Join'][1] as unknown[])
+      .filter((part): part is string => typeof part === 'string')
+      .join('');
+  };
+
+  // ============================================================
+  // 물리 이름 - 앱 레포 워크플로우와의 계약 (ADR-0024)
+  // ============================================================
+  //
+  // 이 이름들은 `DeployStack` 이 IAM 서비스 ARN 을 조립할 때 쓰는 값과 같아야 한다.
+  // 어긋나도 synth·test·deploy 는 전부 통과하고 GitHub Actions 만 AccessDenied 로
+  // 죽는다. 양쪽이 맞물리는지는 `test/cicd/deploy-stack.test.ts` 가 교차 검증한다.
+  describe('ECS 물리 이름', () => {
+    test('클러스터 이름이 dev 와 다르다', () => {
+      template.hasResourceProperties('AWS::ECS::Cluster', {
+        ClusterName: ECS_CLUSTER_NAMES.prod,
+      });
+      expect(ECS_CLUSTER_NAMES.prod).not.toBe(ECS_CLUSTER_NAMES.dev);
+    });
+
+    test('서비스 3개의 이름이 고정되어 있다', () => {
+      const names = Object.values(template.findResources('AWS::ECS::Service'))
+        .map((resource: any) => resource.Properties.ServiceName)
+        .sort();
+
+      expect(names).toEqual(
+        [
+          ECS_SERVICE_NAMES.collector,
+          ECS_SERVICE_NAMES.dashboard,
+          ECS_SERVICE_NAMES.clickhouse,
+        ].sort(),
+      );
+    });
+  });
+
+  // ============================================================
+  // 이미지 태그 (ADR-0024 7번)
+  // ============================================================
+  //
+  // 예전에는 태그를 아예 주지 않아 `latest` 로 해석됐고, dev 기본값도 `latest` 라
+  // dev 빌드가 곧 운영 이미지였다. 암묵 latest 로의 회귀를 여기서 막는다.
+  describe('자체 빌드 이미지 태그', () => {
+    const ownBuilt: ReadonlyArray<readonly [string, string]> = [
+      ['post-processor', ECR_REPOS.postProcessor],
+      ['api-server', ECR_REPOS.apiServer],
+      ['batch-processor', ECR_REPOS.batchProcessor],
+    ];
+
+    test.each(ownBuilt)('%s 이미지에 :prod 태그가 붙는다', (name, repo) => {
+      expect(repo.startsWith(`${ECR_NAMESPACE}/`)).toBe(true);
+      expect(imageLiterals(name)).toContain(`/${repo}:${PROD_IMAGE_TAG}`);
+    });
+
+    test.each(ownBuilt)('%s 이미지가 :latest 를 쓰지 않는다', (name) => {
+      expect(imageLiterals(name)).not.toContain(':latest');
+    });
+  });
 
   test('defines 3 task definitions', () => {
     template.resourceCountIs('AWS::ECS::TaskDefinition', 3);

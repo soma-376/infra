@@ -12,6 +12,11 @@ import {
   PORTS,
 } from '../../lib/common/config';
 import { DEV_LOG_GROUP_PREFIX } from '../../lib/dev/config';
+import { PROD_IMAGE_TAG } from '../../lib/prod/config';
+import {
+  ECS_CLUSTER_NAMES,
+  ECS_SERVICE_NAMES,
+} from '../../lib/common/deploy-targets';
 import { buildDevApp } from '../helpers';
 
 describe('DevApplicationStack', () => {
@@ -39,6 +44,41 @@ describe('DevApplicationStack', () => {
       (definition: any) => definition.Name === containerName,
     );
   }
+
+  // ============================================================
+  // 물리 이름 - 앱 레포 워크플로우와의 계약 (ADR-0024)
+  // ============================================================
+  //
+  // 이 이름들은 `DeployStack` 이 IAM 서비스 ARN 을 조립할 때 쓰는 값과 같아야 한다.
+  // 어긋나도 synth·test·deploy 는 전부 통과하고 GitHub Actions 만 AccessDenied 로
+  // 죽는다 - CloudFormation 은 IAM 정책의 리소스 ARN 실존을 검증하지 않는다.
+  // 양쪽이 실제로 맞물리는지는 `test/cicd/deploy-stack.test.ts` 가 교차 검증한다.
+  describe('ECS 물리 이름', () => {
+    // 클러스터 이름은 계정 + 리전에서 유일하다. 운영과 같으면 dev 첫 배포가 깨진다.
+    test('클러스터 이름이 운영과 다르다', () => {
+      template.hasResourceProperties('AWS::ECS::Cluster', {
+        ClusterName: ECS_CLUSTER_NAMES.dev,
+      });
+      expect(ECS_CLUSTER_NAMES.dev).not.toBe(ECS_CLUSTER_NAMES.prod);
+    });
+
+    // 서비스 이름은 유일성 스코프가 클러스터 안이라 운영과 같은 이름을 쓴다.
+    // 그래야 워크플로우가 `--cluster` 하나만 갈아끼워 환경을 바꿀 수 있다.
+    test('서비스 4개의 이름이 고정되어 있다', () => {
+      const names = Object.values(template.findResources('AWS::ECS::Service'))
+        .map((resource: any) => resource.Properties.ServiceName)
+        .sort();
+
+      expect(names).toEqual(
+        [
+          ECS_SERVICE_NAMES.collector,
+          ECS_SERVICE_NAMES.authProxy,
+          ECS_SERVICE_NAMES.dashboard,
+          ECS_SERVICE_NAMES.clickhouse,
+        ].sort(),
+      );
+    });
+  });
 
   const envMap = (containerName: string): Record<string, unknown> =>
     Object.fromEntries(
@@ -375,10 +415,21 @@ describe('DevApplicationStack', () => {
 
     // dev/prod 가 같은 레포를 공유하고 태그로만 갈린다. 태그가 URI 에 실제로 붙는지
     // 확인하지 않으면 devImageTag 손잡이 전체가 무의미해진다. (ADR-0021 5번)
-    test('devImageTag 미지정이면 :latest 가 붙는다', () => {
+    // **`:latest` 로 되돌아가면 안 된다.** 운영도 태그 없이 `latest` 를 읽던 시절에는
+    // dev 빌드가 곧 운영 이미지였다. ADR-0024 가 두 환경에 서로 다른 고정 태그를 줘서
+    // 그 경로를 닫았고, 여기가 그 회귀를 잡는 자리다.
+    test('devImageTag 미지정이면 :dev 가 붙는다', () => {
       for (const [containerName, repositoryName] of ownBuilt) {
-        expect(imageLiterals(containerName)).toContain(
-          `/${repositoryName}:latest`,
+        expect(imageLiterals(containerName)).toContain(`/${repositoryName}:dev`);
+        expect(imageLiterals(containerName)).not.toContain(':latest');
+      }
+    });
+
+    // 운영 태그를 dev 가 읽으면 두 환경이 다시 같은 이미지를 보게 된다.
+    test('dev 이미지에 운영 태그가 붙지 않는다', () => {
+      for (const [containerName] of ownBuilt) {
+        expect(imageLiterals(containerName)).not.toContain(
+          `:${PROD_IMAGE_TAG}`,
         );
       }
     });
