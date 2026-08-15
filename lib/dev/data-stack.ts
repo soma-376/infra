@@ -18,6 +18,7 @@ import { ISecret, Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { BlockPublicAccess, Bucket, IBucket } from 'aws-cdk-lib/aws-s3';
 import {
   buildLibpqDsn,
+  buildPostgresUri,
   CONTROL_DB_NAME,
   CONTROL_DB_SSLMODE,
   PORTS,
@@ -27,6 +28,13 @@ import {
   DEV_RDS_ALLOCATED_STORAGE_GIB,
   DEV_RDS_INSTANCE_TYPE,
 } from './config';
+
+/**
+ * `TOKEN_HASH_SECRET` 길이. HMAC-SHA256 키이므로 출력 길이(32바이트)보다 길면
+ * 추가 이득이 없지만, 영숫자 문자당 엔트로피가 약 5.95비트라 64자여야 여유 있게
+ * 256비트를 넘긴다. (ADR-0023)
+ */
+const TOKEN_HASH_SECRET_LENGTH = 64;
 
 export interface DevDataStackProps extends StackProps {
   readonly vpc: IVpc;
@@ -54,6 +62,17 @@ export class DevDataStack extends Stack {
    * ECS 가 `ENRICHMENT_PG_DSN` 으로 주입한다. (ADR-0018, ADR-0022 7번)
    */
   public readonly postProcessorPgDsnSecret: ISecret;
+  /**
+   * auth-proxy 전용 파생 시크릿. 값은 **URI 형식** DSN 한 줄이며 ECS 가
+   * `DATABASE_URL` 로 주입한다. 위 `postProcessorPgDsnSecret` 과 형식이 다른 이유는
+   * `buildPostgresUri()` 주석에 있다. (ADR-0023)
+   */
+  public readonly authProxyDatabaseUrlSecret: ISecret;
+  /**
+   * auth-proxy 의 Bearer 토큰 HMAC-SHA256 키. **enrollment 서버와 공유하는 값이다.**
+   * 토큰 발급 측이 같은 키로 해시해야 조회가 성립한다. (ADR-0023)
+   */
+  public readonly tokenHashSecret: ISecret;
   public readonly rawSignalBucket: IBucket;
 
   constructor(scope: Construct, id: string, props: DevDataStackProps) {
@@ -135,6 +154,53 @@ export class DevDataStack extends Stack {
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
+    // auth-proxy 는 같은 DB 를 보지만 **형식이 다른** DSN 을 읽는다 (ADR-0023).
+    // psycopg 는 libpq keyword/value 를, `pg` 는 URI 를 받는다. 같은 조각으로 두 문자열을
+    // 만드는 것이지 둘 중 하나가 잉여인 것이 아니다. 자세한 근거와 `uselibpqcompat`
+    // 플래그의 필요성은 `buildPostgresUri()` 주석에 있다.
+    const authProxyDatabaseUrl = buildPostgresUri({
+      host: this.database.dbInstanceEndpointAddress,
+      port: PORTS.aurora,
+      dbname: CONTROL_DB_NAME,
+      user: this.dbSecret.secretValueFromJson('username').unsafeUnwrap(),
+      password: this.dbSecret.secretValueFromJson('password').unsafeUnwrap(),
+      sslmode: CONTROL_DB_SSLMODE,
+    });
+
+    this.authProxyDatabaseUrlSecret = new Secret(
+      this,
+      'DevAuthProxyDatabaseUrl',
+      {
+        description:
+          'Postgres URI for dev auth-proxy (DATABASE_URL). Derived from the RDS master secret at deploy time.',
+        secretStringValue: SecretValue.unsafePlainText(authProxyDatabaseUrl),
+        removalPolicy: RemovalPolicy.DESTROY,
+      },
+    );
+
+    // Bearer 토큰 해시 키. **값을 CDK 가 만들고 아무 데도 기록하지 않는다** - 코드에도,
+    // CFN 템플릿에도, cdk context 에도 남지 않고 Secrets Manager 안에서만 존재한다.
+    //
+    // enrollment 서버(별도 레포)가 토큰 발급 시 같은 키로 HMAC 해시해야 auth-proxy 의
+    // 조회가 성립하므로, ARN 을 `DevEdgeStack` 의 CfnOutput 으로 노출한다.
+    //
+    // **회전을 설정하지 않는다.** 이 키가 바뀌면 이미 발급된 모든 토큰의 `token_hash` 가
+    // 매칭 불가가 되어 전 클라이언트가 401 을 받는다. 회전하려면 토큰 전량 재발급이나
+    // 이중 키 검증이 선행되어야 한다 (ADR-0023 Follow-up).
+    this.tokenHashSecret = new Secret(this, 'DevAuthProxyTokenHashSecret', {
+      description:
+        'HMAC-SHA256 key for dev auth-proxy telemetry token hashing (TOKEN_HASH_SECRET). Shared with the enrollment server.',
+      generateSecretString: {
+        passwordLength: TOKEN_HASH_SECRET_LENGTH,
+        // 영숫자만 남긴다. 이 값은 환경변수로 셸을 거치지 않고 ECS 가 직접 주입하지만,
+        // 운영자가 CLI 로 꺼내 다룰 때 인용 실수가 나지 않게 한다.
+        excludePunctuation: true,
+        excludeUppercase: false,
+        includeSpace: false,
+      },
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
     this.rawSignalBucket = new Bucket(this, 'DevRawSignalBucket', {
       // bucketName 을 주지 않는다. CDK 가 스택명에서 이름을 유도하므로 운영 버킷과
       // 자동으로 갈린다 - S3 이름은 전역 유일이라 이 자동 분리가 방어선이다.
@@ -160,5 +226,13 @@ export class DevDataStack extends Stack {
   /** 마스터 시크릿 ARN. 로컬 psql 접속 시 값을 꺼내오는 출발점이다. */
   public get dbSecretArn(): string {
     return this.dbSecret.secretArn;
+  }
+
+  /**
+   * 토큰 해시 키 ARN. **enrollment 서버에 전달할 값이다** - 그쪽이 같은 키로 해시해야
+   * auth-proxy 의 조회가 성립한다. `DevEdgeStack` 의 CfnOutput 용. (ADR-0023)
+   */
+  public get tokenHashSecretArn(): string {
+    return this.tokenHashSecret.secretArn;
   }
 }

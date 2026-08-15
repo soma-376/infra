@@ -62,6 +62,8 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     devConfig: config,
     dbSecret: data.dbSecret,
     postProcessorPgDsnSecret: data.postProcessorPgDsnSecret,
+    authProxyDatabaseUrlSecret: data.authProxyDatabaseUrlSecret,
+    tokenHashSecret: data.tokenHashSecret,
     rawSignalBucket: data.rawSignalBucket,
     appHostSecurityGroup: network.appHostSecurityGroup,
     collectorSecurityGroup: network.collectorSecurityGroup,
@@ -73,10 +75,12 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     vpc: network.vpc,
     albSecurityGroup: network.albSecurityGroup,
     collectorService: application.collectorService,
+    authProxyService: application.authProxyService,
     dashboardService: application.dashboardService,
     clickhouseService: application.clickhouseService,
     dbEndpoint: data.dbEndpoint,
     dbSecretArn: data.dbSecretArn,
+    tokenHashSecretArn: data.tokenHashSecretArn,
   });
 
   return { network, data, application, edge };
