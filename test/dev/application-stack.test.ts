@@ -4,9 +4,12 @@ import {
   CLICKHOUSE_HTTP_URL,
   CLICKHOUSE_IMAGE,
   CLOUD_MAP_NAMESPACE,
+  COLLECTOR_OTLP_URL,
+  COLLECTOR_SERVICE_NAME,
   ECR_NAMESPACE,
   ECR_REPOS,
   ENRICHMENT_ENV,
+  PORTS,
 } from '../../lib/common/config';
 import { DEV_LOG_GROUP_PREFIX } from '../../lib/dev/config';
 import { buildDevApp } from '../helpers';
@@ -98,6 +101,92 @@ describe('DevApplicationStack', () => {
         ]),
       });
     });
+
+    // **bridge 여도 된다.** ADR-0022 4번이 awsvpc 를 강제하는 조건은 둘뿐인데
+    // (태스크 내 localhost 의존 / Cloud Map A 레코드 등록 대상) auth-proxy 는 둘 다
+    // 아니다 - 단일 컨테이너이고 디스커버리의 클라이언트다. awsvpc 로 바꾸면 호스트
+    // ENI 가 3/3 이 되어 이후 awsvpc 태스크에 awsvpcTrunking 옵트인이 필요해지고,
+    // 태스크가 인터넷 egress 를 잃으며(ADR-0008 의 JWKS 검증이 들어올 때 조용히
+    // 타임아웃), ALB 타깃 타입이 ip 로 바뀌어 DevEdgeStack 이 함께 깨진다.
+    // (ADR-0022 4번/5(a)/11번, ADR-0023 2번)
+    test('auth-proxy 태스크는 bridge 다 - ENI 여유와 egress 의 전제다', () => {
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        NetworkMode: 'bridge',
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({ Name: 'auth-proxy' }),
+        ]),
+      });
+    });
+  });
+
+  // ============================================================
+  // auth-proxy 런타임 계약 (ADR-0023)
+  // ============================================================
+  describe('auth-proxy 런타임 계약', () => {
+    /** auth-proxy 컨테이너 정의 하나를 집는다. */
+    function authProxyContainer(): any {
+      const found = Object.values(
+        template.findResources('AWS::ECS::TaskDefinition'),
+      )
+        .flatMap((resource: any) => resource.Properties.ContainerDefinitions)
+        .filter((definition: any) => definition.Name === 'auth-proxy');
+
+      expect(found).toHaveLength(1);
+      return found[0];
+    }
+
+    // **이름은 앱 소스(apps/auth-proxy/src/config/env.ts)가 권위다.** 이 앱은 필수
+    // 값이 비면 즉시 throw 하며 기동에 실패하므로 오타가 재시작 루프로 드러나긴
+    // 하지만, 그 진단을 배포 후로 미룰 이유가 없다.
+    test('앱이 읽는 이름 그대로 환경변수와 시크릿을 주입한다', () => {
+      const container = authProxyContainer();
+
+      const envNames = container.Environment.map((entry: any) => entry.Name);
+      expect(envNames.sort()).toEqual(
+        ['COLLECTOR_BASE_URL', 'LOG_LEVEL'].sort(),
+      );
+
+      const secretNames = container.Secrets.map((entry: any) => entry.Name);
+      expect(secretNames.sort()).toEqual(
+        ['DATABASE_URL', 'TOKEN_HASH_SECRET'].sort(),
+      );
+    });
+
+    // **끝에 슬래시가 붙으면 앱이 `//v1/traces` 를 만든다.** 앱의 env.ts 가 잘라주긴
+    // 하지만 그 방어에 기대지 않는다. 주소가 틀리면 ALB 헬스체크(/health)는 계속
+    // 통과하고 실제 전달만 upstream_unreachable 로 죽는다.
+    test('COLLECTOR_BASE_URL 은 Cloud Map 주소이고 끝 슬래시가 없다', () => {
+      const value = authProxyContainer().Environment.find(
+        (entry: any) => entry.Name === 'COLLECTOR_BASE_URL',
+      ).Value;
+
+      expect(value).toBe(COLLECTOR_OTLP_URL);
+      expect(value).toBe(`http://collector.obs.local:${PORTS.otlp}`);
+      expect(value.endsWith('/')).toBe(false);
+    });
+
+    // DATABASE_URL 에는 DB 비밀번호가, TOKEN_HASH_SECRET 은 그 자체가 비밀이다.
+    // environment 로 새면 `aws ecs describe-task-definition` 에 평문으로 드러난다.
+    test('비밀 값은 environment 가 아니라 secrets 로만 들어간다', () => {
+      const serialized = JSON.stringify(authProxyContainer().Environment);
+
+      expect(serialized).not.toContain('DATABASE_URL');
+      expect(serialized).not.toContain('TOKEN_HASH_SECRET');
+      expect(serialized).not.toContain('resolve:secretsmanager');
+    });
+
+    // **auth-proxy 가 collector 를 찾는 유일한 수단이다.** A 레코드여야 하며
+    // (bridge/host 면 Cloud Map 이 SRV 만 등록한다) collector 태스크가 awsvpc 인
+    // 것이 그 전제다. 이 등록이 빠지면 이름이 안 풀려 전달이 전부 실패한다.
+    // (ADR-0005, ADR-0023 1번)
+    test('collector 서비스가 Cloud Map 에 A 레코드로 등록된다', () => {
+      template.hasResourceProperties('AWS::ServiceDiscovery::Service', {
+        Name: COLLECTOR_SERVICE_NAME,
+        DnsConfig: Match.objectLike({
+          DnsRecords: [Match.objectLike({ Type: 'A' })],
+        }),
+      });
+    });
   });
 
   // ============================================================
@@ -112,14 +201,15 @@ describe('DevApplicationStack', () => {
 
     // 접두사를 빼면 첫 cdk deploy 가 `already exists` 로 통째로 롤백된다 - 로그 그룹
     // 이름은 계정 + 리전 스코프에서 유일하고 운영이 이미 /ecs/collector 를 쓴다.
-    test('컨테이너 로그 그룹 5개가 전부 /ecs/dev/ 접두사를 쓴다', () => {
+    test('컨테이너 로그 그룹 6개가 전부 /ecs/dev/ 접두사를 쓴다', () => {
       const names = ecsLogGroupNames();
 
-      expect(names).toHaveLength(5);
+      expect(names).toHaveLength(6);
       expect(names.sort()).toEqual(
         [
           `${DEV_LOG_GROUP_PREFIX}/collector`,
           `${DEV_LOG_GROUP_PREFIX}/post-processor`,
+          `${DEV_LOG_GROUP_PREFIX}/auth-proxy`,
           `${DEV_LOG_GROUP_PREFIX}/api-server`,
           `${DEV_LOG_GROUP_PREFIX}/batch`,
           `${DEV_LOG_GROUP_PREFIX}/clickhouse`,
@@ -262,6 +352,7 @@ describe('DevApplicationStack', () => {
   describe('자체 빌드 이미지', () => {
     const ownBuilt: ReadonlyArray<readonly [string, string]> = [
       ['post-processor', ECR_REPOS.postProcessor],
+      ['auth-proxy', ECR_REPOS.authProxy],
       ['api-server', ECR_REPOS.apiServer],
       ['batch-processor', ECR_REPOS.batchProcessor],
     ];
@@ -312,7 +403,9 @@ describe('DevApplicationStack', () => {
           .join(''),
       );
 
-    expect(ecrImages).toHaveLength(3);
+    // post-processor, auth-proxy, api-server, batch-processor. collector 와
+    // clickhouse 는 퍼블릭 레지스트리라 Fn::Join 이 아니다.
+    expect(ecrImages).toHaveLength(4);
     for (const image of ecrImages) {
       expect(image).toContain(':pr-42');
       expect(image).not.toContain(':latest');
@@ -328,8 +421,8 @@ describe('DevApplicationStack', () => {
 
     // 호스트가 1대뿐이고 awsvpc 태스크가 ENI 를 잡으므로 "새 태스크를 먼저 띄울"
     // 여유가 없다. minHealthyPercent 를 올리면 배포가 영원히 끝나지 않는다.
-    test('세 서비스 모두 교체 배포(0/100, desired 1)로 고정한다', () => {
-      expect(services()).toHaveLength(3);
+    test('네 서비스 모두 교체 배포(0/100, desired 1)로 고정한다', () => {
+      expect(services()).toHaveLength(4);
       for (const service of services()) {
         expect(service.Properties.DesiredCount).toBe(1);
         expect(service.Properties.DeploymentConfiguration).toMatchObject({

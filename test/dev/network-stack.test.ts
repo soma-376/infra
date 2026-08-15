@@ -68,6 +68,25 @@ describe('DevNetworkStack', () => {
     template.resourceCountIs('AWS::EC2::SecurityGroup', 5);
   });
 
+  // **auth-proxy -> Collector 의 유일한 통로다.** auth-proxy 는 bridge 라 자기 ENI 가
+  // 없고 아웃바운드가 호스트 ENI 를 타므로, 출발 SG 가 태스크 SG 가 아니라
+  // DevAppHostSg 다. 이 룰을 "아무도 안 쓰는 것 같다"고 지우면 **synth·test·deploy 가
+  // 전부 통과하고** auth-proxy 만 런타임에 upstream_unreachable 로 죽는다 -
+  // ALB 헬스체크는 /health 만 보므로 타깃은 계속 healthy 로 남는다.
+  // (ADR-0022 4번, ADR-0023 2번)
+  test('Collector SG 는 앱 호스트 SG 에서 4318 을 받는다 (bridge auth-proxy)', () => {
+    template.hasResourceProperties('AWS::EC2::SecurityGroupIngress', {
+      FromPort: PORTS.otlp,
+      ToPort: PORTS.otlp,
+      IpProtocol: 'tcp',
+      Description: 'OTLP from app hosts (bridge auth-proxy)',
+      GroupId: { 'Fn::GetAtt': [Match.stringLikeRegexp('DevCollectorSg'), 'GroupId'] },
+      SourceSecurityGroupId: {
+        'Fn::GetAtt': [Match.stringLikeRegexp('DevAppHostSg'), 'GroupId'],
+      },
+    });
+  });
+
   // 기본값이 그대로 쓰이면 유일한 방어선은 이 경고뿐이다. 메시지가 아니라
   // addWarningV2 의 ack ID(`[ack: infra:dev-open-ingress]` 로 합성 메시지 끝에
   // 붙는다)를 매칭한다 - ID 를 바꾸면 기존 acknowledge 가 무효가 되기 때문이다.
@@ -84,10 +103,17 @@ describe('DevNetworkStack - devAllowedCidr 로 인바운드를 좁힌 경우', (
   const { network } = buildDevApp({ devAllowedCidr: allowedCidr });
   const template = Template.fromStack(network);
 
-  test('ALB SG 는 지정 CIDR 에서 80 과 8123 을 받는다', () => {
-    for (const port of [PORTS.http, PORTS.clickhouseHttp]) {
+  // 4318 은 auth-proxy 를 우회해 Collector 로 직행하는 디버그 리스너다. 인증이 없는
+  // 경로이므로 이 CIDR 이 곧 유일한 방어선이며, 목록에서 빠지면 리스너만 살아 있고
+  // 인그레스가 없어 조용히 타임아웃된다. (ADR-0023 3번)
+  test('ALB SG 는 지정 CIDR 에서 80, 4318, 8123 을 받는다', () => {
+    for (const port of [PORTS.http, PORTS.otlp, PORTS.clickhouseHttp]) {
       template.hasResourceProperties('AWS::EC2::SecurityGroup', {
-        GroupDescription: 'dev ALB - inbound 80/8123 from allowed CIDRs',
+        // **이 문자열을 고치는 PR 은 반려 대상이다.** GroupDescription 은 CFN 상
+        // Replacement 속성이라, 바꾸면 SG 교체 -> ALB(다른 스택)가 옛 SG 를 붙들고
+        // 있어 DependencyViolation -> 고아 SG 가 남는다. 이 어서션은 값이 맞는지가
+        // 아니라 **아무도 값을 바꾸지 않았는지**를 지킨다. (lib 쪽 주석 참조)
+        GroupDescription: 'dev ALB - inbound 80/4318/8123 from allowed CIDRs',
         SecurityGroupIngress: Match.arrayWith([
           Match.objectLike({
             CidrIp: allowedCidr,
@@ -141,18 +167,23 @@ describe('DevNetworkStack - devAllowedCidr 을 여러 개 준 경우', () => {
   });
   const template = Template.fromStack(network);
 
+  // 포트마다 arrayWith 를 따로 건다. **`Match.arrayWith` 는 순서를 지키는 부분열
+  // 매칭이라** 한 번에 여러 개를 넣으면 룰을 거는 순서가 어서션 순서와 같아야만
+  // 통과한다 - 그 결합은 테스트가 검증하려는 계약과 무관하다.
   test('ALB SG 인그레스에 두 CIDR 이 모두 들어간다', () => {
     for (const cidr of ['203.0.113.10/32', '198.51.100.0/24']) {
-      template.hasResourceProperties('AWS::EC2::SecurityGroup', {
-        GroupDescription: 'dev ALB - inbound 80/8123 from allowed CIDRs',
-        SecurityGroupIngress: Match.arrayWith([
-          Match.objectLike({ CidrIp: cidr, FromPort: PORTS.http }),
-          Match.objectLike({
-            CidrIp: cidr,
-            FromPort: PORTS.clickhouseHttp,
-          }),
-        ]),
-      });
+      for (const port of [PORTS.http, PORTS.otlp, PORTS.clickhouseHttp]) {
+        template.hasResourceProperties('AWS::EC2::SecurityGroup', {
+          // **이 문자열을 고치는 PR 은 반려 대상이다.** GroupDescription 은 CFN 상
+        // Replacement 속성이라, 바꾸면 SG 교체 -> ALB(다른 스택)가 옛 SG 를 붙들고
+        // 있어 DependencyViolation -> 고아 SG 가 남는다. 이 어서션은 값이 맞는지가
+        // 아니라 **아무도 값을 바꾸지 않았는지**를 지킨다. (lib 쪽 주석 참조)
+        GroupDescription: 'dev ALB - inbound 80/4318/8123 from allowed CIDRs',
+          SecurityGroupIngress: Match.arrayWith([
+            Match.objectLike({ CidrIp: cidr, FromPort: port }),
+          ]),
+        });
+      }
     }
   });
 });
