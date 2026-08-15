@@ -26,8 +26,9 @@
 | 0021 | [dev/prod 환경 분리 - 컨텍스트 스위치 단일 앱과 lib/{common,prod,dev} 경계](0021-dev-prod-environment-separation.md) | Accepted |
 | 0022 | [개발 인프라 토폴로지 - 퍼블릭 서브넷 전용, ECS on EC2, 혼합 네트워크 모드](0022-dev-infrastructure-topology.md) | Accepted |
 | 0023 | [dev 인증 프록시 - ALB와 Collector 사이에 auth-proxy 태스크 삽입](0023-dev-auth-proxy-between-alb-and-collector.md) | Accepted |
+| 0024 | [GitHub Actions 배포 - 레포×환경 4개 OIDC 역할과 ECS 물리 이름 고정](0024-github-actions-oidc-deploy-roles.md) | Accepted |
 
-새 ADR을 작성할 때는 다음 미사용 번호(`0024-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 로그 그룹 정책 ADR용으로 예약되어 있다(`AGENTS.md` 섹션 5 (F)).
+새 ADR을 작성할 때는 다음 미사용 번호(`0025-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 로그 그룹 정책 ADR용으로 예약되어 있다(`AGENTS.md` 섹션 5 (F)).
 
 섹션 순서는 다음과 같다. 괄호로 표시한 것은 내용이 있을 때만 둔다.
 
