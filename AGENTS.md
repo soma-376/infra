@@ -121,7 +121,7 @@ NetworkStack ──> DataStack ──┐
 | 규칙 | 왜 |
 |---|---|
 | **`lib/prod/`와 `lib/dev/`는 서로 import 하지 않는다** | 의존은 `prod → common`, `dev → common` 단방향뿐이다. 이 규칙 하나가 "dev를 고치다 운영이 깨진다"는 경로를 **컴파일 타임에** 차단한다. dev에 필요한 값이 `prod/`에 있으면 `common/`으로 올리거나 `dev/`에 복제한다. (ADR-0021 2번) |
-| **dev 태스크의 네트워크 모드 3종을 바꾸지 않는다** (awsvpc / bridge / awsvpc) | collector가 bridge가 되면 `config/otel-collector.yaml`의 `http://localhost:8080` exporter 계약이 깨진다(컨테이너마다 네임스페이스가 갈려 localhost가 자기 자신을 가리킨다). clickhouse가 bridge가 되면 Cloud Map이 A 레코드 대신 **SRV만** 등록해 `ENRICHMENT_CH_URL`이 깨진다. **둘 다 synth·test·deploy가 전부 통과하고 런타임에만 죽는다** - 앱은 이름이 안 풀려도 예외 없이 compose 기본값으로 조용히 폴백한다. `test/dev/application-stack.test.ts`의 `NetworkMode` 어서션이 유일한 방어선이다. (ADR-0022 4번) |
+| **dev 태스크 4개의 네트워크 모드를 바꾸지 않는다** (awsvpc / bridge / bridge / awsvpc) | collector가 bridge가 되면 `config/otel-collector.yaml`의 `http://localhost:8080` exporter 계약이 깨진다(컨테이너마다 네임스페이스가 갈려 localhost가 자기 자신을 가리킨다). clickhouse가 bridge가 되면 Cloud Map이 A 레코드 대신 **SRV만** 등록해 `ENRICHMENT_CH_URL`이 깨진다. **둘 다 synth·test·deploy가 전부 통과하고 런타임에만 죽는다** - 앱은 이름이 안 풀려도 예외 없이 compose 기본값으로 조용히 폴백한다. `test/dev/application-stack.test.ts`의 `NetworkMode` 어서션이 유일한 방어선이다. (ADR-0022 4번) |
 | **auth-proxy의 `DATABASE_URL`에 libpq DSN을 넣지 않는다** | `pg`의 파서는 URI 전용이라 keyword/value 문자열은 공백이 `%20`으로 인코딩되며 망가진다. 그리고 URI 쿼리의 **`uselibpqcompat=true`를 빼면** `sslmode=require`가 `verify-full`의 별칭이 되어 RDS 기본 CA 검증에 실패한다 — 두 경우 다 배포는 성공하고 auth-proxy만 런타임에 죽는다. `buildLibpqDsn`과 `buildPostgresUri`가 나란히 있는 것이 중복이 아닌 이유다. (`lib/common/config.ts`, ADR-0023) |
 | **`DevCollectorService`의 `cloudMapOptions`를 지우지 않는다** | auth-proxy가 Collector를 찾는 유일한 수단이다(`collector.obs.local`). **A 레코드여야 하며** bridge/host면 Cloud Map이 SRV만 등록해 HTTP 클라이언트가 해석하지 못한다. 지우면 ALB 헬스체크(`/health`)는 계속 통과하고 전달만 `upstream_unreachable`로 죽는다. (`lib/dev/application-stack.ts`, ADR-0005, ADR-0023 1번) |
 | **`DevCollectorSg` ← `DevAppHostSg` : 4318 룰을 지우지 않는다** | auth-proxy가 bridge라 아웃바운드가 호스트 ENI를 타므로 출발 SG가 태스크 SG가 아니라 호스트 SG다. `batch-processor` → ClickHouse 룰과 같은 사정이며, "아무도 안 쓰는 것 같다"고 지우면 auth-proxy만 조용히 타임아웃으로 죽는다. (`lib/dev/network-stack.ts`, ADR-0022 4번, ADR-0023 2번) |
@@ -170,7 +170,7 @@ NetworkStack ──> DataStack ──┐
 | prod | `certificateArn` | 없음 | 있으면 모드 A(HTTPS + ALB 인증), 없으면 모드 B |
 | prod | `domainName` | 없음 | Cognito callback URL 기준 주소와 일치해야 한다 |
 | prod | `cognitoDomainPrefix` | `soma-376-mvp-auth` | 리전 내 전역 유일 |
-| dev | `devAllowedCidr` | **`0.0.0.0/0`** | ALB(80/8123)와 RDS(5432)의 인바운드 소스. 쉼표로 여러 개 가능. **미지정(또는 명시)이면 synth 경고 `infra:dev-open-ingress`** |
+| dev | `devAllowedCidr` | **`0.0.0.0/0`** | ALB(80/4318/8123)와 RDS(5432)의 인바운드 소스. 쉼표로 여러 개 가능. **미지정(또는 명시)이면 synth 경고 `infra:dev-open-ingress`** |
 | dev | `devAppAsgMaxCapacity` | `1` | 앱 호스트 ASG 최대 용량. 부하 테스트 확장 손잡이. 1 미만이거나 정수가 아니면 즉시 throw |
 | dev | `devImageTag` | `latest` | dev/prod가 같은 ECR 레포를 공유하고 태그로만 갈린다 |
 
@@ -251,7 +251,7 @@ DB는 `api-server`와 같은 `controlplane`을 공유한다.
 | 기본 액션 | fixed response 404 | fixed response 404 |
 | 기타 | — | synth 시 ADR-0008 폴백 경고 방출 |
 
-**`DevEdgeStack`에는 이 분기가 없다.** 인증 없는 HTTP 전용이며(:80 + :8123), Cognito도 CloudFront도 만들지 않는다. 방어선은 `devAllowedCidr` 하나뿐이다 (ADR-0022 8번/9번).
+**`DevEdgeStack`에는 이 분기가 없다.** HTTP 전용이며(:80 + :4318 + :8123), Cognito도 CloudFront도 만들지 않는다. `:80`의 `/v1/*`만 auth-proxy가 인증하고 나머지 경로의 방어선은 `devAllowedCidr` 하나뿐이다 (ADR-0022 8번/9번, ADR-0023 3번).
 
 ---
 
@@ -361,7 +361,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 - `.DS_Store`가 루트 / `.github/` / `docs/`에 존재한다.
 - **`DevDashboardTask`를 bridge로 둔 것은 소스 미확보 상태의 추정이다.** `api-server`와 `batch-processor`가 서로를 localhost로 부르지 않는다고 단정할 수 없다. **배포 후 로그로 확인하고, 틀렸다면 awsvpc로 바꾼다** — 그 경우 인터넷 egress와 ECS Exec을 함께 잃는다. (ADR-0022 Follow-up)
 - **awsvpc 태스크(collector/clickhouse)에 인터넷 egress가 없다.** 태스크 ENI에는 퍼블릭 IP가 붙지 않고(EC2 launch type에는 `assignPublicIp` 옵션 자체가 없다) NAT도 없다. 외부 API를 부르는 코드가 들어오면 **synth·test·deploy가 전부 통과하고 기동도 성공한 뒤 그 코드 경로에서만 타임아웃으로 죽는다.** (ADR-0022 5(a))
-- **`devAllowedCidr` 기본값이 `0.0.0.0/0`이라 무인자 dev 배포는 ClickHouse(8123)와 RDS(5432)를 인터넷에 공개한다.** ClickHouse `default` 유저는 비밀번호가 없고 `access_management=1`이므로 8123에 닿는 주체는 사실상 관리자다. synth 경고가 유일한 방어선이다. (ADR-0022 9번)
+- **`devAllowedCidr` 기본값이 `0.0.0.0/0`이라 무인자 dev 배포는 인증 없는 Collector(4318), ClickHouse(8123), RDS(5432)를 인터넷에 공개한다.** ClickHouse `default` 유저는 비밀번호가 없고 `access_management=1`이므로 8123에 닿는 주체는 사실상 관리자다. synth 경고가 유일한 방어선이다. (ADR-0022 9번, ADR-0023 3번)
 - **dev RDS와 운영 Aurora 둘 다 `StorageEncrypted`를 설정하지 않는다.** CFN 검증기가 경고를 낸다. 프로덕션 전환 시 `RemovalPolicy.DESTROY` 일괄 재검토와 함께 묶어서 다룬다.
 
 ---
@@ -433,7 +433,7 @@ npx cdk list -c env=dev      # DevNetworkStack DevDataStack DevApplicationStack 
 
 배포 후 검증은 아래 경로를 각각 밟는다. 엔드포인트는 `DevEdgeStack`의 `CfnOutput`(`AlbDnsName`, `OtlpEndpoint`, `OtlpDebugEndpoint`, `ApiEndpoint`, `ClickhouseDebugUrl`, `RdsEndpoint`, `RdsSecretArn`, `TokenHashSecretArn`)에서 가져온다.
 
-**선행 조건 — `enrollment` 스키마를 먼저 넣어야 한다.** auth-proxy는 `enrollment.telemetry_tokens` / `installations` / `members` / `tenants`를 조회하는데 아무도 이를 부트스트랩하지 않는다(5장 (H)). 스키마가 없으면 접속은 성공하고 첫 인증에서 `relation "enrollment.telemetry_tokens" does not exist`로 깨진다. 아래 3)의 `psql`로 직접 넣는다.
+**선행 조건 — `enrollment` 스키마를 먼저 넣어야 한다.** auth-proxy는 `enrollment.telemetry_tokens` / `installations` / `members` / `tenants`를 조회하는데 아무도 이를 부트스트랩하지 않는다(5장 (H)). 스키마가 없으면 접속은 성공하고 첫 인증에서 `relation "enrollment.telemetry_tokens" does not exist`로 깨진다. 아래 4)의 `psql`로 직접 넣는다.
 
 ```bash
 # 1) 인증 — 토큰 없이 던지면 401 이어야 한다. 이게 ADR-0023 의 목적이다

@@ -151,6 +151,7 @@ describe('DevEdgeStack', () => {
         Port: PORTS.authProxy,
         TargetType: 'instance',
         HealthCheckPath: '/health',
+        Matcher: Match.absent(),
       },
     );
   });

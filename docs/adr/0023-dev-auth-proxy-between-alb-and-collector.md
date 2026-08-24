@@ -115,7 +115,7 @@ OTLP 리시버가 404를 낸다. `:4318` 리스너를 추가하면 경로가 `/v
 
 `pg-connection-string` 2.14.0은 다음 경고를 낸다.
 
-```
+```text
 SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as
 aliases for 'verify-full'.
 ...
