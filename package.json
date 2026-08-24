@@ -11,7 +11,10 @@
     "deploy": "cdk deploy --all",
     "synth:dev": "cdk synth --all -c env=dev",
     "diff:dev": "cdk diff --all -c env=dev",
-    "deploy:dev": "cdk deploy --all -c env=dev"
+    "deploy:dev": "cdk deploy --all -c env=dev",
+    "synth:cicd": "cdk synth --all -c env=cicd",
+    "diff:cicd": "cdk diff --all -c env=cicd",
+    "deploy:cicd": "cdk deploy --all -c env=cicd"
   },
   "devDependencies": {
     "@swc/core": "^1.15.0",

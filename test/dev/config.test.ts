@@ -1,4 +1,5 @@
 import { DevConfig, DEV_OPEN_CIDR, loadDevConfig } from '../../lib/dev/config';
+import { PROD_IMAGE_TAG } from '../../lib/prod/config';
 import { buildDevApp } from '../helpers';
 
 // loadDevConfig 는 CDK 리소스를 만들지 않고 context 만 읽는 순수 로직이라 template
@@ -73,8 +74,11 @@ describe('loadDevConfig - devAppAsgMaxCapacity', () => {
 
 describe('loadDevConfig - devImageTag', () => {
   // dev/prod 가 같은 ECR 레포를 공유하고 태그로만 갈린다 (ADR-0021 5번).
-  test('미지정이면 latest 다', () => {
-    expect(devConfig().imageTag).toBe('latest');
+  // **기본값이 `latest` 이면 안 된다** - 운영도 태그 없이 `latest` 를 읽던 시절에는
+  // dev 빌드가 곧 운영 이미지였다. ADR-0024 가 두 환경에 서로 다른 고정 태그를 줘서
+  // 그 경로를 닫았고, 이 어서션이 되돌아가는 것을 막는다.
+  test('미지정이면 dev 다', () => {
+    expect(devConfig().imageTag).toBe('dev');
   });
 
   test('지정한 태그를 그대로 쓴다', () => {
@@ -82,6 +86,11 @@ describe('loadDevConfig - devImageTag', () => {
   });
 
   test('빈 문자열이면 기본값으로 폴백한다', () => {
-    expect(devConfig({ devImageTag: '  ' }).imageTag).toBe('latest');
+    expect(devConfig({ devImageTag: '  ' }).imageTag).toBe('dev');
+  });
+
+  // 운영 태그와 절대 겹치면 안 된다. 겹치는 순간 ADR-0024 7번이 무의미해진다.
+  test('기본 태그가 운영 태그와 다르다', () => {
+    expect(devConfig().imageTag).not.toBe(PROD_IMAGE_TAG);
   });
 });
