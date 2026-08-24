@@ -493,9 +493,14 @@ npx cdk deploy --all -c env=cicd \
   -c githubOidcProviderArn=arn:aws:iam::<account>:oidc-provider/token.actions.githubusercontent.com
 
 # 사후 확인 - 신뢰 정책의 sub 와 인라인 정책의 리소스 ARN 을 눈으로 본다
-aws iam get-role --role-name github-deploy-ai-telemetry-pipeline-dev \
+ROLE=github-deploy-ai-telemetry-pipeline-dev
+aws iam get-role --role-name "$ROLE" \
   --query 'Role.AssumeRolePolicyDocument'
-aws iam list-role-policies --role-name github-deploy-ai-telemetry-pipeline-dev
+for POLICY_NAME in $(aws iam list-role-policies --role-name "$ROLE" \
+  --query 'PolicyNames[]' --output text); do
+  aws iam get-role-policy --role-name "$ROLE" --policy-name "$POLICY_NAME" \
+    --query 'PolicyDocument.Statement[].{Sid:Sid,Action:Action,Resource:Resource}'
+done
 ```
 
 새 배포 저장소를 추가할 때는 synth에서 GitHub API를 호출하지 않는다. 아래 명령으로 immutable
@@ -510,9 +515,30 @@ gh api repos/soma-376/<repo>/actions/oidc/customization/sub
 
 ### ECS 물리 이름 도입 교체 런북 (ADR-0024)
 
-`clusterName` / `serviceName`은 **교체 유발 속성**이다. 이미 배포된 스택에 이름을 추가하는 최초 1회에만 필요한 절차이며, 이후 배포는 평범한 업데이트다.
+`clusterName` / `serviceName`은 **교체 유발 속성**이다. 다만 Cluster 교체와 Service 교체는
+실패 조건이 다르므로 `cdk diff`를 아래 순서로 판정한다.
 
-**in-place 업데이트를 시도하지 않는다.** ASG 런치 템플릿 user data에 클러스터 이름이 박혀 있어(`>> /etc/ecs/ecs.config`), 클러스터가 교체되면 새 클러스터에 컨테이너 인스턴스가 0대인 상태가 된다. EC2 launch type 서비스가 steady state에 도달하지 못해 CFN이 대기하다 실패하고, 등록된 인스턴스가 있는 구 클러스터는 삭제도 거부되어 `UPDATE_ROLLBACK_FAILED`로 갇히기 쉽다.
+1. **`AWS::ECS::Cluster`가 Replacement면** 아래 전체 스택 파괴·재배포 절차를 쓴다. ASG
+   인스턴스가 기존 클러스터에 계속 등록되어 새 클러스터의 컨테이너 인스턴스가 0대가 되기
+   때문이다.
+2. **Cluster는 유지되고 `AWS::ECS::Service`만 Replacement면** `ServiceName` 전후 값을 본다.
+   이름이 그대로인데 다른 속성이 교체를 유발하면 CloudFormation이 같은 클러스터에 같은 이름의
+   새 서비스를 먼저 만들려다 실패한다. 이 경우도 in-place 업데이트를 하지 않고, 기존 서비스를
+   먼저 없애는 change-specific delete-before-create 절차를 별도로 세운다.
+3. **`ServiceName` 자체가 다른 고유 이름으로 바뀌거나 새로 지정되면** 위 동일 이름 충돌과 새
+   클러스터 0대 문제는 적용되지 않는다. 서비스 교체에 필요한 호스트 용량을 확인하고
+   `deploy-targets.ts`·IAM ARN·앱 레포 워크플로 계약을 같은 변경에서 함께 갱신한다.
+4. Cluster와 Service 모두 Replacement가 아니면 일반 업데이트로 진행한다.
+
+현재 PROJ-64는 이미 배포된 스택에 `clusterName`을 추가해 **1번 Cluster Replacement**가
+발생하는 최초 1회 절차다. 이후 변경도 속성 이름만 보고 판단하지 말고 항상 `cdk diff`의
+리소스별 Replacement와 `ServiceName` 전후 값을 확인한다.
+
+**Cluster Replacement는 in-place 업데이트를 시도하지 않는다.** ASG 런치 템플릿 user data에
+클러스터 이름이 박혀 있어(`>> /etc/ecs/ecs.config`), 클러스터가 교체되면 새 클러스터에
+컨테이너 인스턴스가 0대인 상태가 된다. EC2 launch type 서비스가 steady state에 도달하지 못해
+CFN이 대기하다 실패하고, 등록된 인스턴스가 있는 구 클러스터는 삭제도 거부되어
+`UPDATE_ROLLBACK_FAILED`로 갇히기 쉽다.
 
 **파괴 범위는 `ApplicationStack` 하나로 끝난다.** 합성 매니페스트상 의존은 `ApplicationStack → EdgeStack`이고(ECS 서비스가 `Fn::GetStackOutput`으로 타깃 그룹을 참조한다) 크로스 스택 참조가 `weak`라 Export 잠금이 없다. 따라서 **ALB DNS 이름이 보존되고** `NetworkStack`·`DataStack`(VPC·RDS·시크릿)도 그대로다.
 
@@ -671,10 +697,10 @@ diff /tmp/before/NetworkStack.template.json /tmp/after/NetworkStack.template.jso
 테스트는 `test/prod/`(6 스위트), `test/dev/`(5 스위트), `test/cicd/`(2 스위트)로 나뉘고, 픽스처 `helpers.ts`만 루트에 둔다.
 
 - `aws-cdk-lib/assertions` 기반 **template assertion만** 쓴다. 스냅샷 테스트는 쓰지 않는다.
-  - 예외: `lib/common/config.ts`의 **순수 함수**(예: `buildLibpqDsn`)와 `lib/dev/config.ts`의 `loadDevConfig` 파싱 로직은 CDK 리소스를 만들지 않으므로 `test/prod/config.test.ts` / `test/dev/config.test.ts`에서 일반 단위 테스트로 검증한다. 스택을 합성하는 테스트는 여전히 template assertion만 쓴다.
+  - 예외: `lib/common/config.ts`의 **순수 함수**(예: `buildLibpqDsn`)와 `lib/dev/config.ts`의 `loadDevConfig`, `lib/cicd/config.ts`의 `loadCicdConfig` 파싱 로직은 CDK 리소스를 만들지 않으므로 `test/prod/config.test.ts` / `test/dev/config.test.ts` / `test/cicd/config.test.ts`에서 일반 단위 테스트로 검증한다. 이 파싱 테스트는 context 입력용 `new App()`을 직접 써도 되지만, 스택을 합성하는 테스트는 여전히 template assertion과 아래 팩토리만 쓴다.
 - **`new App()`을 직접 쓰지 말고 `test/helpers.ts`의 `buildApp()`(prod) / `buildDevApp()`(dev) / `buildCicdApp()`(cicd)을 쓴다.**
   bare `App`은 `cdk.json`의 피처 플래그를 읽지 않아 CLI synth와 산출물이 달라진다 (예: ASG가 `LaunchTemplate` 대신 `LaunchConfiguration`을 생성). **dev도 ASG를 쓰므로 같은 함정이 그대로 적용된다** — `test/dev/application-stack.test.ts`가 `LaunchConfiguration` 0개를 어서션한다.
-  두 팩토리 모두 진입점과 **같은 `synthProd` / `synthDev`를 거치므로** 픽스처 조립과 실제 배포 조립이 갈라질 수 없다 (ADR-0021 1번).
+  세 팩토리 모두 진입점과 **같은 `synthProd` / `synthDev` / `synthCicd`를 거치므로** 픽스처 조립과 실제 배포 조립이 갈라질 수 없다 (ADR-0021 1번, ADR-0024 1번).
 - 모드 A 테스트는 `MODE_A_EDGE`를, 모드 B는 인자 없이 기본값을 쓴다. dev context 키는 `buildDevApp({ devAllowedCidr: '203.0.113.10/32' })`처럼 객체로 주입한다 — CLI의 `-c key=value`와 같은 자리다.
 - 고정 env는 `TEST_ENV = { account: '111111111111', region: 'ap-northeast-2' }`다.
 

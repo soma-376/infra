@@ -242,7 +242,7 @@ ADR-0021의 배치 규칙("dev에서 달라야 할 이유가 없으면 `common/`
 
 ## Constraints
 
-### 이름 지정은 리소스 교체를 유발하고, in-place 업데이트는 불가능하다
+### Cluster 교체는 in-place 불가이고, Service 교체는 이름 변화에 따라 다르다
 
 `clusterName`과 `serviceName`은 `AWS::ECS::Cluster` / `AWS::ECS::Service`에서 **교체 유발
 속성**이다. 이미 배포된 스택에 이름을 추가하면 교체가 일어난다.
@@ -262,7 +262,26 @@ ADR-0021의 배치 규칙("dev에서 달라야 할 이유가 없으면 `common/`
 prod의 Fargate 서비스 둘만 놓고 보면 교체가 깔끔하지만, 같은 스택 안에 ClickHouse `Ec2Service`가
 있어 전체가 함께 롤백된다.
 
-**따라서 in-place 업데이트를 시도하지 않는다. `ApplicationStack`을 파괴하고 재배포한다.**
+**따라서 Cluster가 Replacement면 in-place 업데이트를 시도하지 않는다. `ApplicationStack`을
+파괴하고 재배포한다.** 이 절차의 전면 중단과 ClickHouse 로컬 EBS 손실은 Cluster 교체 때문에
+발생하는 대가다.
+
+Cluster가 유지되고 `AWS::ECS::Service`만 Replacement인 경우에는 `ServiceName` 전후 값을
+추가로 비교한다.
+
+- **`ServiceName`이 유지된 채 다른 속성이 교체를 유발하면** CloudFormation은 기존 서비스를
+  지우기 전에 같은 클러스터에 같은 이름의 새 서비스를 만들므로 생성이 실패한다. 이 경우도
+  in-place 업데이트를 하지 않고, 기존 서비스를 먼저 없애는 change-specific
+  delete-before-create 절차를 별도로 세운다.
+- **`ServiceName` 자체가 다른 고유 이름으로 바뀌거나 새로 지정되면** 동일 이름 충돌은 없다.
+  Cluster도 유지되므로 새 클러스터의 인스턴스가 0대가 되는 문제도 없다. 다만 서비스 교체에
+  필요한 호스트 용량을 확인하고, 이름 계약의 소비자인 `lib/common/deploy-targets.ts`, IAM ARN,
+  앱 레포 워크플로우를 같은 변경에서 함께 갱신해야 한다.
+- Cluster와 Service 모두 Replacement가 아니면 일반 업데이트다.
+
+판정은 속성 이름을 추측하는 대신 `cdk diff`에서 Cluster Replacement를 먼저 확인하고, Cluster가
+유지될 때만 Service Replacement와 `ServiceName` 전후 값을 확인한다. 현재 물리 이름 최초 도입은
+Cluster Replacement이므로 `AGENTS.md` 6장의 전체 스택 파괴·재배포 런북을 따른다.
 
 ### 파괴 범위는 `ApplicationStack` 하나로 끝난다
 

@@ -8,8 +8,8 @@ import {
 import { buildCicdApp } from '../helpers';
 
 /**
- * `loadCicdConfig` 는 CDK 리소스를 만들지 않는 순수 파싱이라 일반 단위 테스트로 검증한다
- * (AGENTS.md 7장의 예외 - `lib/dev/config.ts` 의 `loadDevConfig` 와 같은 취급).
+ * `loadCicdConfig` 는 CDK 리소스를 만들지 않는 순수 context 파싱이므로 `new App()` 으로
+ * 입력만 구성해 일반 단위 테스트로 검증한다 (AGENTS.md 7장의 명시적 예외).
  */
 describe('loadCicdConfig', () => {
   const load = (context: Record<string, unknown> = {}) =>
