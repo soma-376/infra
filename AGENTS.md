@@ -216,7 +216,7 @@ prod는 `lib/prod/config.ts`의 `loadConfig`, dev는 `lib/dev/config.ts`의 `loa
 | 이미지 태그 | dev는 `dev`, prod는 `prod`. **`linux/arm64` 필수** (ADR-0015) |
 | 워크플로 요구사항 | `permissions: id-token: write`. **GitHub Environment를 쓰지 않는다** — `sub`가 `...:environment:<name>`으로 바뀌어 신뢰 조건과 불일치한다. PR·태그 트리거도 같은 이유로 배포 잡에 쓸 수 없다 |
 | 주의 | `ecs describe-services`에 **권한 없는 서비스를 섞으면 호출 전체가 거부된다.** 그 역할에 부여된 서비스만 한 호출에 넣는다 |
-| 알려진 스위치 | `docker buildx --cache-from type=registry`를 쓰려면 `ecr:BatchGetImage`·`ecr:GetDownloadUrlForLayer`를 `ECR_PUSH_ACTIONS`에 추가해야 한다. 기본값에는 없다 |
+| 알려진 스위치 | `ecr:BatchGetImage`는 순수 `docker buildx --push`에도 필요해 기본 권한에 포함한다. `--cache-from type=registry`를 쓰기 시작하면 `ecr:GetDownloadUrlForLayer`를 `ECR_PUSH_ACTIONS`에 추가한다 |
 
 ### 컨테이너 런타임 계약 (앱 레포와의 인터페이스)
 

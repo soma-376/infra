@@ -163,7 +163,7 @@ ECS 서비스 ARN과 push하는 **태그**이며, **태그는 IAM 조건으로 �
 | Sid | 액션 | 리소스 |
 |---|---|---|
 | `EcrAuth` | `ecr:GetAuthorizationToken` | `*` |
-| `EcrPush` | `ecr:BatchCheckLayerAvailability`, `InitiateLayerUpload`, `UploadLayerPart`, `CompleteLayerUpload`, `PutImage` | 그 레포가 실제로 만드는 이미지의 ECR 레포 ARN만 |
+| `EcrPush` | `ecr:BatchCheckLayerAvailability`, `InitiateLayerUpload`, `UploadLayerPart`, `CompleteLayerUpload`, `PutImage`, `BatchGetImage` | 그 레포가 실제로 만드는 이미지의 ECR 레포 ARN만 |
 | `EcsForceDeploy` | `ecs:UpdateService`, `ecs:DescribeServices` | 그 환경의 그 서비스 ARN만 |
 
 `ecr:GetAuthorizationToken`은 **리소스 수준 권한을 지원하지 않아** `*`가 강제된다. 좁히려는
@@ -174,10 +174,11 @@ ECS 서비스 ARN과 push하는 **태그**이며, **태그는 IAM 조건으로 �
 `Repository.grantPullPush()`로 대체하지 않는다. 액션 목록이 CDK 버전에 따라 조용히 바뀌는
 암묵 계약이 되어, ADR과 테스트에 "무엇을 허용했는지" 적을 수가 없다.
 
-**pull 액션(`BatchGetImage`, `GetDownloadUrlForLayer`)은 주지 않는다.** 순수
-`docker buildx build --push`에는 필요 없다. **다만 워크플로우가
-`--cache-from type=registry`를 쓰기 시작하면 이 둘이 필요해진다** - 그때 나올 `AccessDenied`가
-미스터리가 되지 않도록 여기와 `AGENTS.md`의 배포 계약 절에 알려진 스위치로 적어 둔다.
+`BatchGetImage`는 읽기 액션이지만 순수 `docker buildx build --push`의 manifest push
+과정에서도 호출되므로 `EcrPush`에 포함한다. `GetDownloadUrlForLayer`는 주지 않는다.
+**워크플로우가 `--cache-from type=registry`를 쓰기 시작하면 그 액션이 추가로 필요해진다** -
+그때 나올 `AccessDenied`가 미스터리가 되지 않도록 여기와 `AGENTS.md`의 배포 계약 절에
+알려진 스위치로 적어 둔다.
 
 **명시적으로 주지 않는 것과 그 이유**
 
@@ -371,7 +372,7 @@ Cognito·CloudFront·프론트엔드 S3)은 그대로 남는다. **ALB DNS 이�
 
 - **auth-proxy를 prod로 이관할 때** `DEPLOY_TARGETS`의 prod 파이프라인 항목에 auth-proxy ECS
   서비스를 추가한다. ADR-0023의 이관 결정과 같은 PR에서 처리한다.
-- **워크플로우가 `--cache-from type=registry`를 쓰게 되면** `ecr:BatchGetImage`와
+- **워크플로우가 `--cache-from type=registry`를 쓰게 되면**
   `ecr:GetDownloadUrlForLayer`를 `EcrPush` statement에 추가한다. 알려진 스위치다.
 - **`batch-processor`는 MVP 미구현이다**(PROJ-48). 대시보드 역할이 그 ECR 레포에 push 권한을
   갖지만 실제로 push하는 워크플로우는 아직 없다. 구현이 확정되지 않으면 권한을 회수한다.

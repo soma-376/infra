@@ -91,10 +91,10 @@ export function buildGithubOidcSubject(
 /**
  * ECR push 최소 액션 집합 (ADR-0024 5번).
  *
- * `docker buildx build --push` 가 실제로 호출하는 것만 담는다. **pull 액션
- * (`ecr:BatchGetImage`, `ecr:GetDownloadUrlForLayer`)은 일부러 빠져 있다** - 순수 빌드+push
- * 에는 필요 없다. 워크플로우가 `--cache-from type=registry` 를 쓰기 시작하면 그 둘을 여기
- * 추가해야 하며, 그때 나올 `AccessDenied` 가 미스터리가 되지 않도록 알려진 스위치로 적어 둔다.
+ * `docker buildx build --push` 가 실제로 호출하는 것만 담는다. `BatchGetImage` 는 이미지
+ * manifest 를 push 하는 과정에서도 필요하므로 쓰기 액션들과 같은 ECR 레포 ARN 으로 좁힌다.
+ * `GetDownloadUrlForLayer` 는 일부러 빠져 있다 - 워크플로우가
+ * `--cache-from type=registry` 를 쓰기 시작할 때 추가할 알려진 스위치다.
  *
  * `Repository.grantPullPush()` 를 쓰지 않는 이유는 액션 목록이 CDK 버전에 따라 조용히
  * 바뀌는 암묵 계약이 되어, ADR 과 테스트에 "무엇을 허용했는지" 적을 수 없기 때문이다.
@@ -105,6 +105,7 @@ export const ECR_PUSH_ACTIONS: readonly string[] = [
   'ecr:UploadLayerPart',
   'ecr:CompleteLayerUpload',
   'ecr:PutImage',
+  'ecr:BatchGetImage',
 ] as const;
 
 /**

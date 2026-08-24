@@ -219,6 +219,28 @@ describe('DeployStack', () => {
       );
     });
 
+    test.each(ALL_ROLES)(
+      '%s 는 manifest push 용 BatchGetImage 만 ECR 레포 범위로 허용한다',
+      (roleName) => {
+        const batchGetStatement = statementWithAction(
+          roleName,
+          'ecr:BatchGetImage',
+        );
+        const putStatement = statementWithAction(roleName, 'ecr:PutImage');
+
+        expect(batchGetStatement).toBe(putStatement);
+        expect(asArray(batchGetStatement.Resource)).not.toContain('*');
+        for (const resource of asArray(batchGetStatement.Resource)) {
+          expect(arnLiterals(resource)).toContain(
+            `:repository/${ECR_NAMESPACE}/`,
+          );
+        }
+        expect(actionsFor(roleName)).not.toContain(
+          'ecr:GetDownloadUrlForLayer',
+        );
+      },
+    );
+
     test.each(ALL_ROLES)('%s 의 ECS 액션 집합이 정확하다', (roleName) => {
       const statement = statementWithAction(roleName, 'ecs:UpdateService');
       expect((asArray(statement.Action) as string[]).sort()).toEqual(
