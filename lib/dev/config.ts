@@ -208,10 +208,12 @@ export function warnOnOpenIngress(
 
   Annotations.of(scope).addWarningV2(
     'infra:dev-open-ingress',
-    `devAllowedCidr 미지정(또는 ${DEV_OPEN_CIDR} 명시): ALB(80/8123)와 RDS(5432)의 ` +
+    `devAllowedCidr 미지정(또는 ${DEV_OPEN_CIDR} 명시): ALB(80/4318/8123)와 RDS(5432)의 ` +
       '인바운드가 인터넷에 전면 공개된다. ClickHouse 의 default 유저는 비밀번호가 없고 ' +
       'access_management=1 을 가지므로(ADR-0019) 8123 에 닿을 수 있는 주체는 사실상 ' +
       '관리자이며, RDS 는 마스터 자격증명 무차별 대입에 노출된다. ' +
+      '4318 은 auth-proxy 를 거치지 않고 Collector 로 직행하는 디버그 리스너라 ' +
+      '인증 없는 OTLP 수신구가 그대로 열린다(ADR-0023 3번). ' +
       '`-c devAllowedCidr=<내 IP>/32` 로 좁혀서 배포한다 (ADR-0022 9번).',
   );
 }

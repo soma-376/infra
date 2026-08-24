@@ -37,6 +37,7 @@ import {
 } from 'aws-cdk-lib/aws-servicediscovery';
 import { Repository } from 'aws-cdk-lib/aws-ecr';
 import {
+  AUTH_PROXY_ENV,
   CLICKHOUSE_CONTAINER_ENV,
   CLICKHOUSE_DEFAULT_DB,
   CLICKHOUSE_HOST,
@@ -44,6 +45,8 @@ import {
   CLICKHOUSE_IMAGE,
   CLICKHOUSE_SERVICE_NAME,
   CLOUD_MAP_NAMESPACE,
+  COLLECTOR_OTLP_URL,
+  COLLECTOR_SERVICE_NAME,
   CONTROL_DB_NAME,
   ECR_REPOS,
   ENRICHMENT_ENV,
@@ -84,10 +87,13 @@ const MEMORY_RESERVATION_MIB = {
   apiServer: 1024,
   batchProcessor: 256,
   clickhouse: 1024,
+  // Node 단일 프로세스 프록시. 요청 본문을 메모리에 버퍼링하지만
+  // `MAX_OTLP_BODY_SIZE` 기본값이 10MiB 라 상한이 예측 가능하다. (ADR-0023)
+  authProxy: 256,
 } as const;
 
 /**
- * 세 서비스 공통 배포 전략: 먼저 내리고 새로 띄우는 **교체 배포**.
+ * 네 서비스 공통 배포 전략: 먼저 내리고 새로 띄우는 **교체 배포**.
  *
  * t4g 계열의 인스턴스당 ENI 한도는 프라이머리 포함 3 이고 awsvpc 태스크는 태스크당
  * ENI 를 하나 잡는다. 호스트가 1대뿐이므로 롤링 배포에 필요한 "새 태스크를 먼저
@@ -109,6 +115,13 @@ export interface DevApplicationStackProps extends StackProps {
   readonly dbSecret: ISecret;
   /** post-processor 의 ENRICHMENT_PG_DSN 용 파생 시크릿. (ADR-0018) */
   readonly postProcessorPgDsnSecret: ISecret;
+  /**
+   * auth-proxy 의 DATABASE_URL 용 파생 시크릿. **URI 형식**이라 위 DSN 과 다르다.
+   * (ADR-0023)
+   */
+  readonly authProxyDatabaseUrlSecret: ISecret;
+  /** auth-proxy 의 TOKEN_HASH_SECRET. enrollment 서버와 공유한다. (ADR-0023) */
+  readonly tokenHashSecret: ISecret;
   readonly rawSignalBucket: IBucket;
   /** EC2 호스트 2대 공용 SG. ASG 에 붙는다. */
   readonly appHostSecurityGroup: ISecurityGroup;
@@ -120,20 +133,24 @@ export interface DevApplicationStackProps extends StackProps {
 
 /**
  * DevApplicationStack: ECS 클러스터(단일), Cloud Map `obs.local`,
- * ASG 2개 + 캐패시티 프로바이더 2개, Ec2Service 3개.
+ * ASG 2개 + 캐패시티 프로바이더 2개, Ec2Service 4개.
  *
  * 운영과의 차이는 **launch type 과 네트워크 모드뿐**이다. 컨테이너 정의·환경변수·
  * 시크릿 주입은 운영과 100% 같은 계약을 재현한다 - 계약이 갈리면 "dev 에서
  * 검증했다"는 말의 의미가 사라진다. (ADR-0021 2번)
  *
- * 세 태스크가 서로 다른 이유로 서로 다른 네트워크 모드를 요구한다. 각 태스크
- * 빌더의 주석에 그 이유가 있다. (ADR-0022 4번)
+ * 태스크마다 네트워크 모드가 다르다. ADR-0022 4번이 awsvpc 를 **강제하는 조건**을
+ * 둘만 인정하고(태스크 내 localhost 의존 / Cloud Map A 레코드 등록 대상), 나머지는
+ * bridge 로 두어 인터넷 egress 와 ENI 여유를 얻는다는 규칙이다. 각 태스크 빌더의
+ * 주석에 그 판정이 있다. (ADR-0022 4번, ADR-0023 2번)
  */
 export class DevApplicationStack extends Stack {
   public readonly cluster: Cluster;
   public readonly collectorService: Ec2Service;
   public readonly dashboardService: Ec2Service;
   public readonly clickhouseService: Ec2Service;
+  /** 인증 프록시. ALB `:80` 의 `/v1/*` 가 이 서비스를 향한다. (ADR-0023) */
+  public readonly authProxyService: Ec2Service;
 
   private readonly namespace: PrivateDnsNamespace;
 
@@ -161,6 +178,12 @@ export class DevApplicationStack extends Stack {
     const clickhouseCapacityProvider = this.buildClickhouseAsg(props);
 
     this.collectorService = this.buildCollectorService(
+      props,
+      appCapacityProvider,
+    );
+    // auth-proxy 는 collector 를 Cloud Map 이름으로만 찾으므로 순서 의존이 없다.
+    // 같은 앱 호스트 ASG 를 쓴다 - 전용 ASG 를 만들 이유가 없다 (ADR-0023 2번).
+    this.authProxyService = this.buildAuthProxyService(
       props,
       appCapacityProvider,
     );
@@ -396,6 +419,19 @@ export class DevApplicationStack extends Stack {
       capacityProviderStrategies: [
         { capacityProvider: capacityProvider.capacityProviderName, weight: 1 },
       ],
+      // auth-proxy 가 `collector.obs.local` 로 이 서비스를 찾는다 (ADR-0023 1번).
+      // **A 레코드여야 한다** - bridge/host 모드면 Cloud Map 이 SRV 만 등록하고 일반
+      // HTTP 클라이언트는 SRV 를 해석하지 못한다. 이 태스크는 이미 awsvpc 이므로
+      // (위 networkMode 주석) 요건이 충족되어 있고, `DevClickhouseService` 가 같은
+      // 이유로 같은 형태를 쓴다. (ADR-0005, ADR-0022 4번)
+      //
+      // **운영 `CollectorService` 에는 이 설정이 없다.** prod 로 이관할 때 그쪽에도
+      // 추가해야 `COLLECTOR_HOST` 상수가 prod 에서 유효해진다.
+      cloudMapOptions: {
+        name: COLLECTOR_SERVICE_NAME,
+        cloudMapNamespace: this.namespace,
+        dnsRecordType: DnsRecordType.A,
+      },
       propagateTags: PropagatedTagSource.SERVICE,
       ...REPLACEMENT_DEPLOYMENT,
       // enableExecuteCommand 를 켜지 않는다. awsvpc 태스크는 ssmmessages 에 도달할
@@ -405,7 +441,85 @@ export class DevApplicationStack extends Stack {
   }
 
   // ============================================================
-  // 태스크 ② : Dashboard Backend - bridge
+  // 태스크 ② : Auth Proxy - bridge
+  // ============================================================
+  private buildAuthProxyService(
+    props: DevApplicationStackProps,
+    capacityProvider: AsgCapacityProvider,
+  ): Ec2Service {
+    const task = new Ec2TaskDefinition(this, 'DevAuthProxyTask', {
+      // **bridge 로 둘 수 있다.** ADR-0022 4번이 awsvpc 를 강제하는 조건으로 인정하는
+      // 것은 둘뿐인데(태스크 내 localhost 의존 / Cloud Map A 레코드 등록 대상)
+      // auth-proxy 는 둘 다 아니다 - 단일 컨테이너이고, 디스커버리의 **클라이언트**이며
+      // 앞에 ALB 가 있어 이름으로 찾아올 주체가 없다.
+      //
+      // bridge 가 얻는 것: 호스트 ENI 여유 유지(t4g 한도 3 중 2 사용 - awsvpc 였다면
+      // 3/3 이 되어 이후 awsvpc 태스크에 awsvpcTrunking 옵트인이 필요해진다),
+      // 인터넷 egress(도메인 확보 후 JWKS 검증이 들어오면 awsvpc 는 그 경로에서만
+      // 조용히 타임아웃으로 죽는다 - ADR-0008), RDS 5432 룰 재사용, 옵트인 없는
+      // 다중 배치. (ADR-0022 4번/5(a)/11번, ADR-0023 2번)
+      networkMode: NetworkMode.BRIDGE,
+    });
+
+    task.addContainer('auth-proxy', {
+      image: ContainerImage.fromEcrRepository(
+        Repository.fromRepositoryName(
+          this,
+          'DevAuthProxyRepo',
+          ECR_REPOS.authProxy,
+        ),
+        props.devConfig.imageTag,
+      ),
+      // hostPort 를 주지 않아 **동적 포트**를 쓴다. `DevDashboardTask` 와 같은 이유이며
+      // `DevAppHostSg` 의 32768-65535 룰이 이것과 한 몸이다.
+      portMappings: [{ containerPort: PORTS.authProxy }],
+      // 이름은 앱 소스(`apps/auth-proxy/src/config/env.ts`)가 권위다. post-processor 와
+      // 달리 이 앱은 필수 값이 비면 **즉시 throw 하고 기동에 실패**하므로, 오타는
+      // 조용한 폴백이 아니라 태스크 재시작 루프로 드러난다. (ADR-0023)
+      environment: {
+        [AUTH_PROXY_ENV.collectorBaseUrl]: COLLECTOR_OTLP_URL,
+        // dev 는 debug 로 둔다. 앱 기본값은 info 이며, 환경별 정책은 앱 레포가 정한다.
+        // PROJ-51 병합 전이면 앱이 이 값을 읽지 않고 무시할 뿐 해가 없다.
+        [AUTH_PROXY_ENV.logLevel]: 'debug',
+      },
+      // DATABASE_URL 에는 DB 비밀번호가, TOKEN_HASH_SECRET 은 그 자체가 비밀이므로
+      // environment 가 아니라 secrets 로 넣는다 - environment 에 넣으면
+      // `aws ecs describe-task-definition` 과 ECS 콘솔에 평문으로 드러난다.
+      // addContainer 가 execution role 에 grantRead 를 자동으로 붙인다. (ADR-0018)
+      secrets: {
+        [AUTH_PROXY_ENV.databaseUrl]: EcsSecret.fromSecretsManager(
+          props.authProxyDatabaseUrlSecret,
+        ),
+        [AUTH_PROXY_ENV.tokenHashSecret]: EcsSecret.fromSecretsManager(
+          props.tokenHashSecret,
+        ),
+      },
+      memoryReservationMiB: MEMORY_RESERVATION_MIB.authProxy,
+      logging: LogDriver.awsLogs({
+        streamPrefix: 'auth-proxy',
+        logGroup: this.makeLogGroup('DevAuthProxyLog', 'auth-proxy'),
+      }),
+    });
+
+    return new Ec2Service(this, 'DevAuthProxyService', {
+      cluster: this.cluster,
+      taskDefinition: task,
+      desiredCount: 1,
+      // bridge 태스크에는 태스크 ENI 가 없으므로 vpcSubnets/securityGroups 를 줄 수
+      // 없다(CDK 가 합성 단계에서 거부한다). 이 태스크의 네트워크 정체성은 호스트 ENI 와
+      // `DevAppHostSg` 이며, Collector 4318 인그레스도 그 SG 를 peer 로 받는다.
+      capacityProviderStrategies: [
+        { capacityProvider: capacityProvider.capacityProviderName, weight: 1 },
+      ],
+      // cloudMapOptions 를 주지 않는다. auth-proxy 는 디스커버리의 클라이언트이고
+      // 인바운드는 ALB 가 타깃 그룹으로 직접 꽂으므로 이름이 필요 없다.
+      propagateTags: PropagatedTagSource.SERVICE,
+      ...REPLACEMENT_DEPLOYMENT,
+    });
+  }
+
+  // ============================================================
+  // 태스크 ③ : Dashboard Backend - bridge
   // ============================================================
   private buildDashboardService(
     props: DevApplicationStackProps,
@@ -486,7 +600,7 @@ export class DevApplicationStack extends Stack {
   }
 
   // ============================================================
-  // 태스크 ③ : ClickHouse - awsvpc
+  // 태스크 ④ : ClickHouse - awsvpc
   // ============================================================
   private buildClickhouseService(
     props: DevApplicationStackProps,

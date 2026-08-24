@@ -28,7 +28,10 @@ const EPHEMERAL_PORT_MIN = 32768;
 const EPHEMERAL_PORT_MAX = 65535;
 
 export interface DevNetworkStackProps extends StackProps {
-  /** ALB(80/8123)와 RDS(5432), 호스트 동적 포트의 인바운드 허용 소스. */
+  /**
+   * ALB(80/4318/8123)와 RDS(5432), 호스트 동적 포트의 인바운드 허용 소스.
+   * 4318 은 인증을 우회하는 Collector 디버그 리스너다 (ADR-0023 3번).
+   */
   readonly allowedCidrs: readonly string[];
 }
 
@@ -95,9 +98,27 @@ export class DevNetworkStack extends Stack {
       service: GatewayVpcEndpointAwsService.S3,
     });
 
+    // **이 `description` 문자열을 다시는 건드리지 않는다.**
+    //
+    // `AWS::EC2::SecurityGroup` 의 `GroupDescription` 은 CloudFormation 상
+    // `Update requires: Replacement` 다. 한 글자만 고쳐도 CFN 이 새 SG 를 만들고
+    // 기존 SG 를 지우려 하는데, **ALB 는 `DevEdgeStack` 에 있어 같은 배포에서 함께
+    // 갱신되지 않는다.** 그 사이 ALB 가 옛 SG 를 계속 쓰고 있으므로 삭제가
+    // `DependencyViolation: resource sg-... has a dependent object` 로 실패하고,
+    // CFN 은 이를 스택 실패로 처리하지 않고 **"Update successful. One or more
+    // resources could not be deleted." 로 UPDATE_COMPLETE 를 낸다** - 즉 조용히
+    // 고아 SG 하나가 남는다.
+    //
+    // **ADR-0023 구현 때 여기에 4318 을 추가했다가 실제로 이렇게 깨졌다**
+    // (sg-085990faedba1dbd2 가 고아로 남음). 그래서 이 문자열은 현재 배포된 값과
+    // 일치시켜 두는 것이 유일하게 안전한 상태다 - 지금 와서 "정확하게" 고치려 들면
+    // 교체가 한 번 더 일어나 고아가 하나 더 생긴다.
+    //
+    // 포트 구성이 바뀌면 설명이 아니라 아래 `wireSecurityGroupRules()` 의 주석으로
+    // 남긴다. 실제 인바운드는 그쪽이 권위다.
     this.albSecurityGroup = new SecurityGroup(this, 'DevAlbSg', {
       vpc: this.vpc,
-      description: 'dev ALB - inbound 80/8123 from allowed CIDRs',
+      description: 'dev ALB - inbound 80/4318/8123 from allowed CIDRs',
       allowAllOutbound: true,
     });
     this.appHostSecurityGroup = new SecurityGroup(this, 'DevAppHostSg', {
@@ -142,6 +163,15 @@ export class DevNetworkStack extends Stack {
         Port.tcp(PORTS.clickhouseHttp),
         `ClickHouse HTTP from ${cidr}`,
       );
+      // 4318 은 인증을 거치지 않고 Collector 로 직행하는 디버그 리스너다
+      // (ADR-0023 3번). auth-proxy 가 죽었는지 파이프라인이 죽었는지를 가르는 용도이며,
+      // **인증 우회 경로이므로** 허용 CIDR 이 곧 유일한 방어선이다. 기본값
+      // 0.0.0.0/0 이면 `infra:dev-open-ingress` 경고가 이 리스너까지 함께 커버한다.
+      this.albSecurityGroup.addIngressRule(
+        peer,
+        Port.tcp(PORTS.otlp),
+        `OTLP debug from ${cidr}`,
+      );
     });
 
     // 앱 호스트 <- ALB : bridge 태스크(dashboard)의 동적 호스트 포트.
@@ -161,11 +191,29 @@ export class DevNetworkStack extends Stack {
       );
     });
 
-    // Collector 태스크 ENI <- ALB:4318 (OTLP).
+    // Collector 태스크 ENI <- ALB:4318. 이제 정상 경로(:80 /v1/*)가 아니라
+    // **디버그 리스너(:4318)** 가 쓰는 룰이다. 정상 트래픽은 ALB -> auth-proxy ->
+    // Collector 로 가며, 그 마지막 홉의 룰은 바로 아래다. (ADR-0023 3번)
     this.collectorSecurityGroup.addIngressRule(
       this.albSecurityGroup,
       Port.tcp(PORTS.otlp),
       'OTLP from ALB',
+    );
+
+    // Collector 태스크 ENI <- 앱 호스트:4318 (auth-proxy -> Collector).
+    //
+    // **출발 SG 가 앱 호스트 SG 인 이유는 `DevAuthProxyTask` 가 bridge 이기 때문이다.**
+    // bridge 태스크는 자기 ENI 가 없어 아웃바운드가 호스트 ENI 를 타므로, 출발 SG 는
+    // 태스크 SG 가 아니라 `DevAppHostSg` 다. 바로 아래 ClickHouse 룰이 batch-processor
+    // 때문에 같은 형태인 것과 정확히 같은 사정이다. 이 룰을 "쓰지 않는 것 같다"고
+    // 지우면 auth-proxy 만 조용히 타임아웃으로 죽는다.
+    //
+    // 대가로 같은 호스트의 dashboard 태스크도 4318 에 닿을 수 있다. bridge 를 고른
+    // 트레이드오프이며 ADR-0023 Negative 에 기록되어 있다. (ADR-0022 4번, ADR-0023 2번)
+    this.collectorSecurityGroup.addIngressRule(
+      this.appHostSecurityGroup,
+      Port.tcp(PORTS.otlp),
+      'OTLP from app hosts (bridge auth-proxy)',
     );
 
     // ClickHouse 태스크 ENI <- {collector 태스크 ENI, 앱 호스트} : 8123/9000.
