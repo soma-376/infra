@@ -34,14 +34,34 @@ export const GITHUB_OIDC_DOMAIN = 'token.actions.githubusercontent.com';
  */
 export const GITHUB_OIDC_AUDIENCE = 'sts.amazonaws.com';
 
-/** 배포 대상 GitHub 조직. `ECR_NAMESPACE` / `COMMON_TAGS.Org` 와 같은 값이다. */
-export const GITHUB_ORG = 'soma-376';
+/** GitHub immutable OIDC subject 를 구성하는 저장소 식별자. */
+export interface GitHubRepository {
+  readonly name: string;
+  readonly id: string;
+}
+
+/**
+ * 배포 대상 GitHub 조직. 이름은 `ECR_NAMESPACE` / `COMMON_TAGS.Org` 와 같은 값이다.
+ *
+ * 2026-07-15 이후 생성된 저장소의 OIDC `sub` 는 이름뿐 아니라 조직/저장소 ID까지 포함한다.
+ * ID는 숫자 계산 대상이 아니라 외부 식별자이므로 문자열로 보존한다 (ADR-0024 2번).
+ */
+export const GITHUB_ORG = {
+  name: 'soma-376',
+  id: '297555253',
+} as const;
 
 /** 배포 대상 GitHub 레포 (PROJ-48). 파이프라인 레포 하나가 이미지 둘을 낸다. */
 export const GITHUB_REPOS = {
-  pipeline: 'ai-telemetry-pipeline',
-  dashboard: 'pulsemetry-backend',
-} as const;
+  pipeline: {
+    name: 'ai-telemetry-pipeline',
+    id: '1309872274',
+  },
+  dashboard: {
+    name: 'pulsemetry-backend',
+    id: '1325324450',
+  },
+} as const satisfies Record<string, GitHubRepository>;
 
 /**
  * 환경별 배포 브랜치. **신뢰 정책 `sub` 조건의 유일한 출처이며, 여기가 배포 권한의 실질적
@@ -54,6 +74,19 @@ export const DEPLOY_BRANCHES: Readonly<Record<DeployEnv, string>> = {
   dev: 'develop',
   prod: 'main',
 } as const;
+
+/**
+ * GitHub 의 immutable OIDC subject 를 조립한다.
+ *
+ * 이름만 넣는 이전 형식은 2026-07-15 이후 생성된 저장소의 실제 토큰과 일치하지 않아
+ * `sts:AssumeRoleWithWebIdentity` 가 AccessDenied 로 거부된다 (ADR-0024 2번).
+ */
+export function buildGithubOidcSubject(
+  repo: GitHubRepository,
+  branch: string,
+): string {
+  return `repo:${GITHUB_ORG.name}@${GITHUB_ORG.id}/${repo.name}@${repo.id}:ref:refs/heads/${branch}`;
+}
 
 /**
  * ECR push 최소 액션 집합 (ADR-0024 5번).
@@ -92,8 +125,8 @@ export const ECS_DEPLOY_ACTIONS: readonly string[] = [
 
 /** 레포 하나가 한 환경에서 가질 권한의 대상. */
 export interface DeployTarget {
-  /** GitHub 레포 이름 (org 제외). 역할 이름과 신뢰 정책 `sub` 에 그대로 들어간다. */
-  readonly repo: string;
+  /** GitHub 레포 이름/ID. 역할 이름에는 name, 신뢰 정책 `sub` 에는 둘 다 들어간다. */
+  readonly repo: GitHubRepository;
   /** push 를 허용할 ECR 레포 이름. `lib/common/config.ts` 의 `ECR_REPOS` 값이다. */
   readonly ecrRepos: readonly string[];
   /** 강제 재배포를 허용할 ECS 서비스 이름. 클러스터는 환경이 정한다. */

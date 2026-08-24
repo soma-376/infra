@@ -21,6 +21,7 @@ import {
   ECS_CLUSTER_NAMES,
 } from '../common/deploy-targets';
 import {
+  buildGithubOidcSubject,
   CicdConfig,
   DeployTarget,
   DEPLOY_BRANCHES,
@@ -118,27 +119,30 @@ export class DeployStack extends Stack {
   ): Role {
     const branch = DEPLOY_BRANCHES[env];
     const clusterName = ECS_CLUSTER_NAMES[env];
-    const constructId = `${toPascalCase(target.repo)}${toPascalCase(env)}DeployRole`;
+    const constructId = `${toPascalCase(target.repo.name)}${toPascalCase(env)}DeployRole`;
 
     const role = new Role(this, constructId, {
       // **물리 이름을 명시한다.** 앱 레포 워크플로우의 `role-to-assume` 이 이 이름으로
       // 만든 ARN 을 쓴다. CFN 생성 이름으로 두면 스택을 재생성할 때마다 ARN 이 바뀌어
       // 앱 레포 설정을 손으로 갱신해야 한다.
-      roleName: `github-deploy-${target.repo}-${env}`,
+      roleName: `github-deploy-${target.repo.name}-${env}`,
       // **영문으로 쓴다.** 이 레포는 주석과 문서를 한국어로 쓰지만, IAM 의 `Description` 은
       // Latin-1(` -ÿ`) 밖의 문자를 거부한다. 한국어를 넣으면 `cdk synth` 는
       // 경고만 내고 통과한 뒤 `cdk deploy` 가 실패한다.
-      description: `Deploy role for ${GITHUB_ORG}/${target.repo} on branch ${branch} targeting ${env} (ADR-0024)`,
+      description: `Deploy role for ${GITHUB_ORG.name}/${target.repo.name} on branch ${branch} targeting ${env} (ADR-0024)`,
       // 워크플로우 한 번이 넘을 이유가 없는 상한. 토큰이 새더라도 노출 창을 좁힌다.
       maxSessionDuration: Duration.hours(1),
       assumedBy: new OpenIdConnectPrincipal(oidcProvider, {
         // **`StringLike` 가 아니라 `StringEquals` 다.** GitHub 문서의 예시처럼
-        // `repo:org/repo:*` 로 넓히면 PR 헤드 브랜치와 태그를 포함한 모든 ref 가 이 역할을
-        // 맡을 수 있어, develop -> dev / main -> prod 분리가 통째로 사라진다.
+        // `repo:org@org-id/repo@repo-id:*` 로 넓히면 PR 헤드 브랜치와 태그를 포함한 모든 ref 가
+        // 이 역할을 맡을 수 있어, develop -> dev / main -> prod 분리가 통째로 사라진다.
         // 즉 "PR 을 열 수 있는 사람 = 운영에 배포할 수 있는 사람"이 된다. (ADR-0024 2번)
         StringEquals: {
           [`${GITHUB_OIDC_DOMAIN}:aud`]: GITHUB_OIDC_AUDIENCE,
-          [`${GITHUB_OIDC_DOMAIN}:sub`]: `repo:${GITHUB_ORG}/${target.repo}:ref:refs/heads/${branch}`,
+          [`${GITHUB_OIDC_DOMAIN}:sub`]: buildGithubOidcSubject(
+            target.repo,
+            branch,
+          ),
         },
       }),
     });
@@ -196,7 +200,7 @@ export class DeployStack extends Stack {
     // 앱 레포 워크플로우의 `role-to-assume` 에 그대로 들어가는 값 (PROJ-65 핸드오프).
     new CfnOutput(this, `${constructId}Arn`, {
       value: role.roleArn,
-      description: `${GITHUB_ORG}/${target.repo} @ ${branch} -> cluster ${clusterName}`,
+      description: `${GITHUB_ORG.name}/${target.repo.name} @ ${branch} -> cluster ${clusterName}`,
     });
 
     return role;

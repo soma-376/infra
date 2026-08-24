@@ -128,7 +128,7 @@ NetworkStack ──> DataStack ──┐
 | **`maxAzs: 2`는 이중화가 아니라 의도된 하한이다** | 진짜 단일 AZ는 Aurora `DatabaseCluster`(서브넷 ≥2 요구)와 internet-facing ALB(퍼블릭 서브넷 2개 요구)가 막는다. 컴퓨트/데이터는 여전히 사실상 단일 AZ다. (`lib/prod/network-stack.ts:35-36`. dev도 같은 이유로 `maxAzs: 2`다 - internet-facing ALB와 RDS DB subnet group이 각각 2 AZ를 요구한다) |
 | **`RemovalPolicy.DESTROY` / `autoDeleteObjects`는 MVP 한정 의도다** | 실수가 아니다. 프로덕션 전환 시 일괄 재검토 대상이므로, 개별적으로 `RETAIN`으로 바꾸지 말고 ADR로 묶어서 처리한다. |
 | **ECS 클러스터/서비스 이름의 단일 출처는 `lib/common/deploy-targets.ts`다** | 이 값은 앱 레포 워크플로와의 계약이자 `DeployStack`이 IAM 서비스 ARN을 조립하는 조각이다. **CloudFormation은 IAM 정책에 적힌 리소스 ARN의 실존을 검증하지 않으므로**, 한쪽만 고치면 네 스택이 전부 배포에 성공하고 GitHub Actions만 `AccessDenied`로 죽는다. `test/cicd/deploy-stack.test.ts`의 크로스 스택 어서션이 유일한 방어선이다. 이름 변경은 클러스터·서비스 **교체**를 유발하므로 6장 런북을 따른다. (ADR-0024 6번) |
-| **신뢰 정책의 `sub` 조건에 와일드카드를 쓰지 않는다** | `StringLike` + `repo:org/repo:*`는 GitHub 문서의 기본 예시지만, PR 헤드 브랜치와 태그를 포함한 **모든 ref**에 그 역할을 연다. 그러면 "PR을 열 수 있는 사람 = 운영에 배포할 수 있는 사람"이 되고 develop→dev / main→prod 분리가 사라진다. `StringEquals` 완전 일치만 쓴다. (`lib/cicd/deploy-stack.ts`, ADR-0024 2번) |
+| **신뢰 정책의 `sub`는 immutable ID와 브랜치까지 완전 일치시킨다** | 2026-07-15 이후 생성된 GitHub 저장소는 `repo:org@org-id/repo@repo-id:...` 형식을 쓴다. name-only 형식은 synth·test·배포가 통과한 뒤 Actions만 `AssumeRoleWithWebIdentity`에서 죽는다. 반대로 `StringLike` + `*`는 PR 헤드와 태그를 포함한 모든 ref에 역할을 열어 develop→dev / main→prod 분리를 없앤다. `GITHUB_ORG`/`GITHUB_REPOS`의 ID와 `StringEquals` 완전 일치를 유지한다. (`lib/cicd/config.ts`, `lib/cicd/deploy-stack.ts`, ADR-0024 2번) |
 | **배포 역할에 `iam:PassRole` / `ecs:RegisterTaskDefinition`을 주지 않는다** | `--force-new-deployment`는 기존 태스크 정의 리비전을 그대로 재사용하므로 둘 다 필요 없다. 주는 순간 CI가 태스크 정의를 갈아끼우고 임의 역할을 붙일 수 있어 계정 안에서 사실상 권한 상승 경로가 되고, ADR-0009(태스크 정의는 이 레포 경유)도 무너진다. (ADR-0024 5번) |
 | **prod 파이프라인 역할에 auth-proxy를 넣지 않는다** | auth-proxy는 **dev에만 존재한다**(ADR-0023). 없는 서비스의 ARN을 넣으면 아무도 소비하지 않는 `prod` 태그 이미지를 밀 권한이 생기고, 다음 사람이 그 ARN을 보고 "prod에 auth-proxy가 있다"고 오독한다. 위 죽은 계약 금지와 같은 종류다. prod 이관 시 `DEPLOY_TARGETS`에 함께 추가한다. |
 | **GitHub OIDC 공급자는 계정당 1개이고 `RETAIN`이다** | URL당 하나만 존재할 수 있어 이미 있는 계정에서 새로 만들면 `EntityAlreadyExists`로 스택이 통째로 롤백된다. 배포 전에 `aws iam list-open-id-connect-providers`로 확인하고, 있으면 `-c githubOidcProviderArn=<arn>`으로 참조 모드를 쓴다. `RETAIN`이므로 `DeployStack`을 destroy한 뒤 재배포할 때도 이 키가 필요하다. **`thumbprints`는 주지 않는다** — 지문을 박아 두면 GitHub 인증서 회전 시 인프라는 멀쩡한 채 Actions만 죽는다. (ADR-0024 3번) |
@@ -180,7 +180,7 @@ NetworkStack ──> DataStack ──┐
 | `lib/common/deploy-targets.ts` | **환경별 값이지만 매핑은 환경 무관** | `DeployEnv`, `DEPLOY_ENVS`, `ECS_CLUSTER_NAMES`, `ECS_SERVICE_NAMES` |
 | `lib/prod/config.ts` | 운영 전용 | `COMMON_TAGS`, `PROD_IMAGE_TAG`, `PRIMARY_AZ_INDEX`, `SUBNET_GROUP`, `EdgeConfig`, `InfraConfig`, `loadConfig`, `DEFAULT_COGNITO_DOMAIN_PREFIX` |
 | `lib/dev/config.ts` | dev 전용 | `DEV_COMMON_TAGS`, `DEV_VPC_CIDR`, `DEV_SUBNET_GROUP`, `DEV_LOG_GROUP_PREFIX`, 인스턴스 타입/볼륨 상수, `DEV_OPEN_CIDR`, `DevConfig`, `loadDevConfig`, `warnOnOpenIngress` |
-| `lib/cicd/config.ts` | cicd 전용 | `CICD_COMMON_TAGS`, `GITHUB_OIDC_URL`/`_DOMAIN`/`_AUDIENCE`, `GITHUB_ORG`, `GITHUB_REPOS`, `DEPLOY_BRANCHES`, `ECR_PUSH_ACTIONS`, `ECS_DEPLOY_ACTIONS`, `DeployTarget`, `DEPLOY_TARGETS`, `CicdConfig`, `loadCicdConfig` |
+| `lib/cicd/config.ts` | cicd 전용 | `CICD_COMMON_TAGS`, `GITHUB_OIDC_URL`/`_DOMAIN`/`_AUDIENCE`, `GITHUB_ORG`, `GITHUB_REPOS`, `GitHubRepository`, `buildGithubOidcSubject`, `DEPLOY_BRANCHES`, `ECR_PUSH_ACTIONS`, `ECS_DEPLOY_ACTIONS`, `DeployTarget`, `DEPLOY_TARGETS`, `CicdConfig`, `loadCicdConfig` |
 
 **`deploy-targets.ts`는 배치 규칙의 명시적 예외다.** 클러스터 이름은 환경별 값이라 규칙만 보면 각 환경 폴더 행이지만, **소비자가 셋(prod 스택 / dev 스택 / cicd 스택)이라서** 각 환경 폴더에 두면 `lib/cicd/`가 `lib/prod/`와 `lib/dev/`를 둘 다 import 해야 한다 — 그게 바로 규칙이 막으려던 커플링이다. "값은 환경별이되 **환경 → 값 매핑은 환경 무관 계약**"이라는 근거로 `common/`에 두되, `config.ts`에 섞지 않고 별도 파일로 격리한다. 반대로 GitHub org·레포·브랜치·`DEPLOY_TARGETS`는 소비자가 `lib/cicd/` 하나뿐이라 `common/`에 두지 않는다. (ADR-0024 6번)
 
@@ -209,7 +209,7 @@ prod는 `lib/prod/config.ts`의 `loadConfig`, dev는 `lib/dev/config.ts`의 `loa
 | 항목 | 값 |
 |---|---|
 | 역할 이름 | `github-deploy-<레포>-<env>` — `github-deploy-ai-telemetry-pipeline-dev` 등 4개. ARN은 `DeployStack`의 `CfnOutput` |
-| 신뢰 조건 | `aud` = `sts.amazonaws.com`, `sub` = `repo:soma-376/<레포>:ref:refs/heads/<브랜치>` (**완전 일치**) |
+| 신뢰 조건 | `aud` = `sts.amazonaws.com`, `sub` = `repo:soma-376@297555253/<레포>@<레포-ID>:ref:refs/heads/<브랜치>` (**완전 일치**). 레포 ID는 `ai-telemetry-pipeline=1309872274`, `pulsemetry-backend=1325324450` |
 | 브랜치 | `develop` → dev, `main` → prod |
 | 클러스터 | `soma-376-dev` / `soma-376-prod` |
 | 서비스 | `collector`, `dashboard`, `auth-proxy`(dev 전용). `clickhouse`는 배포 대상 아님 |
@@ -498,6 +498,14 @@ aws iam get-role --role-name github-deploy-ai-telemetry-pipeline-dev \
 aws iam list-role-policies --role-name github-deploy-ai-telemetry-pipeline-dev
 ```
 
+새 배포 저장소를 추가할 때는 synth에서 GitHub API를 호출하지 않는다. 아래 명령으로 immutable
+조직/저장소 ID와 현재 subject prefix를 확인한 뒤 `lib/cicd/config.ts`에 문자열로 기록한다.
+
+```bash
+gh api repos/soma-376/<repo> --jq '{id, owner_id: .owner.id, created_at}'
+gh api repos/soma-376/<repo>/actions/oidc/customization/sub
+```
+
 배포 후 역할 ARN 4개는 `DeployStack`의 `CfnOutput`에 있다. 앱 레포에 넘길 값은 4장의 "앱 레포 배포 계약" 표가 전부다.
 
 ### ECS 물리 이름 도입 교체 런북 (ADR-0024)
@@ -688,7 +696,7 @@ diff /tmp/before/NetworkStack.template.json /tmp/after/NetworkStack.template.jso
 
 | 계약 | 왜 |
 |---|---|
-| 신뢰 조건 `sub`가 브랜치까지 `StringEquals` 완전 일치 | `StringLike` + `*`로 "완화"하면 PR 헤드 브랜치가 운영 역할을 가져간다 |
+| 신뢰 조건 `sub`가 immutable 조직/레포 ID와 브랜치까지 `StringEquals` 완전 일치 | name-only 형식은 새 저장소 토큰과 불일치하고, `StringLike` + `*`로 "완화"하면 PR 헤드 브랜치가 운영 역할을 가져간다 |
 | **교차 환경 부정** — dev 역할에 `soma-376-prod`가 없고 그 반대도 | 역할을 환경별로 나눈 이유 자체 |
 | **교차 레포 부정** — 파이프라인 역할에 `api-server`/`batch-processor`가 없고 그 반대도 | 한 팀이 다른 팀 이미지를 밀 수 있으면 레포별 분리가 무의미 |
 | prod 파이프라인 역할에 `auth-proxy`가 없음 | 운영에 없는 서비스 = 죽은 계약 (ADR-0023) |

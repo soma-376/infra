@@ -1,5 +1,10 @@
 import { App } from 'aws-cdk-lib/core';
-import { GITHUB_OIDC_DOMAIN, loadCicdConfig } from '../../lib/cicd/config';
+import {
+  buildGithubOidcSubject,
+  GITHUB_OIDC_DOMAIN,
+  GITHUB_REPOS,
+  loadCicdConfig,
+} from '../../lib/cicd/config';
 import { buildCicdApp } from '../helpers';
 
 /**
@@ -49,4 +54,34 @@ describe('loadCicdConfig', () => {
   test('잘못된 값은 스택 합성 단계에서 멈춘다', () => {
     expect(() => buildCicdApp({ githubOidcProviderArn: 'oops' })).toThrow();
   });
+});
+
+describe('buildGithubOidcSubject', () => {
+  test.each([
+    [
+      GITHUB_REPOS.pipeline,
+      'develop',
+      'repo:soma-376@297555253/ai-telemetry-pipeline@1309872274:ref:refs/heads/develop',
+    ],
+    [
+      GITHUB_REPOS.pipeline,
+      'main',
+      'repo:soma-376@297555253/ai-telemetry-pipeline@1309872274:ref:refs/heads/main',
+    ],
+    [
+      GITHUB_REPOS.dashboard,
+      'develop',
+      'repo:soma-376@297555253/pulsemetry-backend@1325324450:ref:refs/heads/develop',
+    ],
+    [
+      GITHUB_REPOS.dashboard,
+      'main',
+      'repo:soma-376@297555253/pulsemetry-backend@1325324450:ref:refs/heads/main',
+    ],
+  ])(
+    '저장소 ID와 브랜치를 포함한 immutable subject를 만든다',
+    (repo, branch, expected) => {
+      expect(buildGithubOidcSubject(repo, branch)).toEqual(expected);
+    },
+  );
 });

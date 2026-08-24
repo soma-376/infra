@@ -5,21 +5,19 @@ import {
   ECS_SERVICE_NAMES,
 } from '../../lib/common/deploy-targets';
 import {
-  DEPLOY_BRANCHES,
   ECR_PUSH_ACTIONS,
   ECS_DEPLOY_ACTIONS,
   GITHUB_OIDC_AUDIENCE,
   GITHUB_OIDC_DOMAIN,
   GITHUB_OIDC_URL,
-  GITHUB_ORG,
   GITHUB_REPOS,
 } from '../../lib/cicd/config';
 import { buildApp, buildCicdApp, buildDevApp } from '../helpers';
 
-const PIPELINE_DEV = `github-deploy-${GITHUB_REPOS.pipeline}-dev`;
-const PIPELINE_PROD = `github-deploy-${GITHUB_REPOS.pipeline}-prod`;
-const DASHBOARD_DEV = `github-deploy-${GITHUB_REPOS.dashboard}-dev`;
-const DASHBOARD_PROD = `github-deploy-${GITHUB_REPOS.dashboard}-prod`;
+const PIPELINE_DEV = `github-deploy-${GITHUB_REPOS.pipeline.name}-dev`;
+const PIPELINE_PROD = `github-deploy-${GITHUB_REPOS.pipeline.name}-prod`;
+const DASHBOARD_DEV = `github-deploy-${GITHUB_REPOS.dashboard.name}-dev`;
+const DASHBOARD_PROD = `github-deploy-${GITHUB_REPOS.dashboard.name}-prod`;
 const ALL_ROLES = [PIPELINE_DEV, PIPELINE_PROD, DASHBOARD_DEV, DASHBOARD_PROD];
 
 describe('DeployStack', () => {
@@ -155,23 +153,35 @@ describe('DeployStack', () => {
     });
 
     test.each([
-      [PIPELINE_DEV, GITHUB_REPOS.pipeline, DEPLOY_BRANCHES.dev],
-      [PIPELINE_PROD, GITHUB_REPOS.pipeline, DEPLOY_BRANCHES.prod],
-      [DASHBOARD_DEV, GITHUB_REPOS.dashboard, DEPLOY_BRANCHES.dev],
-      [DASHBOARD_PROD, GITHUB_REPOS.dashboard, DEPLOY_BRANCHES.prod],
-    ])('%s 는 그 레포의 그 브랜치만 신뢰한다', (roleName, repo, branch) => {
+      [
+        PIPELINE_DEV,
+        'repo:soma-376@297555253/ai-telemetry-pipeline@1309872274:ref:refs/heads/develop',
+      ],
+      [
+        PIPELINE_PROD,
+        'repo:soma-376@297555253/ai-telemetry-pipeline@1309872274:ref:refs/heads/main',
+      ],
+      [
+        DASHBOARD_DEV,
+        'repo:soma-376@297555253/pulsemetry-backend@1325324450:ref:refs/heads/develop',
+      ],
+      [
+        DASHBOARD_PROD,
+        'repo:soma-376@297555253/pulsemetry-backend@1325324450:ref:refs/heads/main',
+      ],
+    ])('%s 는 그 레포의 그 브랜치만 신뢰한다', (roleName, subject) => {
       const statement = trustStatement(roleName);
 
       expect(statement.Action).toEqual('sts:AssumeRoleWithWebIdentity');
       expect(statement.Condition.StringEquals).toEqual({
         [`${GITHUB_OIDC_DOMAIN}:aud`]: GITHUB_OIDC_AUDIENCE,
-        [`${GITHUB_OIDC_DOMAIN}:sub`]: `repo:${GITHUB_ORG}/${repo}:ref:refs/heads/${branch}`,
+        [`${GITHUB_OIDC_DOMAIN}:sub`]: subject,
       });
     });
 
-    // `StringLike` + `repo:org/repo:*` 는 GitHub 문서의 기본 예시지만, PR 헤드 브랜치와
-    // 태그를 포함한 **모든 ref** 에 이 역할을 연다. 그러면 develop -> dev / main -> prod
-    // 분리가 통째로 사라진다. 이 스위트에서 가장 중요한 어서션 중 하나다. (ADR-0024 2번)
+    // `StringLike` + `repo:org@org-id/repo@repo-id:*` 는 PR 헤드 브랜치와 태그를 포함한
+    // **모든 ref** 에 이 역할을 연다. 그러면 develop -> dev / main -> prod 분리가 통째로
+    // 사라진다. 이 스위트에서 가장 중요한 어서션 중 하나다. (ADR-0024 2번)
     test.each(ALL_ROLES)('%s 의 조건에 StringLike 가 없다', (roleName) => {
       const condition = trustStatement(roleName).Condition;
       expect(condition.StringLike).toBeUndefined();

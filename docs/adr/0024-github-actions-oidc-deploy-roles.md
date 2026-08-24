@@ -45,6 +45,14 @@ CloudFormation 스택이 리소스를 만들었는지로 권한을 나눌 수 �
 
 지금 그 태그 규율의 주체(CI)가 생긴다. 규율을 세울 자리가 여기다.
 
+**2026-08-24 정정.** GitHub는 2026-07-15 이후 생성된 저장소의 기본 OIDC `sub`를
+조직/저장소 이름만 쓰는 형식에서 **이름과 immutable ID를 함께 쓰는 형식**으로 바꿨다.
+`ai-telemetry-pipeline`은 2026-07-23, `pulsemetry-backend`는 2026-08-06 생성이라 둘 다 새
+형식 대상이다. name-only 조건으로 배포한 결과 synth·test·CloudFormation 배포는 모두
+성공했지만 GitHub Actions가 `Not authorized to perform sts:AssumeRoleWithWebIdentity`로
+실패했다. 이 정정은 역할/권한 경계를 바꾸는 새 결정이 아니라 외부 발급자의 실제 토큰 형식에
+기존 결정을 맞추는 변경이다.
+
 ## Decision
 
 ### 1. 새 최상위 환경 `cicd`
@@ -78,13 +86,16 @@ GitHub Actions가 `token.actions.githubusercontent.com`이 발급한 토큰으�
 | 조건 키 | 값 |
 |---|---|
 | `token.actions.githubusercontent.com:aud` | `sts.amazonaws.com` |
-| `token.actions.githubusercontent.com:sub` | `repo:soma-376/<레포>:ref:refs/heads/<브랜치>` |
+| `token.actions.githubusercontent.com:sub` | `repo:soma-376@297555253/<레포>@<레포-ID>:ref:refs/heads/<브랜치>` |
 
-**`sub`에 와일드카드를 쓰지 않는 것이 이 결정의 핵심이다.** GitHub 문서의 예시는
-`StringLike` + `repo:org/repo:*`지만, 그 형태는 그 레포의 **모든 ref** - PR 헤드 브랜치와
-태그를 포함해 - 가 이 역할을 가져갈 수 있게 만든다. 그러면 "PR을 열 수 있는 사람 = 운영에
-배포할 수 있는 사람"이 된다. `develop`→dev / `main`→prod 분리를 실제로 강제하는 것은
-`StringEquals` 하나뿐이다.
+GitHub 조직/저장소 ID는 `lib/cicd/config.ts`의 `GITHUB_ORG` / `GITHUB_REPOS`에 이름과 함께
+고정하고 `buildGithubOidcSubject()`가 위 형식을 조립한다. ID는 숫자 연산 대상이 아닌 외부
+식별자이므로 문자열로 보존한다.
+
+**`sub`에 와일드카드를 쓰지 않는 것이 이 결정의 핵심이다.** immutable prefix 뒤에
+`StringLike` + `*`를 붙이면 그 레포의 **모든 ref** - PR 헤드 브랜치와 태그를 포함해 - 가 이
+역할을 가져갈 수 있게 된다. 그러면 "PR을 열 수 있는 사람 = 운영에 배포할 수 있는 사람"이 된다.
+`develop`→dev / `main`→prod 분리를 실제로 강제하는 것은 `StringEquals` 하나뿐이다.
 
 브랜치를 추가하려면 `DEPLOY_BRANCHES`를 고쳐야 한다. 그 마찰은 의도된 것이다.
 
@@ -119,10 +130,10 @@ GitHub Actions가 `token.actions.githubusercontent.com`이 발급한 토큰으�
 
 | 역할 이름 | 신뢰하는 `sub` | ECR push 대상 | ECS 강제 재배포 대상 |
 |---|---|---|---|
-| `github-deploy-ai-telemetry-pipeline-dev` | `repo:soma-376/ai-telemetry-pipeline:ref:refs/heads/develop` | `soma-376/post-processor`, `soma-376/auth-proxy` | `soma-376-dev/collector`, `soma-376-dev/auth-proxy` |
-| `github-deploy-ai-telemetry-pipeline-prod` | `repo:soma-376/ai-telemetry-pipeline:ref:refs/heads/main` | `soma-376/post-processor` | `soma-376-prod/collector` |
-| `github-deploy-pulsemetry-backend-dev` | `repo:soma-376/pulsemetry-backend:ref:refs/heads/develop` | `soma-376/api-server`, `soma-376/batch-processor` | `soma-376-dev/dashboard` |
-| `github-deploy-pulsemetry-backend-prod` | `repo:soma-376/pulsemetry-backend:ref:refs/heads/main` | `soma-376/api-server`, `soma-376/batch-processor` | `soma-376-prod/dashboard` |
+| `github-deploy-ai-telemetry-pipeline-dev` | `repo:soma-376@297555253/ai-telemetry-pipeline@1309872274:ref:refs/heads/develop` | `soma-376/post-processor`, `soma-376/auth-proxy` | `soma-376-dev/collector`, `soma-376-dev/auth-proxy` |
+| `github-deploy-ai-telemetry-pipeline-prod` | `repo:soma-376@297555253/ai-telemetry-pipeline@1309872274:ref:refs/heads/main` | `soma-376/post-processor` | `soma-376-prod/collector` |
+| `github-deploy-pulsemetry-backend-dev` | `repo:soma-376@297555253/pulsemetry-backend@1325324450:ref:refs/heads/develop` | `soma-376/api-server`, `soma-376/batch-processor` | `soma-376-dev/dashboard` |
+| `github-deploy-pulsemetry-backend-prod` | `repo:soma-376@297555253/pulsemetry-backend@1325324450:ref:refs/heads/main` | `soma-376/api-server`, `soma-376/batch-processor` | `soma-376-prod/dashboard` |
 
 **레포당 하나가 아니라 레포 × 환경인 이유**는 dev 잡이 운영 서비스를 강제 업데이트할 경로
 자체를 없애기 위해서다. 역할 하나가 두 환경을 다 들면 dev 워크플로우의 버그나 `develop`에
@@ -275,10 +286,18 @@ Cognito·CloudFront·프론트엔드 S3)은 그대로 남는다. **ALB DNS 이�
   [ADR-0007](0007-precreate-ecr-outside-cdk.md)의 기존 함정과 같은 모양이며, 방어선은 런북의
   순서(태그 push가 배포보다 먼저)뿐이다.
 - **`sub` 클레임 형태.** 워크플로우가 GitHub Environment를 쓰면 `sub`가
-  `repo:org/repo:environment:<name>`이 되고, PR 트리거면 `:pull_request`, 태그 트리거면
-  `:ref:refs/tags/x`가 된다. 어느 경우든 신뢰 조건과 불일치해 `AssumeRoleWithWebIdentity`가
-  거부되며, **인프라 쪽에는 아무 신호도 남지 않는다.** 코드로 막을 수 없으므로 배포 계약
-  문서에 적는다.
+  `repo:org@org-id/repo@repo-id:environment:<name>`이 되고, PR 트리거면 `:pull_request`, 태그
+  트리거면 `:ref:refs/tags/x`가 된다. 어느 경우든 신뢰 조건과 불일치해
+  `AssumeRoleWithWebIdentity`가 거부되며, **인프라 쪽에는 아무 신호도 남지 않는다.** 코드로
+  막을 수 없으므로 배포 계약 문서에 적는다.
+- **GitHub 조직/저장소 ID는 자동 조회하지 않는다.** synth 시 GitHub API에 의존하면 네트워크와
+  인증 상태에 따라 같은 커밋의 템플릿이 달라진다. 새 배포 저장소를 추가할 때 아래 API로 현재
+  ID와 subject prefix를 확인한 뒤 `lib/cicd/config.ts`에 명시적으로 기록한다.
+
+  ```bash
+  gh api repos/soma-376/<repo> --jq '{id, owner_id: .owner.id, created_at}'
+  gh api repos/soma-376/<repo>/actions/oidc/customization/sub
+  ```
 - **IAM 리소스 ARN이 ECS 장문 형식을 전제한다.** `service/<cluster>/<service>`이며, CDK 피처
   플래그 `@aws-cdk/aws-ecs:arnFormatIncludesClusterName`이 같은 가정을 공유한다. 계정이 단문
   형식이면 매칭되지 않으므로 배포 후 `serviceArn`을 육안 확인한다.
@@ -293,8 +312,8 @@ Cognito·CloudFront·프론트엔드 S3)은 그대로 남는다. **ALB DNS 이�
   업데이트할 수 있다. 기각.
 - **환경당 역할 1개(총 2개, 두 레포 공유).** "레포별로"라는 요구와 어긋나고, 파이프라인 레포의
   잡이 대시보드 이미지를 덮어쓸 수 있다. 기각.
-- **`sub` 조건에 `StringLike` + `repo:soma-376/<레포>:*`.** GitHub 문서의 기본 예시이고 브랜치
-  추가가 자유롭지만, PR 헤드를 포함한 모든 ref가 배포 권한을 갖는다. 기각.
+- **`sub` 조건에 `StringLike` + `repo:soma-376@297555253/<레포>@<레포-ID>:*`.** 브랜치 추가가
+  자유롭지만, PR 헤드를 포함한 모든 ref가 배포 권한을 갖는다. 기각.
 - **GitHub Environment 기반 조건(`repo:...:environment:prod`).** 승인 게이트를 GitHub에 둘 수
   있어 더 강한 통제가 가능하다. 그러나 앱 레포에 Environment 설정이 선행되어야 하고 이 레포는
   그걸 강제할 수 없다(ADR-0009와 같은 종류의 레포 경계 문제). 브랜치 조건으로 시작한다.
@@ -376,5 +395,6 @@ Cognito·CloudFront·프론트엔드 S3)은 그대로 남는다. **ALB DNS 이�
 - [ADR-0023](0023-dev-auth-proxy-between-alb-and-collector.md) - auth-proxy가 dev 전용인 근거
 - [AWS::IAM::OIDCProvider 템플릿 레퍼런스](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-iam-oidcprovider.html) - `ThumbprintList`가 `Required: No`인 근거
 - [Configuring OpenID Connect in Amazon Web Services](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services) - `aud` / `sub` 클레임 형식
+- [OpenID Connect reference - Immutable subject claims](https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims) - 2026-07-15 이후 생성 저장소의 이름+ID `sub` 형식
 - [Amazon ECR identity-based policy examples](https://docs.aws.amazon.com/AmazonECR/latest/userguide/security_iam_id-based-policy-examples.html) - push 최소 액션 집합
 - [Amazon ECS identity-based policy examples](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/security_iam_id-based-policy-examples.html) - `iam:PassRole`이 필요한 API 목록
