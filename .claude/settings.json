@@ -1,0 +1,6 @@
+{
+  "extraKnownMarketplaces": {
+    "soma-376": { "source": { "source": "github", "repo": "soma-376/agent-skills" } }
+  },
+  "enabledPlugins": { "pulsemetry@soma-376": true }
+}
