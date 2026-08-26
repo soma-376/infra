@@ -625,6 +625,28 @@ describe('ApplicationStack', () => {
           }
         }
       }
+
+      const definedExtensions = Object.keys(config.extensions ?? {});
+      for (const extension of config.service.extensions ?? []) {
+        expect({
+          service: 'extensions',
+          missing: definedExtensions.includes(extension)
+            ? null
+            : `extensions/${extension}`,
+        }).toEqual({ service: 'extensions', missing: null });
+      }
+      for (const [exporterName, exporter] of Object.entries<any>(
+        config.exporters,
+      )) {
+        const authenticator = exporter.auth?.authenticator;
+        if (authenticator === undefined) continue;
+        expect({
+          exporter: exporterName,
+          missing: definedExtensions.includes(authenticator)
+            ? null
+            : `extensions/${authenticator}`,
+        }).toEqual({ exporter: exporterName, missing: null });
+      }
     });
 
     test('정의만 되고 어느 파이프라인도 쓰지 않는 컴포넌트가 없다', () => {
@@ -637,9 +659,17 @@ describe('ApplicationStack', () => {
           }
         }
       }
+      for (const extension of config.service.extensions ?? []) {
+        used.add(`extensions/${extension}`);
+      }
 
       const orphans: string[] = [];
-      for (const kind of ['receivers', 'processors', 'exporters'] as const) {
+      for (const kind of [
+        'receivers',
+        'processors',
+        'exporters',
+        'extensions',
+      ] as const) {
         for (const component of Object.keys(config[kind] ?? {})) {
           if (!used.has(`${kind}/${component}`)) {
             orphans.push(`${kind}/${component}`);
@@ -657,6 +687,51 @@ describe('ApplicationStack', () => {
       // 주석에도 4317 이 나오므로 원문 문자열이 아니라 구조를 본다.
       expect(Object.keys(protocols)).toEqual(['http']);
       expect(protocols.http.endpoint).toBe(`0.0.0.0:${PORTS.otlp}`);
+      expect(protocols.http.include_metadata).toBe(true);
+    });
+
+    test('auth-proxy 신원 metadata 를 분리 보존해 post-processor 헤더로 전달한다', () => {
+      const config = injectedConfig();
+      const extensionName = 'headers_setter/pulsemetry_tenant';
+      const metadataKeys = [
+        'x-pulsemetry-token-id',
+        'x-pulsemetry-tenant-id',
+        'x-pulsemetry-installation-id',
+        'x-pulsemetry-member-id',
+      ];
+
+      expect(config.extensions[extensionName]).toEqual({
+        headers: [
+          {
+            key: 'X-Pulsemetry-Token-Id',
+            action: 'upsert',
+            from_context: metadataKeys[0],
+          },
+          {
+            key: 'X-Pulsemetry-Tenant-Id',
+            action: 'upsert',
+            from_context: metadataKeys[1],
+          },
+          {
+            key: 'X-Pulsemetry-Installation-Id',
+            action: 'upsert',
+            from_context: metadataKeys[2],
+          },
+          {
+            key: 'X-Pulsemetry-Member-Id',
+            action: 'upsert',
+            from_context: metadataKeys[3],
+          },
+        ],
+      });
+      expect(config.processors.batch).toEqual({
+        metadata_keys: metadataKeys,
+        metadata_cardinality_limit: 1000,
+      });
+      expect(
+        config.exporters['otlphttp/telemetry_pipeline'].auth,
+      ).toEqual({ authenticator: extensionName });
+      expect(config.service.extensions).toEqual([extensionName]);
     });
 
     // Fargate 는 awsvpc 라 같은 태스크의 컨테이너가 netns 를 공유한다.
