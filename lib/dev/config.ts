@@ -1,4 +1,4 @@
-import { Annotations, App } from 'aws-cdk-lib/core';
+import { Annotations, App, Duration } from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
 import { InstanceClass, InstanceSize, InstanceType } from 'aws-cdk-lib/aws-ec2';
 
@@ -52,6 +52,17 @@ export const DEV_SUBNET_GROUP = {
  * 바꿔 끼우면 되게 하기 위함이다.
  */
 export const DEV_LOG_GROUP_PREFIX = '/ecs/dev';
+
+/**
+ * dev ALB 타깃의 deregistration delay (ADR-0025).
+ *
+ * 교체 배포에서는 AWS 기본값 300초의 connection draining이 먼저 끝난 뒤 새 태스크를
+ * 띄우므로 auth-proxy, dashboard, collector에는 MVP 초기 기준인 60초를 적용한다.
+ * 이 값은 실트래픽으로 최적화한 결과나 AWS 공식 권장값이 아니다. ClickHouse는 장시간
+ * 연결과 쿼리 특성을 별도로 검증하기 전까지 기본값 300초를 유지하고, prod 적용도
+ * 관측 이후 결정한다.
+ */
+export const DEV_DEREGISTRATION_DELAY = Duration.seconds(60);
 
 /**
  * 앱 호스트 ASG 인스턴스 타입 (collector 태스크 + dashboard 태스크).
