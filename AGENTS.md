@@ -21,7 +21,7 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 
 **ADR 우선 원칙은 이 레포의 기존 규칙과 같다** — 1장의 "코드와 ADR이 어긋나면 ADR이 기준이다"가
 전 레포 공통 규칙이며, 크로스레포 결정만 `../docs/adr/`가 소유한다. 스코프 판정은 `adr-new` 스킬이 안내한다.
-단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0025`부터이고 **`0020`은 예약**이다(5장 (F)).
+단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0026`부터이고 **`0020`은 예약**이다(5장 (F)).
 
 **이 레포가 소유한 계약 지점**: `config/otel-collector.yaml`이 ECS에서 실제로 기동되는 collector 설정이다.
 `ai-telemetry-pipeline`의 in-repo 설정과 드리프트하면 신원 헤더가 소실된다
@@ -168,6 +168,7 @@ NetworkStack ──> DataStack ──┐
 | **`DevCollectorSg` ← `DevAppHostSg` : 4318 룰을 지우지 않는다** | auth-proxy가 bridge라 아웃바운드가 호스트 ENI를 타므로 출발 SG가 태스크 SG가 아니라 호스트 SG다. `batch-processor` → ClickHouse 룰과 같은 사정이며, "아무도 안 쓰는 것 같다"고 지우면 auth-proxy만 조용히 타임아웃으로 죽는다. (`lib/dev/network-stack.ts`, ADR-0022 4번, ADR-0023 2번) |
 | **dev 로그 그룹의 `/ecs/dev/` 접두사를 빼지 않는다** | 운영 `ApplicationStack`이 `logGroupName`에 `/ecs/collector` 같은 **물리 이름을 명시**하고, 로그 그룹 이름은 계정 + 리전에서 유일하다. 접두사를 빼면 첫 `cdk deploy`가 `Resource of type 'AWS::Logs::LogGroup' with identifier '/ecs/collector' already exists`로 스택째 롤백된다. (`lib/dev/config.ts`의 `DEV_LOG_GROUP_PREFIX`, ADR-0021 Constraints, ADR-0022 10번) |
 | **dev ALB 리스너의 `open: false`를 지우지 않는다** | CDK `addListener`의 기본값 `open: true`가 리스너 포트를 `0.0.0.0/0`에 여는 인그레스를 ALB SG에 자동 추가한다. 운영에서는 `NetworkStack`이 이미 anyIpv4 룰을 갖고 있어 dedup되지만, dev는 CIDR을 좁히는 것이 목적이라 그 자동 룰이 좁힌 룰 옆에 남아 **`devAllowedCidr` 제한을 통째로 무력화한다.** **이번 구현에서 실제로 발생했던 버그다.** `test/dev/network-stack.test.ts`의 "전면 공개 인그레스가 어디에도 남지 않는다"가 이를 고정한다. (`lib/dev/edge-stack.ts`, ADR-0022 2번/9번) |
+| **dev ALB의 auth-proxy·dashboard·collector 타깃만 deregistration delay 60초를 쓴다** | dev는 기존 태스크를 먼저 내리는 교체 배포라 AWS 기본값 300초의 connection draining이 끝난 뒤에야 새 태스크 기동과 health check가 시작된다. 두 구간이 직렬로 이어져 GitHub Actions의 10분 wait를 넘을 수 있다. 60초는 **실관측 최적값이나 AWS 공식 권장값이 아니라 MVP 초기 기준**이다. 장시간 연결과 쿼리 특성을 별도로 검증해야 하는 ClickHouse와 prod는 기본값 300초를 유지한다. 적용 범위를 넓히거나 값을 바꾸기 전에 배포 시간, target health 전환, ALB 5xx·connection error와 요청 지연을 관측한다. (`lib/dev/config.ts`의 `DEV_DEREGISTRATION_DELAY`, ADR-0025) |
 | **`applyCommonTags`는 태그 맵을 인자로 받는다** | prod는 `COMMON_TAGS`(`Env: 'mvp'` **유지**), dev는 `DEV_COMMON_TAGS`(`Env: 'dev'`)다. 태그는 App 스코프에서 전 리소스로 전파되므로, prod의 `Env`를 `'prod'`로 "정정"하면 VPC·서브넷·SG·ECS·로그 그룹·Aurora·S3까지 전 리소스에 태그 diff가 생기고 일부는 교체될 수 있다. **이 레포에서 환경 식별자는 태그가 아니라 스택 ID 접두사다.** (`lib/common/config.ts`의 `applyCommonTags`, ADR-0021 4번) |
 | **`bin/infra.ts`와 `test/helpers.ts`는 직접 스택을 조립하지 않는다** | 양쪽 다 `synthProd`/`synthDev`를 거쳐야 테스트 픽스처와 실제 배포 조립이 갈라지지 않는다. 예전에는 두 파일이 4스택 조립을 각각 손으로 들고 있었고, 한쪽만 고치면 통과하는 조립과 배포되는 조립이 달라졌다. (ADR-0021 1번) |
 
@@ -408,7 +409,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0025`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy, `0024`는 배포 역할과 ECS 물리 이름으로 이미 쓰였고, `0020`은 위 (F)의 로그 그룹 정책용으로 여전히 예약되어 있다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0026`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy, `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay로 이미 쓰였고, `0020`은 위 (F)의 로그 그룹 정책용으로 여전히 예약되어 있다.
    형식은 `docs/adr/0000-adr-template.md`를 따른다.
 3. 상수는 **"이 값이 dev에서 달라야 할 이유가 있는가"**로 위치를 정한다 — 없으면 `lib/common/config.ts`, 운영 전용이면 `lib/prod/config.ts`, dev 전용이면 `lib/dev/config.ts`. 스택에서는 import만 한다 (4장).
 4. `test/prod/*.test.ts` / `test/dev/*.test.ts` / `test/cicd/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`(prod), `buildDevApp()`(dev), `buildCicdApp()`(cicd)를 재사용한다.

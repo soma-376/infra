@@ -102,6 +102,48 @@ describe('DevEdgeStack', () => {
     );
   });
 
+  // 60초는 실관측 최적값이 아니라 MVP 초기 기준이다. 일반 HTTP 서비스 세 개만
+  // 기본 300초에서 줄이고, 장시간 연결과 쿼리 특성을 별도로 확인해야 하는
+  // ClickHouse는 기본값을 유지한다. (ADR-0025)
+  test('ClickHouse를 제외한 타깃 그룹만 deregistration delay를 60초로 줄인다', () => {
+    const groups = template.findResources(
+      'AWS::ElasticLoadBalancingV2::TargetGroup',
+    );
+
+    for (const logicalIdPrefix of [
+      'DevAuthProxyTg',
+      'DevDashboardTg',
+      'DevCollectorTg',
+    ]) {
+      const group = Object.entries(groups).find(([logicalId]) =>
+        logicalId.startsWith(logicalIdPrefix),
+      );
+      expect(group).toBeDefined();
+      expect(group![1].Properties.TargetGroupAttributes).toEqual(
+        expect.arrayContaining([
+          {
+            Key: 'deregistration_delay.timeout_seconds',
+            Value: '60',
+          },
+        ]),
+      );
+    }
+
+    const clickhouseGroup = Object.entries(groups).find(([logicalId]) =>
+      logicalId.startsWith('DevClickhouseTg'),
+    );
+    expect(clickhouseGroup).toBeDefined();
+    expect(
+      clickhouseGroup![1].Properties.TargetGroupAttributes ?? [],
+    ).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          Key: 'deregistration_delay.timeout_seconds',
+        }),
+      ]),
+    );
+  });
+
   // **이 두 어서션이 "인증이 실제로 경로에 끼어 있는가"를 고정한다.** 타깃을
   // 되돌리면 synth 도 배포도 통과하고 OTLP 가 다시 무인증으로 흐른다 - 증상이
   // "정상 동작"이라 아무도 눈치채지 못한다. (ADR-0023 3번)

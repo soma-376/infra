@@ -11,6 +11,7 @@ import {
   TargetType,
 } from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import { PORTS } from '../common/config';
+import { DEV_DEREGISTRATION_DELAY } from './config';
 
 export interface DevEdgeStackProps extends StackProps {
   readonly vpc: IVpc;
@@ -121,6 +122,7 @@ export class DevEdgeStack extends Stack {
         port: PORTS.authProxy,
         protocol: ApplicationProtocol.HTTP,
         targetType: TargetType.INSTANCE,
+        deregistrationDelay: DEV_DEREGISTRATION_DELAY,
         // 앱이 `GET /health` 에 200 JSON 을 준다
         // (`apps/auth-proxy/src/health/health.routes.ts`). collector·dashboard 와 달리
         // 전용 헬스 엔드포인트가 있으므로 matcher 를 넓히지 않고 기본값(200)을 쓴다.
@@ -145,6 +147,7 @@ export class DevEdgeStack extends Stack {
         port: PORTS.apiServer,
         protocol: ApplicationProtocol.HTTP,
         targetType: TargetType.INSTANCE,
+        deregistrationDelay: DEV_DEREGISTRATION_DELAY,
         // Spring Boot 는 루트 매핑이 없으면 404 를 반환한다. ALB 기본 matcher(200)를
         // 그대로 두면 타깃이 영영 healthy 가 되지 않아 ECS 재시작 루프에 빠진다.
         // 앱이 actuator 를 노출하는 것이 확인되면 path 를 좁힌다. 운영과 같은 값이다.
@@ -195,6 +198,7 @@ export class DevEdgeStack extends Stack {
       port: PORTS.otlp,
       protocol: ApplicationProtocol.HTTP,
       targetType: TargetType.IP,
+      deregistrationDelay: DEV_DEREGISTRATION_DELAY,
       // OTLP 수신 루트(4318 /)는 404 를 반환하므로 정상 코드 범위를 넓힌다.
       // 운영과 같은 값이다.
       healthCheck: { path: '/', healthyHttpCodes: '200-404' },
@@ -238,6 +242,9 @@ export class DevEdgeStack extends Stack {
       port: PORTS.clickhouseHttp,
       protocol: ApplicationProtocol.HTTP,
       targetType: TargetType.IP,
+      // 장시간 연결과 쿼리 특성을 별도로 검증하기 전까지 AWS 기본값 300초를
+      // 유지한다. 위 세 서비스의 MVP 초기값 60초를 여기까지 넓히지 않는다.
+      // (ADR-0025)
       healthCheck: { path: '/ping' },
     });
     targetGroup.addTarget(
