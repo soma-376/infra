@@ -45,6 +45,9 @@ processors:
   batch:
     # 신원 조합별로 배치를 분리해 서로 다른 테넌트의 metadata 가 섞이지 않게 한다.
     # 1000 은 Collector 의 공식 기본 안전값이며 파이프라인 설정과 동일하다.
+    # MVP에서는 auth-proxy가 전달하는 4개 신원 헤더를 metadata_keys로 유지한다.
+    # resource attribute 방식은 다른 레포의 파이프라인 계약 변경이 필요하므로 이번 범위에서 제외한다.
+    # metadata cardinality를 모니터링하고, 실제 조합 수와 메모리 사용량을 근거로 key 축소 또는 전달 방식 변경을 검토한다.
     metadata_keys:
       - x-pulsemetry-token-id
       - x-pulsemetry-tenant-id
