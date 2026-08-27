@@ -49,7 +49,7 @@ disabling network access for user 'default'
 
 `default` 유저가 **루프백 전용**이 된다. `post-processor`는 awsvpc ENI의 다른 IP에서
 오므로 거부되고, ClickHouse는 네트워크 거부를 인증 실패로 보고한다.
-`src/enrichment/sink_clickhouse.py:59-61`이 이 4xx를 `BackendUnavailable`로 감싸므로
+`apps/telemetry-processor/enrichment/sink_clickhouse.py:60-64`이 이 4xx를 `BackendUnavailable`로 감싸므로
 리시버는 503을 뱉고, collector는 그 배치를 무한히 재시도한다 - ADR-0018이 고친 것과
 증상이 같고 원인만 다른 두 번째 층이다.
 
@@ -160,7 +160,7 @@ access management 권한이 실제 문제로 떠오르면 이 안으로 전환�
 
 ## References
 
-- 앱 레포 `ai-telemetry-pipeline`: `src/enrichment/sink_clickhouse.py`,
+- 앱 레포 `ai-telemetry-pipeline`: `apps/telemetry-processor/enrichment/sink_clickhouse.py`,
   `docker-compose.dev.yml`
 - `clickhouse/clickhouse-server` 이미지의 `docker/server/entrypoint.sh`
 - [ADR-0018](0018-post-processor-runtime-contract-via-derived-dsn-secret.md) -

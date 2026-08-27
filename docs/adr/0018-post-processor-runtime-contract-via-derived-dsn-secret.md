@@ -15,9 +15,9 @@ Accepted
 | `RAW_BUCKET` = 버킷 이름 | — |
 | `DB_NAME` = `controlplane` | — |
 | 시크릿 `DB_CREDS` = Aurora 마스터 시크릿 JSON | — |
-| — | `ENRICHMENT_CH_URL` (`src/enrichment/sink_clickhouse.py:43`) |
-| — | `ENRICHMENT_CH_DB` (`src/enrichment/sink_clickhouse.py:47`) |
-| — | `ENRICHMENT_PG_DSN` (`src/enrichment/rds.py:21`) |
+| — | `ENRICHMENT_CH_URL` (`apps/telemetry-processor/enrichment/sink_clickhouse.py:44`) |
+| — | `ENRICHMENT_CH_DB` (`apps/telemetry-processor/enrichment/sink_clickhouse.py:48`) |
+| — | `ENRICHMENT_PG_DSN` (`apps/telemetry-processor/enrichment/providers/org.py:33`) |
 
 앱은 `os.environ.get(name, DEFAULT)` 형태로만 읽는다. 이름이 없으면 예외를 던지지 않고
 **docker-compose 전용 기본값으로 조용히 폴백한다** — `http://clickhouse:8123`,
@@ -25,7 +25,7 @@ Accepted
 ECS 태스크 안에는 `clickhouse`도 `postgres`도 없다. 결과는 이렇게 이어진다.
 
 1. 기동 시 `ensure_schema()`가 ClickHouse에 닿지 못해 5회 재시도 후 포기한다
-   (`src/otlp_receiver.py`). 이건 non-fatal이라 **컨테이너는 정상으로 보인다.**
+   (`apps/telemetry-processor/otlp_receiver.py`). 이건 non-fatal이라 **컨테이너는 정상으로 보인다.**
 2. 이후 들어오는 모든 push가 `BackendUnavailable` → **HTTP 503**.
 3. collector의 `otlphttp` exporter는 503을 재시도 대상으로 보고 무한히 다시 보낸다.
 
@@ -241,8 +241,8 @@ this.postProcessorPgDsnSecret = new Secret(this, 'PostProcessorPgDsn', {
 - [ADR-0004](0004-task-level-colocation.md), [ADR-0005](0005-cloud-map-private-dns-discovery.md),
   [ADR-0007](0007-precreate-ecr-outside-cdk.md), [ADR-0009](0009-single-infra-repo-stack-boundary.md),
   [ADR-0012](0012-aurora-postgresql-for-control-plane.md), [ADR-0017](0017-inject-collector-config-via-env-provider.md)
-- 앱 레포 `ai-telemetry-pipeline`: `src/enrichment/sink_clickhouse.py`, `src/enrichment/rds.py`,
-  `src/otlp_receiver.py`
+- 앱 레포 `ai-telemetry-pipeline`: `apps/telemetry-processor/enrichment/sink_clickhouse.py`,
+  `apps/telemetry-processor/enrichment/providers/org.py`, `apps/telemetry-processor/otlp_receiver.py`
 - [PostgreSQL libpq — Connection Strings (Keyword/Value)](https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING-KEYWORD-VALUE)
 - [Amazon ECS task definition parameters](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_definition_parameters.html)
 - [AWS CloudFormation — Retrieve a Secrets Manager secret](https://docs.aws.amazon.com/secretsmanager/latest/userguide/cfn-example_reference-secret.html)
