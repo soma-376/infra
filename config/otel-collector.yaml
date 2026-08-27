@@ -20,9 +20,40 @@ receivers:
       # 여기서만 열면 아무도 도달할 수 없는 포트를 바인딩하게 된다. (ADR-0017)
       http:
         endpoint: 0.0.0.0:4318
+        # auth-proxy 가 부여한 신원 헤더를 client metadata 로 승격한다.
+        include_metadata: true
+
+# receiver metadata 의 인증 신원을 post-processor 요청 헤더로 다시 붙인다.
+# 헤더가 없는 prod·dev 디버그 직행 요청에서는 from_context 가 no-op 이다.
+extensions:
+  headers_setter/pulsemetry_tenant:
+    headers:
+      - key: X-Pulsemetry-Token-Id
+        action: upsert
+        from_context: x-pulsemetry-token-id
+      - key: X-Pulsemetry-Tenant-Id
+        action: upsert
+        from_context: x-pulsemetry-tenant-id
+      - key: X-Pulsemetry-Installation-Id
+        action: upsert
+        from_context: x-pulsemetry-installation-id
+      - key: X-Pulsemetry-Member-Id
+        action: upsert
+        from_context: x-pulsemetry-member-id
 
 processors:
   batch:
+    # 신원 조합별로 배치를 분리해 서로 다른 테넌트의 metadata 가 섞이지 않게 한다.
+    # 1000 은 Collector 의 공식 기본 안전값이며 파이프라인 설정과 동일하다.
+    # MVP에서는 auth-proxy가 전달하는 4개 신원 헤더를 metadata_keys로 유지한다.
+    # resource attribute 방식은 다른 레포의 파이프라인 계약 변경이 필요하므로 이번 범위에서 제외한다.
+    # metadata cardinality를 모니터링하고, 실제 조합 수와 메모리 사용량을 근거로 key 축소 또는 전달 방식 변경을 검토한다.
+    metadata_keys:
+      - x-pulsemetry-token-id
+      - x-pulsemetry-tenant-id
+      - x-pulsemetry-installation-id
+      - x-pulsemetry-member-id
+    metadata_cardinality_limit: 1000
 
   # 원본 아카이브를 발생 제품별로 분리한다. 조건이 참이면 레코드를
   # 드롭하는 processor이므로, 각 제품의 service.name 이 아닌 데이터를 버린다.
@@ -111,8 +142,11 @@ exporters:
   otlphttp/telemetry_pipeline:
     endpoint: http://localhost:8080
     encoding: json
+    auth:
+      authenticator: headers_setter/pulsemetry_tenant
 
 service:
+  extensions: [headers_setter/pulsemetry_tenant]
   pipelines:
     # 실시간 정규화 스트림. 제품별 원본 아카이브와 독립적으로 모두 전달한다.
     metrics:

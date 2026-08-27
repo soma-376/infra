@@ -1,4 +1,5 @@
 import { Match, Template } from 'aws-cdk-lib/assertions';
+import { load } from 'js-yaml';
 import {
   CLICKHOUSE_DEFAULT_DB,
   CLICKHOUSE_HTTP_URL,
@@ -336,6 +337,57 @@ describe('DevApplicationStack', () => {
         '--config=env:OTEL_CONFIG',
       ]);
       expect(Object.keys(envMap('otel-collector'))).toContain('OTEL_CONFIG');
+    });
+
+    test('auth-proxy 신원 metadata 전파 설정을 실제 config 본문에 주입한다', () => {
+      const configText = envMap('otel-collector').OTEL_CONFIG;
+      expect(typeof configText).toBe('string');
+      const config = load(configText as string) as any;
+      const extensionName = 'headers_setter/pulsemetry_tenant';
+      const metadataKeys = [
+        'x-pulsemetry-token-id',
+        'x-pulsemetry-tenant-id',
+        'x-pulsemetry-installation-id',
+        'x-pulsemetry-member-id',
+      ];
+
+      expect(config.receivers.otlp.protocols.http.include_metadata).toBe(true);
+      expect(
+        config.extensions[extensionName].headers.map((header: any) => ({
+          key: header.key,
+          action: header.action,
+          from_context: header.from_context,
+        })),
+      ).toEqual([
+        {
+          key: 'X-Pulsemetry-Token-Id',
+          action: 'upsert',
+          from_context: metadataKeys[0],
+        },
+        {
+          key: 'X-Pulsemetry-Tenant-Id',
+          action: 'upsert',
+          from_context: metadataKeys[1],
+        },
+        {
+          key: 'X-Pulsemetry-Installation-Id',
+          action: 'upsert',
+          from_context: metadataKeys[2],
+        },
+        {
+          key: 'X-Pulsemetry-Member-Id',
+          action: 'upsert',
+          from_context: metadataKeys[3],
+        },
+      ]);
+      expect(config.processors.batch).toEqual({
+        metadata_keys: metadataKeys,
+        metadata_cardinality_limit: 1000,
+      });
+      expect(
+        config.exporters['otlphttp/telemetry_pipeline'].auth,
+      ).toEqual({ authenticator: extensionName });
+      expect(config.service.extensions).toEqual([extensionName]);
     });
 
     // 이 이미지는 User=10001:10001 이고 UID 10001 이 쓸 수 있는 디렉터리가 하나도
