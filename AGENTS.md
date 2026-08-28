@@ -319,7 +319,7 @@ DB는 `api-server`와 같은 `controlplane`을 공유한다.
 | `/v1/*` (OTLP) | `ListenerAction.authenticateJwt` → collector TG | 인증 없이 forward |
 | `/api/*` | `AuthenticateCognitoAction` → dashboard TG | 인증 없이 forward |
 | 기본 액션 | fixed response 404 | fixed response 404 |
-| 기타 | — | synth 시 ADR-0008 폴백 경고 방출 |
+| 기타 | — | synth 시 모드 B 경고(`infra:edge-no-auth`) 방출 |
 
 모드 A 가 구성하는 `/v1/*` `authenticateJwt`·`/api/*` `AuthenticateCognitoAction` 은 **의도적 잔존
 코드다** — 인증 결정은 허브 ADR 0001(앱 계층 검증)로 대체됐고, Spring Security 이관 시 함께 걷어낸다.
