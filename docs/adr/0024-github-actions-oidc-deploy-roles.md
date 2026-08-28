@@ -393,8 +393,28 @@ Cognito·CloudFront·프론트엔드 S3)은 그대로 남는다. **ALB DNS 이�
   서비스를 추가한다. ADR-0023의 이관 결정과 같은 PR에서 처리한다.
 - **워크플로우가 `--cache-from type=registry`를 쓰게 되면**
   `ecr:GetDownloadUrlForLayer`를 `EcrPush` statement에 추가한다. 알려진 스위치다.
-- **`batch-processor`는 MVP 미구현이다**(PROJ-48). 대시보드 역할이 그 ECR 레포에 push 권한을
-  갖지만 실제로 push하는 워크플로우는 아직 없다. 구현이 확정되지 않으면 권한을 회수한다.
+- **대시보드 쪽 계약에는 현재 소비자가 없다.** `pulsemetry-backend`의 현재 배포 산출물은
+  `enrollment-api` 하나이고 배포 워크플로도 없다 — `api-server`·`batch-processor`(PROJ-48)는
+  Gradle 모듈로 **존재하지 않는다**(미확보가 아니라 미존재다). 대시보드 역할 2개와 ECR 레포
+  2개(`soma-376/api-server`·`soma-376/batch-processor`)가 대응 소스 없이 정의되어 있다.
+  backend ADR-0008이 예고한 앱 모듈은 넷이다 — 산출물이 확정될 때 이 매핑을 다시 조사하지
+  않도록 그대로 적어 둔다.
+
+  | 모듈 | 상태 | 도메인 |
+  |---|---|---|
+  | `:apps:enrollment-api` | 현행 | enrollment |
+  | `:apps:admin-api` | 신규 예정 | directory · policy · contract 쓰기 소유 |
+  | `:apps:telemetry-ingest` | 신규 예정 | telemetry — collector 이관(backend ADR-0007)의 도착지 |
+  | `:apps:dashboard-api` | 신규 예정 | 읽기 모델 |
+
+  명명 규칙은 `:apps:<context>-<inbound>`(inbound = `api`·`ingest`·`worker`·`mcp`)이며,
+  **infra의 `api-server`·`batch-processor`는 이 넷 중 어느 것과도 이름이 일치하지 않는다.**
+  ECR은 레포 이름을 바꿀 수 없으므로([ADR 0007](0007-precreate-ecr-outside-cdk.md) Negative)
+  **실제 이미지 push 전에** 정리해야 한다. 인증 계층은 배포 단위가 아니라 `:libs:security`
+  횡단 라이브러리로 간다 — 인증만 따로 배포된다고 읽으면 안 된다. collector 이관 시
+  `:apps:telemetry-ingest`가 새 배포 단위로 추가되어 ECR 레포와 `DEPLOY_TARGETS` 항목이
+  하나 더 필요해진다. 산출물 구성이 확정되면 `DEPLOY_TARGETS`의 dashboard 항목과 ECR 레포
+  이름을 그에 맞춘다. (`batch-processor` ECR 권한 회수는 하지 않는다.)
 - **GitHub Environment 기반 승인 게이트**로 옮길지는 앱 레포에 Environment가 설정된 뒤
   재판단한다. 트리거는 "운영 배포에 사람 승인이 필요해질 때"다.
 - **환경이 셋(`stg`)이 되면** 역할이 6개가 된다. ADR-0021 Follow-up의 `lib/stg/` 판단과 묶어서

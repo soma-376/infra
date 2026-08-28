@@ -66,11 +66,21 @@ config는 이 시스템의 데이터 처리 규칙 그 자체(무엇을 마스�
 
 ## Constraints
 
+- **신원 전파 3요소는 드리프트 금지 항목이다.** receiver 의 `include_metadata: true`,
+  `headers_setter/pulsemetry_tenant` 확장(`x-pulsemetry-*` 4종), `batch.metadata_keys` 4종은
+  auth-proxy 신원 헤더 전파의 전제이며([ADR-0023](0023-dev-auth-proxy-between-alb-and-collector.md),
+  허브 `../docs/contracts/telemetry-ingest.md` §4), 하나만 빠져도 헤더가 소실되어 ClickHouse 의
+  `tenant_id`·`installation_id` 가 빈 문자열이 된다. 이 셋은 이 레포 `config/otel-collector.yaml` 과
+  `ai-telemetry-pipeline/otel-collector-config.yaml` **두 파일에서 반드시 같은 값이어야 하며 함께
+  바꾼다.** 실제로 한쪽만 바뀌어 드리프트가 발생한 이력이 있고(허브 §5 B4, PROJ-77 로 복구)
+  자동 검증 장치는 없다 — 세 요소가 다시 갈라진 사실이 발견되면 그때 감지 장치를 재검토한다.
+  collector 가 `pulsemetry-backend` 로 이관되면(backend ADR-0007) 이 항목의 소유가 함께 이동한다.
 - **config에 시크릿을 넣을 수 없다.** 값이 CloudFormation 템플릿과 ECS 콘솔에 평문으로 남는다.
   현재 config는 마스킹 *패턴*만 담고 실제 자격증명은 담지 않으므로 해당 없다.
   시크릿이 필요해지면 그 항목만 `secrets`로 분리하고 config에서 `${env:...}`로 참조한다.
-- **태스크 정의 전체가 64 KiB를 넘을 수 없다.** 현재 config는 6.4 KB(6,528 바이트),
-  `CollectorTask` 정의 전체는 8.7 KB로 한도의 14% 수준이다.
+- **태스크 정의 전체가 64 KiB를 넘을 수 없다.** 현재 config는 8,890 바이트다
+  (PROJ-57·PROJ-77 로 증가. 자주 바뀌는 값이므로 `wc -c config/otel-collector.yaml` 로 확인한다).
+  `CollectorTask` 정의 전체는 여전히 한도 대비 여유가 크다.
 - **`$` 이스케이프**: confmap이 config 안의 `${...}`와 `$VAR`를 확장한다. 리터럴 `$`가 필요하면
   `$$`로 써야 한다. 현재 정규식에는 `$`가 없다.
 - **이 이미지에는 비root가 쓸 수 있는 디렉터리가 없다.**
@@ -95,6 +105,7 @@ config는 이 시스템의 데이터 처리 규칙 그 자체(무엇을 마스�
   `force-new-deployment`로 교체할 수 있다는 점이 유일하고 실질적인 장점이다. 그러나 값 크기 한도가
   Standard 4 KB / Advanced 8 KB(유료)인데 현재 config가 6.4 KB다. Standard에는 아예 못 들어가고,
   Advanced에 넣더라도 남는 여유가 1.6 KB뿐이라 마스킹 패턴 몇 개만 늘어도 한도에 닿는다.
+  **(그리고 실제로 닿았다 — 현재 8,890 바이트로 Advanced 한도 8,192 바이트를 이미 초과해 이 대안은 더 이상 성립하지 않는다.)**
   또한 IaC의 값과 실제 값이 갈라지는 drift가 생기고, 다음 `cdk deploy`가 손수정을 덮어쓴다.
   MVP 단계에서 이 운영 유연성이 그 대가만큼 급하지 않다.
 - **커스텀 이미지에 `COPY config.yaml`**: 불변성이 가장 높고 프로덕션에서 가장 흔한 방식이다.
@@ -118,8 +129,8 @@ config는 이 시스템의 데이터 처리 규칙 그 자체(무엇을 마스�
   ([ADR-0005](0005-cloud-map-private-dns-discovery.md))도 컨테이너 링크도 아니다.
   이것이 [ADR-0004](0004-task-level-colocation.md) co-location의 직접적 이득이다.
 - 상수 배치는 [ADR-0015](0015-arm64-fargate-for-cost-savings.md)의 판단을 따른다. `PORTS`처럼
-  스택 간 공유되는 리터럴만 `lib/config.ts`에 두고, config 파일 경로처럼 소비처가 한 곳인 값은
-  `lib/application-stack.ts`에 남긴다.
+  스택 간 공유되는 리터럴만 `lib/common/config.ts`에 두고, config 파일 경로 같은 값은
+  각 환경의 `application-stack.ts`(`lib/prod/`·`lib/dev/`)에 `COLLECTOR_CONFIG_PATH` 로 둔다.
 
 ### Negative
 
@@ -154,7 +165,7 @@ config는 이 시스템의 데이터 처리 규칙 그 자체(무엇을 마스�
   (HTTP 폴백)에서는 쓸 수 없다.
 - **config 오류는 기존 테스트로 잡히지 않는다.** `cdk synth`와 `npm test`는 문자열을 문자열로만
   다루므로 컴포넌트 이름 오타나 스키마 위반을 통과시킨다. 이를 보완하기 위해
-  `test/application-stack.test.ts`에 파이프라인 참조 정합성 검사를 둔다.
+  `test/prod/application-stack.test.ts`에 파이프라인 참조 정합성 검사를 둔다.
 - **배포 전 관문은 `validate`가 아니라 실제 기동 확인이다.**
   `otelcol-contrib validate`는 config 파싱과 컴포넌트 **해석**까지만 하고 exporter를 실제로
   start하지 않는다. 그래서 파일시스템 권한, 포트 바인딩, 디렉터리 부재 같은 **런타임 실패를
@@ -174,10 +185,11 @@ config는 이 시스템의 데이터 처리 규칙 그 자체(무엇을 마스�
 
 ## Follow-up
 
-- 운영자가 재배포 없이 config를 고쳐야 하는 상황이 반복될 때 → SSM Parameter Store로 전환.
-  단 크기 한도(Advanced 8 KB) 안에 들어오는지 먼저 확인한다.
-- config가 8 KB를 넘어 관리가 어려워지거나 태스크 정의 64 KiB에 근접할 때 → 커스텀 이미지 전환과
-  ADR-0007 개정.
+- **성립 불가로 닫힘** — "운영자가 재배포 없이 config를 고쳐야 하는 상황이 반복될 때 → SSM Parameter
+  Store로 전환". config(8,890 B)가 SSM Advanced 한도(8,192 B)를 이미 초과했다.
+- **발동됨** — config가 8 KB를 넘었다(현재 8,890 B). 남은 선택지는 커스텀 이미지 전환(ADR-0007 개정)뿐이다.
+  다만 태스크 정의 64 KiB 한도까지는 여유가 크므로 **즉시 조치 대상은 아니라고 판단한다** —
+  관리가 실제로 어려워지거나 64 KiB 에 근접하는 시점에 전환한다.
 - 원본 아카이브 보존이 요구사항이 될 때 → `awss3` exporter로 전환.
 - **collector의 root 실행이 보안 리뷰에서 걸릴 때 → `awss3` exporter로 전환한다.**
   file exporter를 없애면 root가 필요 없어진다. 이 둘은 한 몸이라 함께 움직인다.

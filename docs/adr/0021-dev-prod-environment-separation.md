@@ -222,7 +222,8 @@ diff를 유발한다(위 4번). 얻는 것이 가독성뿐이라 기각.
 
 ### Negative
 
-- **파일 경로가 전부 바뀐다.** `lib/config.ts` → `lib/common/*` + `lib/prod/config.ts`,
+- **완료** — **파일 경로가 전부 바뀐다.** ADR 6건(0007·0015·0017·0018·0019·0022)의 낡은 경로
+  인용 9곳을 PROJ-80 에서 치환했다. 원문: `lib/config.ts` → `lib/common/*` + `lib/prod/config.ts`,
   `lib/network-stack.ts` → `lib/prod/network-stack.ts` 식이다. 기존 ADR과 `AGENTS.md`가
   본문에서 파일 경로를 다수 인용하고 있으므로(예: `lib/application-stack.ts:201`) 함께
   고쳐야 한다. 이 문서 갱신을 빠뜨리면 다음 사람이 없는 파일을 찾는다.

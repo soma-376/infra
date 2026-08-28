@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted — 부분 대체: [ADR 0021](0021-dev-prod-environment-separation.md) 이 "이 레포에는 환경 분리 메커니즘이 없다" 는 전제를 대체한다(dev/prod 는 같은 ECR 레포를 공유하고 [ADR 0024](0024-github-actions-oidc-deploy-roles.md) 의 태그로 가른다). [ADR 0023](0023-dev-auth-proxy-between-alb-and-collector.md) 이 `soma-376/auth-proxy` 레포를 추가한다. 선생성·`fromRepositoryName` 참조·`soma-376/` 네임스페이스 결정은 그대로 유효하다.
 
 ## Context
 
@@ -21,12 +21,13 @@ ECR 레포지토리는 CLI 또는 콘솔로 먼저 생성하고 이미지를 pus
 | 서비스 | 레포지토리 이름 |
 |---|---|
 | Collector & Processor | `soma-376/post-processor` |
+| Auth Proxy (**dev 전용**, [ADR 0023](0023-dev-auth-proxy-between-alb-and-collector.md)이 추가) | `soma-376/auth-proxy` — auth-proxy 는 backend Spring Security 로 이관 예정이라 이 레포도 이관 시 정리 대상이다 |
 | Dashboard Backend (API) | `soma-376/api-server` |
 | Dashboard Backend (배치) | `soma-376/batch-processor` |
 
-환경(`dev`/`stg`/`prod`)은 네임스페이스에 포함하지 않는다. 환경 구분은 계정 경계와 `COMMON_TAGS.Env` 태그가 담당하며, 이 레포에는 애초에 환경 분리 메커니즘이 없다(AGENTS.md 4장). 환경 분리가 필요해지면 그때 별도 ADR에서 다룬다.
+환경(`dev`/`stg`/`prod`)은 네임스페이스에 포함하지 않는다. **환경 구분은 네임스페이스가 아니라 이미지 태그가 담당한다** — dev/prod 가 같은 ECR 레포를 공유하고 dev 는 `dev`, prod 는 `prod` 태그를 읽는다([ADR 0021](0021-dev-prod-environment-separation.md) 5번, [ADR 0024](0024-github-actions-oidc-deploy-roles.md) 7번). 결정 당시의 "이 레포에는 환경 분리 메커니즘이 없다" 는 전제는 ADR-0021 로 해소됐다.
 
-이름의 단일 출처는 `lib/config.ts`의 `ECR_NAMESPACE` / `ECR_REPOS`다. 스택 코드에 레포 이름 리터럴을 직접 박지 않는다.
+이름의 단일 출처는 `lib/common/config.ts`의 `ECR_NAMESPACE` / `ECR_REPOS`다. 스택 코드에 레포 이름 리터럴을 직접 박지 않는다.
 
 ## Alternatives Considered
 

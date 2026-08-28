@@ -95,6 +95,10 @@ OTLP 리시버가 404를 낸다. `:4318` 리스너를 추가하면 경로가 `/v
 템플릿·CDK context 어디에도 남지 않는다. enrollment 서버(별도 레포)는 같은 시크릿을
 읽어 써야 하므로 ARN을 `DevEdgeStack`의 `CfnOutput`으로 노출한다.
 
+환경변수 `LOG_LEVEL`(dev 는 `debug`)도 함께 주입하지만 **현재 auth-proxy 앱은 이 이름을 읽지
+않는다**(PROJ-51 이 앱 쪽에 도입 대기 중. auth-proxy 자체가 backend Spring Security 로 이관
+예정이라 이관 확정 시 주입 제거로 전환한다 — `lib/common/config.ts` 의 `AUTH_PROXY_ENV` 주석).
+
 `DATABASE_URL`도 [ADR-0018](0018-post-processor-runtime-contract-via-derived-dsn-secret.md)의
 파생 시크릿 패턴을 그대로 따른다 - `environment`에 넣으면 DB 비밀번호가
 `aws ecs describe-task-definition`과 ECS 콘솔에 평문으로 드러난다.
@@ -220,17 +224,22 @@ ASG·캐패시티 프로바이더가 3쌍이 된다. ADR-0022 3번이 ASG를 나
 
 ## Follow-up
 
-- **auth-proxy가 조회하는 `enrollment` 스키마를 아무도 부트스트랩하지 않는다.**
-  `AGENTS.md` 5장 (H)가 적은 것과 같은 문제다 - 접속은 성공하고 첫 조회에서
-  `relation "enrollment.telemetry_tokens" does not exist`로 깨진다. dev에서는
-  `publiclyAccessible` RDS에 `psql`로 직접 넣어 우회하되, 근본 해결은 `AGENTS.md` 5장 (D)의
-  마이그레이션 ADR이 맡는다.
-- **enrollment 서버가 dev 인프라에 없다.** 토큰 발급 주체가 없으므로 당분간 토큰을 손으로
-  넣어야 하고, 그쪽이 배포될 때 `TOKEN_HASH_SECRET`을 같은 값으로 공유하는 방법을 확정해야
-  한다.
-- **도메인·인증서를 확보하면 이 ADR을 재검토한다.** ADR-0008의 모드 A로 전환할 때
-  auth-proxy를 걷어낼지, ALB 인증과 이중으로 둘지, 아니면 토큰 검증만 auth-proxy에 남길지
-  결정해야 한다. **auth-proxy는 한시적 구성이라는 것이 이 ADR의 전제다.**
+- **`enrollment` 스키마의 부트스트랩 주체는 `pulsemetry-backend` 의 Flyway 다**(그 레포
+  ADR 0004·0009). 스키마가 없으면 접속은 성공하고 첫 조회에서
+  `relation "enrollment.telemetry_tokens" does not exist`로 깨진다.
+  enrollment 서버가 dev 에 배포되기 전까지는 backend 명세 §9.4 의 **로컬 `bootRun` 절차(공식
+  잠정 절차)** 로 마이그레이션을 태운다 — `psql` 로 DDL 을 직접 넣는 우회는 쓰지 않는다.
+  **남은 결정은 그 마이그레이션을 ECS 에서 실행할 자리**이며 `AGENTS.md` 5장 (D)가 소유한다.
+- **토큰 발급 주체는 `pulsemetry-backend` 의 `:apps:enrollment-api` 다 — 이 서비스를 dev
+  인프라에 배치하는 결정이 아직 없다.** ECR 레포·태스크 정의·ECS 서비스가 모두 부재하며,
+  배치 시 `TOKEN_HASH_SECRET`(`TokenHashSecretArn` 출력) 공유 방법을 함께 정한다. **새 ADR
+  대상이다**(번호는 작성 시점에 정한다). collector 이관(backend ADR-0007)이 진행되면
+  `:apps:telemetry-ingest` 가 배포 단위로 추가된다는 점도 함께 다룬다.
+- **auth-proxy 는 한시적 구성이라는 것이 이 ADR 의 전제이며, 그 전제는 확정됐다** —
+  OTLP 토큰 검증은 `pulsemetry-backend` 의 Spring Security 계층으로 이관된다(backend ADR-0007).
+  ALB 단 인증(모드 A 복귀)은 채택하지 않는다 — ALB 는 TLS 종단만 담당하고 검증 지점은 앱
+  계층 한 곳이다. **이관이 끝나면 [ADR 0022](0022-dev-infrastructure-topology.md) 의 4번·8번·10번
+  (auth-proxy 태스크·리스너 규칙·로그 그룹)을 다시 정리한다.**
 - **운영 인프라 이관은 별도 결정이다.** 그때 prod `CollectorService`에도
   `cloudMapOptions`를 추가해야 `COLLECTOR_HOST` 상수가 prod에서 유효해진다.
 - **시크릿 암호화·회전 정책이 이 레포에 없다.** `DevAuthProxyTokenHashSecret`과
