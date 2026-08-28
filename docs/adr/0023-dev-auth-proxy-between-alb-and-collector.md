@@ -8,8 +8,9 @@ Accepted
 [ADR-0008](0008-dual-auth-alb-cognito-and-otlp-token.md)은 OTLP 경로의 인증을 ALB의
 `jwt-validation`으로 처리하기로 했다. 그러나 이 액션과 `authenticate-cognito`는 **둘 다
 HTTPS 리스너를 필수로 요구**하고, HTTPS 리스너에는 ACM 인증서가 필요하며, 인증서 발급에는
-도메인이 필요하다. **팀에 도메인이 없다.** 그래서 ADR-0008은 아직 `Proposed`이고,
-`AGENTS.md` 5장 (A)가 "병목은 코드 작성이 아니라 결정"이라고 적어둔 상태다.
+도메인이 필요하다. **팀에 도메인이 없다.** 그래서 ADR-0008은 당시 아직 `Proposed`였고
+(이후 [허브 ADR 0001](../../../docs/adr/0001-otlp-authentication-model.md)로 `Superseded by` — Follow-up 참조),
+`AGENTS.md` 5장 (A)가 "병목은 코드 작성이 아니라 결정"이라고 적어둔 상태였다.
 
 그동안 dev ALB의 `:80` 리스너는 `/v1/*`를 **인증 없이** Collector 태스크로 그대로 흘린다
 (`lib/dev/edge-stack.ts`의 `DevOtlpForward`). 실질적인 방어선은 `devAllowedCidr` 하나뿐이고
@@ -64,6 +65,7 @@ ADR-0022 4번이 세운 기준을 그대로 적용한 결과다. 그 ADR은 awsv
   필요 없지만, **ADR-0008대로 도메인 확보 후 JWKS 검증이 들어오면 awsvpc는 그 경로에서만
   조용히 타임아웃으로 죽는다.** prod Fargate는 NAT가 있어 egress가 살아 있으므로,
   dev를 bridge로 두는 쪽이 오히려 prod와 동작이 일치한다.
+  (대체됨 — ALB/JWKS 검증 복귀는 허브 ADR 0001로 채택되지 않는다. "외부 API 호출이 생기면 egress가 필요하다"는 일반 논거로만 읽는다.)
 - **SG 룰 재사용.** bridge라 아웃바운드의 출발 SG가 `DevAppHostSg`이고, RDS 5432 인그레스
   룰이 이미 그 SG를 peer로 갖고 있다. `DATABASE_URL` 접속에 새 룰이 필요 없다.
 - **확장 경로.** 동적 포트를 쓰므로 계정 설정 변경 없이 즉시 다중 배치가 가능하다

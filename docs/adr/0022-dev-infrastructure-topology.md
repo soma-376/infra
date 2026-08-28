@@ -315,7 +315,7 @@ bridge인 dashboard는 동적 포트를 쓰므로 **옵트인 없이 즉시 다�
 ## Constraints
 
 - **t4g 계열의 인스턴스당 ENI 한도는 3(프라이머리 포함)이다.** awsvpc 태스크는 태스크당
-  ENI 하나를 잡으므로 롤링 배포 여유가 없다. 세 서비스 모두 `desiredCount: 1`,
+  ENI 하나를 잡으므로 롤링 배포 여유가 없다. 네 서비스 모두 `desiredCount: 1`,
   **`minHealthyPercent: 0` / `maxHealthyPercent: 100`** 으로 교체 배포(먼저 내리고 새로
   띄움)를 강제한다. 운영 ClickHouse `Ec2Service`와 정확히 같은 패턴이며(`AGENTS.md` 3장
   불변 규칙), 같은 이유로 **`AsgCapacityProvider`의

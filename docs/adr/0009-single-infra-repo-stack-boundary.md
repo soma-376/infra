@@ -34,7 +34,6 @@ ClickHouse는 분석 데이터를 저장하지만, MVP에서는 독립 관리형
 
 - ClickHouse에 독립적인 배포, 복구 또는 보존 수명주기가 필요해지면 공유 런타임 스택과 `AnalyticsStack` 분리를 재검토한다.
 - "앱 팀이 인프라 레포를 수정하는 것이 부담"이라는 문제가 실제 병목으로 드러나면, 그 시점에 스택 분리로 전환한다. 이는 논리적 재배치 수준의 변경으로 가능하다고 판단한다.
-- 앱 팀의 인프라 레포 수정 부담이 실제 병목이 되면 스택 분리 전환.
 - **재검토 트리거** — `pulsemetry-backend` ADR-0007(collector 이관 + 인증 계층)이 `Accepted` 로
   전환되면 collector 설정의 소유권이 이 레포를 떠나므로 [ADR 0017](0017-inject-collector-config-via-env-provider.md)을 재검토한다.
   파이프라인 전체 이관(Python·Kotlin 성능 비교 목적)이 다시 논의되면

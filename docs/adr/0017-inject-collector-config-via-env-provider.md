@@ -69,7 +69,7 @@ config는 이 시스템의 데이터 처리 규칙 그 자체(무엇을 마스�
 - **신원 전파 3요소는 드리프트 금지 항목이다.** receiver 의 `include_metadata: true`,
   `headers_setter/pulsemetry_tenant` 확장(`x-pulsemetry-*` 4종), `batch.metadata_keys` 4종은
   auth-proxy 신원 헤더 전파의 전제이며([ADR-0023](0023-dev-auth-proxy-between-alb-and-collector.md),
-  허브 `../docs/contracts/telemetry-ingest.md` §4), 하나만 빠져도 헤더가 소실되어 ClickHouse 의
+  허브 `../../../docs/contracts/telemetry-ingest.md` §4), 하나만 빠져도 헤더가 소실되어 ClickHouse 의
   `tenant_id`·`installation_id` 가 빈 문자열이 된다. 이 셋은 이 레포 `config/otel-collector.yaml` 과
   `ai-telemetry-pipeline/otel-collector-config.yaml` **두 파일에서 반드시 같은 값이어야 하며 함께
   바꾼다.** 실제로 한쪽만 바뀌어 드리프트가 발생한 이력이 있고(허브 §5 B4, PROJ-77 로 복구)
@@ -103,7 +103,7 @@ config는 이 시스템의 데이터 처리 규칙 그 자체(무엇을 마스�
 
 - **SSM Parameter Store + ECS `secrets`**: `cdk deploy` 없이 파라미터 값만 고치고
   `force-new-deployment`로 교체할 수 있다는 점이 유일하고 실질적인 장점이다. 그러나 값 크기 한도가
-  Standard 4 KB / Advanced 8 KB(유료)인데 현재 config가 6.4 KB다. Standard에는 아예 못 들어가고,
+  Standard 4 KB / Advanced 8 KB(유료)인데 결정 당시 config가 6.4 KB였다. Standard에는 아예 못 들어가고,
   Advanced에 넣더라도 남는 여유가 1.6 KB뿐이라 마스킹 패턴 몇 개만 늘어도 한도에 닿는다.
   **(그리고 실제로 닿았다 — 현재 8,890 바이트로 Advanced 한도 8,192 바이트를 이미 초과해 이 대안은 더 이상 성립하지 않는다.)**
   또한 IaC의 값과 실제 값이 갈라지는 drift가 생기고, 다음 `cdk deploy`가 손수정을 덮어쓴다.
@@ -205,7 +205,7 @@ config는 이 시스템의 데이터 처리 규칙 그 자체(무엇을 마스�
   3. `test/prod/application-stack.test.ts` · `test/dev/application-stack.test.ts` 에 태그 존재 어서션을
      추가한다(ADR-0019 가 ClickHouse 에 한 것과 동일).
   4. 고정할 태그로 배포 전 게이트(로컬 `docker run` → `Everything is ready`)를 1회 돌린다.
-  5. 완료 시 이 항목에 `**완료**` 를 붙이고 허브 `../docs/contracts/telemetry-ingest.md` §5 **M12** 를 해소 표기한다.
+  5. 완료 시 이 항목에 `**완료**` 를 붙이고 허브 `../../../docs/contracts/telemetry-ingest.md` §5 **M12** 를 해소 표기한다.
 
   최초 배포 시점에 실제로 당겨온 버전은 **0.157.0**이었다. 이 버전은 이미
   `"otlphttp" alias is deprecated; use "otlp_http" instead` 경고를 낸다 — alias가 제거되는

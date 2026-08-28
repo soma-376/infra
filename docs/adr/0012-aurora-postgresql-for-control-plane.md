@@ -50,6 +50,8 @@ PostgreSQL 16 계열 안에서 리전에 가용한 최신 마이너 버전으로
 
 - 현재 `DataStack` 구현은 유력 후보와 일치하므로 조사 기간에는 코드를 유지할 수 있다.
 - 검증 결과 RLS와 GIN의 실질적 이점이 작거나 MySQL의 팀 적합성이 더 높다면 현재 구현을 Aurora MySQL 등으로 교체할 수 있다.
+  다만 backend ADR-0009(native enum)와 허브 `contracts/data-model.md` 의 계약 확정으로, 엔진 교체는
+  계약·Flyway 마이그레이션 개정을 동반하는 결정이 됐다 — 단독으로 뒤집을 수 없다.
 
 ### Negative
 
