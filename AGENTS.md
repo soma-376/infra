@@ -784,7 +784,8 @@ Template.fromStack(edge).hasResourceProperties('AWS::ElasticLoadBalancingV2::Lis
 ## 8. 커밋 / PR 규칙
 
 - 브랜치명: `^(feat|feature|fix|docs|refactor|chore|test|style|perf|build|ci)/(PROJ-\d+)-.*$`
-- 커밋 / PR 제목: `<KEY> <type>: <summary>` — 예) `PROJ-22 docs: 핸드오프 문서 추가`
+- 커밋 제목: `[<KEY>] <type>: <summary>` — 예) `[PROJ-22] docs: 핸드오프 문서 추가`
+- PR 제목: `[<KEY>] <type>: <summary>` — 워크플로가 Jira 요약으로 자동으로 채운다. 직접 쓰지 않는다.
 - PR 대상 브랜치는 `develop`이다. `.github/workflows/pull_request_auto_fill.yml`이 브랜치명에서 Jira 키를 파싱해 제목을 재작성하고 본문에 링크를 넣는다. (`feature`는 `feat`으로 정규화된다.)
 - **현재 브랜치명(`PROJ-37-development-environment`)은 위 규칙에 맞지 않는다.** 타입 접두사가 없어 `pull_request_auto_fill.yml`의 Jira 키 파싱이 실패한다. PR을 올리기 전에 `feat/PROJ-37-...` 형태로 정리하거나, 워크플로가 제목을 재작성하지 못한다는 점을 감안한다. (브랜치가 origin보다 얼마나 앞서는지는 금방 낡으므로 여기 적지 않는다 — `git log --oneline origin/main..HEAD`로 확인한다.)
 - 문서와 코드 주석은 한국어로 작성한다.
