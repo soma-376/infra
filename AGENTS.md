@@ -334,7 +334,7 @@ DB는 `api-server`와 같은 `controlplane`을 공유한다.
 
 `docs/adr/0008-dual-auth-alb-cognito-and-otlp-token.md`
 
-- **ADR-0008 은 허브 ADR 0001 로 대체됐다(`Superseded by`, PROJ-80).** ALB 단 인증
+- **ADR-0008 은 허브 ADR 0001 로 대체됐다(`Superseded by`, PROJ-79).** ALB 단 인증
   (`authenticate-cognito`·`jwt-validation`)은 양 경로 모두 채택하지 않는다 — ALB 는 TLS 종단만 담당하고,
   토큰 인증은 앱 계층이 한다(현행 auth-proxy → backend Spring Security 이관, Cognito 무관).
   모드 A/모드 B 의 현행 정의는 **TLS 종단 유무**다(ADR-0008 의 "대체 후의 모드 정의" 블록).
@@ -350,7 +350,7 @@ DB는 `api-server`와 같은 `controlplane`을 공유한다.
 
 `docs/adr/0009-single-infra-repo-stack-boundary.md`
 
-- PROJ-80에서 `Accepted`로 전환했다. 단일 `ApplicationStack` 경계가 확정 결정이다.
+- PROJ-79에서 `Accepted`로 전환했다. 단일 `ApplicationStack` 경계가 확정 결정이다.
 - Revisit Trigger 둘 — "앱 팀의 인프라 레포 수정 부담이 실제 병목이 되면 스택 분리",
   그리고 "backend ADR-0007(collector 이관)이 `Accepted`가 되면 ADR-0017(collector config 소유권) 재검토".
   backend ADR-0006(파이프라인 전체 병합)은 **기각**으로 닫혀 전제(레포 2개)는 유지된다.
