@@ -65,8 +65,8 @@ jobs:
               const issueTitle = data.fields.summary;
               console.log(`Jira issue title: ${issueTitle}`);
 
-              // PR 제목: <KEY> feat: <이슈 제목>
-              const prTitle = `${issueKey} ${newTypeName}: ${issueTitle}`;
+              // PR 제목: [<KEY>] feat: <이슈 제목>
+              const prTitle = `[${issueKey}] ${newTypeName}: ${issueTitle}`;
               console.log(`New PR title: ${prTitle}`);
 
               // PR 본문: placeholder -> Jira 티켓 링크
@@ -76,7 +76,7 @@ jobs:
                 pull_number: context.payload.pull_request.number,
               });
               let prBody = pr.body || '';
-              const jiraLink = `**[${issueKey} ${issueTitle}](https://${jiraSite}/browse/${issueKey})**`;
+              const jiraLink = `**[\\[${issueKey}\\] ${issueTitle}](https://${jiraSite}/browse/${issueKey})**`;
               if (prBody.includes('{jira-ticket-placeholder-do-not-modify}')) {
                 prBody = prBody.replaceAll('{jira-ticket-placeholder-do-not-modify}', jiraLink);
                 console.log('본문 placeholder를 Jira 링크로 치환했습니다.');
