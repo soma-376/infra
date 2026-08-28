@@ -193,10 +193,23 @@ config는 이 시스템의 데이터 처리 규칙 그 자체(무엇을 마스�
 - 원본 아카이브 보존이 요구사항이 될 때 → `awss3` exporter로 전환.
 - **collector의 root 실행이 보안 리뷰에서 걸릴 때 → `awss3` exporter로 전환한다.**
   file exporter를 없애면 root가 필요 없어진다. 이 둘은 한 몸이라 함께 움직인다.
-- `latest` 이미지 변경으로 기동이 깨질 때 → 태그 고정을 즉시 처리한다.
+- **collector 이미지 태그 고정 — 승인됨, 실행 대기(PROJ-80 BL-IMPL-008).** 더 이상 "깨질 때
+  처리"하는 조건부 과제가 아니라 결정된 작업이다. **현재 구동 중인 버전으로 고정한다** —
+  고정과 업그레이드를 한 커밋에 섞지 않는다. 실행 계획:
+  1. 현재 구동 버전을 확인한다(태스크 로그 또는 `docker inspect` — AWS 접근 필요).
+     `latest` 로 떠 있었으므로 **prod와 dev가 서로 다른 버전일 수 있다** — 다르면 그 사실을 먼저 기록하고
+     어느 쪽으로 맞출지 정한다.
+  2. `lib/common/config.ts` 에 `COLLECTOR_IMAGE` 상수로 둔다(`CLICKHOUSE_IMAGE` 선례).
+     적용 지점은 `lib/prod/application-stack.ts` · `lib/dev/application-stack.ts` 의
+     `ContainerImage.fromRegistry('otel/opentelemetry-collector-contrib')` 두 곳이다.
+  3. `test/prod/application-stack.test.ts` · `test/dev/application-stack.test.ts` 에 태그 존재 어서션을
+     추가한다(ADR-0019 가 ClickHouse 에 한 것과 동일).
+  4. 고정할 태그로 배포 전 게이트(로컬 `docker run` → `Everything is ready`)를 1회 돌린다.
+  5. 완료 시 이 항목에 `**완료**` 를 붙이고 허브 `../docs/contracts/telemetry-ingest.md` §5 **M12** 를 해소 표기한다.
+
   최초 배포 시점에 실제로 당겨온 버전은 **0.157.0**이었다. 이 버전은 이미
   `"otlphttp" alias is deprecated; use "otlp_http" instead` 경고를 낸다 — alias가 제거되는
-  버전이 올라오면 이번과 같은 방식으로 조용히 기동이 깨진다.
+  버전이 올라오면 조용히 기동이 깨지므로, 이후 버전 업그레이드(별도 작업) 때 exporter 이름을 함께 점검한다.
 
 ## References
 
