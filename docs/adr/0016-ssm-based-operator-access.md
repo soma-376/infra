@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted — 부분 대체: [ADR 0022](0022-dev-infrastructure-topology.md) 가 dev 환경의 ECS Exec 결정을 대체한다(호스트 SSM + docker exec — 5(b)). EC2 Session Manager 와 운영 Fargate 의 ECS Exec 결정은 그대로 유효하다.
 
 ## Context
 
@@ -27,6 +27,7 @@ ClickHouse EC2 인스턴스에 접속할 수단이 없었다. 로그 확인, 디
 |---|---|---|
 | `clickhouse` (EC2) | SSM Session Manager | 인스턴스 역할에 `AmazonSSMManagedInstanceCore` |
 | `post-processor`, `api-server` (Fargate) | ECS Exec | 서비스에 `enableExecuteCommand: true` |
+| dev 환경 태스크 | **해당 없음** | dev 는 호스트 SSM + `sudo docker exec` — [ADR 0022](0022-dev-infrastructure-topology.md) 5(b) |
 
 두 경로 모두 SSM 채널을 쓰므로 접근 통제 지점이 IAM 하나로 모인다. 별도의 키 체계나 bastion을 두지 않는다.
 
@@ -96,7 +97,7 @@ ssmmessages:OpenDataChannel
 
 ## Follow-up
 
-- 세션 감사 로그를 CloudWatch Logs 또는 S3로 남길 것인가. 남긴다면 KMS 암호화 여부, 보존 기간, 그리고 로그 그룹 정책 전반을 다룰 ADR-0019와 함께 결정한다.
+- 세션 감사 로그를 CloudWatch Logs 또는 S3로 남길 것인가. 남긴다면 KMS 암호화 여부, 보존 기간, 그리고 예약된 ADR-0020(로그 그룹 정책)과 함께 결정한다.
 - `ssm-user`의 sudo 권한을 제한할 것인가. 운영자가 늘어나면 읽기 전용 세션과 관리 세션을 나눌 필요가 생길 수 있다.
 - 배포와 조회에 쓰는 `cfn-user`에 `ssm:DescribeInstanceInformation`과 `ssm:StartSession` 권한을 어떤 범위로 부여할 것인가.
 

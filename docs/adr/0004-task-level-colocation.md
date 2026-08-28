@@ -10,7 +10,7 @@ Accepted
 
 ## Decision
 
-ECS Cluster는 1개로 유지하고, 서비스 묶음은 태스크 정의 단위로 표현한다.
+ECS Cluster는 **환경당** 1개로 유지하고(현재 계정에는 dev·prod 2개 — `soma-376-dev`·`soma-376-prod`), 서비스 묶음은 태스크 정의 단위로 표현한다.
 
 - ① `otel-collector` + `post-processor` 컨테이너를 하나의 태스크 정의에 배치
 - ② `api-server` + `batch-processor` 컨테이너를 하나의 태스크 정의에 배치
@@ -20,6 +20,8 @@ ECS Cluster는 1개로 유지하고, 서비스 묶음은 태스크 정의 단위
 ## Alternatives Considered
 
 - **ECS Cluster 자체를 분리**: 클러스터는 논리 그룹일 뿐이라 분리해도 실익이 없어 기각.
+  (환경 분리에 따른 클러스터 분리는 이것과 다른 사유다 — 클러스터 이름이 계정+리전에서 유일해야
+  하기 때문이며 [ADR 0021](0021-dev-prod-environment-separation.md)·[ADR 0024](0024-github-actions-oidc-deploy-roles.md)가 다룬다.)
 - **서비스 4개로 전부 분리**: 태스크 간 통신 오버헤드와 비용이 증가해 기각.
 - **처음부터 batch를 api-server에 내장**: 아직 결정되지 않아 채택하지 않음.
 
@@ -37,3 +39,8 @@ ECS Cluster는 1개로 유지하고, 서비스 묶음은 태스크 정의 단위
 ## Follow-up
 
 - Batch Processor를 API Server 소스로 흡수할지 여부는 아직 미결이다.
+  다만 `pulsemetry-backend`에는 `batch-processor` 모듈이 존재하지 않는다(`settings.gradle.kts`는
+  `:apps:enrollment-api`와 `:libs:enrollment-persistence`만 포함) — **흡수 여부 이전에 구현 여부부터
+  미정이다.** backend ADR-0008이 예고한 앱 모듈은 `:apps:enrollment-api` · `:apps:admin-api` ·
+  `:apps:telemetry-ingest` · `:apps:dashboard-api` 넷이며 `batch-processor`는 그중에 없다.
+  산출물 구성 확정은 ADR-0024 Follow-up(현상 기록)이 받는다.

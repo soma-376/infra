@@ -12,9 +12,17 @@ Raw Signal S3 버킷은 [ADR-0006](0006-accept-local-ebs-durability-for-mvp.md)�
 
 ## Decision
 
-MVP에서는 Raw Signal을 S3 Standard에 30일 동안 보관한 뒤 영구 만료시킨다. S3 Standard-IA, S3 Intelligent-Tiering, S3 Glacier 계열로 전환하거나 별도의 장기 아카이브를 만들지 않는다.
+MVP에서는 Raw Signal을 S3 Standard에 보관한 뒤 영구 만료시킨다. 보존 기간은 환경별로 다르다.
 
-이에 따라 ClickHouse 장애 또는 처리 오류 시 보장하는 재처리 범위는 최근 30일로 제한한다. 30일이 지난 Raw Signal과 그 신호에서 생성된 ClickHouse 데이터는 복구할 수 없다는 위험을 수용한다.
+| 환경 | 보존 기간 | 값의 단일 출처 |
+|---|---|---|
+| prod | **30일** | `lib/prod/data-stack.ts` 의 Raw Signal 버킷 lifecycle 규칙 |
+| dev | **7일** | `lib/dev/config.ts` 의 `DEV_RAW_SIGNAL_EXPIRATION_DAYS` |
+
+dev 의 7일은 의도된 값이다 — dev 데이터는 재현용이라 장기 복구 보장이 필요 없다(해당 상수의 주석).
+S3 Standard-IA, S3 Intelligent-Tiering, S3 Glacier 계열로 전환하거나 별도의 장기 아카이브를 만들지 않는다.
+
+이에 따라 ClickHouse 장애 또는 처리 오류 시 보장하는 재처리 범위는 최근 30일(prod 기준)로 제한한다. 30일이 지난 Raw Signal과 그 신호에서 생성된 ClickHouse 데이터는 복구할 수 없다는 위험을 수용한다.
 
 이 결정은 평상시 lifecycle 보존 정책만 다룬다. CloudFormation 스택 삭제 시 적용되는 `autoDeleteObjects`와 `RemovalPolicy.DESTROY`는 이 ADR의 범위에 포함하지 않는다.
 
@@ -40,6 +48,13 @@ MVP에서는 Raw Signal을 S3 Standard에 30일 동안 보관한 뒤 영구 만�
 
 ## Follow-up
 
+- **재처리 보장은 현재 보류 상태다 — 이 버킷에 쓰는 exporter 가 없다.**
+  `config/otel-collector.yaml` 은 `file/*` exporter 만 쓰고 `awss3` 는 주석에만 있다
+  ([ADR 0017](0017-inject-collector-config-via-env-provider.md) Follow-up 의 전환 과제).
+  전환 전까지 버킷에는 객체가 쌓이지 않으므로 "최근 30일 재처리" 보장은 발효되지 않는다.
+  전환을 미루는 동안 `otel-collector` 의 root 실행(`user: '0'` — file exporter 와 한 몸)이라는
+  보안 부채도 함께 유예된다. 재검토 조건: collector 의 backend 이관(backend ADR-0007)이
+  확정되면 그 작업에 `awss3` 전환과 root 실행 제거를 포함할지 함께 판단한다.
 - 애플리케이션의 재처리 경로가 Raw Signal만으로 ClickHouse 데이터를 재구성할 수 있는지 실제로 검증해야 한다.
 - 예상 객체 크기, 객체 수, 월간 수집량을 측정해 30일 보존 비용이 MVP 예산에 적합한지 확인해야 한다.
 - 최근 30일이라는 복구 범위를 팀과 이해관계자가 수용하는지 확인해야 한다.

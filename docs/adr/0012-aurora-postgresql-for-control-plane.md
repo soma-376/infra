@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Proposed (부분 미결 — 엔진 확정 조건 미충족. 마이너 버전 16.13 고정과 `controlplane` DB 이름은 발효 중이며, dev 의 배포 모델은 [ADR 0022](0022-dev-infrastructure-topology.md) 6번이 RDS `DatabaseInstance` 로 정했다)
 
 ## Context
 
@@ -12,6 +12,8 @@ Proposed
 
 - **Row-Level Security(RLS)**: 테이블의 행 조회와 변경을 정책으로 제한해 애플리케이션의 조건절뿐 아니라 DB 엔진에서도 테넌트 경계를 통제할 수 있다. 다만 shared schema 여부와 tenant context 전달 방식은 아직 정해지지 않았다.
 - **GIN(Generalized Inverted Index)**: JSONB나 전문 검색처럼 하나의 값에 여러 검색 키가 포함되는 쿼리를 인덱싱할 수 있다. 하지만 컨트롤 플레인의 실제 GIN 적용 대상과 쿼리는 아직 정해지지 않았다.
+
+**컨트롤 플레인 스키마는 `pulsemetry-backend` 의 Flyway 가 소유한다**(그 레포 ADR-0004·0009 — `enrollment` 스키마가 이미 확정되어 굴러간다). 검증 환경의 PostgreSQL 메이저 버전은 이 레포의 `lib/` 상수(16.13)가 단일 출처이며, backend 테스트 픽스처가 그것을 따라간다.
 
 기술 기능 외에 팀의 경험도 결정을 어렵게 한다.
 
@@ -72,7 +74,7 @@ PostgreSQL 16 계열 안에서 리전에 가용한 최신 마이너 버전으로
 
 다음 조건을 모두 확인한 뒤 `Accepted` 전환 여부를 결정한다.
 
-- 실제 컨트롤 플레인 스키마와 대표 워크로드를 정의한다.
+- 실재하는 컨트롤 플레인 스키마(backend Flyway 의 `enrollment` 스키마)를 근거로 RLS·GIN 필요 여부를 판단한다.
 - RLS가 필요한 경우 connection pool을 포함한 테넌트 격리 테스트를 통과한다.
 - 실제 GIN 후보 쿼리를 `EXPLAIN (ANALYZE, BUFFERS)`로 검증한다.
 - 동일한 대표 워크플로를 PostgreSQL과 MySQL에서 공정하게 비교한다.
