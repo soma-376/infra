@@ -238,7 +238,8 @@ ASG·캐패시티 프로바이더가 3쌍이 된다. ADR-0022 3번이 ASG를 나
 - **auth-proxy 는 한시적 구성이라는 것이 이 ADR 의 전제이며, 그 전제는 확정됐다** —
   OTLP 토큰 검증은 `pulsemetry-backend` 의 Spring Security 계층으로 이관된다(backend ADR-0007).
   ALB 단 인증(모드 A 복귀)은 채택하지 않는다 — ALB 는 TLS 종단만 담당하고 검증 지점은 앱
-  계층 한 곳이다. **이관이 끝나면 [ADR 0022](0022-dev-infrastructure-topology.md) 의 4번·8번·10번
+  계층 한 곳이다. 인증 모델의 소유는 [허브 ADR 0001](../../../docs/adr/0001-otlp-authentication-model.md) 이다
+  (`TOKEN_HASH_SECRET` 회전 불가 제약도 그쪽이 담는다). **이관이 끝나면 [ADR 0022](0022-dev-infrastructure-topology.md) 의 4번·8번·10번
   (auth-proxy 태스크·리스너 규칙·로그 그룹)을 다시 정리한다.**
 - **운영 인프라 이관은 별도 결정이다.** 그때 prod `CollectorService`에도
   `cloudMapOptions`를 추가해야 `COLLECTOR_HOST` 상수가 prod에서 유효해진다.
