@@ -321,27 +321,30 @@ DB는 `api-server`와 같은 `controlplane`을 공유한다.
 | 기본 액션 | fixed response 404 | fixed response 404 |
 | 기타 | — | synth 시 ADR-0008 폴백 경고 방출 |
 
+모드 A 가 구성하는 `/v1/*` `authenticateJwt`·`/api/*` `AuthenticateCognitoAction` 은 **의도적 잔존
+코드다** — 인증 결정은 허브 ADR 0001(앱 계층 검증)로 대체됐고, Spring Security 이관 시 함께 걷어낸다.
+
 **`DevEdgeStack`에는 이 분기가 없다.** HTTP 전용이며(:80 + :4318 + :8123), Cognito도 CloudFront도 만들지 않는다. `:80`의 `/v1/*`만 auth-proxy가 인증하고 나머지 경로의 방어선은 `devAllowedCidr` 하나뿐이다 (ADR-0022 8번/9번, ADR-0023 3번).
 
 ---
 
 ## 5. 지금 남은 작업
 
-### (A) ADR-0008 — 인증 이원화 확정 `Proposed` · 최우선
+### (A) 도메인 / ACM 인증서 확보 — 모드 A(TLS 종단) 전환 `미결`
 
 `docs/adr/0008-dual-auth-alb-cognito-and-otlp-token.md`
 
-- **막힌 지점: 도메인 / ACM 인증서 확보 여부가 미정이다.** `authenticate-cognito`와 `jwt-validation` 둘 다 HTTPS 리스너를 필수로 요구하므로, 이게 정해지지 않으면 모드 A를 실전 검증할 수 없다.
-- 코드는 **이미 모드 A / 모드 B 양쪽 다 구현되어 있고 테스트도 통과한다.** 즉 병목은 코드 작성이 아니라 **결정**이다.
-- 도메인 확보 시 → Status를 `Accepted`로 올리고, 모드 A로 실제 배포 검증한 뒤 사용한 context 값을 문서화한다.
-- 도메인 확보 후에는 다음 순서로 리소스를 연결하고 검증한다.
-  1. DNS를 Route 53에서 관리할지 외부 DNS 공급자를 유지할지 결정하고, ALB에 연결할 API/OTLP 도메인 또는 subdomain을 확정한다.
-  2. `ap-northeast-2`에서 해당 도메인의 ACM 인증서를 발급·검증하고, DNS에 ALB를 가리키는 Alias 또는 CNAME 레코드를 만든다.
-  3. `certificateArn`, `domainName`, `cognitoDomainPrefix` context 값을 확정한다. `domainName`은 Cognito callback URL의 `/oauth2/idpresponse` 기준 주소와 일치해야 한다.
-  4. CloudFront 프론트엔드에도 custom domain을 사용할지 별도로 결정한다. 사용한다면 CloudFront용 인증서와 DNS Alias를 추가하는 설계를 먼저 ADR에 반영한다.
-  5. 모드 A로 배포해 HTTP→HTTPS 리다이렉트, `/api/*` Cognito 인증, `/v1/*` JWT 검증을 확인하고 실제 context 값과 DNS·인증서 연결 절차를 배포 런북에 기록한다.
-- 도메인 무산 시 → ADR-0008에 적힌 폴백(Spring Security + Cognito JWT 검증, Collector auth extension)으로 전환한다. 이건 **인프라가 아니라 앱 레이어 변경**이므로 별도 ADR(그 시점의 다음 번호)로 분리해 기록한다.
-- **문서 정정이 필요하다.** ADR-0008 Constraints의 마지막 항목 — *"jwt-validation은 비교적 최신 ALB 기능이라 CDK L2 construct에서 아직 지원하지 않을 수 있다. 이 경우 `CfnListenerRule`(L1)로 직접 정의해야 한다"* — 은 이미 무효다. `aws-cdk-lib ^2.261.0`의 L2 `ListenerAction.authenticateJwt`로 구현되어 있다 (`lib/prod/edge-stack.ts`). 이 문장은 삭제한다.
+- **ADR-0008 은 허브 ADR 0001 로 대체됐다(`Superseded by`, PROJ-80).** ALB 단 인증
+  (`authenticate-cognito`·`jwt-validation`)은 양 경로 모두 채택하지 않는다 — ALB 는 TLS 종단만 담당하고,
+  토큰 인증은 앱 계층이 한다(현행 auth-proxy → backend Spring Security 이관, Cognito 무관).
+  모드 A/모드 B 의 현행 정의는 **TLS 종단 유무**다(ADR-0008 의 "대체 후의 모드 정의" 블록).
+- 남은 미결은 **도메인·ACM 인증서 확보(TLS 종단)** 하나다. 확보 시 순서:
+  1. DNS를 Route 53에서 관리할지 외부 DNS 공급자를 유지할지 결정하고, ALB에 연결할 도메인을 확정한다.
+  2. `ap-northeast-2`에서 ACM 인증서를 발급·검증하고, DNS에 ALB Alias/CNAME 레코드를 만든다.
+  3. `certificateArn`, `domainName` context 값을 확정하고 모드 A로 배포해 HTTP→HTTPS 리다이렉트를
+     확인한 뒤 배포 런북에 기록한다.
+- `lib/prod/edge-stack.ts` 의 Cognito 구축 코드(User Pool·`AuthenticateCognitoAction`·`authenticateJwt`)는
+  **의도적 잔존**이다 — Spring Security 이관 시 함께 걷어낸다. 결함으로 오독하지 않는다.
 
 ### (B) ADR-0009 — 스택 경계 확정 — **완료 (`Accepted`)**
 

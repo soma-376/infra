@@ -258,9 +258,9 @@ export class EdgeStack extends Stack {
 
     Annotations.of(this).addWarningV2(
       'infra:edge-no-auth',
-      'ALB certificateArn 미제공: HTTP 폴백으로 ALB 단 인증이 비활성화되었다. ' +
-        '앱 레이어(Spring Security + Cognito JWT, Collector auth extension)에서 ' +
-        '인증을 검증해야 한다 (ADR-0008 폴백).',
+      'ALB certificateArn 미제공: 모드 B(HTTP, TLS 종단 없음)로 합성되었다. ' +
+        '토큰 인증은 어느 모드든 앱 계층이 수행한다(Cognito 무관 — 허브 ADR 0001, ' +
+        'ADR-0008 은 Superseded).',
     );
   }
 
