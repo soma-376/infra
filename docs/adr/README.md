@@ -12,7 +12,7 @@
 | 0006 | [ClickHouse 데이터 내구성 - MVP에서는 로컬 EBS 수용](0006-accept-local-ebs-durability-for-mvp.md) | Accepted |
 | 0007 | [ECR 레포지토리는 CDK 관리 밖에서 선(先)생성](0007-precreate-ecr-outside-cdk.md) | Accepted |
 | 0008 | [인증 이원화 - 대시보드는 ALB authenticate-cognito, OTLP는 ALB jwt-validation](0008-dual-auth-alb-cognito-and-otlp-token.md) | Proposed |
-| 0009 | [CDK 스택 경계 - 인프라 레포 단일 관리 + 앱 레포는 이미지 배포만](0009-single-infra-repo-stack-boundary.md) | Proposed |
+| 0009 | [CDK 스택 경계 - 인프라 레포 단일 관리 + 앱 레포는 이미지 배포만](0009-single-infra-repo-stack-boundary.md) | Accepted |
 | 0010 | [고정 IP(EIP) 미채택](0010-no-static-eip.md) | Accepted |
 | 0011 | [최소 AZ 구성 - 서브넷은 2 AZ, 이중화는 미적용](0011-single-az-topology.md) | Accepted |
 | 0012 | [컨트롤 플레인 DB 엔진으로 PostgreSQL 검토](0012-aurora-postgresql-for-control-plane.md) | Proposed |
