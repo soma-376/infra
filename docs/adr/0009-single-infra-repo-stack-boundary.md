@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 
@@ -10,7 +10,7 @@ Collector & Processor와 Dashboard Backend는 서로 다른 깃 레포로 관리
 
 ## Decision
 
-CDK는 별도의 인프라 레포에서 단일 `ApplicationStack`으로 관리한다(제안). 각 앱 레포의 CI는 이미지 빌드, ECR push, `ecs update-service --force-new-deployment` 실행까지만 수행한다. 앱 배포가 CDK 배포를 유발하지 않도록 두 흐름을 분리한다.
+CDK는 별도의 인프라 레포에서 단일 `ApplicationStack`으로 관리한다. 각 앱 레포의 CI는 이미지 빌드, ECR push, `ecs update-service --force-new-deployment` 실행까지만 수행한다. 앱 배포가 CDK 배포를 유발하지 않도록 두 흐름을 분리한다.
 
 ClickHouse는 분석 데이터를 저장하지만, MVP에서는 독립 관리형 데이터베이스가 아니라 ECS Cluster, EC2 Capacity Provider, Cloud Map, 공통 task execution role에 결합된 런타임 워크로드다. 따라서 ClickHouse의 ASG, EBS, 태스크 정의와 `Ec2Service`를 `ApplicationStack`에 배치한다. 스택 경계는 데이터의 논리적 성격보다 배포 수명주기와 construct 의존 방향을 우선한다.
 
@@ -34,4 +34,9 @@ ClickHouse는 분석 데이터를 저장하지만, MVP에서는 독립 관리형
 
 - ClickHouse에 독립적인 배포, 복구 또는 보존 수명주기가 필요해지면 공유 런타임 스택과 `AnalyticsStack` 분리를 재검토한다.
 - "앱 팀이 인프라 레포를 수정하는 것이 부담"이라는 문제가 실제 병목으로 드러나면, 그 시점에 스택 분리로 전환한다. 이는 논리적 재배치 수준의 변경으로 가능하다고 판단한다.
-- 앱 팀의 인프라 레포 수정 부담이 실제 병목이 되면 스택 분리 전환.
+- **재검토 트리거** — `pulsemetry-backend` ADR-0007(collector 이관 + 인증 계층)이 `Accepted` 로
+  전환되면 collector 설정의 소유권이 이 레포를 떠나므로 [ADR 0017](0017-inject-collector-config-via-env-provider.md)을 재검토한다.
+  파이프라인 전체 이관(Python·Kotlin 성능 비교 목적)이 다시 논의되면
+  [ADR 0007](0007-precreate-ecr-outside-cdk.md)·[ADR 0015](0015-arm64-fargate-for-cost-savings.md)·[ADR 0024](0024-github-actions-oidc-deploy-roles.md)도 함께 재검토한다.
+  (backend ADR-0006 — 파이프라인 전체 병합 — 은 기각으로 닫혔으므로 이 결정의 전제
+  "파이프라인과 대시보드가 서로 다른 깃 레포"는 유지된다.)

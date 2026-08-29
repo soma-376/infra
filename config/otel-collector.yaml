@@ -1,8 +1,15 @@
 # OpenTelemetry Collector 설정 (ADR-0017)
 #
-# 이 파일은 synth 시점에 lib/application-stack.ts 가 통째로 읽어
-# otel-collector 컨테이너의 환경변수 OTEL_CONFIG 로 주입하고,
-# 컨테이너는 `--config=env:OTEL_CONFIG` 로 기동한다.
+# 이 파일은 synth 시점에 lib/prod/application-stack.ts 와 lib/dev/application-stack.ts 가
+# (각자의 COLLECTOR_CONFIG_PATH 로) 통째로 읽어 otel-collector 컨테이너의 환경변수
+# OTEL_CONFIG 로 주입하고, 컨테이너는 `--config=env:OTEL_CONFIG` 로 기동한다.
+# dev 용으로 포크하지 않는다 (ADR-0022 4번) - 두 환경이 같은 파일을 읽는다.
+#
+# 상호 참조 - ai-telemetry-pipeline/otel-collector-config.yaml (dev in-repo 설정)과 두 벌 구성이다.
+#   신원 전파 3요소(include_metadata · headers_setter/pulsemetry_tenant · batch.metadata_keys)는
+#   auth-proxy 신원 헤더 전파의 전제라 두 파일에서 반드시 같은 값이어야 하며 함께 바꾼다.
+#   한쪽만 고치면 ClickHouse 의 tenant_id·installation_id 가 빈 문자열이 된다
+#   (허브 telemetry-ingest.md §4, ADR-0017 Constraints).
 #
 # 주의 1 - 시크릿 금지.
 #   이 내용은 CloudFormation 템플릿과 ECS 콘솔에 평문으로 노출된다.

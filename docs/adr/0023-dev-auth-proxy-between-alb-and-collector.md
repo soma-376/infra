@@ -8,8 +8,9 @@ Accepted
 [ADR-0008](0008-dual-auth-alb-cognito-and-otlp-token.md)은 OTLP 경로의 인증을 ALB의
 `jwt-validation`으로 처리하기로 했다. 그러나 이 액션과 `authenticate-cognito`는 **둘 다
 HTTPS 리스너를 필수로 요구**하고, HTTPS 리스너에는 ACM 인증서가 필요하며, 인증서 발급에는
-도메인이 필요하다. **팀에 도메인이 없다.** 그래서 ADR-0008은 아직 `Proposed`이고,
-`AGENTS.md` 5장 (A)가 "병목은 코드 작성이 아니라 결정"이라고 적어둔 상태다.
+도메인이 필요하다. **팀에 도메인이 없다.** 그래서 ADR-0008은 당시 아직 `Proposed`였고
+(이후 [허브 ADR 0001](../../../docs/adr/0001-otlp-authentication-model.md)로 `Superseded by` — Follow-up 참조),
+`AGENTS.md` 5장 (A)가 "병목은 코드 작성이 아니라 결정"이라고 적어둔 상태였다.
 
 그동안 dev ALB의 `:80` 리스너는 `/v1/*`를 **인증 없이** Collector 태스크로 그대로 흘린다
 (`lib/dev/edge-stack.ts`의 `DevOtlpForward`). 실질적인 방어선은 `devAllowedCidr` 하나뿐이고
@@ -64,6 +65,7 @@ ADR-0022 4번이 세운 기준을 그대로 적용한 결과다. 그 ADR은 awsv
   필요 없지만, **ADR-0008대로 도메인 확보 후 JWKS 검증이 들어오면 awsvpc는 그 경로에서만
   조용히 타임아웃으로 죽는다.** prod Fargate는 NAT가 있어 egress가 살아 있으므로,
   dev를 bridge로 두는 쪽이 오히려 prod와 동작이 일치한다.
+  (대체됨 — ALB/JWKS 검증 복귀는 허브 ADR 0001로 채택되지 않는다. "외부 API 호출이 생기면 egress가 필요하다"는 일반 논거로만 읽는다.)
 - **SG 룰 재사용.** bridge라 아웃바운드의 출발 SG가 `DevAppHostSg`이고, RDS 5432 인그레스
   룰이 이미 그 SG를 peer로 갖고 있다. `DATABASE_URL` 접속에 새 룰이 필요 없다.
 - **확장 경로.** 동적 포트를 쓰므로 계정 설정 변경 없이 즉시 다중 배치가 가능하다
@@ -94,6 +96,10 @@ OTLP 리시버가 404를 낸다. `:4318` 리스너를 추가하면 경로가 `/v
 `generateSecretString`으로 랜덤 값을 만들고 ECS `secrets`로 주입한다. 값이 코드·CFN
 템플릿·CDK context 어디에도 남지 않는다. enrollment 서버(별도 레포)는 같은 시크릿을
 읽어 써야 하므로 ARN을 `DevEdgeStack`의 `CfnOutput`으로 노출한다.
+
+환경변수 `LOG_LEVEL`(dev 는 `debug`)도 함께 주입하지만 **현재 auth-proxy 앱은 이 이름을 읽지
+않는다**(PROJ-51 이 앱 쪽에 도입 대기 중. auth-proxy 자체가 backend Spring Security 로 이관
+예정이라 이관 확정 시 주입 제거로 전환한다 — `lib/common/config.ts` 의 `AUTH_PROXY_ENV` 주석).
 
 `DATABASE_URL`도 [ADR-0018](0018-post-processor-runtime-contract-via-derived-dsn-secret.md)의
 파생 시크릿 패턴을 그대로 따른다 - `environment`에 넣으면 DB 비밀번호가
@@ -220,17 +226,23 @@ ASG·캐패시티 프로바이더가 3쌍이 된다. ADR-0022 3번이 ASG를 나
 
 ## Follow-up
 
-- **auth-proxy가 조회하는 `enrollment` 스키마를 아무도 부트스트랩하지 않는다.**
-  `AGENTS.md` 5장 (H)가 적은 것과 같은 문제다 - 접속은 성공하고 첫 조회에서
-  `relation "enrollment.telemetry_tokens" does not exist`로 깨진다. dev에서는
-  `publiclyAccessible` RDS에 `psql`로 직접 넣어 우회하되, 근본 해결은 `AGENTS.md` 5장 (D)의
-  마이그레이션 ADR이 맡는다.
-- **enrollment 서버가 dev 인프라에 없다.** 토큰 발급 주체가 없으므로 당분간 토큰을 손으로
-  넣어야 하고, 그쪽이 배포될 때 `TOKEN_HASH_SECRET`을 같은 값으로 공유하는 방법을 확정해야
-  한다.
-- **도메인·인증서를 확보하면 이 ADR을 재검토한다.** ADR-0008의 모드 A로 전환할 때
-  auth-proxy를 걷어낼지, ALB 인증과 이중으로 둘지, 아니면 토큰 검증만 auth-proxy에 남길지
-  결정해야 한다. **auth-proxy는 한시적 구성이라는 것이 이 ADR의 전제다.**
+- **`enrollment` 스키마의 부트스트랩 주체는 `pulsemetry-backend` 의 Flyway 다**(그 레포
+  ADR 0004·0009). 스키마가 없으면 접속은 성공하고 첫 조회에서
+  `relation "enrollment.telemetry_tokens" does not exist`로 깨진다.
+  enrollment 서버가 dev 에 배포되기 전까지는 backend 명세 §9.4 의 **로컬 `bootRun` 절차(공식
+  잠정 절차)** 로 마이그레이션을 태운다 — `psql` 로 DDL 을 직접 넣는 우회는 쓰지 않는다.
+  **남은 결정은 그 마이그레이션을 ECS 에서 실행할 자리**이며 `AGENTS.md` 5장 (D)가 소유한다.
+- **토큰 발급 주체는 `pulsemetry-backend` 의 `:apps:enrollment-api` 다 — 이 서비스를 dev
+  인프라에 배치하는 결정이 아직 없다.** ECR 레포·태스크 정의·ECS 서비스가 모두 부재하며,
+  배치 시 `TOKEN_HASH_SECRET`(`TokenHashSecretArn` 출력) 공유 방법을 함께 정한다. **새 ADR
+  대상이다**(번호는 작성 시점에 정한다). collector 이관(backend ADR-0007)이 진행되면
+  `:apps:telemetry-ingest` 가 배포 단위로 추가된다는 점도 함께 다룬다.
+- **auth-proxy 는 한시적 구성이라는 것이 이 ADR 의 전제이며, 그 전제는 확정됐다** —
+  OTLP 토큰 검증은 `pulsemetry-backend` 의 Spring Security 계층으로 이관된다(backend ADR-0007).
+  ALB 단 인증(모드 A 복귀)은 채택하지 않는다 — ALB 는 TLS 종단만 담당하고 검증 지점은 앱
+  계층 한 곳이다. 인증 모델의 소유는 [허브 ADR 0001](../../../docs/adr/0001-otlp-authentication-model.md) 이다
+  (`TOKEN_HASH_SECRET` 회전 불가 제약도 그쪽이 담는다). **이관이 끝나면 [ADR 0022](0022-dev-infrastructure-topology.md) 의 4번·8번·10번
+  (auth-proxy 태스크·리스너 규칙·로그 그룹)을 다시 정리한다.**
 - **운영 인프라 이관은 별도 결정이다.** 그때 prod `CollectorService`에도
   `cloudMapOptions`를 추가해야 `COLLECTOR_HOST` 상수가 prod에서 유효해진다.
 - **시크릿 암호화·회전 정책이 이 레포에 없다.** `DevAuthProxyTokenHashSecret`과

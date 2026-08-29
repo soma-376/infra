@@ -9,23 +9,27 @@ Accepted
 `ApplicationStack`이 `post-processor` 컨테이너에 넣던 환경변수와, 앱
 (`ai-telemetry-pipeline`)이 실제로 읽는 환경변수의 **교집합이 0이었다.**
 
-| 인프라가 주입 (`lib/application-stack.ts`) | 앱이 읽는 것 |
+| 인프라가 주입 (`lib/prod/application-stack.ts`) | 앱이 읽는 것 |
 |---|---|
 | `CLICKHOUSE_HOST` = `clickhouse.obs.local` | — |
 | `RAW_BUCKET` = 버킷 이름 | — |
 | `DB_NAME` = `controlplane` | — |
 | 시크릿 `DB_CREDS` = Aurora 마스터 시크릿 JSON | — |
-| — | `ENRICHMENT_CH_URL` (`src/enrichment/sink_clickhouse.py:43`) |
-| — | `ENRICHMENT_CH_DB` (`src/enrichment/sink_clickhouse.py:47`) |
-| — | `ENRICHMENT_PG_DSN` (`src/enrichment/rds.py:21`) |
+| — | `ENRICHMENT_CH_URL` (`apps/telemetry-processor/enrichment/sink_clickhouse.py:44`) |
+| — | `ENRICHMENT_CH_DB` (`apps/telemetry-processor/enrichment/sink_clickhouse.py:48`) |
+| — | `ENRICHMENT_PG_DSN` (`apps/telemetry-processor/enrichment/providers/org.py:33`) |
 
-앱은 `os.environ.get(name, DEFAULT)` 형태로만 읽는다. 이름이 없으면 예외를 던지지 않고
-**docker-compose 전용 기본값으로 조용히 폴백한다** — `http://clickhouse:8123`,
-`host=postgres port=5432 dbname=enrichment user=enrichment password=enrichment`.
-ECS 태스크 안에는 `clickhouse`도 `postgres`도 없다. 결과는 이렇게 이어진다.
+앱은 `os.environ.get(name, DEFAULT)` 형태로만 읽지만 **폴백 거동이 둘로 갈린다.**
+`ENRICHMENT_CH_URL`·`ENRICHMENT_CH_DB` 는 이름이 없으면 예외 없이 in-code 기본값
+(`http://clickhouse:8123` · `default`)으로 **조용히 폴백**한다. 반면 `ENRICHMENT_PG_DSN` 의
+in-code 기본값은 **빈 문자열**이라 폴백이 아니라 org provider 조회 시점의 **즉시 연결 실패**다
+(compose 의 `host=postgres … dbname=enrichment` DSN 은 `docker-compose.dev.yml` 이 주입하는
+값이지 앱의 폴백이 아니다). 장애 증상도 다르다 — ClickHouse 쪽은 "컨테이너는 RUNNING 인데
+모든 적재가 503", PG 쪽은 조회 시점의 연결 예외다.
+ECS 태스크 안에는 `clickhouse`도 `postgres`도 없다. ClickHouse 쪽 결과는 이렇게 이어진다.
 
 1. 기동 시 `ensure_schema()`가 ClickHouse에 닿지 못해 5회 재시도 후 포기한다
-   (`src/otlp_receiver.py`). 이건 non-fatal이라 **컨테이너는 정상으로 보인다.**
+   (`apps/telemetry-processor/otlp_receiver.py`). 이건 non-fatal이라 **컨테이너는 정상으로 보인다.**
 2. 이후 들어오는 모든 push가 `BackendUnavailable` → **HTTP 503**.
 3. collector의 `otlphttp` exporter는 503을 재시도 대상으로 보고 무한히 다시 보낸다.
 
@@ -138,16 +142,16 @@ this.postProcessorPgDsnSecret = new Secret(this, 'PostProcessorPgDsn', {
   깨지면 배포는 성공하고 `post-processor`만 런타임에 죽는다.
   `DEFAULT_PASSWORD_EXCLUDE_CHARS`는 `aws-rds/lib/private/util`에만 있고 공개
   엔트리포인트에서 export되지 않으므로, **회귀 테스트는 상수 import가 아니라 합성 템플릿의
-  `ExcludeCharacters` 문자열을 검사한다**(`test/data-stack.test.ts`).
+  `ExcludeCharacters` 문자열을 검사한다**(`test/prod/data-stack.test.ts`).
 - **`sslmode=require`는 서버 요구사항이 아니다.** Aurora PostgreSQL 16은 TLS를 강제하지
   않는다 — `rds.force_ssl` 기본값은 PG 17 이상에서 1, 16 이하에서 0이다. 이건 클라이언트
   측 하드닝 선택이다. `require`는 CA 검증을 하지 않으므로 컨테이너에 RDS CA 번들이 필요
   없다. `verify-full`은 이미지 변경을 요구하므로 앱 레포 몫이다.
 - **포트는 `PORTS.aurora` 리터럴을 쓴다.** `aurora.clusterEndpoint.port`는 number 토큰이라
   템플릿 리터럴에 넣으면 인코딩된 double 문자열이 낀다. `PORTS.aurora`는 이미
-  `lib/network-stack.ts`의 Aurora ingress 룰이 쓰는 값이고, `DatabaseCluster`에 `port`를
+  `lib/prod/network-stack.ts`의 Aurora ingress 룰이 쓰는 값이고, `DatabaseCluster`에 `port`를
   주지 않았으므로 엔진 기본값과 일치한다. 두 곳이 갈라지지 않게 단일 소스를 유지한다.
-- **보안 그룹은 건드리지 않는다.** `lib/network-stack.ts`가 collector SG → ClickHouse
+- **보안 그룹은 건드리지 않는다.** `lib/prod/network-stack.ts`가 collector SG → ClickHouse
   8123/9000, collector SG → Aurora 5432 인그레스를 이미 열어 뒀다. **SG는 NetworkStack
   밖에서 만들지 않는다**는 불변 규칙이 있다.
 - **IAM은 자동이다.** `addContainer`의 `secrets` 경로가
@@ -204,24 +208,28 @@ this.postProcessorPgDsnSecret = new Secret(this, 'PostProcessorPgDsn', {
   **로테이션을 켜는 순간 이 설계는 위 Alternatives의 첫 항목으로 교체해야 한다.**
   현재 레포 전체에 `addRotation*`/`manageMasterUserPassword` 호출이 없다.
 - **Secrets Manager 시크릿이 하나 늘어난다** (월 약 $0.40).
-- **`unsafeUnwrap()`이 이 레포에 처음 등장한다.** `lib/data-stack.ts`의 "시크릿은 참조만
+- **`unsafeUnwrap()`이 이 레포에 처음 등장한다.** `lib/prod/data-stack.ts`의 "시크릿은 참조만
   노출한다. 값을 읽는 코드는 절대 두지 않는다"는 불변 규칙을 좁혀야 한다 — 금지 대상은
   **합성 시점에 평문을 읽는 것**이지 동적 참조 조립이 아니다. `AGENTS.md` §3에 반영한다.
 - **인프라 테스트는 이 종류의 버그를 다시 잡지 못한다.** `ENRICHMENT_CH_URL`이라는 이름이
-  앱과 일치하는지는 원리적으로 검증 불가다. 유일한 방어선은 `lib/config.ts`의
+  앱과 일치하는지는 원리적으로 검증 불가다. 유일한 방어선은 `lib/common/config.ts`의
   `ENRICHMENT_ENV`에 앱 소스 위치를 주석으로 고정하고 `AGENTS.md` §3에 불변 규칙으로
   남기는 것뿐이다. **앱이 읽는 이름이 바뀌면 두 레포를 같은 PR로 함께 바꾼다.**
 - **`batch-processor`의 `CLICKHOUSE_HOST`는 여전히 죽은 계약일 가능성이 있다.**
-  소스를 확보하면 같은 점검을 반복해야 한다. 이 ADR은 그것을 확인하지 않았다.
+  `batch-processor` 는 소스 미확보가 아니라 **미존재**다 — `pulsemetry-backend` 에 대응 모듈이 없다
+  (ADR-0024 Follow-up). 모듈이 생기면 같은 계약 점검을 반복해야 한다. 이 ADR은 그것을 확인하지 않았다.
 
 ## Follow-up
 
-- **RDS 조직 스키마를 아무도 부트스트랩하지 않는다.** 앱은 ClickHouse DDL만 기동 시
-  멱등 적용하고, PostgreSQL의 `company`/`department`/`employee`/
-  `employee_department_assignment`는 compose의 `/docker-entrypoint-initdb.d` 마운트에
-  의존한다. ECS에는 그 메커니즘이 없다 → **접속은 성공하고 첫 조회에서
-  `relation "employee" does not exist`로 깨진다.** 이 ADR은 이 문제를 해결하지 않으며,
-  마이그레이션 주체를 정하는 별도 결정이 필요하다.
+- **RDS `enrollment` 스키마의 부트스트랩** — 앱은 ClickHouse DDL만 기동 시 멱등 적용하고,
+  PostgreSQL 조회 대상인 `enrollment.installations`·`enrollment.team_memberships`·`enrollment.teams`
+  (`org.py` 의 `_MEMBERSHIP_SQL`. 옛 `company`/`department`/`employee` 계열은 PROJ-40·41 에서
+  교체되어 어느 레포에도 없다)는 compose의 `/docker-entrypoint-initdb.d` 마운트에 의존한다.
+  ECS에는 그 메커니즘이 없다 → **접속은 성공하고 첫 조회에서
+  `relation "enrollment.installations" does not exist`로 깨진다.**
+  **부트스트랩 주체는 `pulsemetry-backend` 의 Flyway 로 확정됐다**(그 레포 ADR 0004·0009).
+  남은 결정은 그 마이그레이션을 **ECS 에서 실행할 자리**이며 `AGENTS.md` 5장 (D)가 소유한다.
+  dev 배포 전까지는 backend 명세 §9.4 의 로컬 `bootRun` 절차(공식 잠정 절차)로 마이그레이션을 태운다.
 - `controlplane`을 `api-server`(JPA)와 공유하는 것이 옳은가. 테이블 이름 충돌 가능성이
   있다(`company`, `employee`는 흔한 이름이다). 별도 DB 또는 스키마 분리는 후속 결정.
 - ClickHouse가 무인증 HTTP로 노출된다. 컨테이너에 user/password 환경변수가 없고 앱 sink에
@@ -229,11 +237,11 @@ this.postProcessorPgDsnSecret = new Secret(this, 'PostProcessorPgDsn', {
 - **마스터 시크릿 로테이션을 켜는 시점** → 파생 시크릿 설계를 폐기하고 앱이 `DB_CREDS`
   JSON을 파싱하는 방식으로 전환한다. 이 둘은 양립하지 않는다.
 - runtime DB user를 분리하는 시점 → DSN 조립 대상이 마스터에서 그 user로 바뀐다.
-- 앱이 읽는 환경변수 이름이 바뀌는 시점 → `lib/config.ts`의 `ENRICHMENT_ENV`와 앱을
+- 앱이 읽는 환경변수 이름이 바뀌는 시점 → `lib/common/config.ts`의 `ENRICHMENT_ENV`와 앱을
   같은 PR로 함께 바꾼다.
 - `aws-cdk-lib` 업그레이드로 `ExcludeCharacters` 회귀 테스트가 깨질 때 → 따옴표 없는 DSN의
   전제가 무너진 것이므로 즉시 인용 전략을 재설계한다.
-- `batch-processor`/`api-server` 소스를 확보할 때 → 같은 계약 점검을 반복한다.
+- `batch-processor`/`api-server` 의 대응 모듈이 실제로 만들어질 때(현재 **미존재**) → 같은 계약 점검을 반복한다.
 - `awss3` exporter로 전환해 `RAW_BUCKET`이 실제로 쓰이거나 완전히 불필요해질 때 (ADR-0017).
 
 ## References
@@ -241,8 +249,8 @@ this.postProcessorPgDsnSecret = new Secret(this, 'PostProcessorPgDsn', {
 - [ADR-0004](0004-task-level-colocation.md), [ADR-0005](0005-cloud-map-private-dns-discovery.md),
   [ADR-0007](0007-precreate-ecr-outside-cdk.md), [ADR-0009](0009-single-infra-repo-stack-boundary.md),
   [ADR-0012](0012-aurora-postgresql-for-control-plane.md), [ADR-0017](0017-inject-collector-config-via-env-provider.md)
-- 앱 레포 `ai-telemetry-pipeline`: `src/enrichment/sink_clickhouse.py`, `src/enrichment/rds.py`,
-  `src/otlp_receiver.py`
+- 앱 레포 `ai-telemetry-pipeline`: `apps/telemetry-processor/enrichment/sink_clickhouse.py`,
+  `apps/telemetry-processor/enrichment/providers/org.py`, `apps/telemetry-processor/otlp_receiver.py`
 - [PostgreSQL libpq — Connection Strings (Keyword/Value)](https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING-KEYWORD-VALUE)
 - [Amazon ECS task definition parameters](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_definition_parameters.html)
 - [AWS CloudFormation — Retrieve a Secrets Manager secret](https://docs.aws.amazon.com/secretsmanager/latest/userguide/cfn-example_reference-secret.html)

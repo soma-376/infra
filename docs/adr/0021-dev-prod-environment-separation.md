@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted — 부분 대체: [ADR 0024](0024-github-actions-oidc-deploy-roles.md) 7번이 Decision 5 의 dev 기본 이미지 태그(`latest` → `dev`)를 대체한다. 나머지 결정은 그대로 유효하다.
 
 ## Context
 
@@ -139,8 +139,9 @@ Cost Explorer에서 환경별로 비용을 쪼갤 때도 `Env=mvp` = 운영, `En
 **ECR 레포([ADR-0007](0007-precreate-ecr-outside-cdk.md))는 dev/prod가 같은 레포를
 공유한다.** ADR-0007이 이미 `soma-376/<env>/<service>` 안을 "환경별로 별도 push가
 필요해져 이미지 승격(promote) 없이 레포 수가 3배가 된다"는 이유로 기각했고, 그 판단은
-지금도 유효하다. 분리는 태그로만 한다 - dev의 기본 태그는 `latest`이며
-`-c devImageTag=<tag>`로 갈아탈 수 있다.
+지금도 유효하다. 분리는 태그로만 한다 - dev의 기본 태그는 `latest`였으나
+**[ADR 0024](0024-github-actions-oidc-deploy-roles.md) 7번이 `dev`로 대체했다**
+(`-c devImageTag=<tag>`로 갈아탈 수 있다).
 
 **Cloud Map 네임스페이스 `obs.local`([ADR-0005](0005-cloud-map-private-dns-discovery.md))도
 같은 이름을 쓴다.** private DNS 네임스페이스는 **VPC 스코프**라 같은 계정에 동명이 둘
@@ -222,7 +223,8 @@ diff를 유발한다(위 4번). 얻는 것이 가독성뿐이라 기각.
 
 ### Negative
 
-- **파일 경로가 전부 바뀐다.** `lib/config.ts` → `lib/common/*` + `lib/prod/config.ts`,
+- **완료** — **파일 경로가 전부 바뀐다.** ADR 6건(0007·0015·0017·0018·0019·0022)의 낡은 경로
+  인용 9곳을 PROJ-79 에서 치환했다. 원문: `lib/config.ts` → `lib/common/*` + `lib/prod/config.ts`,
   `lib/network-stack.ts` → `lib/prod/network-stack.ts` 식이다. 기존 ADR과 `AGENTS.md`가
   본문에서 파일 경로를 다수 인용하고 있으므로(예: `lib/application-stack.ts:201`) 함께
   고쳐야 한다. 이 문서 갱신을 빠뜨리면 다음 사람이 없는 파일을 찾는다.
@@ -234,6 +236,7 @@ diff를 유발한다(위 4번). 얻는 것이 가독성뿐이라 기각.
   남는다.** 특히 dev 기본 태그가 `latest`인데 운영이 같은 태그를 쓰면 dev 빌드가 곧
   운영 이미지가 된다. 방어선은 인프라가 아니라 **태그 규율**뿐이며, 이 레포는 앱 레포의
   CI를 강제할 수 없다(ADR-0007, ADR-0009와 같은 종류의 레포 경계 문제다).
+  **(대체됨 — [ADR 0024](0024-github-actions-oidc-deploy-roles.md) 7번이 dev `dev` / prod `prod` 고정 태그로 이 경로를 닫았다. 태그 규율이 강제 불가라는 점은 그대로다.)**
 - **`Env` 태그와 실제 환경이 어긋난 채로 남는다.** 이 문서를 읽지 않은 사람에게는 계속
   버그로 보인다.
 

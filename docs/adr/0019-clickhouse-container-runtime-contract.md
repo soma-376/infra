@@ -49,7 +49,7 @@ disabling network access for user 'default'
 
 `default` 유저가 **루프백 전용**이 된다. `post-processor`는 awsvpc ENI의 다른 IP에서
 오므로 거부되고, ClickHouse는 네트워크 거부를 인증 실패로 보고한다.
-`src/enrichment/sink_clickhouse.py:59-61`이 이 4xx를 `BackendUnavailable`로 감싸므로
+`apps/telemetry-processor/enrichment/sink_clickhouse.py:60-64`이 이 4xx를 `BackendUnavailable`로 감싸므로
 리시버는 503을 뱉고, collector는 그 배치를 무한히 재시도한다 - ADR-0018이 고친 것과
 증상이 같고 원인만 다른 두 번째 층이다.
 
@@ -102,7 +102,7 @@ compose가 쓰는 태그와 같은 값이다. 로컬에서 검증한 동작이 E
 동기화의 목적이므로 버전도 함께 맞춘다. 이 태그의 매니페스트는 `linux/arm64`를 포함하므로
 t4g(Graviton) 인스턴스에서 pull된다 ([ADR-0015](0015-arm64-fargate-for-cost-savings.md)).
 
-**3. 두 값 모두 `lib/config.ts`에 두고 스택은 import만 한다.**
+**3. 두 값 모두 `lib/common/config.ts`에 두고 스택은 import만 한다.**
 
 `CLICKHOUSE_HTTP_URL` / `ENRICHMENT_ENV`와 같은 자리다. 컨테이너 계약에 해당하는 값이
 스택 파일에 리터럴로 흩어지면 `post-processor`와 ClickHouse 양쪽의 계약을 한눈에 볼 수 없다.
@@ -152,15 +152,15 @@ access management 권한이 실제 문제로 떠오르면 이 안으로 전환�
   데이터 유실을 수용하고 있으므로, 충돌 시 서비스를 0으로 내리고 SSM으로 접속해
   ([ADR-0016](0016-ssm-based-operator-access.md)) `/data/clickhouse` 내용을 비운 뒤
   재배포한다. 스키마는 `post-processor`가 기동 시 `ensure_schema()`로 멱등 재적용한다.
-- 합성 템플릿이 이미지 태그와 환경변수 4개를 갖는지는 `test/application-stack.test.ts`가,
-  `DEFAULT_ACCESS_MANAGEMENT`가 `'0'`이 아니라는 불변식은 `test/config.test.ts`가 고정한다.
+- 합성 템플릿이 이미지 태그와 환경변수 4개를 갖는지는 `test/prod/application-stack.test.ts`가,
+  `DEFAULT_ACCESS_MANAGEMENT`가 `'0'`이 아니라는 불변식은 `test/prod/config.test.ts`가 고정한다.
   다만 인프라 테스트는 "ClickHouse가 실제로 그 값을 어떻게 해석하는가"를 검사할 수 없다.
   ADR-0017·ADR-0018과 같은 계열의 틈이며, 최종 관문은 배포 후 `/ecs/clickhouse` 로그에
   `disabling network access for user 'default'`가 **없는지** 확인하는 것이다.
 
 ## References
 
-- 앱 레포 `ai-telemetry-pipeline`: `src/enrichment/sink_clickhouse.py`,
+- 앱 레포 `ai-telemetry-pipeline`: `apps/telemetry-processor/enrichment/sink_clickhouse.py`,
   `docker-compose.dev.yml`
 - `clickhouse/clickhouse-server` 이미지의 `docker/server/entrypoint.sh`
 - [ADR-0018](0018-post-processor-runtime-contract-via-derived-dsn-secret.md) -

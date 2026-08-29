@@ -15,11 +15,12 @@ Accepted
 
 여기서 문제는 Fargate가 x86_64라는 사실 자체가 아니라, **x86_64를 고른 것이 아니라 지정하지 않아서 x86_64였다는 점**이다. CDK `FargateTaskDefinition`의 `runtimePlatform` 기본값은 `undefined`이고, 그러면 합성 템플릿에 `RuntimePlatform` 속성이 아예 들어가지 않아 ECS 서비스 기본값인 x86_64가 적용된다. 결과적으로 앱 레포가 어느 아키텍처로 이미지를 빌드해야 하는지가 인프라 코드 어디에도 드러나지 않았다.
 
-이 결정을 지금 내리는 이유는 타이밍이다. ECR 레포 3개(`soma-376/post-processor`, `soma-376/api-server`, `soma-376/batch-processor`)에는 아직 이미지가 push되지 않았다. 기존 amd64 이미지가 없으므로 전환 비용이 사실상 0이고, 앱 레포는 처음부터 arm64로 빌드하면 된다. 이미지가 쌓인 뒤라면 재빌드와 재push가 필요했을 것이다.
+이 결정을 지금 내리는 이유는 타이밍이다. 결정 당시 ECR 레포 3개(`soma-376/post-processor`, `soma-376/api-server`, `soma-376/batch-processor`)에는 아직 이미지가 push되지 않았다 — 이후 [ADR-0023](0023-dev-auth-proxy-between-alb-and-collector.md)이 `soma-376/auth-proxy`를 더해 레포는 넷이 됐고, 현재 빌드되는 이미지는 `ai-telemetry-pipeline`의 post-processor·auth-proxy 둘이다(`api-server`·`batch-processor`는 대응 모듈이 미존재 — 산출물 구성 확정 시 갱신한다, ADR-0024 Follow-up). 기존 amd64 이미지가 없으므로 전환 비용이 사실상 0이고, 앱 레포는 처음부터 arm64로 빌드하면 된다. 이미지가 쌓인 뒤라면 재빌드와 재push가 필요했을 것이다.
 
 ## Decision
 
-`CollectorTask`와 `DashboardTask`의 `runtimePlatform`을 `ARM64` + `LINUX`로 **명시한다**. 근거는 세 가지다.
+`CollectorTask`와 `DashboardTask`의 `runtimePlatform`을 `ARM64` + `LINUX`로 **명시한다**.
+dev 의 ECS on EC2 태스크도 같은 이유로 ARM64 다([ADR-0022](0022-dev-infrastructure-topology.md) 3번 — 호스트 ASG 가 `t4g` + ARM AMI). 근거는 세 가지다.
 
 **1. 비용 약 20% 절감**
 
@@ -59,11 +60,11 @@ t4g 인스턴스가 이미 Graviton이다. 컴퓨트 전체가 ARM64로 통일�
 ### Positive
 
 - [ADR-0003](0003-hybrid-launch-type-ec2-clickhouse-fargate-apps.md)의 Consequences/Tradeoffs에 적힌 Fargate 비용 근거는 이 ADR의 ARM64 요금으로 대체된다.
-- `runtimePlatform` 값은 `lib/config.ts`가 아니라 `lib/application-stack.ts`의 모듈 스코프 상수로 두었다. AGENTS.md의 "공유 상수는 config.ts에" 규칙은 스택 간에 공유되는 리터럴을 대상으로 하는데, 이 값은 CDK enum이고 소비처가 한 파일뿐이다. 현재 `config.ts`는 `aws-cdk-lib/core`만 import하는 가벼운 모듈이라 `aws-ecs` 의존을 새로 들이는 쪽이 손해다.
+- `runtimePlatform` 값은 `lib/common/config.ts`가 아니라 `lib/prod/application-stack.ts`의 모듈 스코프 상수로 두었다. AGENTS.md의 "공유 상수는 config.ts에" 규칙은 스택 간에 공유되는 리터럴을 대상으로 하는데, 이 값은 CDK enum이고 소비처가 한 파일뿐이다. 현재 `config.ts`는 `aws-cdk-lib/core`만 import하는 가벼운 모듈이라 `aws-ecs` 의존을 새로 들이는 쪽이 손해다.
 
 ### Negative
 
-- **앱 레포 3곳이 `linux/arm64`로 빌드해야 한다.** 이 레포는 앱 레포의 CI를 강제할 수 없다([ADR-0009](0009-single-infra-repo-stack-boundary.md), [ADR-0007](0007-precreate-ecr-outside-cdk.md)과 같은 종류의 레포 경계 문제다). 배포 전에 앱 레포 쪽에 전달해야 한다.
+- **앱 레포 2곳이 `linux/arm64`로 빌드해야 한다.** 이 레포는 앱 레포의 CI를 강제할 수 없다([ADR-0009](0009-single-infra-repo-stack-boundary.md), [ADR-0007](0007-precreate-ecr-outside-cdk.md)과 같은 종류의 레포 경계 문제다). 배포 전에 앱 레포 쪽에 전달해야 한다.
 - **이 불일치는 테스트로 잡히지 않는다.** 이미지 URI에는 아키텍처가 드러나지 않으므로 `cdk synth`도 `npm test`도 통과하고, 태스크 기동 시점에만 다음과 같이 실패한다.
 
   ```

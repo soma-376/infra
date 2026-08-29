@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted — 부분 대체: [ADR 0023](0023-dev-auth-proxy-between-alb-and-collector.md) 이 8번의 "인증 없는 엣지" 와 4번의 태스크 3개 구성을 대체한다(auth-proxy 태스크 추가, `/v1/*` 는 인증 경유, `:4318` 은 디버그 직행). 네트워크·컴퓨트·데이터·확장 경로 결정은 그대로 유효하다.
 
 ## Context
 
@@ -46,7 +46,7 @@ new Vpc(this, 'Vpc', {
 ```
 
 **CIDR `10.1.0.0/16`.** 운영 VPC는 CDK 기본값 `10.0.0.0/16`을 쓴다
-(`lib/network-stack.ts`가 `ipAddresses`를 주지 않는다). dev에 같은 대역을 쓰면 두 VPC를
+(`lib/prod/network-stack.ts`가 `ipAddresses`를 주지 않는다). dev에 같은 대역을 쓰면 두 VPC를
 peering하거나 같은 VPN에 물릴 여지가 영구히 사라진다. 지금 필요하지 않더라도 겹치지 않게
 두는 비용이 0이므로 겹치지 않게 둔다.
 
@@ -93,13 +93,14 @@ RDS DB subnet group도 2 AZ를 요구한다. 워크로드는 여전히 사실상
 
 ### 4. 네트워크 모드를 태스크별로 나눈다
 
-**이 ADR의 핵심이다.** 세 태스크가 서로 다른 이유로 서로 다른 모드를 요구한다.
+**이 ADR의 핵심이다.** 태스크가 서로 다른 이유로 서로 다른 모드를 요구한다.
 
 | 태스크 | 네트워크 모드 | 강제하는 것 |
 |---|---|---|
 | `DevCollectorTask` | **awsvpc** | collector config의 `http://localhost:8080` |
 | `DevClickhouseTask` | **awsvpc** | Cloud Map A 레코드 |
 | `DevDashboardTask` | **bridge** | 인터넷 egress + ECS Exec |
+| `DevAuthProxyTask` | **bridge** | 강제 조건 없음 — ENI 여유와 egress ([ADR 0023](0023-dev-auth-proxy-between-alb-and-collector.md) 2번이 추가) |
 
 #### `DevCollectorTask` = awsvpc
 
@@ -237,8 +238,9 @@ import로는 검증할 수 없다.** 운영과 같은 방식으로 **`test/dev/d
 | 리스너 | 규칙 | 타깃 그룹 |
 |---|---|---|
 | **:80** | 기본: fixed-response 404 | - |
-| | `/v1/*` | collector TG - target type **ip**, 포트 4318 |
+| | `/v1/*` | **auth-proxy TG** - target type **instance**, 동적 포트 ([ADR 0023](0023-dev-auth-proxy-between-alb-and-collector.md)이 collector 직행을 대체) |
 | | `/api/*` | dashboard TG - target type **instance**, 동적 포트 |
+| **:4318** | 기본: forward | collector TG - target type **ip**, 포트 4318 — **인증 우회 디버그 직행** (ADR 0023 3번) |
 | **:8123** | 기본: forward | ClickHouse TG - target type **ip**, 포트 8123, healthCheck `/ping` |
 
 target type이 갈리는 것은 네트워크 모드의 귀결이다 - awsvpc 태스크는 자기 IP로,
@@ -282,8 +284,8 @@ Annotations.of(scope).addWarningV2(
 
 ### 10. 로그 그룹 접두사 `/ecs/dev/`
 
-`/ecs/dev/collector`, `/ecs/dev/post-processor`, `/ecs/dev/api-server`,
-`/ecs/dev/batch`, `/ecs/dev/clickhouse`.
+`/ecs/dev/collector`, `/ecs/dev/post-processor`, `/ecs/dev/auth-proxy`([ADR 0023](0023-dev-auth-proxy-between-alb-and-collector.md)이 추가),
+`/ecs/dev/api-server`, `/ecs/dev/batch`, `/ecs/dev/clickhouse` — 태스크 4개, 컨테이너 6개, 로그 그룹 6개.
 
 운영이 `logGroupName`에 물리 이름을 명시하므로, 접두를 붙이지 않으면 dev 첫 배포가
 `already exists`로 실패한다(ADR-0021의 Constraints). 로그 그룹 자체의 보존 기간·삭제
@@ -313,7 +315,7 @@ bridge인 dashboard는 동적 포트를 쓰므로 **옵트인 없이 즉시 다�
 ## Constraints
 
 - **t4g 계열의 인스턴스당 ENI 한도는 3(프라이머리 포함)이다.** awsvpc 태스크는 태스크당
-  ENI 하나를 잡으므로 롤링 배포 여유가 없다. 세 서비스 모두 `desiredCount: 1`,
+  ENI 하나를 잡으므로 롤링 배포 여유가 없다. 네 서비스 모두 `desiredCount: 1`,
   **`minHealthyPercent: 0` / `maxHealthyPercent: 100`** 으로 교체 배포(먼저 내리고 새로
   띄움)를 강제한다. 운영 ClickHouse `Ec2Service`와 정확히 같은 패턴이며(`AGENTS.md` 3장
   불변 규칙), 같은 이유로 **`AsgCapacityProvider`의
@@ -437,7 +439,7 @@ egress가 실제로 필요해지면 그때 별도로 결정한다(Follow-up 참�
   `DevEdgeStack` **네 개만** 출력한다(운영 스택이 섞여 나오지 않는다).
 - `npx cdk synth -c env=dev`의 산출물에 **NAT gateway가 0개**이고 서브넷 타입은
   **public 하나만** 있다.
-- 세 태스크 정의의 `NetworkMode`가 각각 **`awsvpc` / `bridge` / `awsvpc`** 로 고정되어
+- 태스크 정의 4개의 `NetworkMode`가 각각 **`awsvpc` / `bridge` / `bridge` / `awsvpc`** 로 고정되어
   있고, 테스트가 이를 어서션한다.
 - `devAllowedCidr` 미지정 시 synth 경고 `infra:dev-open-ingress`가 뜨고, 지정 시 뜨지
   않는다.

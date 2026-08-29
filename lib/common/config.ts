@@ -88,7 +88,7 @@ export const PORTS = {
  * 51행 옆으로 올리면 TDZ 로 `Cannot access 'PORTS' before initialization` 이다.
  *
  * **끝에 슬래시를 붙이지 않는다.** 앱이 이 값 뒤에 `/?query=...&database=...` 를
- * 그대로 이어붙이므로(`src/enrichment/sink_clickhouse.py`), 슬래시가 있으면
+ * 그대로 이어붙이므로(`apps/telemetry-processor/enrichment/sink_clickhouse.py` 의 `execute()`), 슬래시가 있으면
  * `//?query=` 가 되어 ClickHouse 가 404 를 돌려준다.
  */
 export const CLICKHOUSE_HTTP_URL = `http://${CLICKHOUSE_HOST}:${PORTS.clickhouseHttp}`;
@@ -109,7 +109,7 @@ export const COLLECTOR_OTLP_URL = `http://${COLLECTOR_HOST}:${PORTS.otlp}`;
  *
  * 아래 `CLICKHOUSE_CONTAINER_ENV.CLICKHOUSE_DB` 와 같은 값이어야 한다 - 서버가 만드는
  * DB 와 앱이 조회하는 DB 가 갈라지면 적재 대상 테이블이 서로 다른 DB 에 생긴다.
- * 두 값의 일치는 `test/config.test.ts` 가 고정한다. (ADR-0018, ADR-0019)
+ * 두 값의 일치는 `test/prod/config.test.ts` 가 고정한다. (ADR-0018, ADR-0019)
  */
 export const CLICKHOUSE_DEFAULT_DB = 'default';
 
@@ -153,7 +153,7 @@ export const CLICKHOUSE_IMAGE = 'clickhouse/clickhouse-server:24.8-alpine';
  * `CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT` 를 지우면 즉시 위 장애로 회귀한다.
  *
  * `default` 유저에 비밀번호가 없는 것은 의도다 - 앱이 자격증명을 아예 보내지 않기
- * 때문이다(`src/enrichment/sink_clickhouse.py` 의 `execute()` 는 쿼리 파라미터만 붙인다).
+ * 때문이다(`apps/telemetry-processor/enrichment/sink_clickhouse.py` 의 `execute()` 는 쿼리 파라미터만 붙인다).
  * 접근 통제의 실체는 `NetworkStack` 의 `clickhouseSecurityGroup` 이다.
  */
 export const CLICKHOUSE_CONTAINER_ENV: Readonly<Record<string, string>> = {
@@ -193,9 +193,9 @@ export const CONTROL_DB_SSLMODE = 'require';
  * 그 호스트명이 안 풀려 모든 insert 가 `BackendUnavailable` -> HTTP 503 이 된다.
  * synth 도 테스트도 배포도 전부 통과하므로 여기가 유일한 방어선이다.
  *
- *   - ENRICHMENT_CH_URL : src/enrichment/sink_clickhouse.py:43
- *   - ENRICHMENT_CH_DB  : src/enrichment/sink_clickhouse.py:47
- *   - ENRICHMENT_PG_DSN : src/enrichment/rds.py:21
+ *   - ENRICHMENT_CH_URL : apps/telemetry-processor/enrichment/sink_clickhouse.py (DEFAULT_CH_URL 폴백)
+ *   - ENRICHMENT_CH_DB  : apps/telemetry-processor/enrichment/sink_clickhouse.py (DEFAULT_DB 폴백)
+ *   - ENRICHMENT_PG_DSN : apps/telemetry-processor/enrichment/providers/org.py 의 OrgProvider (빈 문자열 기본값 - 폴백 아님, 즉시 연결 실패)
  *
  * 앱이 읽는 이름이 바뀌면 여기와 앱을 같은 PR 로 함께 바꾼다.
  */
@@ -217,7 +217,10 @@ export const ENRICHMENT_ENV = {
  *   - COLLECTOR_BASE_URL : 필수. 뒤에 `/v1/traces` 등을 이어붙인다
  *   - DATABASE_URL       : 필수. **URI 형식**이어야 한다 (아래 buildPostgresUri 주석)
  *   - TOKEN_HASH_SECRET  : 필수. Bearer 토큰 HMAC-SHA256 키
- *   - LOG_LEVEL          : 선택. silent|error|warn|info|debug, 기본 info
+ *   - LOG_LEVEL          : 선택. silent|error|warn|info|debug, 기본 info.
+ *                          **현재 앱이 이 이름을 읽지 않는다 - PROJ-51 대기.** auth-proxy
+ *                          자체가 backend Spring Security 로 이관 예정이므로, 이관이
+ *                          확정되면 이 항목과 dev 주입을 함께 걷어낸다 (ADR-0023 4번)
  *
  * `PORT`(기본 4316)와 `MAX_OTLP_BODY_SIZE`(기본 10MiB)는 기본값을 그대로 쓰므로
  * 주입하지 않는다. 포트는 `PORTS.authProxy` 가 같은 값을 들고 있다.
@@ -252,14 +255,14 @@ const LIBPQ_UNQUOTED_UNSAFE = /[\s'"\\]/;
  * libpq keyword/value DSN 한 줄을 만든다 (ADR-0018).
  *
  * 형식: `host=H port=P dbname=D user=U password=W sslmode=S`
- * 앱의 compose 기본값(`src/enrichment/rds.py:21`)과 같은 형식이라 로컬과 ECS 사이에
- * 형식 차이가 생기지 않는다.
+ * compose 가 주입하는 값(`docker-compose.dev.yml` 의 ENRICHMENT_PG_DSN)과 같은 형식이라
+ * 로컬과 ECS 사이에 형식 차이가 생기지 않는다.
  *
  * **값을 따옴표로 감싸지 않는다.** user/password 는 합성 시점에 아직 CloudFormation
  * 토큰이라 여기서 이스케이프할 방법이 없다. 대신 Aurora 자동 생성 비밀번호가 위험
  * 문자 4개(공백, `'`, `"`, `\`)를 전부 제외한다는 사실에 의존한다
  * (aws-rds 의 `DEFAULT_PASSWORD_EXCLUDE_CHARS`). **이 커플링은 우연히 성립하는
- * 것이므로** `test/data-stack.test.ts` 가 합성 템플릿의 `ExcludeCharacters` 로 고정한다.
+ * 것이므로** `test/prod/data-stack.test.ts` 가 합성 템플릿의 `ExcludeCharacters` 로 고정한다.
  *
  * 토큰이 아닌(= 합성 시점에 값이 확정된) 조각은 여기서 즉시 검증해, 조용히 깨진
  * DSN 이 배포되는 것을 막는다.

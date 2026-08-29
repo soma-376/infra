@@ -45,6 +45,10 @@ export interface EdgeStackProps extends StackProps {
  * 모드 A(certificateArn 제공): 443 HTTPS 리스너 + /v1/* jwt-validation +
  * /api/* authenticate-cognito + 80->443 redirect.
  * 모드 B(미제공): 80 HTTP 리스너, 인증 없이 forward + synth 경고.
+ *
+ * Cognito 구축과 모드 A 의 두 ALB 인증 액션은 의도적 잔존이다 — 인증 종결 지점은
+ * 앱 계층으로 확정됐고(허브 ADR 0001, ADR-0008 은 Superseded), Spring Security
+ * 이관 시 함께 걷어낸다. 어느 모드든 토큰 인증은 앱 계층이 수행한다.
  */
 export class EdgeStack extends Stack {
   constructor(scope: Construct, id: string, props: EdgeStackProps) {
@@ -196,7 +200,9 @@ export class EdgeStack extends Stack {
     const issuer = ctx.userPool.userPoolProviderUrl;
 
     // Rule 1: /v1/* (OTLP) -> jwt-validation 후 forward. jwt-validation 은 HTTPS
-    // 리스너에서만 유효하므로 이 액션은 반드시 모드 A 에서만 붙인다 (ADR-0008).
+    // 리스너에서만 유효하므로 이 액션은 반드시 모드 A 에서만 붙인다.
+    // 의도적 잔존 — ALB 단 인증은 채택되지 않았다(허브 ADR 0001, ADR-0008 은
+    // Superseded). Spring Security 이관 시 Rule 2·Cognito 와 함께 걷어낸다.
     listener.addAction('OtlpJwt', {
       priority: 1,
       conditions: [ListenerCondition.pathPatterns(['/v1/*'])],
@@ -208,6 +214,7 @@ export class EdgeStack extends Stack {
     });
 
     // Rule 2: /api/* -> authenticate-cognito(브라우저 리다이렉트) 후 forward.
+    // Rule 1 과 같은 의도적 잔존이다(허브 ADR 0001).
     listener.addAction('ApiCognito', {
       priority: 2,
       conditions: [ListenerCondition.pathPatterns(['/api/*'])],
@@ -258,9 +265,9 @@ export class EdgeStack extends Stack {
 
     Annotations.of(this).addWarningV2(
       'infra:edge-no-auth',
-      'ALB certificateArn 미제공: HTTP 폴백으로 ALB 단 인증이 비활성화되었다. ' +
-        '앱 레이어(Spring Security + Cognito JWT, Collector auth extension)에서 ' +
-        '인증을 검증해야 한다 (ADR-0008 폴백).',
+      'ALB certificateArn 미제공: 모드 B(HTTP, TLS 종단 없음)로 합성되었다. ' +
+        '토큰 인증은 어느 모드든 앱 계층이 수행한다(Cognito 무관 — 허브 ADR 0001, ' +
+        'ADR-0008 은 Superseded).',
     );
   }
 
