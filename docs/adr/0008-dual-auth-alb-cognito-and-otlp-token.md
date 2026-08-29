@@ -49,5 +49,6 @@ Superseded by [허브 ADR 0001](../../../docs/adr/0001-otlp-authentication-model
 - **대체됨** — 이 ADR 의 인증 결정 전체가 [허브 ADR 0001](../../../docs/adr/0001-otlp-authentication-model.md) 로 대체됐다.
   토큰 검증은 앱 계층(현행 auth-proxy → backend Spring Security 이관, Cognito 무관)이 수행한다.
 - 도메인·ACM 인증서 확보 방식은 여전히 미결이다 — 단 걸려 있는 것은 인증이 아니라 **TLS 종단**(모드 A 전환)이다.
-- `lib/prod/edge-stack.ts` 의 Cognito 구축 코드(User Pool·`AuthenticateCognitoAction`)는 **의도적 잔존**이다.
+- `lib/prod/edge-stack.ts` 의 Cognito 구축 코드(User Pool·`AuthenticateCognitoAction`)와 모드 A 의
+  `/v1/*` `authenticateJwt` 는 **의도적 잔존**이다.
   Spring Security 대체 시 함께 걷어낸다.
