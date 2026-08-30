@@ -226,10 +226,10 @@ describe('DevEdgeStack', () => {
     }
   });
 
-  // 출력은 DevEdgeStack 한 곳에 모은다. 이 8개가 배포 직후 사람이 쓰는 전부이며
+  // 출력은 DevEdgeStack 한 곳에 모은다. 이 9개가 배포 직후 사람이 쓰는 전부이며
   // (OTLP 주입 주소, 인증 우회 디버그 주소, API, ClickHouse 직접 쿼리, psql 접속
-  // 정보, enrollment 서버에 넘길 토큰 키 ARN) 하나라도 빠지면 콘솔을 뒤져야 한다.
-  test('배포 직후 필요한 8개 출력을 모두 노출한다', () => {
+  // 정보, enrollment-api 가 쓰는 두 Secret ARN) 하나라도 빠지면 콘솔을 뒤져야 한다.
+  test('배포 직후 필요한 9개 출력을 모두 노출한다', () => {
     for (const outputName of [
       'AlbDnsName',
       'OtlpEndpoint',
@@ -239,8 +239,16 @@ describe('DevEdgeStack', () => {
       'RdsEndpoint',
       'RdsSecretArn',
       'TokenHashSecretArn',
+      'AdminApiTokenSecretArn',
     ]) {
       template.hasOutput(outputName, {});
     }
+  });
+
+  test('관리자 토큰은 값이 아니라 Secret ARN 만 출력한다', () => {
+    const output = template.findOutputs('AdminApiTokenSecretArn');
+    expect(Object.values(output)).toHaveLength(1);
+    expect(JSON.stringify(output)).not.toContain('SecretString');
+    expect(JSON.stringify(output)).not.toContain('dynamic-reference');
   });
 });

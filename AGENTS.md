@@ -99,9 +99,9 @@ NetworkStack ──> DataStack ──┐
 | 스택 | 파일 | 주요 리소스 |
 |---|---|---|
 | `DevNetworkStack` | `lib/dev/network-stack.ts` | 전용 VPC (`10.1.0.0/16`, 2 AZ × public 1 티어, **NAT 0개**), S3 Gateway Endpoint, **SG 5개 전부 + 모든 cross-SG 룰** |
-| `DevDataStack` | `lib/dev/data-stack.ts` | RDS PostgreSQL 16.13 `db.t4g.micro` (`controlplane` DB, gp3 20GB, **`publiclyAccessible`**), 시크릿 4개 (마스터 + post-processor 파생 DSN + auth-proxy 파생 URI + 토큰 해시 키), Raw Signal S3 버킷 (7일 만료) |
+| `DevDataStack` | `lib/dev/data-stack.ts` | RDS PostgreSQL 16.13 `db.t4g.micro` (`controlplane` DB, gp3 20GB, **`publiclyAccessible`**), 시크릿 5개 (마스터 + post-processor 파생 DSN + auth-proxy 파생 URI + 공유 토큰 해시 키 + enrollment-api 관리자 토큰), Raw Signal S3 버킷 (7일 만료) |
 | `DevApplicationStack` | `lib/dev/application-stack.ts` | ECS 클러스터, Cloud Map `obs.local`, ASG 2개 (앱 `t4g.medium` / ClickHouse `t4g.small`) + 캐패시티 프로바이더 2개, `Ec2Service` 4개 |
-| `DevEdgeStack` | `lib/dev/edge-stack.ts` | internet-facing ALB (:80, :4318, :8123), `CfnOutput` 8개. **Cognito·CloudFront·프론트엔드 S3는 만들지 않는다** |
+| `DevEdgeStack` | `lib/dev/edge-stack.ts` | internet-facing ALB (:80, :4318, :8123), `CfnOutput` 9개. **Cognito·CloudFront·프론트엔드 S3는 만들지 않는다** |
 
 **dev 태스크 구성** — 태스크마다 네트워크 모드가 다르다. ADR-0022 4번이 **awsvpc를 강제하는 조건을 둘만 인정**하고(태스크 내 `localhost` 의존 / Cloud Map A 레코드 등록 대상), 나머지는 bridge로 두어 인터넷 egress와 ENI 여유를 얻는다는 규칙이다 (ADR-0023 2번).
 
@@ -144,9 +144,10 @@ NetworkStack ──> DataStack ──┐
 | **`AsgCapacityProvider`의 `enableManagedTerminationProtection: false`** | 단일 인스턴스 교체 배포를 관리형 종료 보호가 막는다. (`lib/prod/application-stack.ts:346`, dev는 `lib/dev/application-stack.ts`의 `addCapacityProvider`) |
 | **DB 시크릿은 참조만 노출한다** | `data.dbSecret`(`ISecret`)을 넘길 뿐, **합성 시점에 값을 평문으로 읽는 코드**는 절대 넣지 않는다. 컨테이너에는 `Secret.fromSecretsManager`로 주입한다. **예외는 `DataStack`의 `PostProcessorPgDsn` 파생 시크릿 하나뿐이며**, 거기서도 `unsafeUnwrap()`이 돌려주는 건 평문이 아니라 `{{resolve:secretsmanager:...}}` 동적 참조 토큰이다(합성 산출물은 `Fn::Join` + `Ref`뿐). 새 예외를 만들려면 ADR-0018을 먼저 갱신한다. (`lib/prod/data-stack.ts`, dev는 `lib/dev/data-stack.ts`의 `DevPostProcessorPgDsn`, ADR-0018) |
 | **`post-processor`의 환경변수 이름은 앱 소스가 권위다** | 앱은 `ENRICHMENT_CH_URL` / `ENRICHMENT_CH_DB` / `ENRICHMENT_PG_DSN` **세 개만** 읽는다 (`ai-telemetry-pipeline`의 `apps/telemetry-processor/enrichment/sink_clickhouse.py`, `apps/telemetry-processor/enrichment/providers/org.py`의 `OrgProvider`). 이름이 틀리면 CH 두 개는 예외 없이 compose 전용 기본값으로 **조용히 폴백**하고(ECS에서는 DNS가 안 풀려 모든 insert가 `BackendUnavailable` → HTTP 503), `ENRICHMENT_PG_DSN`은 기본값이 빈 문자열이라 **조회 시점의 즉시 연결 실패**다(장애 증상이 다르다 — ADR-0018). **synth도 테스트도 배포도 전부 통과한다** — 인프라 테스트는 "앱이 그 이름을 읽는가"를 원리적으로 검증할 수 없다. 죽은 계약(`CLICKHOUSE_HOST`·`DB_CREDS`·`DB_NAME`)을 다시 넣지 않는다. **dev도 같은 이름을 쓴다** - 계약이 환경마다 갈리면 "dev에서 검증했다"는 말의 의미가 사라진다. (`lib/common/config.ts`의 `ENRICHMENT_ENV`, ADR-0018, ADR-0021 2번) |
+| **dev `api-server`는 enrollment-api의 `PULSEMETRY_*` 계약을 따른다** | 일반 환경변수는 비밀이 아닌 `PULSEMETRY_DB_URL` 하나뿐이다. RDS 마스터 Secret의 `username`/`password`, 관리자 토큰 Secret의 JSON `token`, auth-proxy와 공유하는 토큰 해시 Secret은 각각 `PULSEMETRY_DB_USERNAME` / `PULSEMETRY_DB_PASSWORD` / `PULSEMETRY_ADMIN_API_TOKEN` / `PULSEMETRY_TOKEN_HASH_SECRET`으로 ECS `secrets`에 넣는다. `DB_CREDS`/`DB_NAME`을 dev에 되살리거나 토큰 값을 `environment`/`CfnOutput`에 넣지 않는다. (`lib/common/config.ts`의 `ENROLLMENT_ENV`, PROJ-112) |
 | **ClickHouse 컨테이너의 `CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1'`과 고정 태그를 지우지 않는다** | 이미지 entrypoint는 `CLICKHOUSE_USER`/`CLICKHOUSE_PASSWORD`/`CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT`가 전부 비면 `default` 유저를 **루프백 전용**으로 잠근다(`disabling network access for user 'default'`). 그러면 `post-processor`의 모든 적재가 403 `Code: 516 ... Authentication failed`로 죽고 앱이 그걸 `BackendUnavailable`→503으로 바꾼다. **synth도 테스트도 배포도 전부 통과한다** — 실제로 이렇게 깨졌다. 조건식상 `USER='default'`와 `PASSWORD=''`는 분기를 못 열고 **`DEFAULT_ACCESS_MANAGEMENT`만 연다**(나머지 셋은 compose 정합성용). 태그를 빼면 `latest`가 되어 재기동마다 이 entrypoint 로직 자체가 바뀔 수 있다. 비밀번호가 없는 것도 의도다 — 앱이 자격증명을 아예 보내지 않으므로 접근 통제는 `clickhouseSecurityGroup`이 담당한다. (`lib/common/config.ts`의 `CLICKHOUSE_IMAGE`·`CLICKHOUSE_CONTAINER_ENV` - dev/prod가 같은 상수를 전개한다, ADR-0019) |
 | **Aurora 자동 생성 비밀번호의 `ExcludeCharacters`와 따옴표 없는 libpq DSN은 한 몸이다** | `buildLibpqDsn()`은 값을 따옴표로 감싸지 않는다 — 합성 시점에 user/password는 토큰이라 감쌀 방법이 없다. aws-rds의 `DEFAULT_PASSWORD_EXCLUDE_CHARS`가 공백·`'`·`"`·`\` 넷을 전부 빼주기 때문에만 성립하는 **우연한 커플링**이다. 깨지면 배포는 성공하고 `post-processor`만 런타임에 죽는다. 그 상수는 공개 export가 아니므로 `test/prod/data-stack.test.ts`가 **합성 템플릿의 `ExcludeCharacters`** 로 고정한다. dev의 `DatabaseInstance`도 같은 상수에 기대므로 `test/dev/data-stack.test.ts`가 같은 어서션을 갖는다. (ADR-0018, ADR-0022 7번) |
-| **`batch-processor`·`api-server`의 계약과 `RAW_BUCKET`은 건드리지 않는다** | 두 컨테이너는 대응 모듈이 backend 레포에 **존재하지 않아**(미확보가 아니라 미존재 — ADR-0024 Follow-up) 실제로 무엇을 읽는지 알 수 없다. `post-processor`를 고쳤다는 이유로 함께 "정리"하면 멀쩡한 계약을 깨뜨린다. `post-processor`의 `RAW_BUCKET`도 같은 이유로 남긴다 — ADR-0017의 `awss3` exporter 전환용이며 태스크 역할의 `grantReadWrite`와 한 몸이다. (ADR-0018) |
+| **`batch-processor`의 계약과 `post-processor`의 `RAW_BUCKET`은 건드리지 않는다** | `batch-processor` 대응 모듈은 backend 레포에 아직 없어 실제 계약을 알 수 없다. `CLICKHOUSE_HOST`를 추정으로 정리하지 않는다. `post-processor`의 `RAW_BUCKET`은 ADR-0017의 `awss3` exporter 전환용이며 태스크 역할의 `grantReadWrite`와 한 몸이다. enrollment-api 계약은 소스가 생긴 뒤 PROJ-112에서 별도로 맞췄다. (ADR-0018) |
 | **Fargate 태스크는 ARM64로 고정한다** | `runtimePlatform`을 빼면 CDK 기본값(미지정)으로 돌아가 x86_64가 된다. 앱 레포도 반드시 `linux/arm64` 이미지를 push해야 하며, amd64를 올리면 synth와 테스트는 통과하지만 런타임에 이미지 pull이 실패한다. ClickHouse EC2(t4g)와 아키텍처를 맞추고 x86 대비 약 20% 저렴하다. dev도 같은 이유로 ARM64에 고정한다 - 호스트 ASG가 `EcsOptimizedImage.amazonLinux2023(AmiHardwareType.ARM)`이므로 `linux/arm64` 요구가 그대로 따라온다. (`lib/prod/application-stack.ts`의 `FARGATE_RUNTIME_PLATFORM`, ADR-0015) |
 | **Collector 설정은 `config/otel-collector.yaml`에만 둔다** | synth 시점에 파일을 읽어 `OTEL_CONFIG` 환경변수로 주입하고 `--config=env:OTEL_CONFIG`로 기동한다. 파일 경로·환경변수 이름·`command` 세 가지는 한 몸이라 함께 바꿔야 한다. **이 값은 CFN 템플릿과 ECS 콘솔에 평문으로 남으므로 시크릿을 넣으면 안 된다.** **dev도 같은 파일을 읽는다** - dev용으로 포크하면 collector 동작이 갈라져 dev의 검증 가치가 사라진다. (`lib/prod/application-stack.ts`·`lib/dev/application-stack.ts`의 `COLLECTOR_CONFIG_PATH`, ADR-0017, ADR-0022 4번) |
 | **`otel-collector` 컨테이너는 root(`user: '0'`)로 돈다** | 이미지가 `User=10001:10001`인데 UID 10001이 쓸 수 있는 디렉터리가 하나도 없다(scratch 기반이라 `/tmp`도 없다). `file/*` exporter가 `/data`를 만들려면 root가 필요하다. 빼면 `mkdir /data: permission denied`로 기동 직후 exit 1이다. **file exporter와 `user: '0'`은 한 몸이라 함께 없애야 한다** — 이 커플링은 `test/prod/application-stack.test.ts`와 `test/dev/application-stack.test.ts`가 각각 고정한다. `awss3` exporter로 옮기면 root가 필요 없어진다. (ADR-0017) |
@@ -203,7 +204,7 @@ NetworkStack ──> DataStack ──┐
 
 | 파일 | 성격 | 내용 |
 |---|---|---|
-| `lib/common/config.ts` | **환경 무관 계약** | `PORTS`, `CLOUD_MAP_NAMESPACE`, `CLICKHOUSE_SERVICE_NAME`, `CLICKHOUSE_HOST`, `CLICKHOUSE_HTTP_URL`, `CLICKHOUSE_DEFAULT_DB`, `CLICKHOUSE_IMAGE`, `CLICKHOUSE_CONTAINER_ENV`, `ENRICHMENT_ENV`, `ECR_NAMESPACE`, `ECR_REPOS`, `CONTROL_DB_NAME`, `CONTROL_DB_SSLMODE`, `LibpqDsnParts`, `buildLibpqDsn`, `applyCommonTags` |
+| `lib/common/config.ts` | **환경 무관 계약** | `PORTS`, `CLOUD_MAP_NAMESPACE`, `CLICKHOUSE_SERVICE_NAME`, `CLICKHOUSE_HOST`, `CLICKHOUSE_HTTP_URL`, `CLICKHOUSE_DEFAULT_DB`, `CLICKHOUSE_IMAGE`, `CLICKHOUSE_CONTAINER_ENV`, `ENRICHMENT_ENV`, `ENROLLMENT_ENV`, `ECR_NAMESPACE`, `ECR_REPOS`, `CONTROL_DB_NAME`, `CONTROL_DB_SSLMODE`, `buildJdbcUrl`, `LibpqDsnParts`, `buildLibpqDsn`, `applyCommonTags` |
 | `lib/common/clickhouse-user-data.ts` | 환경 무관 | `/dev/xvdb` 포맷 + `/data/clickhouse` 마운트 user data (dev/prod 공용) |
 | `lib/common/deploy-targets.ts` | **환경별 값이지만 매핑은 환경 무관** | `DeployEnv`, `DEPLOY_ENVS`, `ECS_CLUSTER_NAMES`, `ECS_SERVICE_NAMES` |
 | `lib/prod/config.ts` | 운영 전용 | `COMMON_TAGS`, `PROD_IMAGE_TAG`, `PRIMARY_AZ_INDEX`, `SUBNET_GROUP`, `EdgeConfig`, `InfraConfig`, `loadConfig`, `DEFAULT_COGNITO_DOMAIN_PREFIX` |
@@ -249,18 +250,23 @@ prod는 `lib/prod/config.ts`의 `loadConfig`, dev는 `lib/dev/config.ts`의 `loa
 
 ### 컨테이너 런타임 계약 (앱 레포와의 인터페이스)
 
-**이 절은 dev/prod 공통이다.** 같은 이미지, 같은 환경변수 이름, 같은 `clickhouse.obs.local` — 계약이 환경마다 갈리면 "dev에서 검증했다"는 말의 의미가 사라진다. **이게 dev를 두는 목적이다** (ADR-0021 2번/5번).
+**원칙적으로 이 절은 dev/prod 공통이다.** 같은 이미지, 같은 환경변수 이름, 같은 `clickhouse.obs.local` — 계약이 환경마다 갈리면 "dev에서 검증했다"는 말의 의미가 사라진다. 다만 `api-server`의 enrollment-api 계약은 PROJ-112에서 dev 슬롯에 먼저 반영했고, prod 배포 단위 정리는 후속 작업이다. (ADR-0021 2번/5번)
 
 **컨테이너마다 계약이 다르다.** 앱이 실제로 읽는 이름이 권위이며, 앱은 어느 값도 하드코딩하지 않는다. 주입 범위(대상 / 비대상)는 `test/prod/application-stack.test.ts`와 `test/dev/application-stack.test.ts`가 양쪽 모두 검증한다.
 
-#### `api-server` (Spring Boot — 대응 모듈 미존재)
+#### `api-server` (Spring Boot enrollment-api — 현재 dev 슬롯)
+
+권위 소스는 `pulsemetry-backend`의 `apps/enrollment-api/src/main/resources/application.yaml`이다.
 
 | 값 | 전달 경로 |
 |---|---|
-| host, port, engine, username, password, dbClusterIdentifier | 시크릿 `DB_CREDS` (JSON) |
-| 데이터베이스 이름 | 환경변수 `DB_NAME` |
+| `jdbc:postgresql://<RDS>:5432/controlplane?sslmode=require` | 환경변수 `PULSEMETRY_DB_URL` |
+| RDS 사용자 이름 | 마스터 Secret의 `username` 필드 → 시크릿 `PULSEMETRY_DB_USERNAME` |
+| RDS 비밀번호 | 마스터 Secret의 `password` 필드 → 시크릿 `PULSEMETRY_DB_PASSWORD` |
+| 정적 관리자 API 토큰 | `DevEnrollmentAdminApiToken`의 JSON `token` 필드 → 시크릿 `PULSEMETRY_ADMIN_API_TOKEN` |
+| telemetry token HMAC 키 | auth-proxy와 같은 Secret → 시크릿 `PULSEMETRY_TOKEN_HASH_SECRET` |
 
-**`DB_CREDS`에 `dbname` 키는 없다.** CDK `DatabaseCluster`가 자동 생성하는 시크릿은 `defaultDatabaseName`을 시크릿에 넣지 않기 때문이다. 그래서 DB 이름만 `DB_NAME` 환경변수로 따로 준다. 시크릿에서 `dbname`을 읽으려 하면 `undefined`가 나온다.
+관리자 토큰은 Secrets Manager가 64자 영숫자로 생성하며, `DevEdgeStack`은 값이 아닌 `AdminApiTokenSecretArn`만 출력한다. `PULSEMETRY_PUBLIC_BASE_URL`은 아직 주입하지 않아 앱 기본값을 쓰며, 외부 bootstrap 경로와 함께 후속 작업에서 정한다. prod `api-server`의 기존 `DB_CREDS`/`DB_NAME` 계약은 이 작업에서 바꾸지 않았다.
 
 #### `post-processor` (`ai-telemetry-pipeline`, Python — ADR-0018)
 
@@ -432,15 +438,15 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 
 ### (H) 알려진 잔여 이슈 (여유가 있으면)
 
-- **auth-proxy가 조회하는 `enrollment` 스키마의 부트스트랩 주체는 backend Flyway다**(backend ADR 0009). 스키마가 없으면 접속은 성공하고 첫 인증 요청에서 `relation "enrollment.telemetry_tokens" does not exist`로 깨진다. enrollment 서버가 dev에 배포되기 전까지는 backend 명세 §9.4의 로컬 `bootRun` 절차(공식 잠정 절차)로 마이그레이션을 태운다 — `psql` 직접 주입은 쓰지 않는다. (ADR-0023 Follow-up)
-- **토큰 발급 주체는 backend의 `:apps:enrollment-api`다 — 이 서비스를 dev 인프라에 배치하는 결정이 아직 없다**(PROJ-43). ECR 레포·태스크 정의·ECS 서비스가 모두 부재하며, 배치 시 `TOKEN_HASH_SECRET`(`TokenHashSecretArn` 출력) 공유 방법을 함께 정한다. 새 ADR 대상이다(번호는 작성 시점에).
+- **auth-proxy가 조회하는 `enrollment` 스키마의 부트스트랩 주체는 backend Flyway다**(backend ADR 0009). 스키마가 없으면 접속은 성공하고 첫 인증 요청에서 `relation "enrollment.telemetry_tokens" does not exist`로 깨진다. PROJ-112 인프라를 아직 배포하지 않은 환경에서는 backend 명세 §9.4의 로컬 `bootRun` 절차로 먼저 마이그레이션하며, 배포 후에는 기존 dev `api-server` 슬롯의 enrollment-api 기동이 이를 맡는다. `psql` 직접 주입은 쓰지 않는다. (ADR-0023 Follow-up)
+- **backend의 `:apps:enrollment-api`는 기존 dev `api-server` 컨테이너 슬롯에서 기동할 환경 계약을 갖췄다**(PROJ-112). 다만 서비스/태스크의 `dashboard` 명명, `PULSEMETRY_PUBLIC_BASE_URL`, 외부 bootstrap 라우팅은 그대로라 배포 단위 재정의가 후속 작업이다. 토큰 해시 키는 auth-proxy와 같은 Secret을 공유한다.
 - **`:4318` 디버그 리스너는 인증 우회 경로다.** 의도적으로 남긴 것이지만 `devAllowedCidr` 기본값이 `0.0.0.0/0`이면 인증 없는 OTLP 수신구가 인터넷에 열린다. `infra:dev-open-ingress` 경고가 이를 함께 알린다.
 - **`post-processor`가 조회하는 RDS `enrollment` 스키마도 같은 부트스트랩 문제다.** 앱은 ClickHouse DDL만 기동 시 멱등 적용하고(`ensure_schema`), 조회 대상 `enrollment.installations` / `enrollment.team_memberships` / `enrollment.teams`(옛 `company`/`employee` 계열은 PROJ-40·41에서 교체됨)는 compose의 `/docker-entrypoint-initdb.d` 마운트에 의존한다. ECS에는 그 메커니즘이 없다 → **접속은 성공하고 첫 조회에서 `relation "enrollment.installations" does not exist`로 깨진다.** 부트스트랩 주체는 backend Flyway로 확정됐고(위 항목), ECS 실행 자리는 위 (D)의 마이그레이션 ADR이 정한다.
 - `README.md`가 `cdk init` 보일러플레이트 그대로다. ADR-0007이 명시적으로 요구하는 **배포 런북이 어디에도 없다** (6장이 그 자리를 임시로 메우고 있다).
 - **이 레포 자체의 빌드/테스트 CI가 없다.** GitHub Actions는 `pull_request_auto_fill.yml`과 `pull_request_auto_assign.yml` 둘뿐이고, `npm test` / `cdk synth`를 아무도 돌리지 않는다. ADR-0024가 만든 것은 **앱 레포**가 쓸 배포 역할이며 이 레포의 검증 CI와는 별개다 — 혼동하지 않는다.
 - `EdgeStack` / `DevEdgeStack` 외에 `CfnOutput`이 없다. 앱 팀이 VPC ID / 클러스터 이름 등을 가져갈 SSM 파라미터 export가 없다.
 - `.DS_Store`가 루트 / `.github/` / `docs/`에 존재한다.
-- **`DevDashboardTask`를 bridge로 둔 것은 소스 미확보 상태의 추정이다.** `api-server`와 `batch-processor`가 서로를 localhost로 부르지 않는다고 단정할 수 없다. **배포 후 로그로 확인하고, 틀렸다면 awsvpc로 바꾼다** — 그 경우 인터넷 egress와 ECS Exec을 함께 잃는다. (ADR-0022 Follow-up)
+- **`DevDashboardTask`의 bridge 전제는 batch-processor 쪽만 아직 추정이다.** enrollment-api 소스에는 batch-processor localhost 의존이 없지만, batch-processor 대응 모듈은 아직 없어 반대 방향 호출을 확인할 수 없다. **배포 후 로그로 확인하고, 틀렸다면 awsvpc로 바꾼다** — 그 경우 인터넷 egress와 ECS Exec을 함께 잃는다. (ADR-0022 Follow-up)
 - **awsvpc 태스크(collector/clickhouse)에 인터넷 egress가 없다.** 태스크 ENI에는 퍼블릭 IP가 붙지 않고(EC2 launch type에는 `assignPublicIp` 옵션 자체가 없다) NAT도 없다. 외부 API를 부르는 코드가 들어오면 **synth·test·deploy가 전부 통과하고 기동도 성공한 뒤 그 코드 경로에서만 타임아웃으로 죽는다.** (ADR-0022 5(a))
 - **`devAllowedCidr` 기본값이 `0.0.0.0/0`이라 무인자 dev 배포는 인증 없는 Collector(4318), ClickHouse(8123), RDS(5432)를 인터넷에 공개한다.** ClickHouse `default` 유저는 비밀번호가 없고 `access_management=1`이므로 8123에 닿는 주체는 사실상 관리자다. synth 경고가 유일한 방어선이다. (ADR-0022 9번, ADR-0023 3번)
 - **dev RDS와 운영 Aurora 둘 다 `StorageEncrypted`를 설정하지 않는다.** CFN 검증기가 경고를 낸다. 프로덕션 전환 시 `RemovalPolicy.DESTROY` 일괄 재검토와 함께 묶어서 다룬다.
@@ -620,7 +626,7 @@ npx cdk list                 # NetworkStack DataStack ApplicationStack EdgeStack
 npx cdk list -c env=dev      # DevNetworkStack DevDataStack DevApplicationStack DevEdgeStack
 ```
 
-배포 후 검증은 아래 경로를 각각 밟는다. 엔드포인트는 `DevEdgeStack`의 `CfnOutput`(`AlbDnsName`, `OtlpEndpoint`, `OtlpDebugEndpoint`, `ApiEndpoint`, `ClickhouseDebugUrl`, `RdsEndpoint`, `RdsSecretArn`, `TokenHashSecretArn`)에서 가져온다.
+배포 후 검증은 아래 경로를 각각 밟는다. 엔드포인트와 Secret ARN은 `DevEdgeStack`의 `CfnOutput`(`AlbDnsName`, `OtlpEndpoint`, `OtlpDebugEndpoint`, `ApiEndpoint`, `ClickhouseDebugUrl`, `RdsEndpoint`, `RdsSecretArn`, `TokenHashSecretArn`, `AdminApiTokenSecretArn`)에서 가져온다.
 
 **선행 조건 — `enrollment` 스키마를 먼저 넣어야 한다.** auth-proxy는 `enrollment.telemetry_tokens` / `installations` / `members` / `tenants`를 조회한다. 부트스트랩 주체는 **backend Flyway**다(5장 (H)) — backend 명세 §9.4의 로컬 `bootRun` 레시피(공식 잠정 절차)로 공유 RDS에 마이그레이션을 태운다. 파이프라인 DDL을 `psql`로 직접 넣는 우회는 쓰지 않는다(아래 4)의 `psql`은 조회·디버깅용 접속이다). 스키마가 없으면 접속은 성공하고 첫 인증에서 `relation "enrollment.telemetry_tokens" does not exist`로 깨진다.
 

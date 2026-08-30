@@ -2,6 +2,7 @@ import { Match, Template } from 'aws-cdk-lib/assertions';
 import {
   CONTROL_DB_NAME,
   CONTROL_DB_SSLMODE,
+  ENROLLMENT_ADMIN_API_TOKEN_SECRET_KEY,
   PORTS,
 } from '../../lib/common/config';
 import {
@@ -54,9 +55,9 @@ describe('DevDataStack', () => {
   });
 
   // 마스터(RDS 자동 생성) + post-processor 파생 DSN + auth-proxy 파생 URI +
-  // auth-proxy 토큰 해시 키. (ADR-0018, ADR-0023)
-  test('시크릿 4개를 만든다', () => {
-    template.resourceCountIs('AWS::SecretsManager::Secret', 4);
+  // 공유 토큰 해시 키 + enrollment-api 관리자 토큰. (ADR-0018, ADR-0023, PROJ-112)
+  test('시크릿 5개를 만든다', () => {
+    template.resourceCountIs('AWS::SecretsManager::Secret', 5);
   });
 
   /**
@@ -174,6 +175,23 @@ describe('DevDataStack', () => {
     ).toBeUndefined();
   });
 
+  // 관리자 토큰은 64자 임의 값이며, ECS 가 JSON 필드 하나만 선택해 주입할 수 있게
+  // `token` 키 아래 저장한다. 값 자체는 합성 템플릿에 없어야 한다.
+  test('관리자 토큰은 JSON token 필드에 64자로 생성하고 값을 남기지 않는다', () => {
+    const secret = secretByIdPrefix('DevEnrollmentAdminApiToken');
+
+    expect(secret.Properties.SecretString).toBeUndefined();
+    expect(secret.Properties.GenerateSecretString).toMatchObject({
+      SecretStringTemplate: '{}',
+      GenerateStringKey: ENROLLMENT_ADMIN_API_TOKEN_SECRET_KEY,
+      PasswordLength: 64,
+      ExcludePunctuation: true,
+      IncludeSpace: false,
+    });
+    expect(secret.DeletionPolicy).toBe('Delete');
+    expect(secret.UpdateReplacePolicy).toBe('Delete');
+  });
+
   // 우리는 libpq DSN 값을 따옴표로 감싸지 않는다(합성 시점엔 토큰이라 감쌀 수 없다).
   // 대신 aws-rds 가 자동 생성 비밀번호에서 제외하는 문자 집합이, 따옴표 없는
   // keyword/value DSN 을 깨뜨리는 문자 4개를 전부 포함한다는 사실에 의존한다.
@@ -189,7 +207,7 @@ describe('DevDataStack', () => {
   // 문자에 취약하고(`@` `/` `?` `#` `%` `:` `[` `]`), 합성 시점에 password 는 토큰이라
   // 퍼센트 인코딩도 불가능하다. 두 집합을 한 테스트에서 함께 고정한다. (ADR-0023)
   test('자동 생성 비밀번호는 libpq DSN 과 URI 를 깨뜨릴 문자를 모두 제외한다', () => {
-    // GenerateSecretString 을 쓰는 시크릿이 둘이 됐다(마스터 + 토큰 해시 키).
+    // GenerateSecretString 을 쓰는 시크릿이 셋이다(마스터 + 토큰 해시 키 + 관리자 토큰).
     // 여기서 보려는 것은 **RDS 마스터 비밀번호**이므로 GenerateStringKey 로 좁힌다.
     const generated = Object.values(
       template.findResources('AWS::SecretsManager::Secret'),

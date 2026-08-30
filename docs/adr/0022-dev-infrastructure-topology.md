@@ -142,8 +142,9 @@ Cloud Map에 **A 레코드**(`clickhouse.obs.local`)를 등록하려면 awsvpc�
 #### `DevDashboardTask` = bridge
 
 `api-server`와 `batch-processor` 사이에는 **localhost 의존이 없다.** 인프라가 주입하는
-값은 `api-server`의 `DB_CREDS`/`DB_NAME`과 `batch-processor`의 `CLICKHOUSE_HOST`뿐이고,
-셋 다 태스크 밖을 향한다.
+값은 enrollment-api의 `PULSEMETRY_DB_URL` 및 DB/관리자/토큰 해시 시크릿과
+`batch-processor`의 `CLICKHOUSE_HOST`이고, 모두 태스크 밖을 향한다. enrollment-api는
+backend 소스로 확인했으며 batch-processor 쪽은 아직 대응 모듈이 없어 추정이 남아 있다.
 
 그래서 이 태스크는 bridge로 둘 수 있고, 그러면 **인터넷 egress와 ECS Exec가 살아난다** -
 bridge 태스크는 호스트의 ENI를 타는데, 그 ENI에는 퍼블릭 IP가 있다(아래 5번 참조).
@@ -424,12 +425,12 @@ egress가 실제로 필요해지면 그때 별도로 결정한다(Follow-up 참�
 - **dev 부하 테스트를 시작할 때** → `awsvpcTrunking` 계정 설정 옵트인과 오토스케일링
   정책(임계값, 쿨다운, 최대 태스크 수)을 별도로 기록한다. 계정 레벨 설정이라 이 레포의
   CDK 코드로는 표현되지 않으므로 런북에 남겨야 한다.
-- **`DevDashboardTask`의 bridge 전제 - 컨테이너 간 localhost 의존이 없다 - 는 소스 미확보
-  상태의 추정이다.** `api-server`와 `batch-processor`의 소스를 확보하지 못했으므로
-  (`AGENTS.md` 3장) 실제로 서로를 localhost로 부르지 않는다고 단정할 수 없다. **배포 후
-  로그로 확인하고, 틀렸다면 awsvpc로 전환한다** - 그 경우 인터넷 egress와 ECS Exec을 함께
-  잃는다. 소스를 확보하면 ADR-0018이 `post-processor`에 했던 것과 같은 계약 점검을
-  반복해야 한다.
+- **`DevDashboardTask`의 bridge 전제 - 컨테이너 간 localhost 의존이 없다 - 는
+  batch-processor 방향에 한해 추정이다.** enrollment-api 소스에는 batch-processor를
+  localhost로 부르는 의존이 없지만, batch-processor 대응 모듈은 아직 없어 반대 방향을
+  단정할 수 없다. **배포 후 로그로 확인하고, 틀렸다면 awsvpc로 전환한다** - 그 경우 인터넷
+  egress와 ECS Exec을 함께 잃는다. batch-processor 소스가 생기면 ADR-0018이
+  `post-processor`에 했던 것과 같은 계약 점검을 반복해야 한다.
 - dev의 로그 그룹 보존 기간과 삭제 정책은 예약된 ADR-0020(로그 그룹 정책)이 환경별 차등을
   다룰 때 함께 정한다.
 

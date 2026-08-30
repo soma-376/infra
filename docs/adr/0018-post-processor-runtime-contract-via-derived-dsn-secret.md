@@ -51,11 +51,13 @@ ALB 타깃도 healthy고(애초에 `post-processor`는 타깃 그룹에 없다),
 
 네 가지를 함께 결정한다.
 
-**1. 대상은 `post-processor` 하나뿐이다.**
+**1. 이 결정의 대상은 `post-processor` 하나뿐이다.**
 
-`batch-processor`(`CLICKHOUSE_HOST`)와 `api-server`(`DB_CREDS`/`DB_NAME`)는 소스 코드를
-확보하지 못했다. 실제로 무엇을 읽는지 모르는 채로 함께 "정리"하면 멀쩡한 계약을 깨뜨린다.
-`post-processor`를 고쳤다는 이유만으로 나머지를 건드리지 않는다.
+결정 당시 `batch-processor`(`CLICKHOUSE_HOST`)와 `api-server`(`DB_CREDS`/`DB_NAME`)는
+소스 코드를 확보하지 못했다. 실제로 무엇을 읽는지 모르는 채로 함께 "정리"하면 멀쩡한
+계약을 깨뜨리므로 `post-processor`를 고쳤다는 이유만으로 나머지를 건드리지 않았다.
+이후 backend enrollment-api가 만들어졌고, PROJ-112에서 **dev `api-server` 슬롯만** 실제
+`PULSEMETRY_*` 계약에 맞췄다. prod 배포 단위와 `batch-processor` 계약은 이 결정의 범위 밖이다.
 
 **2. 환경변수 이름을 앱에 맞춘다.**
 
@@ -241,7 +243,10 @@ this.postProcessorPgDsnSecret = new Secret(this, 'PostProcessorPgDsn', {
   같은 PR로 함께 바꾼다.
 - `aws-cdk-lib` 업그레이드로 `ExcludeCharacters` 회귀 테스트가 깨질 때 → 따옴표 없는 DSN의
   전제가 무너진 것이므로 즉시 인용 전략을 재설계한다.
-- `batch-processor`/`api-server` 의 대응 모듈이 실제로 만들어질 때(현재 **미존재**) → 같은 계약 점검을 반복한다.
+- `batch-processor` 대응 모듈이 실제로 만들어질 때(현재 **미존재**) → 같은 계약 점검을 반복한다.
+- backend enrollment-api 계약 점검은 PROJ-112에서 dev에 완료했다. `DB_CREDS`/`DB_NAME`을 제거하고
+  `PULSEMETRY_DB_URL` 및 네 개의 `PULSEMETRY_*` 시크릿을 주입한다. prod 배포 단위와
+  `PULSEMETRY_PUBLIC_BASE_URL`/bootstrap 라우팅은 후속 작업으로 남는다.
 - `awss3` exporter로 전환해 `RAW_BUCKET`이 실제로 쓰이거나 완전히 불필요해질 때 (ADR-0017).
 
 ## References

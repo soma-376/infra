@@ -21,6 +21,7 @@ import {
   buildPostgresUri,
   CONTROL_DB_NAME,
   CONTROL_DB_SSLMODE,
+  ENROLLMENT_ADMIN_API_TOKEN_SECRET_KEY,
   PORTS,
 } from '../common/config';
 import {
@@ -35,6 +36,16 @@ import {
  * 256비트를 넘긴다. (ADR-0023)
  */
 const TOKEN_HASH_SECRET_LENGTH = 64;
+
+/**
+ * dev enrollment-api 정적 관리자 토큰 길이.
+ *
+ * backend 계약은 빈 값만 금지하고 길이는 강제하지 않는다. 현재 생성 문자집합인
+ * 영문 대·소문자와 숫자 62종은 문자당 약 5.95비트이므로 64자는 약 381비트의
+ * 엔트로피를 갖는다. 256비트에 필요한 43자보다 여유 있게 잡은 dev 운영 정책이며,
+ * SHA-256 hex 출력 길이나 위 `TOKEN_HASH_SECRET_LENGTH`에서 유도된 값은 아니다.
+ */
+const ADMIN_API_TOKEN_LENGTH = 64;
 
 export interface DevDataStackProps extends StackProps {
   readonly vpc: IVpc;
@@ -69,10 +80,12 @@ export class DevDataStack extends Stack {
    */
   public readonly authProxyDatabaseUrlSecret: ISecret;
   /**
-   * auth-proxy 의 Bearer 토큰 HMAC-SHA256 키. **enrollment 서버와 공유하는 값이다.**
+   * auth-proxy 의 Bearer 토큰 HMAC-SHA256 키. **enrollment-api와 공유하는 값이다.**
    * 토큰 발급 측이 같은 키로 해시해야 조회가 성립한다. (ADR-0023)
    */
   public readonly tokenHashSecret: ISecret;
+  /** enrollment-api 의 정적 관리자 API 토큰. JSON `token` 필드로 저장한다. */
+  public readonly adminApiTokenSecret: ISecret;
   public readonly rawSignalBucket: IBucket;
 
   constructor(scope: Construct, id: string, props: DevDataStackProps) {
@@ -181,7 +194,7 @@ export class DevDataStack extends Stack {
     // Bearer 토큰 해시 키. **값을 CDK 가 만들고 아무 데도 기록하지 않는다** - 코드에도,
     // CFN 템플릿에도, cdk context 에도 남지 않고 Secrets Manager 안에서만 존재한다.
     //
-    // enrollment 서버(별도 레포)가 토큰 발급 시 같은 키로 HMAC 해시해야 auth-proxy 의
+    // enrollment-api(별도 레포)가 토큰 발급 시 같은 키로 HMAC 해시해야 auth-proxy 의
     // 조회가 성립하므로, ARN 을 `DevEdgeStack` 의 CfnOutput 으로 노출한다.
     //
     // **회전을 설정하지 않는다.** 이 키가 바뀌면 이미 발급된 모든 토큰의 `token_hash` 가
@@ -200,6 +213,27 @@ export class DevDataStack extends Stack {
       },
       removalPolicy: RemovalPolicy.DESTROY,
     });
+
+    // enrollment-api 의 관리자 엔드포인트 인증 토큰. 값은 CDK/CloudFormation 출력에
+    // 기록하지 않고 Secrets Manager 가 배포 시 생성한다. ECS 에는 JSON `token` 필드만
+    // 주입한다. dev MVP 정책에 따라 기본 암호화, 무회전, DESTROY 를 유지한다.
+    this.adminApiTokenSecret = new Secret(
+      this,
+      'DevEnrollmentAdminApiToken',
+      {
+        description:
+          'Static admin API token for dev enrollment-api (PULSEMETRY_ADMIN_API_TOKEN).',
+        generateSecretString: {
+          secretStringTemplate: '{}',
+          generateStringKey: ENROLLMENT_ADMIN_API_TOKEN_SECRET_KEY,
+          passwordLength: ADMIN_API_TOKEN_LENGTH,
+          excludePunctuation: true,
+          excludeUppercase: false,
+          includeSpace: false,
+        },
+        removalPolicy: RemovalPolicy.DESTROY,
+      },
+    );
 
     this.rawSignalBucket = new Bucket(this, 'DevRawSignalBucket', {
       // bucketName 을 주지 않는다. CDK 가 스택명에서 이름을 유도하므로 운영 버킷과
@@ -229,10 +263,15 @@ export class DevDataStack extends Stack {
   }
 
   /**
-   * 토큰 해시 키 ARN. **enrollment 서버에 전달할 값이다** - 그쪽이 같은 키로 해시해야
+   * 토큰 해시 키 ARN. **enrollment-api가 함께 쓰는 값이다** - 같은 키로 해시해야
    * auth-proxy 의 조회가 성립한다. `DevEdgeStack` 의 CfnOutput 용. (ADR-0023)
    */
   public get tokenHashSecretArn(): string {
     return this.tokenHashSecret.secretArn;
+  }
+
+  /** 관리자 API 토큰 Secret ARN. 값은 출력하지 않는다. */
+  public get adminApiTokenSecretArn(): string {
+    return this.adminApiTokenSecret.secretArn;
   }
 }
