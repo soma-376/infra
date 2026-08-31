@@ -186,6 +186,40 @@ export const CONTROL_DB_NAME = 'controlplane';
 export const CONTROL_DB_SSLMODE = 'require';
 
 /**
+ * enrollment-api 가 실제로 읽는 환경변수/시크릿 이름.
+ *
+ * 권위 소스는 `pulsemetry-backend` 의
+ * `apps/enrollment-api/src/main/resources/application.yaml` 이다. 토큰 해시 키는
+ * auth-proxy 의 `TOKEN_HASH_SECRET` 과 같은 Secrets Manager Secret 을 가리켜야 한다
+ * (`../docs/contracts/enrollment-api.md`).
+ */
+export const ENROLLMENT_ENV = {
+  dbUrl: 'PULSEMETRY_DB_URL',
+  dbUsername: 'PULSEMETRY_DB_USERNAME',
+  dbPassword: 'PULSEMETRY_DB_PASSWORD',
+  adminApiToken: 'PULSEMETRY_ADMIN_API_TOKEN',
+  tokenHashSecret: 'PULSEMETRY_TOKEN_HASH_SECRET',
+} as const;
+
+/** 관리자 토큰 Secret 의 JSON 필드 이름. */
+export const ENROLLMENT_ADMIN_API_TOKEN_SECRET_KEY = 'token';
+
+export interface JdbcUrlParts {
+  readonly host: string;
+  readonly port: number;
+  readonly dbname: string;
+  readonly sslmode: string;
+}
+
+/** Spring Boot enrollment-api 용 PostgreSQL JDBC URL 을 만든다. */
+export function buildJdbcUrl(parts: JdbcUrlParts): string {
+  return (
+    `jdbc:postgresql://${parts.host}:${parts.port}/${parts.dbname}` +
+    `?sslmode=${parts.sslmode}`
+  );
+}
+
+/**
  * post-processor 컨테이너가 실제로 읽는 환경변수/시크릿 이름 (ADR-0018).
  *
  * **권위 소스는 앱 레포(`ai-telemetry-pipeline`)다.** 아래 이름 중 하나라도 틀리면

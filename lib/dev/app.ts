@@ -60,7 +60,9 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     env,
     vpc: network.vpc,
     devConfig: config,
+    dbEndpoint: data.dbEndpoint,
     dbSecret: data.dbSecret,
+    adminApiTokenSecret: data.adminApiTokenSecret,
     postProcessorPgDsnSecret: data.postProcessorPgDsnSecret,
     authProxyDatabaseUrlSecret: data.authProxyDatabaseUrlSecret,
     tokenHashSecret: data.tokenHashSecret,
@@ -81,6 +83,7 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     dbEndpoint: data.dbEndpoint,
     dbSecretArn: data.dbSecretArn,
     tokenHashSecretArn: data.tokenHashSecretArn,
+    adminApiTokenSecretArn: data.adminApiTokenSecretArn,
   });
 
   return { network, data, application, edge };

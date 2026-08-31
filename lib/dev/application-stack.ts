@@ -48,9 +48,13 @@ import {
   COLLECTOR_OTLP_URL,
   COLLECTOR_SERVICE_NAME,
   CONTROL_DB_NAME,
+  CONTROL_DB_SSLMODE,
   ECR_REPOS,
+  ENROLLMENT_ADMIN_API_TOKEN_SECRET_KEY,
+  ENROLLMENT_ENV,
   ENRICHMENT_ENV,
   PORTS,
+  buildJdbcUrl,
 } from '../common/config';
 import {
   ECS_CLUSTER_NAMES,
@@ -115,8 +119,12 @@ const REPLACEMENT_DEPLOYMENT = {
 export interface DevApplicationStackProps extends StackProps {
   readonly vpc: IVpc;
   readonly devConfig: DevConfig;
-  /** api-server 의 DB_CREDS 용 RDS 마스터 시크릿. */
+  /** enrollment-api JDBC URL 의 RDS 엔드포인트 호스트명. */
+  readonly dbEndpoint: string;
+  /** enrollment-api username/password 용 RDS 마스터 시크릿. */
   readonly dbSecret: ISecret;
+  /** enrollment-api 의 PULSEMETRY_ADMIN_API_TOKEN 용 Secret. */
+  readonly adminApiTokenSecret: ISecret;
   /** post-processor 의 ENRICHMENT_PG_DSN 용 파생 시크릿. (ADR-0018) */
   readonly postProcessorPgDsnSecret: ISecret;
   /**
@@ -124,7 +132,7 @@ export interface DevApplicationStackProps extends StackProps {
    * (ADR-0023)
    */
   readonly authProxyDatabaseUrlSecret: ISecret;
-  /** auth-proxy 의 TOKEN_HASH_SECRET. enrollment 서버와 공유한다. (ADR-0023) */
+  /** auth-proxy 와 enrollment-api 가 공유하는 토큰 해시 Secret. (ADR-0023) */
   readonly tokenHashSecret: ISecret;
   readonly rawSignalBucket: IBucket;
   /** EC2 호스트 2대 공용 SG. ASG 에 붙는다. */
@@ -139,9 +147,9 @@ export interface DevApplicationStackProps extends StackProps {
  * DevApplicationStack: ECS 클러스터(단일), Cloud Map `obs.local`,
  * ASG 2개 + 캐패시티 프로바이더 2개, Ec2Service 4개.
  *
- * 운영과의 차이는 **launch type 과 네트워크 모드뿐**이다. 컨테이너 정의·환경변수·
- * 시크릿 주입은 운영과 100% 같은 계약을 재현한다 - 계약이 갈리면 "dev 에서
- * 검증했다"는 말의 의미가 사라진다. (ADR-0021 2번)
+ * 운영과의 기본 차이는 **launch type 과 네트워크 모드**다. 다만 PROJ-112에서
+ * enrollment-api 계약을 dev의 기존 api-server 슬롯에 먼저 반영했으며, prod 배포 단위
+ * 정리는 후속 작업이다. 나머지 컨테이너 계약은 환경 간 정합을 유지한다. (ADR-0021 2번)
  *
  * 태스크마다 네트워크 모드가 다르다. ADR-0022 4번이 awsvpc 를 **강제하는 조건**을
  * 둘만 인정하고(태스크 내 localhost 의존 / Cloud Map A 레코드 등록 대상), 나머지는
@@ -547,10 +555,9 @@ export class DevApplicationStack extends Stack {
   ): Ec2Service {
     const task = new Ec2TaskDefinition(this, 'DevDashboardTask', {
       // **bridge 로 둘 수 있다.** api-server 와 batch-processor 사이에는 localhost
-      // 의존이 없다 - 인프라가 주입하는 값(DB_CREDS/DB_NAME, CLICKHOUSE_HOST)이
-      // 전부 태스크 밖을 향한다. bridge 태스크는 호스트 ENI 를 타므로 퍼블릭 IP 를
-      // 통해 **인터넷 egress 와 ECS Exec 이 살아난다.** 두 컨테이너는 소스를
-      // 확보하지 못한 것들이라(`AGENTS.md` 3장) 관측 수단을 줄일 이유가 없다.
+      // 의존이 없다 - enrollment-api 의 JDBC 접속과 batch-processor 의 ClickHouse
+      // 접속은 모두 태스크 밖을 향한다. bridge 태스크는 호스트 ENI 를 타므로 퍼블릭
+      // IP 를 통해 **인터넷 egress 와 ECS Exec 이 살아난다.**
       //
       // 다만 이 전제는 추정이다. 배포 후 로그로 확인하고 틀렸다면 awsvpc 로
       // 전환한다 - 그 경우 egress 와 Exec 을 함께 잃는다. (ADR-0022 4번/Follow-up)
@@ -571,11 +578,29 @@ export class DevApplicationStack extends Stack {
       // 처리한다. `DevAppHostSg` 의 32768-65535 룰이 이것과 한 몸이다.
       portMappings: [{ containerPort: PORTS.apiServer }],
       environment: {
-        // DB_CREDS 시크릿에는 dbname 이 없다. DB 이름은 여기서만 전달한다.
-        DB_NAME: CONTROL_DB_NAME,
+        [ENROLLMENT_ENV.dbUrl]: buildJdbcUrl({
+          host: props.dbEndpoint,
+          port: PORTS.aurora,
+          dbname: CONTROL_DB_NAME,
+          sslmode: CONTROL_DB_SSLMODE,
+        }),
       },
       secrets: {
-        DB_CREDS: EcsSecret.fromSecretsManager(props.dbSecret),
+        [ENROLLMENT_ENV.dbUsername]: EcsSecret.fromSecretsManager(
+          props.dbSecret,
+          'username',
+        ),
+        [ENROLLMENT_ENV.dbPassword]: EcsSecret.fromSecretsManager(
+          props.dbSecret,
+          'password',
+        ),
+        [ENROLLMENT_ENV.adminApiToken]: EcsSecret.fromSecretsManager(
+          props.adminApiTokenSecret,
+          ENROLLMENT_ADMIN_API_TOKEN_SECRET_KEY,
+        ),
+        [ENROLLMENT_ENV.tokenHashSecret]: EcsSecret.fromSecretsManager(
+          props.tokenHashSecret,
+        ),
       },
       memoryReservationMiB: MEMORY_RESERVATION_MIB.apiServer,
       logging: LogDriver.awsLogs({

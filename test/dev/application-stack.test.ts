@@ -7,8 +7,12 @@ import {
   CLOUD_MAP_NAMESPACE,
   COLLECTOR_OTLP_URL,
   COLLECTOR_SERVICE_NAME,
+  CONTROL_DB_NAME,
+  CONTROL_DB_SSLMODE,
   ECR_NAMESPACE,
   ECR_REPOS,
+  ENROLLMENT_ADMIN_API_TOKEN_SECRET_KEY,
+  ENROLLMENT_ENV,
   ENRICHMENT_ENV,
   PORTS,
 } from '../../lib/common/config';
@@ -91,6 +95,14 @@ describe('DevApplicationStack', () => {
 
   const secretNames = (containerName: string): string[] =>
     (container(containerName).Secrets ?? []).map((entry: any) => entry.Name);
+
+  const secretEntry = (containerName: string, secretName: string): any => {
+    const found = (container(containerName).Secrets ?? []).filter(
+      (entry: any) => entry.Name === secretName,
+    );
+    expect(found).toHaveLength(1);
+    return found[0];
+  };
 
   // ============================================================
   // 네트워크 모드 - 이 설계의 핵심 방어선 (ADR-0022 4번)
@@ -227,6 +239,75 @@ describe('DevApplicationStack', () => {
           DnsRecords: [Match.objectLike({ Type: 'A' })],
         }),
       });
+    });
+  });
+
+  // ============================================================
+  // enrollment-api 런타임 계약 (PROJ-112)
+  // ============================================================
+  describe('enrollment-api 런타임 계약', () => {
+    test('JDBC URL 을 일반 환경변수 하나로 정확히 합성한다', () => {
+      const env = envMap('api-server');
+
+      expect(Object.keys(env)).toEqual([ENROLLMENT_ENV.dbUrl]);
+      const serialized = JSON.stringify(env[ENROLLMENT_ENV.dbUrl]);
+      expect(serialized).toContain('jdbc:postgresql://');
+      expect(serialized).toContain(
+        `:${PORTS.aurora}/${CONTROL_DB_NAME}?sslmode=${CONTROL_DB_SSLMODE}`,
+      );
+    });
+
+    test('DB JSON 필드와 관리자 token 필드만 선택해 secrets 로 주입한다', () => {
+      expect(secretNames('api-server').sort()).toEqual(
+        [
+          ENROLLMENT_ENV.dbUsername,
+          ENROLLMENT_ENV.dbPassword,
+          ENROLLMENT_ENV.adminApiToken,
+          ENROLLMENT_ENV.tokenHashSecret,
+        ].sort(),
+      );
+
+      expect(
+        JSON.stringify(
+          secretEntry('api-server', ENROLLMENT_ENV.dbUsername).ValueFrom,
+        ),
+      ).toContain(':username::');
+      expect(
+        JSON.stringify(
+          secretEntry('api-server', ENROLLMENT_ENV.dbPassword).ValueFrom,
+        ),
+      ).toContain(':password::');
+      expect(
+        JSON.stringify(
+          secretEntry('api-server', ENROLLMENT_ENV.adminApiToken).ValueFrom,
+        ),
+      ).toContain(`:${ENROLLMENT_ADMIN_API_TOKEN_SECRET_KEY}::`);
+    });
+
+    test('token-hash Secret 을 auth-proxy 와 동일하게 공유한다', () => {
+      expect(
+        secretEntry('api-server', ENROLLMENT_ENV.tokenHashSecret).ValueFrom,
+      ).toEqual(secretEntry('auth-proxy', 'TOKEN_HASH_SECRET').ValueFrom);
+    });
+
+    test('민감값과 폐기한 DB_CREDS/DB_NAME 을 일반 환경변수에 남기지 않는다', () => {
+      const environment = JSON.stringify(container('api-server').Environment);
+      const allNames = [
+        ...Object.keys(envMap('api-server')),
+        ...secretNames('api-server'),
+      ];
+
+      expect(environment).not.toContain('resolve:secretsmanager');
+      for (const secretName of [
+        ENROLLMENT_ENV.dbUsername,
+        ENROLLMENT_ENV.dbPassword,
+        ENROLLMENT_ENV.adminApiToken,
+        ENROLLMENT_ENV.tokenHashSecret,
+      ]) {
+        expect(Object.keys(envMap('api-server'))).not.toContain(secretName);
+      }
+      expect(allNames).not.toContain('DB_CREDS');
+      expect(allNames).not.toContain('DB_NAME');
     });
   });
 

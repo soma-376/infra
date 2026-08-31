@@ -25,8 +25,10 @@ export interface DevEdgeStackProps extends StackProps {
   readonly dbEndpoint: string;
   /** RDS 마스터 시크릿 ARN (CfnOutput 용). */
   readonly dbSecretArn: string;
-  /** 토큰 해시 키 ARN (CfnOutput 용). enrollment 서버에 전달한다. (ADR-0023) */
+  /** 토큰 해시 키 ARN (CfnOutput 용). enrollment-api와 공유한다. (ADR-0023) */
   readonly tokenHashSecretArn: string;
+  /** enrollment-api 관리자 토큰 Secret ARN. 값은 출력하지 않는다. */
+  readonly adminApiTokenSecretArn: string;
 }
 
 /**
@@ -74,11 +76,14 @@ export class DevEdgeStack extends Stack {
     });
     new CfnOutput(this, 'RdsEndpoint', { value: props.dbEndpoint });
     new CfnOutput(this, 'RdsSecretArn', { value: props.dbSecretArn });
-    // enrollment 서버가 토큰을 발급할 때 같은 키로 HMAC 해시해야 auth-proxy 의 조회가
+    // enrollment-api가 토큰을 발급할 때 같은 키로 HMAC 해시해야 auth-proxy 의 조회가
     // 성립한다. **ARN 만 노출하며 값은 Secrets Manager 밖으로 나오지 않는다.**
     // (ADR-0023 4번)
     new CfnOutput(this, 'TokenHashSecretArn', {
       value: props.tokenHashSecretArn,
+    });
+    new CfnOutput(this, 'AdminApiTokenSecretArn', {
+      value: props.adminApiTokenSecretArn,
     });
   }
 
