@@ -29,8 +29,7 @@ const EPHEMERAL_PORT_MAX = 65535;
 
 export interface DevNetworkStackProps extends StackProps {
   /**
-   * ALB(80/4318/8123)와 RDS(5432), 호스트 동적 포트의 인바운드 허용 소스.
-   * 4318 은 인증을 우회하는 Collector 디버그 리스너다 (ADR-0023 3번).
+   * ALB(80/8123)와 RDS(5432), 호스트 동적 포트의 인바운드 허용 소스.
    */
   readonly allowedCidrs: readonly string[];
 }
@@ -163,15 +162,6 @@ export class DevNetworkStack extends Stack {
         Port.tcp(PORTS.clickhouseHttp),
         `ClickHouse HTTP from ${cidr}`,
       );
-      // 4318 은 인증을 거치지 않고 Collector 로 직행하는 디버그 리스너다
-      // (ADR-0023 3번). auth-proxy 가 죽었는지 파이프라인이 죽었는지를 가르는 용도이며,
-      // **인증 우회 경로이므로** 허용 CIDR 이 곧 유일한 방어선이다. 기본값
-      // 0.0.0.0/0 이면 `infra:dev-open-ingress` 경고가 이 리스너까지 함께 커버한다.
-      this.albSecurityGroup.addIngressRule(
-        peer,
-        Port.tcp(PORTS.otlp),
-        `OTLP debug from ${cidr}`,
-      );
     });
 
     // 앱 호스트 <- ALB : bridge 태스크(dashboard)의 동적 호스트 포트.
@@ -191,9 +181,9 @@ export class DevNetworkStack extends Stack {
       );
     });
 
-    // Collector 태스크 ENI <- ALB:4318. 이제 정상 경로(:80 /v1/*)가 아니라
-    // **디버그 리스너(:4318)** 가 쓰는 룰이다. 정상 트래픽은 ALB -> auth-proxy ->
-    // Collector 로 가며, 그 마지막 홉의 룰은 바로 아래다. (ADR-0023 3번)
+    // Collector 태스크 ENI <- ALB:4318. PROJ-143은 공개 리스너와 ALB SG
+    // 인그레스를 제거하지만, 롤백을 위한 기존 target group·service binding과
+    // 이 룰은 PROJ-144 정리 전까지 유지한다. (ADR-0026)
     this.collectorSecurityGroup.addIngressRule(
       this.albSecurityGroup,
       Port.tcp(PORTS.otlp),

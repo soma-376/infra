@@ -24,9 +24,21 @@ function allIngressRules(template: Template): any[] {
   return [...inline, ...standalone];
 }
 
+function buildNetworkFixture(devAllowedCidr?: string) {
+  const { network } = buildDevApp(
+    devAllowedCidr === undefined ? {} : { devAllowedCidr },
+  );
+  return { network, template: Template.fromStack(network) };
+}
+
+const ALLOWED_CIDR = '203.0.113.10/32';
+const ALLOWED_CIDRS = ['203.0.113.10/32', '198.51.100.0/24'];
+const DEFAULT_NETWORK = buildNetworkFixture();
+const NARROWED_NETWORK = buildNetworkFixture(ALLOWED_CIDR);
+const MULTI_CIDR_NETWORK = buildNetworkFixture(ALLOWED_CIDRS.join(', '));
+
 describe('DevNetworkStack', () => {
-  const { network } = buildDevApp();
-  const template = Template.fromStack(network);
+  const { network, template } = DEFAULT_NETWORK;
 
   // NAT 가 없다는 것이 이 환경의 비용 전제이자 토폴로지 전제다. 하나라도 생기면
   // 월 약 $35 가 조용히 붙고, 동시에 "퍼블릭 서브넷 전용"이라는 설계도 깨진다.
@@ -98,16 +110,28 @@ describe('DevNetworkStack', () => {
   });
 });
 
-describe('DevNetworkStack - devAllowedCidr 로 인바운드를 좁힌 경우', () => {
-  const allowedCidr = '203.0.113.10/32';
-  const { network } = buildDevApp({ devAllowedCidr: allowedCidr });
-  const template = Template.fromStack(network);
+describe('DevNetworkStack - 인증 우회 4318 제거', () => {
+  test.each<[string, Template]>([
+    ['devAllowedCidr 미지정', DEFAULT_NETWORK.template],
+    ['devAllowedCidr 한 개', NARROWED_NETWORK.template],
+    ['devAllowedCidr 여러 개', MULTI_CIDR_NETWORK.template],
+  ])('%s 구성에는 4318 CIDR 인그레스가 없다', (_label, template) => {
+    const otlpCidrIngress = allIngressRules(template).filter(
+      (rule) =>
+        rule.CidrIp !== undefined &&
+        rule.FromPort === PORTS.otlp &&
+        rule.ToPort === PORTS.otlp,
+    );
 
-  // 4318 은 auth-proxy 를 우회해 Collector 로 직행하는 디버그 리스너다. 인증이 없는
-  // 경로이므로 이 CIDR 이 곧 유일한 방어선이며, 목록에서 빠지면 리스너만 살아 있고
-  // 인그레스가 없어 조용히 타임아웃된다. (ADR-0023 3번)
-  test('ALB SG 는 지정 CIDR 에서 80, 4318, 8123 을 받는다', () => {
-    for (const port of [PORTS.http, PORTS.otlp, PORTS.clickhouseHttp]) {
+    expect(otlpCidrIngress).toEqual([]);
+  });
+});
+
+describe('DevNetworkStack - devAllowedCidr 로 인바운드를 좁힌 경우', () => {
+  const { network, template } = NARROWED_NETWORK;
+
+  test('ALB SG는 지정 CIDR에서 80과 8123만 받는다', () => {
+    for (const port of [PORTS.http, PORTS.clickhouseHttp]) {
       template.hasResourceProperties('AWS::EC2::SecurityGroup', {
         // **이 문자열을 고치는 PR 은 반려 대상이다.** GroupDescription 은 CFN 상
         // Replacement 속성이라, 바꾸면 SG 교체 -> ALB(다른 스택)가 옛 SG 를 붙들고
@@ -116,7 +140,7 @@ describe('DevNetworkStack - devAllowedCidr 로 인바운드를 좁힌 경우', (
         GroupDescription: 'dev ALB - inbound 80/4318/8123 from allowed CIDRs',
         SecurityGroupIngress: Match.arrayWith([
           Match.objectLike({
-            CidrIp: allowedCidr,
+            CidrIp: ALLOWED_CIDR,
             FromPort: port,
             ToPort: port,
             IpProtocol: 'tcp',
@@ -132,7 +156,7 @@ describe('DevNetworkStack - devAllowedCidr 로 인바운드를 좁힌 경우', (
       GroupDescription: 'dev RDS PostgreSQL (publicly accessible)',
       SecurityGroupIngress: Match.arrayWith([
         Match.objectLike({
-          CidrIp: allowedCidr,
+          CidrIp: ALLOWED_CIDR,
           FromPort: PORTS.aurora,
           ToPort: PORTS.aurora,
           IpProtocol: 'tcp',
@@ -162,23 +186,21 @@ describe('DevNetworkStack - devAllowedCidr 로 인바운드를 좁힌 경우', (
 
 describe('DevNetworkStack - devAllowedCidr 을 여러 개 준 경우', () => {
   // 공백 포함 입력이 사람의 기본 습관이다. 여기까지 통과해야 손잡이가 실제로 쓸모 있다.
-  const { network } = buildDevApp({
-    devAllowedCidr: '203.0.113.10/32, 198.51.100.0/24',
-  });
-  const template = Template.fromStack(network);
+  const { template } = MULTI_CIDR_NETWORK;
 
   // 포트마다 arrayWith 를 따로 건다. **`Match.arrayWith` 는 순서를 지키는 부분열
   // 매칭이라** 한 번에 여러 개를 넣으면 룰을 거는 순서가 어서션 순서와 같아야만
   // 통과한다 - 그 결합은 테스트가 검증하려는 계약과 무관하다.
   test('ALB SG 인그레스에 두 CIDR 이 모두 들어간다', () => {
-    for (const cidr of ['203.0.113.10/32', '198.51.100.0/24']) {
-      for (const port of [PORTS.http, PORTS.otlp, PORTS.clickhouseHttp]) {
+    for (const cidr of ALLOWED_CIDRS) {
+      for (const port of [PORTS.http, PORTS.clickhouseHttp]) {
         template.hasResourceProperties('AWS::EC2::SecurityGroup', {
           // **이 문자열을 고치는 PR 은 반려 대상이다.** GroupDescription 은 CFN 상
-        // Replacement 속성이라, 바꾸면 SG 교체 -> ALB(다른 스택)가 옛 SG 를 붙들고
-        // 있어 DependencyViolation -> 고아 SG 가 남는다. 이 어서션은 값이 맞는지가
-        // 아니라 **아무도 값을 바꾸지 않았는지**를 지킨다. (lib 쪽 주석 참조)
-        GroupDescription: 'dev ALB - inbound 80/4318/8123 from allowed CIDRs',
+          // Replacement 속성이라, 바꾸면 SG 교체 -> ALB(다른 스택)가 옛 SG 를 붙들고
+          // 있어 DependencyViolation -> 고아 SG 가 남는다. 이 어서션은 값이 맞는지가
+          // 아니라 **아무도 값을 바꾸지 않았는지**를 지킨다. (lib 쪽 주석 참조)
+          GroupDescription:
+            'dev ALB - inbound 80/4318/8123 from allowed CIDRs',
           SecurityGroupIngress: Match.arrayWith([
             Match.objectLike({ CidrIp: cidr, FromPort: port }),
           ]),

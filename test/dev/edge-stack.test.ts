@@ -10,10 +10,28 @@ describe('DevEdgeStack', () => {
     Object.values(
       template.findResources('AWS::ElasticLoadBalancingV2::Listener'),
     );
-  const targetGroups = (): any[] =>
+  const listenerRules = (): any[] =>
     Object.values(
-      template.findResources('AWS::ElasticLoadBalancingV2::TargetGroup'),
+      template.findResources('AWS::ElasticLoadBalancingV2::ListenerRule'),
     );
+  const targetGroups = (): Record<string, any> =>
+    template.findResources('AWS::ElasticLoadBalancingV2::TargetGroup');
+  const targetGroupByPrefix = (
+    logicalIdPrefix: string,
+  ): readonly [string, any] => {
+    const found = Object.entries(targetGroups()).find(([logicalId]) =>
+      logicalId.startsWith(logicalIdPrefix),
+    );
+    expect(found).toBeDefined();
+    return found!;
+  };
+  const ruleByPriority = (priority: number): any => {
+    const found = listenerRules().filter(
+      (rule: any) => rule.Properties.Priority === priority,
+    );
+    expect(found).toHaveLength(1);
+    return found[0];
+  };
 
   test('internet-facing ALB 하나를 만든다', () => {
     template.hasResourceProperties(
@@ -22,24 +40,26 @@ describe('DevEdgeStack', () => {
     );
   });
 
-  // 80 은 앱(auth-proxy + API), 4318 은 Collector 직행 디버그, 8123 은 ClickHouse
-  // 직접 쿼리. TLS 는 없고 전부 평문 HTTP 다 - 80 의 `/v1/*` 만 auth-proxy 가 인증하고
-  // 나머지 경로의 방어선은 DevAlbSg 의 허용 CIDR 하나뿐이다.
-  // (ADR-0022 8번/9번, ADR-0023 3번)
-  test('80, 4318, 8123 세 개의 HTTP 리스너만 만든다', () => {
+  // 인증을 우회하던 4318 리스너는 제거한다. 80은 앱별 경로, 8123은 기존
+  // ClickHouse 직접 쿼리용이며 둘 다 NetworkStack이 인바운드를 통제한다.
+  test('80과 8123 HTTP 리스너만 만들고 4318은 열지 않는다', () => {
     const ascending = (a: number, b: number) => a - b;
-    expect(listeners()).toHaveLength(3);
+    expect(listeners()).toHaveLength(2);
     expect(
       listeners()
         .map((listener: any) => listener.Properties.Port)
         .sort(ascending),
-    ).toEqual([PORTS.http, PORTS.otlp, PORTS.clickhouseHttp].sort(ascending));
+    ).toEqual([PORTS.http, PORTS.clickhouseHttp].sort(ascending));
+    expect(
+      listeners().some(
+        (listener: any) => listener.Properties.Port === PORTS.otlp,
+      ),
+    ).toBe(false);
     for (const listener of listeners()) {
       expect(listener.Properties.Protocol).toBe('HTTP');
     }
   });
 
-  // 두 경로 규칙(/v1/*, /api/*)에 걸리지 않은 요청이 어느 백엔드로도 새지 않게 한다.
   test('80 리스너의 기본 액션은 fixed-response 404 다', () => {
     template.hasResourceProperties('AWS::ElasticLoadBalancingV2::Listener', {
       Port: PORTS.http,
@@ -52,74 +72,95 @@ describe('DevEdgeStack', () => {
     });
   });
 
-  test('/v1/* 는 우선순위 1, /api/* 는 우선순위 2 로 라우팅한다', () => {
-    const rules = Object.values(
-      template.findResources('AWS::ElasticLoadBalancingV2::ListenerRule'),
-    );
-    expect(rules).toHaveLength(2);
+  test('우선순위 1~4가 정확한 경로와 앱별 타깃 그룹을 가리킨다', () => {
+    expect(listenerRules()).toHaveLength(4);
 
-    for (const [priority, path] of [
-      [1, '/v1/*'],
-      [2, '/api/*'],
-    ] as const) {
-      template.hasResourceProperties(
-        'AWS::ElasticLoadBalancingV2::ListenerRule',
+    const telemetryIngestTg = targetGroupByPrefix('DevTelemetryIngestTg');
+    const dashboardTg = targetGroupByPrefix('DevDashboardTg');
+    const enrollmentApiTg = targetGroupByPrefix('DevEnrollmentApiTg');
+    const expected = [
+      {
+        priority: 1,
+        paths: ['/v1/traces', '/v1/metrics', '/v1/logs'],
+        targetGroupLogicalId: telemetryIngestTg[0],
+      },
+      {
+        priority: 2,
+        paths: ['/api/*'],
+        targetGroupLogicalId: dashboardTg[0],
+      },
+      {
+        priority: 3,
+        paths: [
+          '/v1/enroll',
+          '/v1/installations/*',
+          '/v1/invitations*',
+        ],
+        targetGroupLogicalId: enrollmentApiTg[0],
+      },
+      {
+        priority: 4,
+        paths: ['/windows', '/unix', '/bin/*'],
+        targetGroupLogicalId: enrollmentApiTg[0],
+      },
+    ];
+
+    for (const { priority, paths, targetGroupLogicalId } of expected) {
+      const rule = ruleByPriority(priority);
+      expect(rule.Properties.Conditions).toEqual([
         {
-          Priority: priority,
-          Conditions: Match.arrayWith([
-            Match.objectLike({
-              Field: 'path-pattern',
-              PathPatternConfig: { Values: [path] },
-            }),
-          ]),
-          Actions: Match.arrayWith([Match.objectLike({ Type: 'forward' })]),
+          Field: 'path-pattern',
+          PathPatternConfig: { Values: paths },
         },
-      );
+      ]);
+      expect(rule.Properties.Actions).toEqual([
+        {
+          Type: 'forward',
+          TargetGroupArn: { Ref: targetGroupLogicalId },
+        },
+      ]);
+    }
+
+    const publicPaths = listenerRules().flatMap(
+      (rule: any) => rule.Properties.Conditions[0].PathPatternConfig.Values,
+    );
+    expect(publicPaths).not.toContain('/v1/*');
+    expect(publicPaths).not.toContain('/v1/healthz');
+  });
+
+  // bridge 태스크는 동적 host port를 인스턴스 타깃으로 등록하고, 기존 awsvpc
+  // collector와 ClickHouse만 태스크 ENI IP를 타깃으로 등록한다.
+  test('여섯 타깃 그룹의 타입과 포트가 네트워크 모드에 맞는다', () => {
+    expect(Object.keys(targetGroups())).toHaveLength(6);
+
+    for (const [prefix, targetType, port] of [
+      ['DevCollectorTg', 'ip', PORTS.otlp],
+      ['DevAuthProxyTg', 'instance', PORTS.authProxy],
+      ['DevTelemetryIngestTg', 'instance', PORTS.telemetryIngest],
+      ['DevEnrollmentApiTg', 'instance', PORTS.enrollmentApi],
+      ['DevDashboardTg', 'instance', PORTS.apiServer],
+      ['DevClickhouseTg', 'ip', PORTS.clickhouseHttp],
+    ] as const) {
+      expect(targetGroupByPrefix(prefix)[1].Properties).toMatchObject({
+        TargetType: targetType,
+        Port: port,
+      });
     }
   });
 
-  // **타깃 타입은 선택이 아니라 네트워크 모드의 결과다.** collector/clickhouse 는
-  // awsvpc 라 태스크 ENI IP 로 등록되고(ip), dashboard 와 auth-proxy 는 bridge +
-  // 동적 포트라 호스트로 등록된다(instance). DevApplicationStack 의 NetworkMode 를
-  // 바꾸면 여기가 함께 깨져야 정상이다. (ADR-0022 4번/8번, ADR-0023 2번)
-  test('타깃 타입이 각 태스크의 네트워크 모드와 일치한다', () => {
-    expect(targetGroups()).toHaveLength(4);
-
-    const signatures = targetGroups()
-      .map(
-        (group: any) =>
-          `${group.Properties.TargetType}:${group.Properties.Port}`,
-      )
-      .sort();
-
-    expect(signatures).toEqual(
-      [
-        `ip:${PORTS.otlp}`,
-        `instance:${PORTS.authProxy}`,
-        'instance:8080',
-        `ip:${PORTS.clickhouseHttp}`,
-      ].sort(),
-    );
-  });
-
-  // 60초는 실관측 최적값이 아니라 MVP 초기 기준이다. 일반 HTTP 서비스 세 개만
-  // 기본 300초에서 줄이고, 장시간 연결과 쿼리 특성을 별도로 확인해야 하는
-  // ClickHouse는 기본값을 유지한다. (ADR-0025)
-  test('ClickHouse를 제외한 타깃 그룹만 deregistration delay를 60초로 줄인다', () => {
-    const groups = template.findResources(
-      'AWS::ElasticLoadBalancingV2::TargetGroup',
-    );
-
-    for (const logicalIdPrefix of [
-      'DevAuthProxyTg',
-      'DevDashboardTg',
+  // 일반 HTTP 타깃 그룹은 교체 배포 시간을 줄이는 60초를 쓰고 ClickHouse는
+  // 장시간 쿼리를 고려해 AWS 기본 300초를 유지한다. (ADR-0025, ADR-0026)
+  test('ClickHouse 외 타깃 그룹만 deregistration delay를 60초로 둔다', () => {
+    for (const prefix of [
       'DevCollectorTg',
+      'DevAuthProxyTg',
+      'DevTelemetryIngestTg',
+      'DevEnrollmentApiTg',
+      'DevDashboardTg',
     ]) {
-      const group = Object.entries(groups).find(([logicalId]) =>
-        logicalId.startsWith(logicalIdPrefix),
-      );
-      expect(group).toBeDefined();
-      expect(group![1].Properties.TargetGroupAttributes).toEqual(
+      expect(
+        targetGroupByPrefix(prefix)[1].Properties.TargetGroupAttributes,
+      ).toEqual(
         expect.arrayContaining([
           {
             Key: 'deregistration_delay.timeout_seconds',
@@ -129,12 +170,9 @@ describe('DevEdgeStack', () => {
       );
     }
 
-    const clickhouseGroup = Object.entries(groups).find(([logicalId]) =>
-      logicalId.startsWith('DevClickhouseTg'),
-    );
-    expect(clickhouseGroup).toBeDefined();
     expect(
-      clickhouseGroup![1].Properties.TargetGroupAttributes ?? [],
+      targetGroupByPrefix('DevClickhouseTg')[1].Properties
+        .TargetGroupAttributes ?? [],
     ).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -144,77 +182,65 @@ describe('DevEdgeStack', () => {
     );
   });
 
-  // **이 두 어서션이 "인증이 실제로 경로에 끼어 있는가"를 고정한다.** 타깃을
-  // 되돌리면 synth 도 배포도 통과하고 OTLP 가 다시 무인증으로 흐른다 - 증상이
-  // "정상 동작"이라 아무도 눈치채지 못한다. (ADR-0023 3번)
-  test('/v1/* 는 auth-proxy 타깃 그룹으로 간다', () => {
-    const authProxyTg = Object.entries(
-      template.findResources('AWS::ElasticLoadBalancingV2::TargetGroup'),
-    ).find(([logicalId]) => logicalId.startsWith('DevAuthProxyTg'));
-    expect(authProxyTg).toBeDefined();
-
-    template.hasResourceProperties(
-      'AWS::ElasticLoadBalancingV2::ListenerRule',
-      {
-        Priority: 1,
-        Actions: Match.arrayWith([
-          Match.objectLike({
-            Type: 'forward',
-            TargetGroupArn: { Ref: authProxyTg![0] },
-          }),
-        ]),
-      },
-    );
+  test('신규 두 앱은 /v1/healthz의 200만 healthy로 판정한다', () => {
+    for (const prefix of [
+      'DevTelemetryIngestTg',
+      'DevEnrollmentApiTg',
+    ]) {
+      expect(targetGroupByPrefix(prefix)[1].Properties).toMatchObject({
+        TargetType: 'instance',
+        HealthCheckPath: '/v1/healthz',
+        Matcher: { HttpCode: '200' },
+      });
+    }
   });
 
-  test('4318 디버그 리스너는 collector 타깃 그룹으로 직행한다', () => {
-    const collectorTg = Object.entries(
-      template.findResources('AWS::ElasticLoadBalancingV2::TargetGroup'),
-    ).find(([logicalId]) => logicalId.startsWith('DevCollectorTg'));
-    expect(collectorTg).toBeDefined();
+  // 라우팅을 되돌릴 수 있도록 기존 target group과 ECS service binding은 이번
+  // 단계에 남긴다. 공개 리스너 액션에서는 collector와 auth-proxy만 분리한다.
+  test('기존 collector와 auth-proxy 타깃 그룹은 보존하되 리스너가 참조하지 않는다', () => {
+    const collectorTg = targetGroupByPrefix('DevCollectorTg');
+    const authProxyTg = targetGroupByPrefix('DevAuthProxyTg');
+    const listenerActions = [
+      ...listeners().flatMap(
+        (listener: any) => listener.Properties.DefaultActions,
+      ),
+      ...listenerRules().flatMap((rule: any) => rule.Properties.Actions),
+    ];
+    const renderedActions = JSON.stringify(listenerActions);
 
-    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::Listener', {
-      Port: PORTS.otlp,
-      DefaultActions: Match.arrayWith([
-        Match.objectLike({
-          Type: 'forward',
-          TargetGroupArn: { Ref: collectorTg![0] },
-        }),
-      ]),
+    expect(renderedActions).not.toContain(collectorTg[0]);
+    expect(renderedActions).not.toContain(authProxyTg[0]);
+  });
+
+  test('기존 auth-proxy와 dashboard 헬스체크 계약을 유지한다', () => {
+    expect(targetGroupByPrefix('DevAuthProxyTg')[1].Properties).toMatchObject({
+      HealthCheckPath: '/health',
+    });
+    expect(
+      targetGroupByPrefix('DevAuthProxyTg')[1].Properties.Matcher,
+    ).toBeUndefined();
+    expect(targetGroupByPrefix('DevDashboardTg')[1].Properties).toMatchObject({
+      HealthCheckPath: '/',
+      Matcher: { HttpCode: '200-404' },
     });
   });
 
-  // 앱이 GET /health 에 200 JSON 을 준다. collector/dashboard 처럼 matcher 를
-  // 200-404 로 넓히면 프로세스가 죽어도 타깃이 healthy 로 남을 수 있다. (ADR-0023)
-  test('auth-proxy 타깃 그룹의 헬스체크 경로는 /health 다', () => {
-    template.hasResourceProperties(
-      'AWS::ElasticLoadBalancingV2::TargetGroup',
-      {
-        Port: PORTS.authProxy,
-        TargetType: 'instance',
-        HealthCheckPath: '/health',
-        Matcher: Match.absent(),
-      },
+  test('ClickHouse 타깃 그룹은 ip/8123, /ping, 기본 drain을 유지한다', () => {
+    const clickhouse = targetGroupByPrefix('DevClickhouseTg')[1].Properties;
+    expect(clickhouse).toMatchObject({
+      Port: PORTS.clickhouseHttp,
+      TargetType: 'ip',
+      HealthCheckPath: '/ping',
+    });
+    expect(clickhouse.TargetGroupAttributes ?? []).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          Key: 'deregistration_delay.timeout_seconds',
+        }),
+      ]),
     );
   });
 
-  // ClickHouse 는 /ping 에 200 을 주므로 헬스체크 경로를 좁힐 수 있다. 이게 빠져
-  // 기본 경로(/)로 돌아가면 ClickHouse 가 400 을 돌려줘 타깃이 영영 unhealthy 다.
-  test('ClickHouse 타깃 그룹의 헬스체크 경로는 /ping 이다', () => {
-    template.hasResourceProperties(
-      'AWS::ElasticLoadBalancingV2::TargetGroup',
-      {
-        Port: PORTS.clickhouseHttp,
-        TargetType: 'ip',
-        HealthCheckPath: '/ping',
-      },
-    );
-  });
-
-  // **의도적 생략이다.** dev 프론트엔드는 로컬에서 띄워 이 ALB 를 향하게 한다.
-  // Cognito 를 만들지 않는 덕에 ADR-0021 Constraints 의 "Cognito 도메인 prefix
-  // 충돌"이 애초에 발생하지 않는다. 여기에 하나라도 생기면 그 제약이 되살아나고
-  // 개발 루프에 캐시 무효화가 끼어든다. (ADR-0022 8번)
   test('Cognito 와 CloudFront 를 하나도 만들지 않는다', () => {
     for (const type of [
       'AWS::Cognito::UserPool',
@@ -226,14 +252,10 @@ describe('DevEdgeStack', () => {
     }
   });
 
-  // 출력은 DevEdgeStack 한 곳에 모은다. 이 9개가 배포 직후 사람이 쓰는 전부이며
-  // (OTLP 주입 주소, 인증 우회 디버그 주소, API, ClickHouse 직접 쿼리, psql 접속
-  // 정보, enrollment-api 가 쓰는 두 Secret ARN) 하나라도 빠지면 콘솔을 뒤져야 한다.
-  test('배포 직후 필요한 9개 출력을 모두 노출한다', () => {
+  test('디버그 주소를 제외한 운영용 출력 8개를 노출한다', () => {
     for (const outputName of [
       'AlbDnsName',
       'OtlpEndpoint',
-      'OtlpDebugEndpoint',
       'ApiEndpoint',
       'ClickhouseDebugUrl',
       'RdsEndpoint',
@@ -243,6 +265,7 @@ describe('DevEdgeStack', () => {
     ]) {
       template.hasOutput(outputName, {});
     }
+    expect(template.findOutputs('OtlpDebugEndpoint')).toEqual({});
   });
 
   test('관리자 토큰은 값이 아니라 Secret ARN 만 출력한다', () => {
