@@ -16,15 +16,10 @@ import { DEV_DEREGISTRATION_DELAY } from './config';
 export interface DevEdgeStackProps extends StackProps {
   readonly vpc: IVpc;
   readonly albSecurityGroup: ISecurityGroup;
-  /** PROJ-144 정리 전까지 기존 target group과 service binding을 유지한다. */
-  readonly collectorService: Ec2Service;
-  /** PROJ-144 정리 전까지 기존 target group과 service binding을 유지한다. */
-  readonly authProxyService: Ec2Service;
   /** 정확한 OTLP 세 경로의 타깃. */
   readonly telemetryIngestService: Ec2Service;
   /** enrollment와 bootstrap 경로가 공유하는 타깃. */
   readonly enrollmentApiService: Ec2Service;
-  readonly dashboardService: Ec2Service;
   readonly clickhouseService: Ec2Service;
   /** RDS 엔드포인트 호스트명 (CfnOutput 용). */
   readonly dbEndpoint: string;
@@ -46,8 +41,8 @@ export interface DevEdgeStackProps extends StackProps {
  * "Cognito 도메인 prefix 충돌"이 애초에 발생하지 않는다. (ADR-0022 8번)
  *
  * `:80`은 정확한 OTLP 세 경로를 telemetry-ingest로, enrollment·bootstrap
- * 경로를 enrollment-api로 전달한다. 기존 `/api/*`는 PROJ-144 정리 전까지
- * dashboard로 유지한다. 인증을 우회하던 `:4318` 리스너는 제거했다. (ADR-0026)
+ * 경로를 enrollment-api로 전달한다. 인증을 우회하던 `:4318`과 기존
+ * `/api/*` 리스너 규칙은 제거했다. (ADR-0026)
  */
 export class DevEdgeStack extends Stack {
   /** enrollment-api 응답에 넣을 실제 ALB HTTP base URL. */
@@ -64,18 +59,15 @@ export class DevEdgeStack extends Stack {
     });
     this.publicBaseUrl = `http://${alb.loadBalancerDnsName}`;
 
-    // 공개 디버그 리스너는 제거하지만, 롤백을 위해 기존 Collector
-    // target group과 ECS service binding은 PROJ-144까지 유지한다.
-    this.buildLegacyCollectorTargetGroup(props);
+    // 구 ECS attachment를 먼저 분리해도 이 배포에서는 target group을 남겨
+    // CloudFormation이 서비스 update를 먼저 완료하게 한다. (ADR-0026 6장)
+    this.buildLegacyCollectorTargetGroup(props.vpc);
     this.buildAppListener(props, alb);
     this.buildClickhouseListener(props, alb);
 
     new CfnOutput(this, 'AlbDnsName', { value: alb.loadBalancerDnsName });
     new CfnOutput(this, 'OtlpEndpoint', {
       value: `http://${alb.loadBalancerDnsName}/v1/traces`,
-    });
-    new CfnOutput(this, 'ApiEndpoint', {
-      value: `http://${alb.loadBalancerDnsName}/api`,
     });
     new CfnOutput(this, 'ClickhouseDebugUrl', {
       value: `http://${alb.loadBalancerDnsName}:${PORTS.clickhouseHttp}`,
@@ -119,9 +111,9 @@ export class DevEdgeStack extends Stack {
       }),
     });
 
-    // 기존 auth-proxy target group은 롤백을 위해 리소스와 service binding만
-    // 유지한다. 리스너 규칙은 더 이상 이 그룹을 참조하지 않는다. (ADR-0026)
-    const authProxyTargetGroup = new ApplicationTargetGroup(
+    // binding 분리 배포에서는 구 target group 리소스만 유지한다.
+    // 다음 삭제 배포가 완료될 때까지 construct ID와 properties를 바꾸지 않는다.
+    new ApplicationTargetGroup(
       this,
       'DevAuthProxyTg',
       {
@@ -136,17 +128,11 @@ export class DevEdgeStack extends Stack {
         healthCheck: { path: '/health' },
       },
     );
-    authProxyTargetGroup.addTarget(
-      props.authProxyService.loadBalancerTarget({
-        containerName: 'auth-proxy',
-        containerPort: PORTS.authProxy,
-      }),
-    );
 
     // dashboard 태스크는 bridge + 동적 포트라 호스트 인스턴스로 등록된다
     // -> target type instance. 네트워크 모드가 타깃 타입을 결정하는 것이지
     // 선택의 문제가 아니다. (ADR-0022 8번)
-    const dashboardTargetGroup = new ApplicationTargetGroup(
+    new ApplicationTargetGroup(
       this,
       'DevDashboardTg',
       {
@@ -160,12 +146,6 @@ export class DevEdgeStack extends Stack {
         // 앱이 actuator 를 노출하는 것이 확인되면 path 를 좁힌다. 운영과 같은 값이다.
         healthCheck: { path: '/', healthyHttpCodes: '200-404' },
       },
-    );
-    dashboardTargetGroup.addTarget(
-      props.dashboardService.loadBalancerTarget({
-        containerName: 'api-server',
-        containerPort: PORTS.apiServer,
-      }),
     );
 
     // 신규 두 Spring 태스크는 bridge + 동적 host port를 쓰므로 ALB에
@@ -225,11 +205,6 @@ export class DevEdgeStack extends Stack {
       ],
       action: ListenerAction.forward([telemetryIngestTargetGroup]),
     });
-    listener.addAction('DevApiForward', {
-      priority: 2,
-      conditions: [ListenerCondition.pathPatterns(['/api/*'])],
-      action: ListenerAction.forward([dashboardTargetGroup]),
-    });
     listener.addAction('DevEnrollmentForward', {
       priority: 3,
       conditions: [
@@ -251,14 +226,13 @@ export class DevEdgeStack extends Stack {
   }
 
   /**
-   * 기존 Collector target group과 ECS service binding을 롤백 가능 상태로 보존한다.
-   * 인증을 우회하던 `:4318` 리스너와 공개 인그레스는 PROJ-143에서
-   * 제거했다. 실제 binding 분리와 리소스 삭제는 PROJ-144의 두 배포로 나눈다.
+   * 기존 Collector target group을 binding 없이 보존한다. 이 분리 템플릿을
+   * 먼저 배포해 ECS attachment를 제거한 뒤 다음 배포에서 리소스를 삭제한다.
    */
-  private buildLegacyCollectorTargetGroup(props: DevEdgeStackProps): void {
+  private buildLegacyCollectorTargetGroup(vpc: IVpc): void {
     // collector 태스크는 awsvpc 라 자기 ENI 의 IP 로 등록된다 -> target type ip.
-    const targetGroup = new ApplicationTargetGroup(this, 'DevCollectorTg', {
-      vpc: props.vpc,
+    new ApplicationTargetGroup(this, 'DevCollectorTg', {
+      vpc,
       port: PORTS.otlp,
       protocol: ApplicationProtocol.HTTP,
       targetType: TargetType.IP,
@@ -267,12 +241,6 @@ export class DevEdgeStack extends Stack {
       // 운영과 같은 값이다.
       healthCheck: { path: '/', healthyHttpCodes: '200-404' },
     });
-    targetGroup.addTarget(
-      props.collectorService.loadBalancerTarget({
-        containerName: 'otel-collector',
-        containerPort: PORTS.otlp,
-      }),
-    );
   }
 
   /**

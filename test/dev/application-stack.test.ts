@@ -1030,13 +1030,31 @@ describe('DevApplicationStack', () => {
       }
     });
 
-    // PROJ-143은 리스너만 신규 앱으로 전환한다. 롤백 가능성을 남기기
-    // 위해 구 세 서비스의 target group binding은 PROJ-144까지 유지한다.
-    test('기존 collector·auth-proxy·dashboard의 ALB binding을 보존한다', () => {
+    // BaseService가 속성을 생략하면 CloudFormation은 기존 attachment를 제거하지
+    // 않을 수 있다. 분리 배포에서는 구 세 서비스에 빈 배열을 정확히 명시한다.
+    test('기존 collector·auth-proxy·dashboard의 LoadBalancers를 정확히 []로 분리한다', () => {
+      for (const serviceName of [
+        ECS_SERVICE_NAMES.collector,
+        ECS_SERVICE_NAMES.authProxy,
+        ECS_SERVICE_NAMES.dashboard,
+      ]) {
+        expect(service(serviceName).Properties.LoadBalancers).toEqual([]);
+      }
+    });
+
+    test('신규 두 앱과 ClickHouse의 ALB binding은 유지한다', () => {
       for (const [serviceName, containerName, containerPort] of [
-        [ECS_SERVICE_NAMES.collector, 'otel-collector', PORTS.otlp],
-        [ECS_SERVICE_NAMES.authProxy, 'auth-proxy', PORTS.authProxy],
-        [ECS_SERVICE_NAMES.dashboard, 'api-server', PORTS.apiServer],
+        [
+          ECS_SERVICE_NAMES.telemetryIngest,
+          'telemetry-ingest',
+          PORTS.telemetryIngest,
+        ],
+        [
+          ECS_SERVICE_NAMES.enrollmentApi,
+          'enrollment-api',
+          PORTS.enrollmentApi,
+        ],
+        [ECS_SERVICE_NAMES.clickhouse, 'clickhouse', PORTS.clickhouseHttp],
       ] as const) {
         const loadBalancers = service(serviceName).Properties.LoadBalancers;
 
@@ -1045,9 +1063,7 @@ describe('DevApplicationStack', () => {
           ContainerName: containerName,
           ContainerPort: containerPort,
         });
-        expect(JSON.stringify(loadBalancers[0].TargetGroupArn)).toContain(
-          'DevEdgeStack',
-        );
+        expect(loadBalancers[0].TargetGroupArn).toBeDefined();
       }
     });
 

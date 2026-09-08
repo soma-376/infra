@@ -17,6 +17,7 @@ import {
 import {
   AmiHardwareType,
   AsgCapacityProvider,
+  CfnService,
   Cluster,
   ContainerDefinition,
   ContainerImage,
@@ -245,6 +246,19 @@ export class DevApplicationStack extends Stack {
       props,
       clickhouseCapacityProvider,
     );
+
+    // BaseService는 target을 붙이지 않으면 LoadBalancers 속성을 생략한다.
+    // 기존 attachment를 CloudFormation update로 제거하려면 빈 배열을 명시해야
+    // 하므로, 삭제 전 분리 배포에서만 구 세 서비스에 override를 둔다.
+    // (ADR-0026 6장)
+    for (const legacyService of [
+      this.collectorService,
+      this.authProxyService,
+      this.dashboardService,
+    ]) {
+      const cfnService = legacyService.node.defaultChild as CfnService;
+      cfnService.addPropertyOverride('LoadBalancers', []);
+    }
   }
 
   /**

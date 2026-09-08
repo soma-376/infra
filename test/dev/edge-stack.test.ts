@@ -72,22 +72,16 @@ describe('DevEdgeStack', () => {
     });
   });
 
-  test('우선순위 1~4가 정확한 경로와 앱별 타깃 그룹을 가리킨다', () => {
-    expect(listenerRules()).toHaveLength(4);
+  test('우선순위 1·3·4가 정확한 경로와 앱별 타깃 그룹을 가리킨다', () => {
+    expect(listenerRules()).toHaveLength(3);
 
     const telemetryIngestTg = targetGroupByPrefix('DevTelemetryIngestTg');
-    const dashboardTg = targetGroupByPrefix('DevDashboardTg');
     const enrollmentApiTg = targetGroupByPrefix('DevEnrollmentApiTg');
     const expected = [
       {
         priority: 1,
         paths: ['/v1/traces', '/v1/metrics', '/v1/logs'],
         targetGroupLogicalId: telemetryIngestTg[0],
-      },
-      {
-        priority: 2,
-        paths: ['/api/*'],
-        targetGroupLogicalId: dashboardTg[0],
       },
       {
         priority: 3,
@@ -126,6 +120,7 @@ describe('DevEdgeStack', () => {
     );
     expect(publicPaths).not.toContain('/v1/*');
     expect(publicPaths).not.toContain('/v1/healthz');
+    expect(publicPaths).not.toContain('/api/*');
   });
 
   // bridge 태스크는 동적 host port를 인스턴스 타깃으로 등록하고, 기존 awsvpc
@@ -195,11 +190,12 @@ describe('DevEdgeStack', () => {
     }
   });
 
-  // 라우팅을 되돌릴 수 있도록 기존 target group과 ECS service binding은 이번
-  // 단계에 남긴다. 공개 리스너 액션에서는 collector와 auth-proxy만 분리한다.
-  test('기존 collector와 auth-proxy 타깃 그룹은 보존하되 리스너가 참조하지 않는다', () => {
+  // attachment 분리 배포에서는 구 세 target group 리소스를 남기고
+  // 리스너 참조만 없앤다. ECS 빈 배열은 ApplicationStack 테스트가 고정한다.
+  test('기존 세 타깃 그룹은 보존하되 리스너가 참조하지 않는다', () => {
     const collectorTg = targetGroupByPrefix('DevCollectorTg');
     const authProxyTg = targetGroupByPrefix('DevAuthProxyTg');
+    const dashboardTg = targetGroupByPrefix('DevDashboardTg');
     const listenerActions = [
       ...listeners().flatMap(
         (listener: any) => listener.Properties.DefaultActions,
@@ -210,6 +206,7 @@ describe('DevEdgeStack', () => {
 
     expect(renderedActions).not.toContain(collectorTg[0]);
     expect(renderedActions).not.toContain(authProxyTg[0]);
+    expect(renderedActions).not.toContain(dashboardTg[0]);
   });
 
   test('기존 auth-proxy와 dashboard 헬스체크 계약을 유지한다', () => {
@@ -252,11 +249,10 @@ describe('DevEdgeStack', () => {
     }
   });
 
-  test('디버그 주소를 제외한 운영용 출력 8개를 노출한다', () => {
+  test('구 디버그·API 주소를 제외한 출력 7개를 노출한다', () => {
     for (const outputName of [
       'AlbDnsName',
       'OtlpEndpoint',
-      'ApiEndpoint',
       'ClickhouseDebugUrl',
       'RdsEndpoint',
       'RdsSecretArn',
@@ -266,6 +262,7 @@ describe('DevEdgeStack', () => {
       template.hasOutput(outputName, {});
     }
     expect(template.findOutputs('OtlpDebugEndpoint')).toEqual({});
+    expect(template.findOutputs('ApiEndpoint')).toEqual({});
   });
 
   test('관리자 토큰은 값이 아니라 Secret ARN 만 출력한다', () => {
