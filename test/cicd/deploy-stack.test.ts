@@ -27,7 +27,6 @@ const ALL_ROLES = [PIPELINE_DEV, PIPELINE_PROD, DASHBOARD_DEV, DASHBOARD_PROD];
  */
 const PENDING_BACKEND_DEV_SERVICE_PAIRS = new Set([
   `${ECS_CLUSTER_NAMES.dev}/${ECS_SERVICE_NAMES.enrollmentApi}`,
-  `${ECS_CLUSTER_NAMES.dev}/${ECS_SERVICE_NAMES.telemetryIngest}`,
 ]);
 
 describe('DeployStack', () => {

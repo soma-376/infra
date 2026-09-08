@@ -76,6 +76,9 @@ export const PORTS = {
   // auth-proxy 가 리슨하는 포트. 앱의 `PORT` 기본값과 같은 값이며
   // (`apps/auth-proxy/src/config/env.ts`), 이미지의 EXPOSE 도 4316 이다. (ADR-0023)
   authProxy: 4316,
+  // telemetry-ingest Spring 앱의 기본 포트. authProxy 와 숫자는 같지만 서로 다른
+  // 배포 단위의 계약이므로 이름을 공유하지 않는다. (ADR-0026)
+  telemetryIngest: 4316,
   clickhouseHttp: 8123,
   clickhouseNative: 9000,
   aurora: 5432,

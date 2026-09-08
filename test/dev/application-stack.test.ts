@@ -50,6 +50,15 @@ describe('DevApplicationStack', () => {
     );
   }
 
+  function service(serviceName: string): any {
+    const found = Object.values(
+      template.findResources('AWS::ECS::Service'),
+    ).filter((resource: any) => resource.Properties.ServiceName === serviceName);
+
+    expect(found).toHaveLength(1);
+    return found[0];
+  }
+
   // ============================================================
   // 물리 이름 - 앱 레포 워크플로우와의 계약 (ADR-0024)
   // ============================================================
@@ -69,7 +78,7 @@ describe('DevApplicationStack', () => {
 
     // 서비스 이름은 유일성 스코프가 클러스터 안이라 운영과 같은 이름을 쓴다.
     // 그래야 워크플로우가 `--cluster` 하나만 갈아끼워 환경을 바꿀 수 있다.
-    test('서비스 4개의 이름이 고정되어 있다', () => {
+    test('병행 단계 서비스 5개의 이름이 고정되어 있다', () => {
       const names = Object.values(template.findResources('AWS::ECS::Service'))
         .map((resource: any) => resource.Properties.ServiceName)
         .sort();
@@ -78,10 +87,13 @@ describe('DevApplicationStack', () => {
         [
           ECS_SERVICE_NAMES.collector,
           ECS_SERVICE_NAMES.authProxy,
+          ECS_SERVICE_NAMES.telemetryIngest,
           ECS_SERVICE_NAMES.dashboard,
           ECS_SERVICE_NAMES.clickhouse,
         ].sort(),
       );
+
+      expect(application.telemetryIngestService).toBeDefined();
     });
   });
 
@@ -169,6 +181,51 @@ describe('DevApplicationStack', () => {
           Match.objectLike({ Name: 'auth-proxy' }),
         ]),
       });
+    });
+
+    test('telemetry-ingest 태스크는 bridge 다 - 동적 포트와 호스트 ENI 사용의 전제다', () => {
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        NetworkMode: 'bridge',
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({ Name: 'telemetry-ingest' }),
+        ]),
+      });
+    });
+
+    test('telemetry-ingest 추가 뒤에도 awsvpc 태스크는 기존 둘뿐이다', () => {
+      const awsvpcTasks = Object.values(
+        template.findResources('AWS::ECS::TaskDefinition'),
+      ).filter((resource: any) => resource.Properties.NetworkMode === 'awsvpc');
+
+      expect(awsvpcTasks).toHaveLength(2);
+    });
+  });
+
+  // ============================================================
+  // telemetry-ingest 배포 단위 (PROJ-140, ADR-0026)
+  // ============================================================
+  describe('telemetry-ingest 배포 단위', () => {
+    test('4316 컨테이너 포트를 열고 hostPort 는 동적으로 할당한다', () => {
+      const portMappings = container('telemetry-ingest').PortMappings;
+
+      expect(portMappings).toHaveLength(1);
+      expect(portMappings[0]).toMatchObject({
+        ContainerPort: PORTS.telemetryIngest,
+        HostPort: 0,
+        Protocol: 'tcp',
+      });
+      expect(PORTS.telemetryIngest).toBe(4316);
+    });
+
+    test('소프트 메모리 예약은 1024 MiB다', () => {
+      expect(container('telemetry-ingest').MemoryReservation).toBe(1024);
+      expect(container('telemetry-ingest').Memory).toBeUndefined();
+    });
+
+    test('PROJ-143 전에는 ALB binding을 만들지 않는다', () => {
+      expect(
+        service(ECS_SERVICE_NAMES.telemetryIngest).Properties.LoadBalancers,
+      ).toBeUndefined();
     });
   });
 
@@ -323,15 +380,16 @@ describe('DevApplicationStack', () => {
 
     // 접두사를 빼면 첫 cdk deploy 가 `already exists` 로 통째로 롤백된다 - 로그 그룹
     // 이름은 계정 + 리전 스코프에서 유일하고 운영이 이미 /ecs/collector 를 쓴다.
-    test('컨테이너 로그 그룹 6개가 전부 /ecs/dev/ 접두사를 쓴다', () => {
+    test('컨테이너 로그 그룹 7개가 전부 /ecs/dev/ 접두사를 쓴다', () => {
       const names = ecsLogGroupNames();
 
-      expect(names).toHaveLength(6);
+      expect(names).toHaveLength(7);
       expect(names.sort()).toEqual(
         [
           `${DEV_LOG_GROUP_PREFIX}/collector`,
           `${DEV_LOG_GROUP_PREFIX}/post-processor`,
           `${DEV_LOG_GROUP_PREFIX}/auth-proxy`,
+          `${DEV_LOG_GROUP_PREFIX}/telemetry-ingest`,
           `${DEV_LOG_GROUP_PREFIX}/api-server`,
           `${DEV_LOG_GROUP_PREFIX}/batch`,
           `${DEV_LOG_GROUP_PREFIX}/clickhouse`,
@@ -340,6 +398,25 @@ describe('DevApplicationStack', () => {
       for (const name of names) {
         expect(name).toMatch(/^\/ecs\/dev\//);
       }
+    });
+
+    test('telemetry-ingest 로그는 14일 보존 뒤 스택과 함께 삭제한다', () => {
+      const found = Object.values(
+        template.findResources('AWS::Logs::LogGroup'),
+      ).filter(
+        (resource: any) =>
+          resource.Properties.LogGroupName ===
+          `${DEV_LOG_GROUP_PREFIX}/telemetry-ingest`,
+      );
+
+      expect(found).toHaveLength(1);
+      expect(found[0]).toMatchObject({
+        DeletionPolicy: 'Delete',
+        UpdateReplacePolicy: 'Delete',
+        Properties: {
+          RetentionInDays: 14,
+        },
+      });
     });
 
     // 위 어서션의 뒷면. 운영 이름이 하나라도 남아 있으면 그 로그 그룹에서 첫 배포가
@@ -526,6 +603,7 @@ describe('DevApplicationStack', () => {
     const ownBuilt: ReadonlyArray<readonly [string, string]> = [
       ['post-processor', ECR_REPOS.postProcessor],
       ['auth-proxy', ECR_REPOS.authProxy],
+      ['telemetry-ingest', ECR_REPOS.telemetryIngest],
       ['api-server', ECR_REPOS.apiServer],
       ['batch-processor', ECR_REPOS.batchProcessor],
     ];
@@ -539,7 +617,7 @@ describe('DevApplicationStack', () => {
         .filter((part): part is string => typeof part === 'string')
         .join('');
 
-    test('세 이미지 모두 soma-376 네임스페이스의 ECR 레포를 가리킨다', () => {
+    test('자체 빌드 이미지 모두 soma-376 네임스페이스의 ECR 레포를 가리킨다', () => {
       for (const [containerName, repositoryName] of ownBuilt) {
         expect(repositoryName.startsWith(`${ECR_NAMESPACE}/`)).toBe(true);
         expect(imageLiterals(containerName)).toContain(`/${repositoryName}:`);
@@ -587,9 +665,9 @@ describe('DevApplicationStack', () => {
           .join(''),
       );
 
-    // post-processor, auth-proxy, api-server, batch-processor. collector 와
-    // clickhouse 는 퍼블릭 레지스트리라 Fn::Join 이 아니다.
-    expect(ecrImages).toHaveLength(4);
+    // post-processor, auth-proxy, telemetry-ingest, api-server, batch-processor.
+    // collector 와 clickhouse 는 퍼블릭 레지스트리라 Fn::Join 이 아니다.
+    expect(ecrImages).toHaveLength(5);
     for (const image of ecrImages) {
       expect(image).toContain(':pr-42');
       expect(image).not.toContain(':latest');
@@ -603,10 +681,10 @@ describe('DevApplicationStack', () => {
     const services = (): any[] =>
       Object.values(template.findResources('AWS::ECS::Service'));
 
-    // 호스트가 1대뿐이고 awsvpc 태스크가 ENI 를 잡으므로 "새 태스크를 먼저 띄울"
-    // 여유가 없다. minHealthyPercent 를 올리면 배포가 영원히 끝나지 않는다.
-    test('네 서비스 모두 교체 배포(0/100, desired 1)로 고정한다', () => {
-      expect(services()).toHaveLength(4);
+    // 앱 ASG max를 2로 열어도 배포 시작 시 여분 호스트가 이미 있다는 보장은 없다.
+    // 새 태스크 자리를 전제로 하지 않는 교체 배포를 유지한다. (ADR-0026)
+    test('다섯 서비스 모두 교체 배포(0/100, desired 1)로 고정한다', () => {
+      expect(services()).toHaveLength(5);
       for (const service of services()) {
         expect(service.Properties.DesiredCount).toBe(1);
         expect(service.Properties.DeploymentConfiguration).toMatchObject({
@@ -619,10 +697,23 @@ describe('DevApplicationStack', () => {
     // awsvpc 태스크는 ssmmessages 에 도달할 경로가 없어(NAT 도 인터페이스
     // 엔드포인트도 없다) ECS Exec 이 어차피 동작하지 않으면서 태스크 역할에 권한만
     // 붙는다. 접속 경로는 호스트 SSM + `docker exec` 이다. (ADR-0022 5(b), ADR-0016)
-    test('세 서비스 모두 ECS Exec 을 켜지 않는다', () => {
+    test('모든 서비스가 ECS Exec 을 켜지 않는다', () => {
       for (const service of services()) {
         expect(service.Properties.EnableExecuteCommand).toBeUndefined();
       }
+    });
+
+    test('앱 호스트의 현재 소프트 예약 합은 3328 MiB다', () => {
+      const reservations = [
+        'otel-collector',
+        'post-processor',
+        'auth-proxy',
+        'telemetry-ingest',
+        'api-server',
+        'batch-processor',
+      ].map((name) => container(name).MemoryReservation as number);
+
+      expect(reservations.reduce((sum, value) => sum + value, 0)).toBe(3328);
     });
   });
 
@@ -654,8 +745,8 @@ describe('DevApplicationStack', () => {
       );
     });
 
-    test('앱 ASG 의 최대 용량 기본값은 1 이다', () => {
-      expect(asgByPrefix(template, 'DevAppAsg').Properties.MaxSize).toBe('1');
+    test('병행 기간 앱 ASG 의 최대 용량 기본값은 2다', () => {
+      expect(asgByPrefix(template, 'DevAppAsg').Properties.MaxSize).toBe('2');
     });
 
     // 부하 테스트 확장 손잡이. 앱 ASG 만 늘어나고 ClickHouse 는 1 로 남아야 한다.

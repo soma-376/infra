@@ -98,14 +98,16 @@ const MEMORY_RESERVATION_MIB = {
   // Node 단일 프로세스 프록시. 요청 본문을 메모리에 버퍼링하지만
   // `MAX_OTLP_BODY_SIZE` 기본값이 10MiB 라 상한이 예측 가능하다. (ADR-0023)
   authProxy: 256,
+  // Spring heap·off-heap을 합친 실사용 충분성은 배포 뒤 별도로 관측한다. (ADR-0026)
+  telemetryIngest: 1024,
 } as const;
 
 /**
- * 네 서비스 공통 배포 전략: 먼저 내리고 새로 띄우는 **교체 배포**.
+ * dev 서비스 공통 배포 전략: 먼저 내리고 새로 띄우는 **교체 배포**.
  *
  * t4g 계열의 인스턴스당 ENI 한도는 프라이머리 포함 3 이고 awsvpc 태스크는 태스크당
- * ENI 를 하나 잡는다. 호스트가 1대뿐이므로 롤링 배포에 필요한 "새 태스크를 먼저
- * 띄울" 여유가 없다. `minHealthyPercent` 를 올리면 배포가 영원히 끝나지 않는다.
+ * ENI 를 하나 잡는다. 앱 ASG 최대값을 병행 기간 2로 열어도 배포 시작 시 여분 호스트가
+ * 이미 있다는 보장은 없다. 롤링 배포에 필요한 새 태스크 자리를 전제로 하지 않는다.
  * 교체 중에는 짧은 다운타임이 발생하며, 이는 감수한 대가다.
  *
  * 운영 ClickHouse `Ec2Service` 와 정확히 같은 패턴이다.
@@ -145,7 +147,7 @@ export interface DevApplicationStackProps extends StackProps {
 
 /**
  * DevApplicationStack: ECS 클러스터(단일), Cloud Map `obs.local`,
- * ASG 2개 + 캐패시티 프로바이더 2개, Ec2Service 4개.
+ * ASG 2개 + 캐패시티 프로바이더 2개, 병행 단계 Ec2Service 5개.
  *
  * 운영과의 기본 차이는 **launch type 과 네트워크 모드**다. 다만 PROJ-112에서
  * enrollment-api 계약을 dev의 기존 api-server 슬롯에 먼저 반영했으며, prod 배포 단위
@@ -163,6 +165,8 @@ export class DevApplicationStack extends Stack {
   public readonly clickhouseService: Ec2Service;
   /** 인증 프록시. ALB `:80` 의 `/v1/*` 가 이 서비스를 향한다. (ADR-0023) */
   public readonly authProxyService: Ec2Service;
+  /** 신규 Spring 수집 서비스. PROJ-143에서 ALB 타깃으로 연결한다. (ADR-0026) */
+  public readonly telemetryIngestService: Ec2Service;
 
   private readonly namespace: PrivateDnsNamespace;
 
@@ -202,6 +206,10 @@ export class DevApplicationStack extends Stack {
     // auth-proxy 는 collector 를 Cloud Map 이름으로만 찾으므로 순서 의존이 없다.
     // 같은 앱 호스트 ASG 를 쓴다 - 전용 ASG 를 만들 이유가 없다 (ADR-0023 2번).
     this.authProxyService = this.buildAuthProxyService(
+      props,
+      appCapacityProvider,
+    );
+    this.telemetryIngestService = this.buildTelemetryIngestService(
       props,
       appCapacityProvider,
     );
@@ -299,7 +307,7 @@ export class DevApplicationStack extends Stack {
   }
 
   // ============================================================
-  // ASG ① : 앱 호스트 (collector 태스크 + dashboard 태스크)
+  // ASG ① : 앱 호스트 (ClickHouse 외 모든 dev 앱 태스크)
   // ============================================================
   private buildAppAsg(props: DevApplicationStackProps): AsgCapacityProvider {
     // 루트 볼륨은 AMI 기본(gp3 30GB)을 그대로 쓴다. 추가 데이터 볼륨이 없다.
@@ -547,7 +555,61 @@ export class DevApplicationStack extends Stack {
   }
 
   // ============================================================
-  // 태스크 ③ : Dashboard Backend - bridge
+  // 태스크 ③ : Telemetry Ingest - bridge
+  // ============================================================
+  private buildTelemetryIngestService(
+    props: DevApplicationStackProps,
+    capacityProvider: AsgCapacityProvider,
+  ): Ec2Service {
+    const task = new Ec2TaskDefinition(this, 'DevTelemetryIngestTask', {
+      // 단일 컨테이너이고 Cloud Map 등록 대상이 아니므로 awsvpc 강제 조건이 없다.
+      // bridge 를 써서 기존 앱 호스트의 인터넷 egress와 ENI 여유를 그대로 사용한다.
+      // 인바운드는 PROJ-143에서 기존 ALB -> 앱 호스트 동적 포트 SG 룰을 재사용한다.
+      // (ADR-0022 4번, ADR-0026)
+      networkMode: NetworkMode.BRIDGE,
+    });
+
+    task.addContainer('telemetry-ingest', {
+      image: ContainerImage.fromEcrRepository(
+        Repository.fromRepositoryName(
+          this,
+          'DevTelemetryIngestRepo',
+          ECR_REPOS.telemetryIngest,
+        ),
+        props.devConfig.imageTag,
+      ),
+      // hostPort 를 생략해 bridge 동적 포트를 쓴다. 앱의 application.yaml 기본 포트가
+      // 4316이라 이 단계에서는 별도 환경변수 없이 같은 포트를 열 수 있다. 실제
+      // 환경·Secret·task role 계약은 PROJ-141에서 연결한다. (ADR-0026)
+      portMappings: [{ containerPort: PORTS.telemetryIngest }],
+      memoryReservationMiB: MEMORY_RESERVATION_MIB.telemetryIngest,
+      logging: LogDriver.awsLogs({
+        streamPrefix: 'telemetry-ingest',
+        logGroup: this.makeLogGroup(
+          'DevTelemetryIngestLog',
+          'telemetry-ingest',
+        ),
+      }),
+    });
+
+    return new Ec2Service(this, 'DevTelemetryIngestService', {
+      cluster: this.cluster,
+      taskDefinition: task,
+      serviceName: ECS_SERVICE_NAMES.telemetryIngest,
+      desiredCount: 1,
+      // bridge 태스크라 태스크 전용 subnet/SG를 주지 않는다. 기존 DevAppAsg와
+      // DevAppHostSg의 네트워크 정체성을 사용한다.
+      capacityProviderStrategies: [
+        { capacityProvider: capacityProvider.capacityProviderName, weight: 1 },
+      ],
+      // PROJ-143 전에는 ALB target을 붙이지 않고 서비스만 병행 생성한다.
+      propagateTags: PropagatedTagSource.SERVICE,
+      ...REPLACEMENT_DEPLOYMENT,
+    });
+  }
+
+  // ============================================================
+  // 태스크 ④ : Dashboard Backend - bridge
   // ============================================================
   private buildDashboardService(
     props: DevApplicationStackProps,
@@ -646,7 +708,7 @@ export class DevApplicationStack extends Stack {
   }
 
   // ============================================================
-  // 태스크 ④ : ClickHouse - awsvpc
+  // 태스크 ⑤ : ClickHouse - awsvpc
   // ============================================================
   private buildClickhouseService(
     props: DevApplicationStackProps,
