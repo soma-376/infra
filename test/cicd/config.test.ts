@@ -1,6 +1,9 @@
 import { App } from 'aws-cdk-lib/core';
+import { ECR_REPOS } from '../../lib/common/config';
+import { ECS_SERVICE_NAMES } from '../../lib/common/deploy-targets';
 import {
   buildGithubOidcSubject,
+  DEPLOY_TARGETS,
   GITHUB_OIDC_DOMAIN,
   GITHUB_REPOS,
   loadCicdConfig,
@@ -84,4 +87,40 @@ describe('buildGithubOidcSubject', () => {
       expect(buildGithubOidcSubject(repo, branch)).toEqual(expected);
     },
   );
+});
+
+describe('DEPLOY_TARGETS', () => {
+  test('dev pipeline 역할 행은 유지하되 권한 대상은 둘 다 비어 있다', () => {
+    expect(DEPLOY_TARGETS.dev[0]).toEqual({
+      repo: GITHUB_REPOS.pipeline,
+      ecrRepos: [],
+      services: [],
+    });
+  });
+
+  test('dev backend 역할은 신규 배포 단위 둘만 대상으로 삼는다', () => {
+    expect(DEPLOY_TARGETS.dev[1]).toEqual({
+      repo: GITHUB_REPOS.dashboard,
+      ecrRepos: [ECR_REPOS.enrollmentApi, ECR_REPOS.telemetryIngest],
+      services: [
+        ECS_SERVICE_NAMES.enrollmentApi,
+        ECS_SERVICE_NAMES.telemetryIngest,
+      ],
+    });
+  });
+
+  test('prod 역할 대상은 기존 계약을 그대로 유지한다', () => {
+    expect(DEPLOY_TARGETS.prod).toEqual([
+      {
+        repo: GITHUB_REPOS.pipeline,
+        ecrRepos: [ECR_REPOS.postProcessor],
+        services: [ECS_SERVICE_NAMES.collector],
+      },
+      {
+        repo: GITHUB_REPOS.dashboard,
+        ecrRepos: [ECR_REPOS.apiServer, ECR_REPOS.batchProcessor],
+        services: [ECS_SERVICE_NAMES.dashboard],
+      },
+    ]);
+  });
 });

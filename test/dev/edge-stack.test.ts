@@ -123,17 +123,14 @@ describe('DevEdgeStack', () => {
     expect(publicPaths).not.toContain('/api/*');
   });
 
-  // bridge 태스크는 동적 host port를 인스턴스 타깃으로 등록하고, 기존 awsvpc
-  // collector와 ClickHouse만 태스크 ENI IP를 타깃으로 등록한다.
-  test('여섯 타깃 그룹의 타입과 포트가 네트워크 모드에 맞는다', () => {
-    expect(Object.keys(targetGroups())).toHaveLength(6);
+  // bridge 앱 태스크는 동적 host port를 인스턴스 타깃으로 등록하고,
+  // ClickHouse만 태스크 ENI IP를 타깃으로 등록한다.
+  test('최종 세 타깃 그룹의 타입과 포트가 네트워크 모드에 맞는다', () => {
+    expect(Object.keys(targetGroups())).toHaveLength(3);
 
     for (const [prefix, targetType, port] of [
-      ['DevCollectorTg', 'ip', PORTS.otlp],
-      ['DevAuthProxyTg', 'instance', PORTS.authProxy],
       ['DevTelemetryIngestTg', 'instance', PORTS.telemetryIngest],
       ['DevEnrollmentApiTg', 'instance', PORTS.enrollmentApi],
-      ['DevDashboardTg', 'instance', PORTS.apiServer],
       ['DevClickhouseTg', 'ip', PORTS.clickhouseHttp],
     ] as const) {
       expect(targetGroupByPrefix(prefix)[1].Properties).toMatchObject({
@@ -143,15 +140,10 @@ describe('DevEdgeStack', () => {
     }
   });
 
-  // 일반 HTTP 타깃 그룹은 교체 배포 시간을 줄이는 60초를 쓰고 ClickHouse는
-  // 장시간 쿼리를 고려해 AWS 기본 300초를 유지한다. (ADR-0025, ADR-0026)
-  test('ClickHouse 외 타깃 그룹만 deregistration delay를 60초로 둔다', () => {
+  test('신규 두 앱만 deregistration delay를 60초로 둔다', () => {
     for (const prefix of [
-      'DevCollectorTg',
-      'DevAuthProxyTg',
       'DevTelemetryIngestTg',
       'DevEnrollmentApiTg',
-      'DevDashboardTg',
     ]) {
       expect(
         targetGroupByPrefix(prefix)[1].Properties.TargetGroupAttributes,
@@ -164,17 +156,6 @@ describe('DevEdgeStack', () => {
         ]),
       );
     }
-
-    expect(
-      targetGroupByPrefix('DevClickhouseTg')[1].Properties
-        .TargetGroupAttributes ?? [],
-    ).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          Key: 'deregistration_delay.timeout_seconds',
-        }),
-      ]),
-    );
   });
 
   test('신규 두 앱은 /v1/healthz의 200만 healthy로 판정한다', () => {
@@ -188,38 +169,6 @@ describe('DevEdgeStack', () => {
         Matcher: { HttpCode: '200' },
       });
     }
-  });
-
-  // attachment 분리 배포에서는 구 세 target group 리소스를 남기고
-  // 리스너 참조만 없앤다. ECS 빈 배열은 ApplicationStack 테스트가 고정한다.
-  test('기존 세 타깃 그룹은 보존하되 리스너가 참조하지 않는다', () => {
-    const collectorTg = targetGroupByPrefix('DevCollectorTg');
-    const authProxyTg = targetGroupByPrefix('DevAuthProxyTg');
-    const dashboardTg = targetGroupByPrefix('DevDashboardTg');
-    const listenerActions = [
-      ...listeners().flatMap(
-        (listener: any) => listener.Properties.DefaultActions,
-      ),
-      ...listenerRules().flatMap((rule: any) => rule.Properties.Actions),
-    ];
-    const renderedActions = JSON.stringify(listenerActions);
-
-    expect(renderedActions).not.toContain(collectorTg[0]);
-    expect(renderedActions).not.toContain(authProxyTg[0]);
-    expect(renderedActions).not.toContain(dashboardTg[0]);
-  });
-
-  test('기존 auth-proxy와 dashboard 헬스체크 계약을 유지한다', () => {
-    expect(targetGroupByPrefix('DevAuthProxyTg')[1].Properties).toMatchObject({
-      HealthCheckPath: '/health',
-    });
-    expect(
-      targetGroupByPrefix('DevAuthProxyTg')[1].Properties.Matcher,
-    ).toBeUndefined();
-    expect(targetGroupByPrefix('DevDashboardTg')[1].Properties).toMatchObject({
-      HealthCheckPath: '/',
-      Matcher: { HttpCode: '200-404' },
-    });
   });
 
   test('ClickHouse 타깃 그룹은 ip/8123, /ping, 기본 drain을 유지한다', () => {

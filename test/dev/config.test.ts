@@ -59,8 +59,8 @@ describe('loadDevConfig - devAllowedCidr', () => {
 });
 
 describe('loadDevConfig - devAppAsgMaxCapacity', () => {
-  test('마이그레이션 병행 기간에는 미지정 기본값이 2다', () => {
-    expect(devConfig().appAsgMaxCapacity).toBe(2);
+  test('최종 구성에서는 미지정 기본값이 1이다', () => {
+    expect(devConfig().appAsgMaxCapacity).toBe(1);
   });
 
   // CLI `-c` 는 문자열, cdk.json context 는 숫자로 들어오므로 양쪽을 받아야 한다.

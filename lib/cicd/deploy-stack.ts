@@ -110,7 +110,9 @@ export class DeployStack extends Stack {
   /**
    * 레포 하나가 한 환경에 배포할 때 맡는 역할.
    *
-   * 권한은 statement 3개뿐이다 - ECR 로그인 / 이미지 push / 서비스 강제 재배포.
+   * 권한 대상이 있으면 최대 statement 3개를 붙인다 - ECR 로그인 / 이미지 push /
+   * 서비스 강제 재배포. 두 대상이 모두 비어 있으면 역할·신뢰 정책·output만 남고 permission
+   * statement는 하나도 만들지 않는다(ADR-0026 dev pipeline 역할).
    */
   private buildDeployRole(
     env: DeployEnv,
@@ -147,55 +149,59 @@ export class DeployStack extends Stack {
       }),
     });
 
-    role.addToPolicy(
-      new PolicyStatement({
-        sid: 'EcrAuth',
-        actions: ['ecr:GetAuthorizationToken'],
-        // 이 액션은 **리소스 수준 권한을 지원하지 않는다.** 좁히려는 시도는 조용히 전부
-        // 거부된다. `*` 가 강제되므로 이 statement 에 다른 액션을 얹지 않는다.
-        resources: ['*'],
-      }),
-    );
+    if (target.ecrRepos.length > 0) {
+      role.addToPolicy(
+        new PolicyStatement({
+          sid: 'EcrAuth',
+          actions: ['ecr:GetAuthorizationToken'],
+          // 이 액션은 **리소스 수준 권한을 지원하지 않는다.** 좁히려는 시도는 조용히 전부
+          // 거부된다. `*` 가 강제되므로 이 statement 에 다른 액션을 얹지 않는다.
+          resources: ['*'],
+        }),
+      );
 
-    role.addToPolicy(
-      new PolicyStatement({
-        sid: 'EcrPush',
-        actions: [...ECR_PUSH_ACTIONS],
-        resources: target.ecrRepos.map((name) =>
-          Arn.format(
-            {
-              service: 'ecr',
-              resource: 'repository',
-              resourceName: name,
-              arnFormat: ArnFormat.SLASH_RESOURCE_NAME,
-            },
-            this,
+      role.addToPolicy(
+        new PolicyStatement({
+          sid: 'EcrPush',
+          actions: [...ECR_PUSH_ACTIONS],
+          resources: target.ecrRepos.map((name) =>
+            Arn.format(
+              {
+                service: 'ecr',
+                resource: 'repository',
+                resourceName: name,
+                arnFormat: ArnFormat.SLASH_RESOURCE_NAME,
+              },
+              this,
+            ),
           ),
-        ),
-      }),
-    );
+        }),
+      );
+    }
 
-    role.addToPolicy(
-      new PolicyStatement({
-        sid: 'EcsForceDeploy',
-        actions: [...ECS_DEPLOY_ACTIONS],
-        resources: target.services.map((service) =>
-          Arn.format(
-            {
-              service: 'ecs',
-              resource: 'service',
-              // 장문 ARN 형식 `service/<cluster>/<service>`. CDK 피처 플래그
-              // `@aws-cdk/aws-ecs:arnFormatIncludesClusterName` 이 같은 가정을 공유한다.
-              // 계정이 단문 형식이면 매칭되지 않으므로 배포 후 실제 serviceArn 을 눈으로
-              // 확인한다 (AGENTS.md 6장 런북).
-              resourceName: `${clusterName}/${service}`,
-              arnFormat: ArnFormat.SLASH_RESOURCE_NAME,
-            },
-            this,
+    if (target.services.length > 0) {
+      role.addToPolicy(
+        new PolicyStatement({
+          sid: 'EcsForceDeploy',
+          actions: [...ECS_DEPLOY_ACTIONS],
+          resources: target.services.map((service) =>
+            Arn.format(
+              {
+                service: 'ecs',
+                resource: 'service',
+                // 장문 ARN 형식 `service/<cluster>/<service>`. CDK 피처 플래그
+                // `@aws-cdk/aws-ecs:arnFormatIncludesClusterName` 이 같은 가정을 공유한다.
+                // 계정이 단문 형식이면 매칭되지 않으므로 배포 후 실제 serviceArn 을 눈으로
+                // 확인한다 (AGENTS.md 6장 런북).
+                resourceName: `${clusterName}/${service}`,
+                arnFormat: ArnFormat.SLASH_RESOURCE_NAME,
+              },
+              this,
+            ),
           ),
-        ),
-      }),
-    );
+        }),
+      );
+    }
 
     // 앱 레포 워크플로우의 `role-to-assume` 에 그대로 들어가는 값 (PROJ-65 핸드오프).
     new CfnOutput(this, `${constructId}Arn`, {

@@ -25,7 +25,7 @@ export interface DevEdgeStackProps extends StackProps {
   readonly dbEndpoint: string;
   /** RDS 마스터 시크릿 ARN (CfnOutput 용). */
   readonly dbSecretArn: string;
-  /** 토큰 해시 키 ARN (CfnOutput 용). enrollment-api와 공유한다. (ADR-0023) */
+  /** 토큰 해시 키 ARN (CfnOutput 용). 신규 두 Spring 앱이 공유한다. (ADR-0026) */
   readonly tokenHashSecretArn: string;
   /** enrollment-api 관리자 토큰 Secret ARN. 값은 출력하지 않는다. */
   readonly adminApiTokenSecretArn: string;
@@ -59,9 +59,6 @@ export class DevEdgeStack extends Stack {
     });
     this.publicBaseUrl = `http://${alb.loadBalancerDnsName}`;
 
-    // 구 ECS attachment를 먼저 분리해도 이 배포에서는 target group을 남겨
-    // CloudFormation이 서비스 update를 먼저 완료하게 한다. (ADR-0026 6장)
-    this.buildLegacyCollectorTargetGroup(props.vpc);
     this.buildAppListener(props, alb);
     this.buildClickhouseListener(props, alb);
 
@@ -74,9 +71,9 @@ export class DevEdgeStack extends Stack {
     });
     new CfnOutput(this, 'RdsEndpoint', { value: props.dbEndpoint });
     new CfnOutput(this, 'RdsSecretArn', { value: props.dbSecretArn });
-    // enrollment-api가 토큰을 발급할 때 같은 키로 HMAC 해시해야 auth-proxy 의 조회가
-    // 성립한다. **ARN 만 노출하며 값은 Secrets Manager 밖으로 나오지 않는다.**
-    // (ADR-0023 4번)
+    // enrollment-api가 발급한 토큰과 telemetry-ingest가 받은 토큰을 같은 키로
+    // HMAC 해시한다. **ARN 만 노출하며 값은 Secrets Manager 밖으로 나오지 않는다.**
+    // (ADR-0026)
     new CfnOutput(this, 'TokenHashSecretArn', {
       value: props.tokenHashSecretArn,
     });
@@ -110,43 +107,6 @@ export class DevEdgeStack extends Stack {
         messageBody: 'Not Found',
       }),
     });
-
-    // binding 분리 배포에서는 구 target group 리소스만 유지한다.
-    // 다음 삭제 배포가 완료될 때까지 construct ID와 properties를 바꾸지 않는다.
-    new ApplicationTargetGroup(
-      this,
-      'DevAuthProxyTg',
-      {
-        vpc: props.vpc,
-        port: PORTS.authProxy,
-        protocol: ApplicationProtocol.HTTP,
-        targetType: TargetType.INSTANCE,
-        deregistrationDelay: DEV_DEREGISTRATION_DELAY,
-        // 앱이 `GET /health` 에 200 JSON 을 준다
-        // (`apps/auth-proxy/src/health/health.routes.ts`). collector·dashboard 와 달리
-        // 전용 헬스 엔드포인트가 있으므로 matcher 를 넓히지 않고 기본값(200)을 쓴다.
-        healthCheck: { path: '/health' },
-      },
-    );
-
-    // dashboard 태스크는 bridge + 동적 포트라 호스트 인스턴스로 등록된다
-    // -> target type instance. 네트워크 모드가 타깃 타입을 결정하는 것이지
-    // 선택의 문제가 아니다. (ADR-0022 8번)
-    new ApplicationTargetGroup(
-      this,
-      'DevDashboardTg',
-      {
-        vpc: props.vpc,
-        port: PORTS.apiServer,
-        protocol: ApplicationProtocol.HTTP,
-        targetType: TargetType.INSTANCE,
-        deregistrationDelay: DEV_DEREGISTRATION_DELAY,
-        // Spring Boot 는 루트 매핑이 없으면 404 를 반환한다. ALB 기본 matcher(200)를
-        // 그대로 두면 타깃이 영영 healthy 가 되지 않아 ECS 재시작 루프에 빠진다.
-        // 앱이 actuator 를 노출하는 것이 확인되면 path 를 좁힌다. 운영과 같은 값이다.
-        healthCheck: { path: '/', healthyHttpCodes: '200-404' },
-      },
-    );
 
     // 신규 두 Spring 태스크는 bridge + 동적 host port를 쓰므로 ALB에
     // 호스트 인스턴스 타깃으로 등록한다. (ADR-0026)
@@ -222,24 +182,6 @@ export class DevEdgeStack extends Stack {
         ListenerCondition.pathPatterns(['/windows', '/unix', '/bin/*']),
       ],
       action: ListenerAction.forward([enrollmentApiTargetGroup]),
-    });
-  }
-
-  /**
-   * 기존 Collector target group을 binding 없이 보존한다. 이 분리 템플릿을
-   * 먼저 배포해 ECS attachment를 제거한 뒤 다음 배포에서 리소스를 삭제한다.
-   */
-  private buildLegacyCollectorTargetGroup(vpc: IVpc): void {
-    // collector 태스크는 awsvpc 라 자기 ENI 의 IP 로 등록된다 -> target type ip.
-    new ApplicationTargetGroup(this, 'DevCollectorTg', {
-      vpc,
-      port: PORTS.otlp,
-      protocol: ApplicationProtocol.HTTP,
-      targetType: TargetType.IP,
-      deregistrationDelay: DEV_DEREGISTRATION_DELAY,
-      // OTLP 수신 루트(4318 /)는 404 를 반환하므로 정상 코드 범위를 넓힌다.
-      // 운영과 같은 값이다.
-      healthCheck: { path: '/', healthyHttpCodes: '200-404' },
     });
   }
 

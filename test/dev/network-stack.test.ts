@@ -76,27 +76,73 @@ describe('DevNetworkStack', () => {
     });
   });
 
-  test('SG 5개를 모두 이 스택에서 정의한다', () => {
-    template.resourceCountIs('AWS::EC2::SecurityGroup', 5);
+  test('최종 SG 4개와 기존 GroupDescription을 보존한다', () => {
+    template.resourceCountIs('AWS::EC2::SecurityGroup', 4);
+
+    const descriptions = Object.values(
+      template.findResources('AWS::EC2::SecurityGroup'),
+    )
+      .map((resource: any) => resource.Properties.GroupDescription)
+      .sort();
+
+    // GroupDescription은 Replacement 속성이므로 이미 배포된 문자열을 그대로 둔다.
+    expect(descriptions).toEqual(
+      [
+        'dev ALB - inbound 80/4318/8123 from allowed CIDRs',
+        'dev ECS EC2 hosts (app ASG + ClickHouse ASG)',
+        'dev ClickHouse task ENI (awsvpc)',
+        'dev RDS PostgreSQL (publicly accessible)',
+      ].sort(),
+    );
   });
 
-  // **auth-proxy -> Collector 의 유일한 통로다.** auth-proxy 는 bridge 라 자기 ENI 가
-  // 없고 아웃바운드가 호스트 ENI 를 타므로, 출발 SG 가 태스크 SG 가 아니라
-  // DevAppHostSg 다. 이 룰을 "아무도 안 쓰는 것 같다"고 지우면 **synth·test·deploy 가
-  // 전부 통과하고** auth-proxy 만 런타임에 upstream_unreachable 로 죽는다 -
-  // ALB 헬스체크는 /health 만 보므로 타깃은 계속 healthy 로 남는다.
-  // (ADR-0022 4번, ADR-0023 2번)
-  test('Collector SG 는 앱 호스트 SG 에서 4318 을 받는다 (bridge auth-proxy)', () => {
+  test('Collector SG와 관련 인그레스를 모두 제거한다', () => {
+    expect(
+      Object.keys(template.findResources('AWS::EC2::SecurityGroup')).filter(
+        (logicalId) => logicalId.startsWith('DevCollectorSg'),
+      ),
+    ).toEqual([]);
+    expect(
+      JSON.stringify(
+        template.findResources('AWS::EC2::SecurityGroupIngress'),
+      ),
+    ).not.toContain('DevCollectorSg');
+  });
+
+  // 신규 앱 둘은 bridge 태스크라 AppHost SG를 출발점으로 RDS와 ClickHouse에 닿고,
+  // ALB는 동적 호스트 포트로 두 앱에 전달한다. (ADR-0026)
+  test('bridge 앱의 ALB·RDS·ClickHouse 통로를 보존한다', () => {
     template.hasResourceProperties('AWS::EC2::SecurityGroupIngress', {
-      FromPort: PORTS.otlp,
-      ToPort: PORTS.otlp,
+      FromPort: 32768,
+      ToPort: 65535,
       IpProtocol: 'tcp',
-      Description: 'OTLP from app hosts (bridge auth-proxy)',
-      GroupId: { 'Fn::GetAtt': [Match.stringLikeRegexp('DevCollectorSg'), 'GroupId'] },
-      SourceSecurityGroupId: {
+      Description: 'Dynamic host ports from ALB (bridge tasks)',
+      GroupId: {
         'Fn::GetAtt': [Match.stringLikeRegexp('DevAppHostSg'), 'GroupId'],
       },
+      SourceSecurityGroupId: {
+        'Fn::GetAtt': [Match.stringLikeRegexp('DevAlbSg'), 'GroupId'],
+      },
     });
+
+    for (const [port, targetSg, description] of [
+      [PORTS.aurora, 'DevRdsSg', 'Postgres from app tier'],
+      [PORTS.clickhouseHttp, 'DevClickhouseSg', 'ClickHouse HTTP'],
+      [PORTS.clickhouseNative, 'DevClickhouseSg', 'ClickHouse native'],
+    ] as const) {
+      template.hasResourceProperties('AWS::EC2::SecurityGroupIngress', {
+        FromPort: port,
+        ToPort: port,
+        IpProtocol: 'tcp',
+        Description: description,
+        GroupId: {
+          'Fn::GetAtt': [Match.stringLikeRegexp(targetSg), 'GroupId'],
+        },
+        SourceSecurityGroupId: {
+          'Fn::GetAtt': [Match.stringLikeRegexp('DevAppHostSg'), 'GroupId'],
+        },
+      });
+    }
   });
 
   // 기본값이 그대로 쓰이면 유일한 방어선은 이 경고뿐이다. 메시지가 아니라

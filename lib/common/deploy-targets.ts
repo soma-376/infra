@@ -49,17 +49,14 @@ export const ECS_CLUSTER_NAMES: Readonly<Record<DeployEnv, string>> = {
  * 이미 두 환경을 갈라 두었다. 이렇게 두면 앱 레포 워크플로우가 `--cluster` 하나만 갈아끼워
  * 환경을 바꿀 수 있다 - 환경별로 다른 서비스 이름을 알 필요가 없다.
  *
- * Cloud Map 서비스 이름(`COLLECTOR_SERVICE_NAME`, `CLICKHOUSE_SERVICE_NAME`)과 값이 겹치지만
- * **다른 계약이다.** 하나는 ECS 서비스 식별자이고 하나는 DNS 레이블이다. 한쪽을 바꿔야 할 때
+ * ClickHouse Cloud Map 서비스 이름(`CLICKHOUSE_SERVICE_NAME`)과 값이 겹치지만 **다른
+ * 계약이다.** 하나는 ECS 서비스 식별자이고 하나는 DNS 레이블이다. 한쪽을 바꿔야 할 때
  * 다른 쪽이 끌려가지 않도록 상수를 따로 둔다.
- *
- * `authProxy` 는 현재 dev 에만 존재한다 (ADR-0023).
  */
 export const ECS_SERVICE_NAMES = {
   collector: 'collector',
   dashboard: 'dashboard',
   clickhouse: 'clickhouse',
-  authProxy: 'auth-proxy',
   enrollmentApi: 'enrollment-api',
   telemetryIngest: 'telemetry-ingest',
 } as const;
