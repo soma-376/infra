@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted
+Accepted — 부분 대체: [ADR 0026](0026-dev-backend-deployment-units-and-staged-migration.md)이 dev Collector와
+`collector.obs.local` 등록을 제거한다. ClickHouse의 `clickhouse.obs.local` A 레코드와 이 ADR의
+디스커버리 메커니즘은 그대로 유효하다.
 
 ## Context
 

@@ -2,7 +2,11 @@
 
 ## Status
 
-Accepted — 부분 대체: [ADR 0021](0021-dev-prod-environment-separation.md) 이 "이 레포에는 환경 분리 메커니즘이 없다" 는 전제를 대체한다(dev/prod 는 같은 ECR 레포를 공유하고 [ADR 0024](0024-github-actions-oidc-deploy-roles.md) 의 태그로 가른다). [ADR 0023](0023-dev-auth-proxy-between-alb-and-collector.md) 이 `soma-376/auth-proxy` 레포를 추가한다. 선생성·`fromRepositoryName` 참조·`soma-376/` 네임스페이스 결정은 그대로 유효하다.
+Accepted — 부분 대체: [ADR 0021](0021-dev-prod-environment-separation.md)이 "이 레포에는 환경 분리 메커니즘이 없다"는
+전제를 대체한다. [ADR 0026](0026-dev-backend-deployment-units-and-staged-migration.md)은 dev 자체 빌드 산출물을
+`soma-376/enrollment-api`와 `soma-376/telemetry-ingest`로 대체하며 ADR-0023의 dev auth-proxy 추가 결정을
+끝낸다. prod의 기존 이미지 목록과 선생성·`fromRepositoryName` 참조·`soma-376/` 네임스페이스 결정은
+그대로 유효하다.
 
 ## Context
 

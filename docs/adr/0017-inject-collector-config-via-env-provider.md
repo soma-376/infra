@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted
+Accepted — 부분 대체: [ADR 0026](0026-dev-backend-deployment-units-and-staged-migration.md)이 dev Collector와
+`OTEL_CONFIG` 소비 경로를 제거한다. prod의 `config/otel-collector.yaml`·env provider·root 실행 결정은
+그대로 유효하다.
 
 ## Context
 
