@@ -53,6 +53,7 @@ import {
   ENROLLMENT_ADMIN_API_TOKEN_SECRET_KEY,
   ENROLLMENT_ENV,
   ENRICHMENT_ENV,
+  INGEST_ENV,
   PORTS,
   buildJdbcUrl,
 } from '../common/config';
@@ -67,6 +68,7 @@ import {
   DEV_CLICKHOUSE_DATA_VOLUME_GIB,
   DEV_CLICKHOUSE_INSTANCE_TYPE,
   DEV_LOG_GROUP_PREFIX,
+  DEV_TELEMETRY_ARCHIVE_PREFIX,
 } from './config';
 
 /**
@@ -569,6 +571,10 @@ export class DevApplicationStack extends Stack {
       networkMode: NetworkMode.BRIDGE,
     });
 
+    // archive type이 s3이므로 애플리케이션 task role에 같은 Raw Signal 버킷의
+    // read/write만 부여한다. execution role의 이미지·로그·Secret 권한과 분리한다.
+    props.rawSignalBucket.grantReadWrite(task.taskRole);
+
     task.addContainer('telemetry-ingest', {
       image: ContainerImage.fromEcrRepository(
         Repository.fromRepositoryName(
@@ -578,10 +584,38 @@ export class DevApplicationStack extends Stack {
         ),
         props.devConfig.imageTag,
       ),
-      // hostPort 를 생략해 bridge 동적 포트를 쓴다. 앱의 application.yaml 기본 포트가
-      // 4316이라 이 단계에서는 별도 환경변수 없이 같은 포트를 열 수 있다. 실제
-      // 환경·Secret·task role 계약은 PROJ-141에서 연결한다. (ADR-0026)
+      // hostPort 를 생략해 bridge 동적 포트를 쓴다.
       portMappings: [{ containerPort: PORTS.telemetryIngest }],
+      // 이름의 권위는 backend telemetry-ingest application.yaml이다. 비밀이 아닌
+      // endpoint·bucket 설정만 environment에 두고, 자격증명과 token hash는 아래
+      // ECS secrets로 주입한다. (ADR-0026)
+      environment: {
+        [INGEST_ENV.port]: String(PORTS.telemetryIngest),
+        [INGEST_ENV.dbUrl]: buildJdbcUrl({
+          host: props.dbEndpoint,
+          port: PORTS.aurora,
+          dbname: CONTROL_DB_NAME,
+          sslmode: CONTROL_DB_SSLMODE,
+        }),
+        [INGEST_ENV.clickhouseUrl]: CLICKHOUSE_HTTP_URL,
+        [INGEST_ENV.clickhouseDatabase]: CLICKHOUSE_DEFAULT_DB,
+        [INGEST_ENV.archiveType]: 's3',
+        [INGEST_ENV.archiveBucket]: props.rawSignalBucket.bucketName,
+        [INGEST_ENV.archivePrefix]: DEV_TELEMETRY_ARCHIVE_PREFIX,
+      },
+      secrets: {
+        [INGEST_ENV.dbUsername]: EcsSecret.fromSecretsManager(
+          props.dbSecret,
+          'username',
+        ),
+        [INGEST_ENV.dbPassword]: EcsSecret.fromSecretsManager(
+          props.dbSecret,
+          'password',
+        ),
+        [INGEST_ENV.tokenHashSecret]: EcsSecret.fromSecretsManager(
+          props.tokenHashSecret,
+        ),
+      },
       memoryReservationMiB: MEMORY_RESERVATION_MIB.telemetryIngest,
       logging: LogDriver.awsLogs({
         streamPrefix: 'telemetry-ingest',
