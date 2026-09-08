@@ -60,4 +60,6 @@ export const ECS_SERVICE_NAMES = {
   dashboard: 'dashboard',
   clickhouse: 'clickhouse',
   authProxy: 'auth-proxy',
+  enrollmentApi: 'enrollment-api',
+  telemetryIngest: 'telemetry-ingest',
 } as const;
