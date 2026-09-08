@@ -206,6 +206,27 @@ export const ENROLLMENT_ENV = {
   tokenHashSecret: 'PULSEMETRY_TOKEN_HASH_SECRET',
 } as const;
 
+/**
+ * telemetry-ingest가 실제로 읽는 환경변수/시크릿 이름 (ADR-0026).
+ *
+ * 권위 소스는 `pulsemetry-backend`의
+ * `apps/telemetry-ingest/src/main/resources/application.yaml`이다. 이름이 틀리면
+ * 로컬 기본값으로 폴백하거나 필수 token hash가 비어 기동에 실패할 수 있지만 CDK
+ * synth는 이를 알 수 없으므로 이 상수와 합성 테스트가 배포 경계의 방어선이다.
+ */
+export const INGEST_ENV = {
+  port: 'PULSEMETRY_INGEST_PORT',
+  dbUrl: 'PULSEMETRY_DB_URL',
+  dbUsername: 'PULSEMETRY_DB_USERNAME',
+  dbPassword: 'PULSEMETRY_DB_PASSWORD',
+  tokenHashSecret: 'PULSEMETRY_TOKEN_HASH_SECRET',
+  clickhouseUrl: 'PULSEMETRY_CLICKHOUSE_URL',
+  clickhouseDatabase: 'PULSEMETRY_CLICKHOUSE_DATABASE',
+  archiveType: 'PULSEMETRY_ARCHIVE_TYPE',
+  archiveBucket: 'PULSEMETRY_ARCHIVE_BUCKET',
+  archivePrefix: 'PULSEMETRY_ARCHIVE_PREFIX',
+} as const;
+
 /** 관리자 토큰 Secret 의 JSON 필드 이름. */
 export const ENROLLMENT_ADMIN_API_TOKEN_SECRET_KEY = 'token';
 

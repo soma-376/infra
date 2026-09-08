@@ -14,9 +14,13 @@ import {
   ENROLLMENT_ADMIN_API_TOKEN_SECRET_KEY,
   ENROLLMENT_ENV,
   ENRICHMENT_ENV,
+  INGEST_ENV,
   PORTS,
 } from '../../lib/common/config';
-import { DEV_LOG_GROUP_PREFIX } from '../../lib/dev/config';
+import {
+  DEV_LOG_GROUP_PREFIX,
+  DEV_TELEMETRY_ARCHIVE_PREFIX,
+} from '../../lib/dev/config';
 import { PROD_IMAGE_TAG } from '../../lib/prod/config';
 import {
   ECS_CLUSTER_NAMES,
@@ -226,6 +230,139 @@ describe('DevApplicationStack', () => {
       expect(
         service(ECS_SERVICE_NAMES.telemetryIngest).Properties.LoadBalancers,
       ).toBeUndefined();
+    });
+  });
+
+  // ============================================================
+  // telemetry-ingest 런타임 계약 (PROJ-141, ADR-0026)
+  // ============================================================
+  describe('telemetry-ingest 런타임 계약', () => {
+    test('application.yaml의 PULSEMETRY 이름만 정확히 사용한다', () => {
+      expect(Object.values(INGEST_ENV).sort()).toEqual(
+        [
+          'PULSEMETRY_INGEST_PORT',
+          'PULSEMETRY_DB_URL',
+          'PULSEMETRY_DB_USERNAME',
+          'PULSEMETRY_DB_PASSWORD',
+          'PULSEMETRY_TOKEN_HASH_SECRET',
+          'PULSEMETRY_CLICKHOUSE_URL',
+          'PULSEMETRY_CLICKHOUSE_DATABASE',
+          'PULSEMETRY_ARCHIVE_TYPE',
+          'PULSEMETRY_ARCHIVE_BUCKET',
+          'PULSEMETRY_ARCHIVE_PREFIX',
+        ].sort(),
+      );
+
+      expect(
+        [
+          ...Object.keys(envMap('telemetry-ingest')),
+          ...secretNames('telemetry-ingest'),
+        ].sort(),
+      ).toEqual(Object.values(INGEST_ENV).sort());
+    });
+
+    test('비밀이 아닌 포트·RDS·ClickHouse·S3 설정을 environment에 넣는다', () => {
+      const env = envMap('telemetry-ingest');
+
+      expect(env[INGEST_ENV.port]).toBe(String(PORTS.telemetryIngest));
+
+      const dbUrl = JSON.stringify(env[INGEST_ENV.dbUrl]);
+      expect(dbUrl).toContain('jdbc:postgresql://');
+      expect(dbUrl).toContain(
+        `:${PORTS.aurora}/${CONTROL_DB_NAME}?sslmode=${CONTROL_DB_SSLMODE}`,
+      );
+
+      expect(env[INGEST_ENV.clickhouseUrl]).toBe(CLICKHOUSE_HTTP_URL);
+      expect(env[INGEST_ENV.clickhouseDatabase]).toBe(CLICKHOUSE_DEFAULT_DB);
+      expect(env[INGEST_ENV.archiveType]).toBe('s3');
+      expect(env[INGEST_ENV.archiveBucket]).toBeDefined();
+      expect(env[INGEST_ENV.archivePrefix]).toBe(
+        DEV_TELEMETRY_ARCHIVE_PREFIX,
+      );
+      expect(DEV_TELEMETRY_ARCHIVE_PREFIX).toBe('');
+    });
+
+    test('RDS JSON 필드와 기존 token hash만 ECS secrets로 주입한다', () => {
+      expect(secretNames('telemetry-ingest').sort()).toEqual(
+        [
+          INGEST_ENV.dbUsername,
+          INGEST_ENV.dbPassword,
+          INGEST_ENV.tokenHashSecret,
+        ].sort(),
+      );
+      expect(
+        JSON.stringify(
+          secretEntry('telemetry-ingest', INGEST_ENV.dbUsername).ValueFrom,
+        ),
+      ).toContain(':username::');
+      expect(
+        JSON.stringify(
+          secretEntry('telemetry-ingest', INGEST_ENV.dbPassword).ValueFrom,
+        ),
+      ).toContain(':password::');
+      expect(
+        secretEntry('telemetry-ingest', INGEST_ENV.tokenHashSecret).ValueFrom,
+      ).toEqual(
+        secretEntry('api-server', ENROLLMENT_ENV.tokenHashSecret).ValueFrom,
+      );
+      expect(
+        secretEntry('telemetry-ingest', INGEST_ENV.tokenHashSecret).ValueFrom,
+      ).toEqual(secretEntry('auth-proxy', 'TOKEN_HASH_SECRET').ValueFrom);
+    });
+
+    test('민감값은 일반 환경변수와 CloudFormation output에 나타나지 않는다', () => {
+      const environment = JSON.stringify(
+        container('telemetry-ingest').Environment,
+      );
+      const outputs = JSON.stringify(template.findOutputs('*'));
+
+      for (const secretName of [
+        INGEST_ENV.dbUsername,
+        INGEST_ENV.dbPassword,
+        INGEST_ENV.tokenHashSecret,
+      ]) {
+        expect(Object.keys(envMap('telemetry-ingest'))).not.toContain(
+          secretName,
+        );
+        expect(outputs).not.toContain(secretName);
+      }
+      expect(environment).not.toContain('resolve:secretsmanager');
+      expect(outputs).not.toContain('resolve:secretsmanager');
+    });
+
+    test('Raw Signal 버킷 read/write를 telemetry-ingest task role에만 연결한다', () => {
+      const taskDefinition = taskDefinitionWithContainer('telemetry-ingest');
+      const taskRoleLogicalId = taskDefinition.Properties.TaskRoleArn[
+        'Fn::GetAtt'
+      ][0] as string;
+      const statements = Object.values(
+        template.findResources('AWS::IAM::Policy'),
+      ).flatMap((policy: any) =>
+        policy.Properties.Roles.some(
+          (role: any) => role.Ref === taskRoleLogicalId,
+        )
+          ? policy.Properties.PolicyDocument.Statement
+          : [],
+      );
+      const actions = statements.flatMap((statement: any) =>
+        Array.isArray(statement.Action)
+          ? statement.Action
+          : [statement.Action],
+      );
+
+      expect(actions).toEqual(
+        expect.arrayContaining([
+          's3:GetObject*',
+          's3:PutObject',
+          's3:DeleteObject*',
+        ]),
+      );
+      expect(actions.every((action: string) => action.startsWith('s3:'))).toBe(
+        true,
+      );
+      expect(
+        statements.every((statement: any) => statement.Resource !== '*'),
+      ).toBe(true);
     });
   });
 

@@ -107,6 +107,12 @@ export const DEV_RDS_INSTANCE_TYPE = InstanceType.of(
 export const DEV_RAW_SIGNAL_EXPIRATION_DAYS = 7;
 
 /**
+ * telemetry-ingest의 S3 archive key prefix. 앱 고유 object key 레이아웃을 그대로 쓰며
+ * dev 전용 상위 prefix 계약은 아직 없으므로 빈 문자열을 명시한다. (ADR-0026)
+ */
+export const DEV_TELEMETRY_ARCHIVE_PREFIX = '';
+
+/**
  * `devAllowedCidr` 미지정 시의 기본 인바운드 소스 (ADR-0022 9번).
  *
  * **안전한 기본값이 아니다.** 팀원 IP 가 유동적인 개발 단계에서 CIDR 갱신
