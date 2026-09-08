@@ -20,15 +20,6 @@ const DASHBOARD_DEV = `github-deploy-${GITHUB_REPOS.dashboard.name}-dev`;
 const DASHBOARD_PROD = `github-deploy-${GITHUB_REPOS.dashboard.name}-prod`;
 const ALL_ROLES = [PIPELINE_DEV, PIPELINE_PROD, DASHBOARD_DEV, DASHBOARD_PROD];
 
-/**
- * PROJ-138 은 IAM 대상을 ECS 서비스보다 먼저 추가하는 단계다. 이 두 dev 서비스만 아직
- * ApplicationStack 에 없어도 된다. PROJ-140 에서 telemetry-ingest 를, PROJ-142 에서
- * enrollment-api 와 이 임시 예외 구조 전체를 제거한다.
- */
-const PENDING_BACKEND_DEV_SERVICE_PAIRS = new Set([
-  `${ECS_CLUSTER_NAMES.dev}/${ECS_SERVICE_NAMES.enrollmentApi}`,
-]);
-
 describe('DeployStack', () => {
   const { deploy } = buildCicdApp();
   const template = Template.fromStack(deploy);
@@ -425,38 +416,14 @@ describe('DeployStack', () => {
       ...namePairs(Template.fromStack(buildDevApp().application)),
     ];
 
-    test.each([...PENDING_BACKEND_DEV_SERVICE_PAIRS])(
-      '%s 는 아직 dev ApplicationStack 에 생성되지 않는다',
-      (servicePair) => {
-        expect(deployed).not.toContain(servicePair);
-      },
-    );
-
     test.each(ALL_ROLES)(
-      '%s 의 신규 dev 대기 대상 소유권이 정확하다',
-      (roleName) => {
-        const servicePairs = ecsServicePairsFor(roleName);
-
-        for (const pending of PENDING_BACKEND_DEV_SERVICE_PAIRS) {
-          if (roleName === DASHBOARD_DEV) {
-            expect(servicePairs).toContain(pending);
-          } else {
-            expect(servicePairs).not.toContain(pending);
-          }
-        }
-      },
-    );
-
-    test.each(ALL_ROLES)(
-      '%s 의 임시 대기 대상 외 모든 ECS ARN 은 실제 서비스다',
+      '%s 의 모든 ECS ARN 이 실제로 만들어지는 서비스다',
       (roleName) => {
         const servicePairs = ecsServicePairsFor(roleName);
 
         expect(servicePairs.length).toBeGreaterThan(0);
         for (const servicePair of servicePairs) {
-          if (!PENDING_BACKEND_DEV_SERVICE_PAIRS.has(servicePair)) {
-            expect(deployed).toContain(servicePair);
-          }
+          expect(deployed).toContain(servicePair);
         }
       },
     );
