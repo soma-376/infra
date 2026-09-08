@@ -33,6 +33,8 @@ export const ECR_REPOS = {
   postProcessor: `${ECR_NAMESPACE}/post-processor`,
   apiServer: `${ECR_NAMESPACE}/api-server`,
   batchProcessor: `${ECR_NAMESPACE}/batch-processor`,
+  enrollmentApi: `${ECR_NAMESPACE}/enrollment-api`,
+  telemetryIngest: `${ECR_NAMESPACE}/telemetry-ingest`,
   /**
    * 인증 프록시 (ADR-0023). 현재는 dev 만 이 이미지를 쓴다.
    * 레포는 dev/prod 가 공유하므로 여기 두고, 이관 시 prod 가 같은 값을 참조한다.
