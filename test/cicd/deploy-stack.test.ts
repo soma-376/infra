@@ -1,5 +1,5 @@
 import { Template } from 'aws-cdk-lib/assertions';
-import { ECR_NAMESPACE } from '../../lib/common/config';
+import { ECR_NAMESPACE, ECR_REPOS } from '../../lib/common/config';
 import {
   ECS_CLUSTER_NAMES,
   ECS_SERVICE_NAMES,
@@ -19,6 +19,16 @@ const PIPELINE_PROD = `github-deploy-${GITHUB_REPOS.pipeline.name}-prod`;
 const DASHBOARD_DEV = `github-deploy-${GITHUB_REPOS.dashboard.name}-dev`;
 const DASHBOARD_PROD = `github-deploy-${GITHUB_REPOS.dashboard.name}-prod`;
 const ALL_ROLES = [PIPELINE_DEV, PIPELINE_PROD, DASHBOARD_DEV, DASHBOARD_PROD];
+
+/**
+ * PROJ-138 은 IAM 대상을 ECS 서비스보다 먼저 추가하는 단계다. 이 두 dev 서비스만 아직
+ * ApplicationStack 에 없어도 된다. PROJ-140 에서 telemetry-ingest 를, PROJ-142 에서
+ * enrollment-api 와 이 임시 예외 구조 전체를 제거한다.
+ */
+const PENDING_BACKEND_DEV_SERVICE_PAIRS = new Set([
+  `${ECS_CLUSTER_NAMES.dev}/${ECS_SERVICE_NAMES.enrollmentApi}`,
+  `${ECS_CLUSTER_NAMES.dev}/${ECS_SERVICE_NAMES.telemetryIngest}`,
+]);
 
 describe('DeployStack', () => {
   const { deploy } = buildCicdApp();
@@ -82,6 +92,14 @@ describe('DeployStack', () => {
     expect(found).toBeDefined();
     return found;
   };
+
+  const ecsServicePairsFor = (roleName: string): string[] =>
+    statementsFor(roleName)
+      .filter((s) =>
+        (asArray(s.Action) as string[]).includes('ecs:UpdateService'),
+      )
+      .flatMap((s) => asArray(s.Resource).map(arnLiterals))
+      .map((arn) => arn.split(':service/')[1]);
 
   // ============================================================
   // OIDC 공급자
@@ -283,15 +301,84 @@ describe('DeployStack', () => {
 
     // 한 팀이 다른 팀의 이미지를 밀 수 있으면 레포별로 나눈 의미가 없다.
     test.each([
-      [PIPELINE_DEV, ['api-server', 'batch-processor']],
-      [PIPELINE_PROD, ['api-server', 'batch-processor']],
-      [DASHBOARD_DEV, ['post-processor', 'auth-proxy']],
-      [DASHBOARD_PROD, ['post-processor', 'auth-proxy']],
+      [
+        PIPELINE_DEV,
+        [
+          ECR_REPOS.apiServer,
+          ECR_REPOS.batchProcessor,
+          ECR_REPOS.enrollmentApi,
+          ECR_REPOS.telemetryIngest,
+        ],
+      ],
+      [
+        PIPELINE_PROD,
+        [
+          ECR_REPOS.apiServer,
+          ECR_REPOS.batchProcessor,
+          ECR_REPOS.enrollmentApi,
+          ECR_REPOS.telemetryIngest,
+        ],
+      ],
+      [DASHBOARD_DEV, [ECR_REPOS.postProcessor, ECR_REPOS.authProxy]],
+      [DASHBOARD_PROD, [ECR_REPOS.postProcessor, ECR_REPOS.authProxy]],
     ])('%s 는 다른 레포의 ECR 레포를 건드릴 수 없다', (roleName, foreign) => {
       const text = resourceTextFor(roleName);
       for (const repo of foreign) {
-        expect(text).not.toContain(`${ECR_NAMESPACE}/${repo}`);
+        expect(text).not.toContain(`:repository/${repo}`);
       }
+    });
+
+    test('backend dev 역할은 기존 대상과 신규 배포 단위를 모두 허용한다', () => {
+      const repositories = asArray(
+        statementWithAction(DASHBOARD_DEV, 'ecr:PutImage').Resource,
+      )
+        .map(arnLiterals)
+        .map((arn) => arn.split(':repository/')[1])
+        .sort();
+      const services = asArray(
+        statementWithAction(DASHBOARD_DEV, 'ecs:UpdateService').Resource,
+      )
+        .map(arnLiterals)
+        .map((arn) => arn.split(':service/')[1])
+        .sort();
+
+      expect(repositories).toEqual(
+        [
+          ECR_REPOS.apiServer,
+          ECR_REPOS.batchProcessor,
+          ECR_REPOS.enrollmentApi,
+          ECR_REPOS.telemetryIngest,
+        ].sort(),
+      );
+      expect(services).toEqual(
+        [
+          `${ECS_CLUSTER_NAMES.dev}/${ECS_SERVICE_NAMES.dashboard}`,
+          `${ECS_CLUSTER_NAMES.dev}/${ECS_SERVICE_NAMES.enrollmentApi}`,
+          `${ECS_CLUSTER_NAMES.dev}/${ECS_SERVICE_NAMES.telemetryIngest}`,
+        ].sort(),
+      );
+    });
+
+    test('backend prod 역할은 기존 대상만 유지한다', () => {
+      const repositories = asArray(
+        statementWithAction(DASHBOARD_PROD, 'ecr:PutImage').Resource,
+      )
+        .map(arnLiterals)
+        .map((arn) => arn.split(':repository/')[1])
+        .sort();
+      const services = asArray(
+        statementWithAction(DASHBOARD_PROD, 'ecs:UpdateService').Resource,
+      )
+        .map(arnLiterals)
+        .map((arn) => arn.split(':service/')[1])
+        .sort();
+
+      expect(repositories).toEqual(
+        [ECR_REPOS.apiServer, ECR_REPOS.batchProcessor].sort(),
+      );
+      expect(services).toEqual([
+        `${ECS_CLUSTER_NAMES.prod}/${ECS_SERVICE_NAMES.dashboard}`,
+      ]);
     });
 
     // 운영에는 auth-proxy 서비스가 아예 없다 (ADR-0023). 없는 서비스의 ARN 을 넣으면
@@ -339,18 +426,38 @@ describe('DeployStack', () => {
       ...namePairs(Template.fromStack(buildDevApp().application)),
     ];
 
-    test.each(ALL_ROLES)(
-      '%s 의 모든 ECS ARN 이 실제로 만들어지는 서비스다',
-      (roleName) => {
-        const ecsArns = statementsFor(roleName)
-          .filter((s) =>
-            (asArray(s.Action) as string[]).includes('ecs:UpdateService'),
-          )
-          .flatMap((s) => asArray(s.Resource).map(arnLiterals));
+    test.each([...PENDING_BACKEND_DEV_SERVICE_PAIRS])(
+      '%s 는 아직 dev ApplicationStack 에 생성되지 않는다',
+      (servicePair) => {
+        expect(deployed).not.toContain(servicePair);
+      },
+    );
 
-        expect(ecsArns.length).toBeGreaterThan(0);
-        for (const arn of ecsArns) {
-          expect(deployed).toContain(arn.split(':service/')[1]);
+    test.each(ALL_ROLES)(
+      '%s 의 신규 dev 대기 대상 소유권이 정확하다',
+      (roleName) => {
+        const servicePairs = ecsServicePairsFor(roleName);
+
+        for (const pending of PENDING_BACKEND_DEV_SERVICE_PAIRS) {
+          if (roleName === DASHBOARD_DEV) {
+            expect(servicePairs).toContain(pending);
+          } else {
+            expect(servicePairs).not.toContain(pending);
+          }
+        }
+      },
+    );
+
+    test.each(ALL_ROLES)(
+      '%s 의 임시 대기 대상 외 모든 ECS ARN 은 실제 서비스다',
+      (roleName) => {
+        const servicePairs = ecsServicePairsFor(roleName);
+
+        expect(servicePairs.length).toBeGreaterThan(0);
+        for (const servicePair of servicePairs) {
+          if (!PENDING_BACKEND_DEV_SERVICE_PAIRS.has(servicePair)) {
+            expect(deployed).toContain(servicePair);
+          }
         }
       },
     );

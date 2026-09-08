@@ -144,9 +144,11 @@ export interface DeployTarget {
  *   - `clickhouse` 서비스가 어디에도 없다: 공개 이미지를 고정 태그로 쓰므로(ADR-0019)
  *     앱 레포가 재배포할 대상이 아니다.
  *
- * ECR 레포는 dev/prod 가 공유하므로(ADR-0021 5번) 두 환경의 ECR 목록은 같다. 갈리는 것은
- * ECS 서비스와 push 하는 **태그**이며, 태그는 IAM 조건으로 표현할 수 없다 - ECR 은 이미지
- * 태그 기반 조건 키를 제공하지 않는다.
+ * ECR 레포는 dev/prod 가 공유하지만(ADR-0021 5번), ADR-0026 마이그레이션 중인
+ * `enrollment-api` 와 `telemetry-ingest` 는 dev backend 역할에만 먼저 추가한다. 기존
+ * `api-server` / `batch-processor` / `dashboard` 권한은 정리 단계까지 함께 유지한다.
+ * 이미지 태그는 IAM 조건으로 표현할 수 없다 - ECR 은 이미지 태그 기반 조건 키를 제공하지
+ * 않는다.
  */
 export const DEPLOY_TARGETS: Readonly<
   Record<DeployEnv, readonly DeployTarget[]>
@@ -159,8 +161,17 @@ export const DEPLOY_TARGETS: Readonly<
     },
     {
       repo: GITHUB_REPOS.dashboard,
-      ecrRepos: [ECR_REPOS.apiServer, ECR_REPOS.batchProcessor],
-      services: [ECS_SERVICE_NAMES.dashboard],
+      ecrRepos: [
+        ECR_REPOS.apiServer,
+        ECR_REPOS.batchProcessor,
+        ECR_REPOS.enrollmentApi,
+        ECR_REPOS.telemetryIngest,
+      ],
+      services: [
+        ECS_SERVICE_NAMES.dashboard,
+        ECS_SERVICE_NAMES.enrollmentApi,
+        ECS_SERVICE_NAMES.telemetryIngest,
+      ],
     },
   ],
   prod: [
