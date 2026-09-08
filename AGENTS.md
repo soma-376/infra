@@ -1,5 +1,8 @@
 # AGENTS.md
 
+> 이 문서는 PROJ-144 로컬 구현을 반영한다. AWS 배포와 live E2E는 수행하지 않았으므로 아래 구성은
+> 배포된 dev 현행을 증명하지 않는다.
+
 이 레포에서 작업하는 코딩 에이전트를 위한 핸드오프 문서다. 코드를 수정하기 전에 **3장(불변 규칙)** 과 **5장(남은 작업)** 을 반드시 읽는다.
 
 문서와 주석은 **한국어**로 작성한다. AWS/CDK 용어와 명령어는 영문 원문을 유지한다.
@@ -27,9 +30,8 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 (예: `sink_clickhouse.py` 의 `execute()`). 행 번호 정합은 검증할 방법이 없어 반드시 낡는다 —
 ADR-0018·0019가 같은 이유로 두 번 낡았다. 기존 문서의 일괄 치환은 하지 않고, 손대는 문서부터 적용한다.
 
-**이 레포가 소유한 계약 지점**: `config/otel-collector.yaml`이 ECS에서 실제로 기동되는 collector 설정이다.
-`ai-telemetry-pipeline`의 in-repo 설정과 드리프트하면 신원 헤더가 소실된다
-(`../docs/contracts/telemetry-ingest.md` §4·§5 B4). 둘을 함께 본다.
+**이 레포가 소유한 계약 지점**: `config/otel-collector.yaml`은 **prod** ECS가 기동하는 collector 설정이다.
+dev는 OTel Collector를 배포하지 않고 `pulsemetry-backend/apps/telemetry-ingest`가 수집부터 적재까지 맡는다.
 
 ---
 
@@ -38,11 +40,16 @@ ADR-0018·0019가 같은 이유로 두 번 낡았다. 기존 문서의 일괄 �
 AWS CDK v2 (TypeScript) 로 작성된 **단일 인프라 레포**다. MVP 관측성(observability) 플랫폼의 AWS 리소스를 정의한다.
 
 ```
-AI Tool / 브라우저 → ALB → OTel Collector → ClickHouse (분석)
-                          → Spring Boot API → Aurora PostgreSQL (컨트롤 플레인)
+dev:  AI Tool → ALB → telemetry-ingest → S3 / ClickHouse
+      사용자  → ALB → enrollment-api  → RDS PostgreSQL
+prod: AI Tool → ALB → OTel Collector + post-processor → ClickHouse
+      브라우저 → ALB → api-server + batch-processor → Aurora PostgreSQL
 ```
 
-- ADR-0009에 따라 **인프라는 이 레포에서만 관리한다.** 앱 레포(Collector & Processor, Dashboard Backend)의 CI는 이미지 빌드 → ECR push → `ecs update-service --force-new-deployment` 까지만 수행한다. 앱 배포가 `cdk deploy`를 유발하지 않는다. **그 두 동작에 필요한 AWS 권한은 `lib/cicd/`의 배포 역할 4개가 준다** (ADR-0024).
+- ADR-0009에 따라 **인프라는 이 레포에서만 관리한다.** 앱 레포 CI는 이미지 빌드 → ECR push →
+  `ecs update-service --force-new-deployment`까지만 수행하고 `cdk deploy`를 유발하지 않는다.
+  `lib/cicd/`의 배포 역할은 4개를 유지하지만 cleanup 뒤 `ai-telemetry-pipeline` dev 역할은 trust와 ARN
+  output만 남고 permission은 0개다(ADR-0024·0026).
 - 태스크 정의를 바꾸려면 **반드시 이 레포를 경유**해야 한다.
 - 대상 region은 **`ap-northeast-2`**다. account는 `CDK_DEFAULT_ACCOUNT`에서만 주입하며 코드와 문서에 기록하지 않는다.
 - **환경은 셋이다** — 운영(`lib/prod/`)과 개발(`lib/dev/`)이 **같은 계정·같은 리전**에 공존하고, 여기에 배포 역할만 담는 `lib/cicd/`가 더해진다. 진입점 `bin/infra.ts`는 `-c env=dev|prod|cicd` 컨텍스트 하나만 읽고 `synthProd()` / `synthDev()` / `synthCicd()`로 조립을 위임한다. **기본값은 `prod`**이므로 무인자 `cdk deploy`는 여전히 운영을 대상으로 한다. (ADR-0021, ADR-0022, ADR-0024)
@@ -52,7 +59,11 @@ AI Tool / 브라우저 → ALB → OTel Collector → ClickHouse (분석)
 
 ## 2. 스택 구조와 의존 방향
 
-앱 환경(prod/dev)마다 스택이 4개고, `cicd`는 1개다. 의존 관계는 **`lib/prod/app.ts`의 `synthProd()` / `lib/dev/app.ts`의 `synthDev()` / `lib/cicd/app.ts`의 `synthCicd()`에서 construct 참조를 props로 넘기는 방식**으로만 표현한다. 수동 `Fn::ImportValue`나 SSM 우회 참조를 새로 도입하지 않는다.
+앱 환경(prod/dev)마다 스택이 4개고, `cicd`는 1개다. 코드의 props 전달은
+`lib/prod/app.ts`의 `synthProd()`, `lib/dev/app.ts`의 `synthDev()`, `lib/cicd/app.ts`의
+`synthCicd()`에서 construct 참조를 넘기는 방식으로만 표현한다. 수동 `Fn::ImportValue`나 SSM 우회
+참조를 새로 도입하지 않는다. **construct 생성·props 전달 순서와 합성 manifest의 실제 배포 의존은
+같은 개념이 아니다.**
 
 ```
 lib/
@@ -67,13 +78,25 @@ test/
 └── helpers.ts   buildApp() / buildDevApp() / buildCicdApp() / MODE_A_EDGE / TEST_ENV
 ```
 
-폴더 간 의존 방향은 **`prod → common`, `dev → common`, `cicd → common` 단방향**이다 (ADR-0021 2번, ADR-0024 1번). **`cicd`도 `prod`·`dev` 어느 쪽도 import 하지 않는다** — 거기서 양쪽을 끌어오면 `prod ↔ dev` 금지 규칙이 `cicd`를 경유해 우회된다. 스택 간 의존 형태는 두 앱 환경이 같다.
+폴더 간 의존 방향은 **`prod → common`, `dev → common`, `cicd → common` 단방향**이다 (ADR-0021 2번,
+ADR-0024 1번). `cicd`도 `prod`·`dev` 어느 쪽도 import 하지 않는다.
+
+prod의 일반 props 흐름은 아래와 같다.
 
 ```
 NetworkStack ──> DataStack ──┐
      │                       ├──> ApplicationStack ──> EdgeStack
      └───────────────────────┘
 ```
+
+dev는 enrollment-api의 `PULSEMETRY_PUBLIC_BASE_URL`을 실제 ALB DNS로 late binding하는 예외가 있다.
+코드 조립은 Network/Data로 Application을 만들고, Application service와 Network/Data로 Edge를 만든 뒤,
+`Edge.publicBaseUrl`을 Application container definition에 되돌려 연결한다. weak reference를 반영한 실제
+합성 manifest에서는 **DevApplicationStack이 DevNetworkStack·DevDataStack·DevEdgeStack에 의존하고,
+DevEdgeStack은 DevNetworkStack·DevDataStack에 의존한다.** 그러므로 전체 dev 배포는
+Network/Data/Edge 뒤 Application 순서가 될 수 있다. PROJ-144 delete에서 Application만
+`--exclusively`로 먼저 배포하는 이유가 이 실제 의존 순서를 의도적으로 우회해 구 task·ENI를 먼저
+없애기 위해서다.
 
 ### 운영 스택 (prod)
 
@@ -94,47 +117,45 @@ NetworkStack ──> DataStack ──┐
 
 ### dev 스택
 
-스택 ID는 `Dev` 접두사를 쓴다. **같은 계정·같은 리전에서 CloudFormation 스택 이름이 유일해야 하므로, 이 접두사가 두 환경이 서로를 덮어쓰지 않게 하는 유일한 장치다** (ADR-0021 3번).
+스택 ID는 `Dev` 접두사를 쓴다. 같은 계정·같은 리전에서 CloudFormation 스택 이름이 유일하므로 이
+접두사가 두 환경의 스택 충돌을 막는다 (ADR-0021 3번).
 
 | 스택 | 파일 | 주요 리소스 |
 |---|---|---|
-| `DevNetworkStack` | `lib/dev/network-stack.ts` | 전용 VPC (`10.1.0.0/16`, 2 AZ × public 1 티어, **NAT 0개**), S3 Gateway Endpoint, **SG 5개 전부 + 모든 cross-SG 룰** |
-| `DevDataStack` | `lib/dev/data-stack.ts` | RDS PostgreSQL 16.13 `db.t4g.micro` (`controlplane` DB, gp3 20GB, **`publiclyAccessible`**), 시크릿 5개 (마스터 + post-processor 파생 DSN + auth-proxy 파생 URI + 공유 토큰 해시 키 + enrollment-api 관리자 토큰), Raw Signal S3 버킷 (7일 만료) |
-| `DevApplicationStack` | `lib/dev/application-stack.ts` | ECS 클러스터, Cloud Map `obs.local`, ASG 2개 (앱 `t4g.medium` / ClickHouse `t4g.small`) + 캐패시티 프로바이더 2개, `Ec2Service` 4개 |
-| `DevEdgeStack` | `lib/dev/edge-stack.ts` | internet-facing ALB (:80, :4318, :8123), `CfnOutput` 9개. **Cognito·CloudFront·프론트엔드 S3는 만들지 않는다** |
+| `DevNetworkStack` | `lib/dev/network-stack.ts` | 전용 VPC (`10.1.0.0/16`, 2 AZ × public 1 티어, NAT 0개), S3 Gateway Endpoint, **ALB/AppHost/ClickHouse/RDS SG 4개 + 모든 cross-SG 룰** |
+| `DevDataStack` | `lib/dev/data-stack.ts` | RDS PostgreSQL 16.13 `db.t4g.micro` (`controlplane`, gp3 20GB, `publiclyAccessible`), 실제 Secret 3개(마스터, 공유 token hash, 관리자 토큰), Raw Signal S3(7일 만료) |
+| `DevApplicationStack` | `lib/dev/application-stack.ts` | ECS 클러스터, Cloud Map `obs.local`, 앱/ClickHouse ASG와 capacity provider, `Ec2Service` 3개 |
+| `DevEdgeStack` | `lib/dev/edge-stack.ts` | internet-facing ALB (`:80`, `:8123`), 신규 앱 target group 2개, `AlbDnsName`·`OtlpEndpoint`·`ClickhouseDebugUrl`·`RdsEndpoint`·`RdsSecretArn`·`TokenHashSecretArn`·`AdminApiTokenSecretArn` output 7개. Cognito·CloudFront·프론트엔드 S3 없음 |
 
-**dev 태스크 구성** — 태스크마다 네트워크 모드가 다르다. ADR-0022 4번이 **awsvpc를 강제하는 조건을 둘만 인정**하고(태스크 내 `localhost` 의존 / Cloud Map A 레코드 등록 대상), 나머지는 bridge로 두어 인터넷 egress와 ENI 여유를 얻는다는 규칙이다 (ADR-0023 2번).
+| ECS 서비스 | 컨테이너 포트 | 네트워크 모드 | 호스트/예약 |
+|---|---:|---|---|
+| `telemetry-ingest` | 4316, 동적 host port | **bridge** | 앱 ASG, 1024 MiB |
+| `enrollment-api` | 8080, 동적 host port | **bridge** | 앱 ASG, 1024 MiB |
+| `clickhouse` | 8123/9000 | **awsvpc** | ClickHouse ASG, 1024 MiB |
 
-| 태스크 | 컨테이너 | 네트워크 모드 | 그 모드여야 하는 이유 |
-|---|---|---|---|
-| `DevCollectorTask` | `otel-collector` (:4318), `post-processor` | **awsvpc** | `config/otel-collector.yaml`의 `http://localhost:8080` exporter는 태스크 내 네트워크 네임스페이스 공유가 전제다 |
-| `DevAuthProxyTask` | `auth-proxy` (:4316, 동적 호스트 포트) | **bridge** | 단일 컨테이너라 localhost 의존이 없고, 디스커버리의 **클라이언트**라 Cloud Map 등록 대상도 아니다. 강제 조건이 없으므로 ENI 여유와 egress를 취한다 (ADR-0023 2번) |
-| `DevDashboardTask` | `api-server` (:8080, 동적 호스트 포트), `batch-processor` | **bridge** | 두 컨테이너 사이에 localhost 의존이 없다. 호스트 ENI를 타므로 인터넷 egress와 ECS Exec이 살아난다 |
-| `DevClickhouseTask` | `clickhouse` (:8123/:9000) | **awsvpc** | Cloud Map A 레코드(`clickhouse.obs.local`) 등록에는 태스크 전용 IP가 필요하다. bridge면 SRV만 등록된다 |
+세 서비스 모두 `desiredCount: 1`, `minHealthyPercent: 0`, `maxHealthyPercent: 100` 교체 배포다. 두 Spring
+서비스는 태스크 내 localhost 의존과 Cloud Map A 레코드 요구가 없어 bridge/instance target을 쓴다.
+ClickHouse만 `clickhouse.obs.local` A 레코드를 위해 awsvpc/ip target을 유지한다. 최종 앱 ASG는
+`maxCapacity: 1`이고 두 Spring 컨테이너의 소프트 예약 합계는 2048 MiB다. 이 값은 배치 계산이며
+실제 메모리 안정성은 배포 관측으로 확인한다.
 
-네 서비스 모두 `desiredCount: 1` + `minHealthyPercent: 0` / `maxHealthyPercent: 100` 교체 배포다 (t4g의 인스턴스당 ENI 한도 3, ADR-0022 Constraints). ALB 타깃 타입도 네트워크 모드의 귀결이다 — awsvpc는 `ip`, bridge는 `instance`.
+`telemetry-ingest`는 Spring Security에서 인증하고 `SecurityContextHolder`의 principal을
+`SecurityContextIdentitySource`가 읽어 `IdentityStamper`로 전달한다. 두 앱은 같은 token hash Secret을
+사용한다. `enrollment-api`의 public base URL은 실제 ALB DNS에서 late binding하고 binaries directory는
+`/app/binaries`다. 이 레포는 URL과 라우팅만 제공하며 실제 바이너리 공급은 별도 작업이다.
 
-**호스트 배치.** auth-proxy는 새 ASG를 만들지 않고 기존 `DevAppAsg`(t4g.medium 1대)에 얹힌다. 그 호스트는 collector 태스크(awsvpc, ENI 1개) + dashboard·auth-proxy(bridge, ENI 0개)를 함께 돌리므로 **ENI는 3 중 2를 쓴다.** `memoryReservation` 합계는 2304 MiB로 전부 소프트 예약이다.
+dev `:80` 리스너의 default는 404다. priority 1의 정확한 `/v1/traces`, `/v1/metrics`, `/v1/logs`만
+telemetry-ingest로 보내고, priority 3의 `/v1/enroll`, `/v1/installations/*`, `/v1/invitations*`와
+priority 4의 `/windows`, `/unix`, `/bin/*`를 같은 enrollment target group으로 보낸다. `/v1/healthz`는
+두 새 target group의 200 health check 전용이며 public rule이 아니다. 두 새 target group은 60초 deregistration delay를,
+ClickHouse는 300초를 쓴다. ingest 서비스만 240초 health check grace를 사용하며 정상 healthy 판정은
+즉시 반영된다. `:4318`, 구 `/api/*`, 구 target group과 서비스는 최종 상태에 없다.
 
-**OTLP 경로에 인증이 생겼다** (ADR-0023). ALB `:80`의 `/v1/*`는 auth-proxy를 거치고, auth-proxy가 `collector.obs.local`(Cloud Map A 레코드)로 Collector에 전달한다. 인증 없이 Collector로 직행하는 기존 경로는 **`:4318` 디버그 리스너**로 남아 있다 — 프록시 장애와 파이프라인 장애를 가르는 용도이며, ALB는 forward 시 URL을 재작성하지 않으므로 경로가 아니라 포트로 나눈다.
-
-#### Accepted 목표와 전환 상태 (ADR-0026)
-
-위 표와 경로는 **현재 `develop` 코드가 합성하는 전환 전 상태**다. PROJ-137에서는 AWS에 배포하거나
-실제 서비스 상태를 확인하지 않았으므로 live 환경도 같다고 단정하지 않는다. Accepted 목표는
-`telemetry-ingest`(bridge, 4316, 1024 MiB)·`enrollment-api`(bridge, 8080, 1024 MiB)·
-`clickhouse`(기존 awsvpc) 세 ECS 서비스다. auth-proxy·Collector·post-processor·dashboard는
-신규 두 앱의 배포와 live E2E 뒤 단계적으로 제거한다.
-
-전환 중에는 구 서비스 예약 2304 MiB와 신규 예약 2048 MiB의 합 4352 MiB가 t4g.medium 한 대의
-4 GiB를 넘으므로 앱 ASG `maxCapacity`를 임시로 2까지 연다. 구 서비스 제거 뒤 1로 되돌린다.
-이 수치는 배치 가능성 계산이며 런타임 메모리 안정성 근거가 아니다. 실제 배포는 PROJ-105/PR #13의
-`develop` 머지, 두 ARM64 이미지와 환경·Secret 계약 준비, enrollment-api 선행 안정화,
-telemetry-ingest 안정화와 실제 RDS·S3·ClickHouse E2E를 모두 관문으로 삼는다.
-
-prod의 Collector config, 기존 컨테이너/ECR/환경 계약과 파생 DSN은 이 전환에서 바꾸지 않는다.
-구 dev 규칙은 해당 리소스가 남아 있는 단계까지만 적용하고, 목표 구성 및 제거 순서는
-[ADR-0026](docs/adr/0026-dev-backend-deployment-units-and-staged-migration.md)이 우선한다.
+현재 ALB는 HTTP만 제공한다. `PULSEMETRY_PUBLIC_BASE_URL=http://<ALB DNS>`는 bootstrap 주소이고,
+manifest의 OTLP endpoint와 같은 계약이 아니다. backend·telemetryctl·JSON Schema는 원격 endpoint에
+HTTPS를 요구하므로 HTTP curl 경계 검증은 가능하지만 CLI enrollment → manifest → OTLP forward E2E는
+별도 HTTPS 선행 과제가 완료되기 전에는 불가능하다. 계약을 HTTP 허용으로 완화하거나 이 작업에 TLS
+listener·certificate를 추가하지 않는다. prod의 기존 Fargate 서비스와 Collector 구성은 그대로다.
 
 ### CI/CD 스택 (cicd)
 
@@ -154,53 +175,50 @@ prod의 Collector config, 기존 컨테이너/ECR/환경 계약과 파생 DSN은
 
 | 규칙 | 왜 |
 |---|---|
-| **SG 5개와 모든 cross-SG 룰은 `NetworkStack`에만 정의한다** | SG 참조가 스택 내부 참조가 되어 스택 간 순환 의존을 원천 차단한다. 하류 스택은 props로 주입만 받는다. (`lib/prod/network-stack.ts`의 클래스 헤더 주석. `DevNetworkStack`이 같은 규칙을 그대로 계승한다 - ADR-0022 2번) |
+| **prod SG 5개와 dev SG 4개 및 모든 cross-SG 룰은 각 `NetworkStack`에만 정의한다** | SG 참조가 스택 내부 참조가 되어 스택 간 순환 의존을 원천 차단한다. 하류 스택은 props로 주입만 받는다. (`lib/prod/network-stack.ts`의 클래스 헤더 주석. `DevNetworkStack`이 같은 규칙을 그대로 계승한다 - ADR-0022 2번) |
 | **ECR 레포를 CDK로 만들지 않는다** | `Repository.fromRepositoryName`으로 참조만 한다. CDK가 만들면 첫 배포에서 "이미지 없는 레포" → 태스크 기동 실패 → 롤백으로 레포까지 삭제되는 순환이 생긴다. (ADR-0007) |
 | **ECR 레포 이름은 `soma-376/` 네임스페이스 아래에 둔다** | 네임스페이스는 `COMMON_TAGS.Org`와 같은 값이다. 비용 배분 태그 축과 레지스트리 경로를 같은 식별자로 정렬한다. ECR은 레포 이름 변경이 불가능해 사후 교정에 재생성 + 이미지 재push가 든다. (`lib/common/config.ts`의 `ECR_NAMESPACE`, ADR-0007) |
-| **`batch-processor`는 `essential: false`** | 배치 실패가 같은 태스크의 api-server를 함께 내리면 안 된다. (`lib/prod/application-stack.ts:279`, dev는 `lib/dev/application-stack.ts:462`, ADR-0004) |
-| **ClickHouse `Ec2Service`는 `minHealthyPercent: 0` / `maxHealthyPercent: 100`** | 인스턴스 1대 + awsvpc ENI 한도상 롤링 배포가 불가능하다. 강제 교체 배포만 가능하다. (`lib/prod/application-stack.ts:397-398`. dev는 네 서비스 전부 같은 값이며 `lib/dev/application-stack.ts`의 `REPLACEMENT_DEPLOYMENT` 상수가 이를 강제한다 - ADR-0022 Constraints) |
+| **prod `batch-processor`는 `essential: false`** | 배치 실패가 같은 태스크의 api-server를 함께 내리면 안 된다. dev 최종 구성에는 두 컨테이너가 없다. (`lib/prod/application-stack.ts`, ADR-0004, ADR-0026) |
+| **ClickHouse `Ec2Service`는 `minHealthyPercent: 0` / `maxHealthyPercent: 100`** | 인스턴스 1대 + awsvpc ENI 한도상 롤링 배포가 불가능하다. 강제 교체 배포만 가능하다. (`lib/prod/application-stack.ts:397-398`. dev는 최종 세 서비스 모두 같은 값이며 `lib/dev/application-stack.ts`의 배포 설정이 이를 강제한다 - ADR-0022 Constraints) |
 | **`AsgCapacityProvider`의 `enableManagedTerminationProtection: false`** | 단일 인스턴스 교체 배포를 관리형 종료 보호가 막는다. (`lib/prod/application-stack.ts:346`, dev는 `lib/dev/application-stack.ts`의 `addCapacityProvider`) |
-| **DB 시크릿은 참조만 노출한다** | `data.dbSecret`(`ISecret`)을 넘길 뿐, **합성 시점에 값을 평문으로 읽는 코드**는 절대 넣지 않는다. 컨테이너에는 `Secret.fromSecretsManager`로 주입한다. **예외는 `DataStack`의 `PostProcessorPgDsn` 파생 시크릿 하나뿐이며**, 거기서도 `unsafeUnwrap()`이 돌려주는 건 평문이 아니라 `{{resolve:secretsmanager:...}}` 동적 참조 토큰이다(합성 산출물은 `Fn::Join` + `Ref`뿐). 새 예외를 만들려면 ADR-0018을 먼저 갱신한다. (`lib/prod/data-stack.ts`, dev는 `lib/dev/data-stack.ts`의 `DevPostProcessorPgDsn`, ADR-0018) |
-| **`post-processor`의 환경변수 이름은 앱 소스가 권위다** | 앱은 `ENRICHMENT_CH_URL` / `ENRICHMENT_CH_DB` / `ENRICHMENT_PG_DSN` **세 개만** 읽는다 (`ai-telemetry-pipeline`의 `apps/telemetry-processor/enrichment/sink_clickhouse.py`, `apps/telemetry-processor/enrichment/providers/org.py`의 `OrgProvider`). 이름이 틀리면 CH 두 개는 예외 없이 compose 전용 기본값으로 **조용히 폴백**하고(ECS에서는 DNS가 안 풀려 모든 insert가 `BackendUnavailable` → HTTP 503), `ENRICHMENT_PG_DSN`은 기본값이 빈 문자열이라 **조회 시점의 즉시 연결 실패**다(장애 증상이 다르다 — ADR-0018). **synth도 테스트도 배포도 전부 통과한다** — 인프라 테스트는 "앱이 그 이름을 읽는가"를 원리적으로 검증할 수 없다. 죽은 계약(`CLICKHOUSE_HOST`·`DB_CREDS`·`DB_NAME`)을 다시 넣지 않는다. **dev도 같은 이름을 쓴다** - 계약이 환경마다 갈리면 "dev에서 검증했다"는 말의 의미가 사라진다. (`lib/common/config.ts`의 `ENRICHMENT_ENV`, ADR-0018, ADR-0021 2번) |
-| **dev `api-server`는 enrollment-api의 `PULSEMETRY_*` 계약을 따른다** | 일반 환경변수는 비밀이 아닌 `PULSEMETRY_DB_URL` 하나뿐이다. RDS 마스터 Secret의 `username`/`password`, 관리자 토큰 Secret의 JSON `token`, auth-proxy와 공유하는 토큰 해시 Secret은 각각 `PULSEMETRY_DB_USERNAME` / `PULSEMETRY_DB_PASSWORD` / `PULSEMETRY_ADMIN_API_TOKEN` / `PULSEMETRY_TOKEN_HASH_SECRET`으로 ECS `secrets`에 넣는다. `DB_CREDS`/`DB_NAME`을 dev에 되살리거나 토큰 값을 `environment`/`CfnOutput`에 넣지 않는다. (`lib/common/config.ts`의 `ENROLLMENT_ENV`, PROJ-112) |
-| **ClickHouse 컨테이너의 `CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1'`과 고정 태그를 지우지 않는다** | 이미지 entrypoint는 `CLICKHOUSE_USER`/`CLICKHOUSE_PASSWORD`/`CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT`가 전부 비면 `default` 유저를 **루프백 전용**으로 잠근다(`disabling network access for user 'default'`). 그러면 `post-processor`의 모든 적재가 403 `Code: 516 ... Authentication failed`로 죽고 앱이 그걸 `BackendUnavailable`→503으로 바꾼다. **synth도 테스트도 배포도 전부 통과한다** — 실제로 이렇게 깨졌다. 조건식상 `USER='default'`와 `PASSWORD=''`는 분기를 못 열고 **`DEFAULT_ACCESS_MANAGEMENT`만 연다**(나머지 셋은 compose 정합성용). 태그를 빼면 `latest`가 되어 재기동마다 이 entrypoint 로직 자체가 바뀔 수 있다. 비밀번호가 없는 것도 의도다 — 앱이 자격증명을 아예 보내지 않으므로 접근 통제는 `clickhouseSecurityGroup`이 담당한다. (`lib/common/config.ts`의 `CLICKHOUSE_IMAGE`·`CLICKHOUSE_CONTAINER_ENV` - dev/prod가 같은 상수를 전개한다, ADR-0019) |
-| **Aurora 자동 생성 비밀번호의 `ExcludeCharacters`와 따옴표 없는 libpq DSN은 한 몸이다** | `buildLibpqDsn()`은 값을 따옴표로 감싸지 않는다 — 합성 시점에 user/password는 토큰이라 감쌀 방법이 없다. aws-rds의 `DEFAULT_PASSWORD_EXCLUDE_CHARS`가 공백·`'`·`"`·`\` 넷을 전부 빼주기 때문에만 성립하는 **우연한 커플링**이다. 깨지면 배포는 성공하고 `post-processor`만 런타임에 죽는다. 그 상수는 공개 export가 아니므로 `test/prod/data-stack.test.ts`가 **합성 템플릿의 `ExcludeCharacters`** 로 고정한다. dev의 `DatabaseInstance`도 같은 상수에 기대므로 `test/dev/data-stack.test.ts`가 같은 어서션을 갖는다. (ADR-0018, ADR-0022 7번) |
-| **`batch-processor`의 계약과 `post-processor`의 `RAW_BUCKET`은 건드리지 않는다** | `batch-processor` 대응 모듈은 backend 레포에 아직 없어 실제 계약을 알 수 없다. `CLICKHOUSE_HOST`를 추정으로 정리하지 않는다. `post-processor`의 `RAW_BUCKET`은 ADR-0017의 `awss3` exporter 전환용이며 태스크 역할의 `grantReadWrite`와 한 몸이다. enrollment-api 계약은 소스가 생긴 뒤 PROJ-112에서 별도로 맞췄다. (ADR-0018) |
-| **Fargate 태스크는 ARM64로 고정한다** | `runtimePlatform`을 빼면 CDK 기본값(미지정)으로 돌아가 x86_64가 된다. 앱 레포도 반드시 `linux/arm64` 이미지를 push해야 하며, amd64를 올리면 synth와 테스트는 통과하지만 런타임에 이미지 pull이 실패한다. ClickHouse EC2(t4g)와 아키텍처를 맞추고 x86 대비 약 20% 저렴하다. dev도 같은 이유로 ARM64에 고정한다 - 호스트 ASG가 `EcsOptimizedImage.amazonLinux2023(AmiHardwareType.ARM)`이므로 `linux/arm64` 요구가 그대로 따라온다. (`lib/prod/application-stack.ts`의 `FARGATE_RUNTIME_PLATFORM`, ADR-0015) |
-| **Collector 설정은 `config/otel-collector.yaml`에만 둔다** | synth 시점에 파일을 읽어 `OTEL_CONFIG` 환경변수로 주입하고 `--config=env:OTEL_CONFIG`로 기동한다. 파일 경로·환경변수 이름·`command` 세 가지는 한 몸이라 함께 바꿔야 한다. **이 값은 CFN 템플릿과 ECS 콘솔에 평문으로 남으므로 시크릿을 넣으면 안 된다.** **dev도 같은 파일을 읽는다** - dev용으로 포크하면 collector 동작이 갈라져 dev의 검증 가치가 사라진다. (`lib/prod/application-stack.ts`·`lib/dev/application-stack.ts`의 `COLLECTOR_CONFIG_PATH`, ADR-0017, ADR-0022 4번) |
-| **`otel-collector` 컨테이너는 root(`user: '0'`)로 돈다** | 이미지가 `User=10001:10001`인데 UID 10001이 쓸 수 있는 디렉터리가 하나도 없다(scratch 기반이라 `/tmp`도 없다). `file/*` exporter가 `/data`를 만들려면 root가 필요하다. 빼면 `mkdir /data: permission denied`로 기동 직후 exit 1이다. **file exporter와 `user: '0'`은 한 몸이라 함께 없애야 한다** — 이 커플링은 `test/prod/application-stack.test.ts`와 `test/dev/application-stack.test.ts`가 각각 고정한다. `awss3` exporter로 옮기면 root가 필요 없어진다. (ADR-0017) |
-| **Collector config는 배포 전 실제로 기동해 봐야 한다** | `cdk synth`·`npm test`는 config를 문자열로만 다루고, `otelcol-contrib validate`조차 컴포넌트를 **해석만** 하고 start하지 않아 파일시스템·권한 실패를 못 잡는다. 최초 배포가 정확히 이 틈으로 빠져나가 죽었다. 관문은 `docker run -d --user 0:0 -e OTEL_CONFIG="$(cat config/otel-collector.yaml)" ... --config=env:OTEL_CONFIG` 후 로그에 `Everything is ready`가 뜨는지 확인하는 것이다. **정리는 컨테이너 ID를 지목한다. `--filter ancestor=...`를 쓰면 같은 이미지를 쓰는 로컬 개발 컨테이너까지 지운다.** (ADR-0017) |
+| **DB 시크릿은 참조만 노출한다** | `data.dbSecret`(`ISecret`)을 넘길 뿐, **합성 시점에 값을 평문으로 읽는 코드**는 절대 넣지 않는다. 컨테이너에는 `Secret.fromSecretsManager`로 주입한다. **prod의 예외는 `DataStack`의 `PostProcessorPgDsn` 파생 시크릿 하나뿐이며**, 거기서도 `unsafeUnwrap()`이 돌려주는 건 평문이 아니라 `{{resolve:secretsmanager:...}}` 동적 참조 토큰이다(합성 산출물은 `Fn::Join` + `Ref`뿐). 새 예외를 만들려면 ADR-0018을 먼저 갱신한다. dev는 파생 Secret 없이 마스터 Secret의 필드를 ECS secret으로 직접 주입한다. (`lib/prod/data-stack.ts`, ADR-0018, ADR-0026) |
+| **`post-processor`의 환경변수 이름은 앱 소스가 권위다** | 앱은 `ENRICHMENT_CH_URL` / `ENRICHMENT_CH_DB` / `ENRICHMENT_PG_DSN` **세 개만** 읽는다 (`ai-telemetry-pipeline`의 `apps/telemetry-processor/enrichment/sink_clickhouse.py`, `apps/telemetry-processor/enrichment/providers/org.py`의 `OrgProvider`). 이름이 틀리면 CH 두 개는 예외 없이 compose 전용 기본값으로 **조용히 폴백**하고(ECS에서는 DNS가 안 풀려 모든 insert가 `BackendUnavailable` → HTTP 503), `ENRICHMENT_PG_DSN`은 기본값이 빈 문자열이라 **조회 시점의 즉시 연결 실패**다(장애 증상이 다르다 — ADR-0018). **synth도 테스트도 배포도 전부 통과한다** — 인프라 테스트는 "앱이 그 이름을 읽는가"를 원리적으로 검증할 수 없다. 죽은 계약(`CLICKHOUSE_HOST`·`DB_CREDS`·`DB_NAME`)을 다시 넣지 않는다. **이 계약은 prod에만 남는다.** dev는 telemetry-ingest의 `PULSEMETRY_*` 계약을 쓴다. (`lib/common/config.ts`의 `ENRICHMENT_ENV`, ADR-0018, ADR-0026) |
+| **dev `enrollment-api`와 `telemetry-ingest`는 각 앱의 `PULSEMETRY_*` 계약을 따른다** | RDS 마스터 Secret의 `username`/`password`와 공유 token hash는 두 앱에 각각 `PULSEMETRY_DB_USERNAME` / `PULSEMETRY_DB_PASSWORD` / `PULSEMETRY_TOKEN_HASH_SECRET`으로 넣는다. 관리자 Secret의 JSON `token`은 enrollment-api에만 `PULSEMETRY_ADMIN_API_TOKEN`으로 넣고 telemetry-ingest에는 주입하지 않는다. 모두 ECS `secrets`를 사용하며 `DB_CREDS`/`DB_NAME`을 되살리거나 토큰 값을 `environment`/`CfnOutput`에 넣지 않는다. (backend `application.yaml`, ADR-0026) |
+| **ClickHouse 컨테이너의 `CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1'`과 고정 태그를 지우지 않는다** | 이미지 entrypoint는 `CLICKHOUSE_USER`/`CLICKHOUSE_PASSWORD`/`CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT`가 전부 비면 `default` 유저를 루프백 전용으로 잠근다. 그러면 prod `post-processor`와 dev `telemetry-ingest`의 적재가 인증 실패한다. 비밀번호 없는 default user의 접근 통제는 `clickhouseSecurityGroup`이 담당하며 이미지 태그 `:24.8-alpine`을 고정한다. (`lib/common/config.ts`, ADR-0019) |
+| **Aurora 자동 생성 비밀번호의 `ExcludeCharacters`와 따옴표 없는 libpq DSN은 한 몸이다** | `buildLibpqDsn()`은 값을 따옴표로 감싸지 않는다 — 합성 시점에 user/password는 토큰이라 감쌀 방법이 없다. aws-rds의 `DEFAULT_PASSWORD_EXCLUDE_CHARS`가 공백·`'`·`"`·`\` 넷을 전부 빼주기 때문에만 성립하는 **우연한 커플링**이다. 깨지면 배포는 성공하고 `post-processor`만 런타임에 죽는다. 그 상수는 공개 export가 아니므로 `test/prod/data-stack.test.ts`가 **합성 템플릿의 `ExcludeCharacters`** 로 고정한다. dev 앱은 파생 libpq DSN을 만들지 않지만 DatabaseInstance의 생성 비밀번호 제한은 합성 테스트로 별도 고정한다. (ADR-0018, ADR-0022 7번) |
+| **prod `batch-processor` 계약과 `post-processor`의 `RAW_BUCKET`은 건드리지 않는다** | 두 컨테이너는 prod에 남는다. `batch-processor` 대응 모듈은 없어 계약을 추정하지 않고, `RAW_BUCKET`은 ADR-0017의 `awss3` exporter 전환용 권한과 함께 유지한다. dev cleanup을 이유로 prod 상수나 권한을 삭제하지 않는다. (ADR-0018, ADR-0026) |
+| **prod Fargate 태스크와 dev 앱 이미지는 ARM64로 고정한다** | `runtimePlatform`을 빼면 CDK 기본값(미지정)으로 돌아가 x86_64가 된다. 앱 레포도 반드시 `linux/arm64` 이미지를 push해야 하며, amd64를 올리면 synth와 테스트는 통과하지만 런타임에 이미지 pull이 실패한다. ClickHouse EC2(t4g)와 아키텍처를 맞추고 x86 대비 약 20% 저렴하다. dev Spring 이미지도 호스트 ASG가 `EcsOptimizedImage.amazonLinux2023(AmiHardwareType.ARM)`이므로 `linux/arm64` 요구가 그대로 따라온다. (`lib/prod/application-stack.ts`의 `FARGATE_RUNTIME_PLATFORM`, ADR-0015) |
+| **prod Collector 설정은 `config/otel-collector.yaml`에만 둔다** | synth 시점에 파일을 읽어 `OTEL_CONFIG` 환경변수로 주입하고 `--config=env:OTEL_CONFIG`로 기동한다. 파일 경로·환경변수 이름·`command` 세 가지는 한 몸이라 함께 바꿔야 한다. **이 값은 CFN 템플릿과 ECS 콘솔에 평문으로 남으므로 시크릿을 넣으면 안 된다.** dev 최종 구성은 Collector를 실행하지 않지만 prod 파일은 삭제하지 않는다. (`lib/prod/application-stack.ts`의 `COLLECTOR_CONFIG_PATH`, ADR-0017, ADR-0026) |
+| **prod `otel-collector` 컨테이너는 root(`user: '0'`)로 돈다** | 이미지가 `User=10001:10001`인데 UID 10001이 쓸 수 있는 디렉터리가 하나도 없다(scratch 기반이라 `/tmp`도 없다). `file/*` exporter가 `/data`를 만들려면 root가 필요하다. 빼면 `mkdir /data: permission denied`로 기동 직후 exit 1이다. **file exporter와 `user: '0'`은 한 몸이라 함께 없애야 한다** — 이 커플링은 `test/prod/application-stack.test.ts`가 고정한다. `awss3` exporter로 옮기면 root가 필요 없어진다. (ADR-0017) |
+| **prod Collector config는 배포 전 실제로 기동해 봐야 한다** | `cdk synth`·`npm test`는 config를 문자열로만 다루고, `otelcol-contrib validate`조차 컴포넌트를 **해석만** 하고 start하지 않아 파일시스템·권한 실패를 못 잡는다. 최초 배포가 정확히 이 틈으로 빠져나가 죽었다. 관문은 `docker run -d --user 0:0 -e OTEL_CONFIG="$(cat config/otel-collector.yaml)" ... --config=env:OTEL_CONFIG` 후 로그에 `Everything is ready`가 뜨는지 확인하는 것이다. **정리는 컨테이너 ID를 지목한다. `--filter ancestor=...`를 쓰면 같은 이미지를 쓰는 로컬 개발 컨테이너까지 지운다.** (ADR-0017) |
 | **DB 이름은 PostgreSQL 키워드 표에 없는 단어여야 한다** | RDS는 `DatabaseName`에 엔진 예약어 검사를 걸고, 그 목록이 PostgreSQL의 reserved 키워드보다 넓다. 실제로 `control`은 non-reserved인데도 400으로 거부됐다. 되돌리면 배포가 통째로 실패한다. (`lib/common/config.ts`의 `CONTROL_DB_NAME` - dev RDS도 같은 상수를 쓴다, ADR-0012) |
 | **`maxAzs: 2`는 이중화가 아니라 의도된 하한이다** | 진짜 단일 AZ는 Aurora `DatabaseCluster`(서브넷 ≥2 요구)와 internet-facing ALB(퍼블릭 서브넷 2개 요구)가 막는다. 컴퓨트/데이터는 여전히 사실상 단일 AZ다. (`lib/prod/network-stack.ts:35-36`. dev도 같은 이유로 `maxAzs: 2`다 - internet-facing ALB와 RDS DB subnet group이 각각 2 AZ를 요구한다) |
 | **`RemovalPolicy.DESTROY` / `autoDeleteObjects`는 MVP 한정 의도다** | 실수가 아니다. 프로덕션 전환 시 일괄 재검토 대상이므로, 개별적으로 `RETAIN`으로 바꾸지 말고 ADR로 묶어서 처리한다. |
 | **ECS 클러스터/서비스 이름의 단일 출처는 `lib/common/deploy-targets.ts`다** | 이 값은 앱 레포 워크플로와의 계약이자 `DeployStack`이 IAM 서비스 ARN을 조립하는 조각이다. **CloudFormation은 IAM 정책에 적힌 리소스 ARN의 실존을 검증하지 않으므로**, 한쪽만 고치면 네 스택이 전부 배포에 성공하고 GitHub Actions만 `AccessDenied`로 죽는다. `test/cicd/deploy-stack.test.ts`의 크로스 스택 어서션이 유일한 방어선이다. 이름 변경은 클러스터·서비스 **교체**를 유발하므로 6장 런북을 따른다. (ADR-0024 6번) |
 | **신뢰 정책의 `sub`는 immutable ID와 브랜치까지 완전 일치시킨다** | 2026-07-15 이후 생성된 GitHub 저장소는 `repo:org@org-id/repo@repo-id:...` 형식을 쓴다. name-only 형식은 synth·test·배포가 통과한 뒤 Actions만 `AssumeRoleWithWebIdentity`에서 죽는다. 반대로 `StringLike` + `*`는 PR 헤드와 태그를 포함한 모든 ref에 역할을 열어 develop→dev / main→prod 분리를 없앤다. `GITHUB_ORG`/`GITHUB_REPOS`의 ID와 `StringEquals` 완전 일치를 유지한다. (`lib/cicd/config.ts`, `lib/cicd/deploy-stack.ts`, ADR-0024 2번) |
 | **배포 역할에 `iam:PassRole` / `ecs:RegisterTaskDefinition`을 주지 않는다** | `--force-new-deployment`는 기존 태스크 정의 리비전을 그대로 재사용하므로 둘 다 필요 없다. 주는 순간 CI가 태스크 정의를 갈아끼우고 임의 역할을 붙일 수 있어 계정 안에서 사실상 권한 상승 경로가 되고, ADR-0009(태스크 정의는 이 레포 경유)도 무너진다. (ADR-0024 5번) |
-| **prod 파이프라인 역할에 auth-proxy를 넣지 않는다** | auth-proxy는 **dev에만 존재한다**(ADR-0023). 없는 서비스의 ARN을 넣으면 아무도 소비하지 않는 `prod` 태그 이미지를 밀 권한이 생기고, 다음 사람이 그 ARN을 보고 "prod에 auth-proxy가 있다"고 오독한다. 위 죽은 계약 금지와 같은 종류다. prod 이관 시 `DEPLOY_TARGETS`에 함께 추가한다. |
+| **prod 파이프라인 역할에 dev 전용 또는 제거된 서비스를 넣지 않는다** | prod 역할은 현재 prod `collector`만 대상으로 한다. dev에서 제거된 auth-proxy 이름을 prod 계약에 추가하지 않는다. |
 | **GitHub OIDC 공급자는 계정당 1개이고 `RETAIN`이다** | URL당 하나만 존재할 수 있어 이미 있는 계정에서 새로 만들면 `EntityAlreadyExists`로 스택이 통째로 롤백된다. 배포 전에 `aws iam list-open-id-connect-providers`로 확인하고, 있으면 `-c githubOidcProviderArn=<arn>`으로 참조 모드를 쓴다. `RETAIN`이므로 `DeployStack`을 destroy한 뒤 재배포할 때도 이 키가 필요하다. **`thumbprints`는 주지 않는다** — 지문을 박아 두면 GitHub 인증서 회전 시 인프라는 멀쩡한 채 Actions만 죽는다. (ADR-0024 3번) |
 | **IAM `Description`은 영문으로 쓴다** | 이 레포는 주석과 문서를 한국어로 쓰지만 IAM의 `Description`은 Latin-1 밖의 문자를 거부한다. 한국어를 넣으면 `cdk synth`는 경고만 내고 통과한 뒤 `cdk deploy`가 실패한다. (`lib/cicd/deploy-stack.ts`) |
 
 ### dev 환경 전용 규칙
 
-아래 auth-proxy·Collector·dashboard 관련 행은 **전환 전 코드와 병행 단계에서 해당 리소스가 존재하는
-동안만** 불변이다. ADR-0026이 승인한 티켓 순서와 live E2E 관문을 통과한 뒤에는 그 ADR에 따라
-binding을 먼저 끊고 다음 배포에서 리소스를 삭제한다. 새 Spring 서비스에는 ADR-0026의 bridge,
-동적 host port, 공유 token hash Secret, 정확한 ALB 경로 규칙을 적용한다.
-
 | 규칙 | 왜 |
 |---|---|
-| **`lib/prod/`와 `lib/dev/`는 서로 import 하지 않는다** | 의존은 `prod → common`, `dev → common` 단방향뿐이다. 이 규칙 하나가 "dev를 고치다 운영이 깨진다"는 경로를 **컴파일 타임에** 차단한다. dev에 필요한 값이 `prod/`에 있으면 `common/`으로 올리거나 `dev/`에 복제한다. (ADR-0021 2번) |
-| **dev 태스크 4개의 네트워크 모드를 바꾸지 않는다** (awsvpc / bridge / bridge / awsvpc) | collector가 bridge가 되면 `config/otel-collector.yaml`의 `http://localhost:8080` exporter 계약이 깨진다(컨테이너마다 네임스페이스가 갈려 localhost가 자기 자신을 가리킨다). clickhouse가 bridge가 되면 Cloud Map이 A 레코드 대신 **SRV만** 등록해 `ENRICHMENT_CH_URL`이 깨진다. **둘 다 synth·test·deploy가 전부 통과하고 런타임에만 죽는다** - 앱은 이름이 안 풀려도 예외 없이 compose 기본값으로 조용히 폴백한다. `test/dev/application-stack.test.ts`의 `NetworkMode` 어서션이 유일한 방어선이다. (ADR-0022 4번) |
-| **auth-proxy의 `DATABASE_URL`에 libpq DSN을 넣지 않는다** | `pg`의 파서는 URI 전용이라 keyword/value 문자열은 공백이 `%20`으로 인코딩되며 망가진다. 그리고 URI 쿼리의 **`uselibpqcompat=true`를 빼면** `sslmode=require`가 `verify-full`의 별칭이 되어 RDS 기본 CA 검증에 실패한다 — 두 경우 다 배포는 성공하고 auth-proxy만 런타임에 죽는다. `buildLibpqDsn`과 `buildPostgresUri`가 나란히 있는 것이 중복이 아닌 이유다. (`lib/common/config.ts`, ADR-0023) |
-| **`DevCollectorService`의 `cloudMapOptions`를 지우지 않는다** | auth-proxy가 Collector를 찾는 유일한 수단이다(`collector.obs.local`). **A 레코드여야 하며** bridge/host면 Cloud Map이 SRV만 등록해 HTTP 클라이언트가 해석하지 못한다. 지우면 ALB 헬스체크(`/health`)는 계속 통과하고 전달만 `upstream_unreachable`로 죽는다. (`lib/dev/application-stack.ts`, ADR-0005, ADR-0023 1번) |
-| **`DevCollectorSg` ← `DevAppHostSg` : 4318 룰을 지우지 않는다** | auth-proxy가 bridge라 아웃바운드가 호스트 ENI를 타므로 출발 SG가 태스크 SG가 아니라 호스트 SG다. `batch-processor` → ClickHouse 룰과 같은 사정이며, "아무도 안 쓰는 것 같다"고 지우면 auth-proxy만 조용히 타임아웃으로 죽는다. (`lib/dev/network-stack.ts`, ADR-0022 4번, ADR-0023 2번) |
-| **dev 로그 그룹의 `/ecs/dev/` 접두사를 빼지 않는다** | 운영 `ApplicationStack`이 `logGroupName`에 `/ecs/collector` 같은 **물리 이름을 명시**하고, 로그 그룹 이름은 계정 + 리전에서 유일하다. 접두사를 빼면 첫 `cdk deploy`가 `Resource of type 'AWS::Logs::LogGroup' with identifier '/ecs/collector' already exists`로 스택째 롤백된다. (`lib/dev/config.ts`의 `DEV_LOG_GROUP_PREFIX`, ADR-0021 Constraints, ADR-0022 10번) |
-| **dev ALB 리스너의 `open: false`를 지우지 않는다** | CDK `addListener`의 기본값 `open: true`가 리스너 포트를 `0.0.0.0/0`에 여는 인그레스를 ALB SG에 자동 추가한다. 운영에서는 `NetworkStack`이 이미 anyIpv4 룰을 갖고 있어 dedup되지만, dev는 CIDR을 좁히는 것이 목적이라 그 자동 룰이 좁힌 룰 옆에 남아 **`devAllowedCidr` 제한을 통째로 무력화한다.** **이번 구현에서 실제로 발생했던 버그다.** `test/dev/network-stack.test.ts`의 "전면 공개 인그레스가 어디에도 남지 않는다"가 이를 고정한다. (`lib/dev/edge-stack.ts`, ADR-0022 2번/9번) |
-| **dev ALB의 auth-proxy·dashboard·collector 타깃만 deregistration delay 60초를 쓴다** | dev는 기존 태스크를 먼저 내리는 교체 배포라 AWS 기본값 300초의 connection draining이 끝난 뒤에야 새 태스크 기동과 health check가 시작된다. 두 구간이 직렬로 이어져 GitHub Actions의 10분 wait를 넘을 수 있다. 60초는 **실관측 최적값이나 AWS 공식 권장값이 아니라 MVP 초기 기준**이다. 장시간 연결과 쿼리 특성을 별도로 검증해야 하는 ClickHouse와 prod는 기본값 300초를 유지한다. 적용 범위를 넓히거나 값을 바꾸기 전에 배포 시간, target health 전환, ALB 5xx·connection error와 요청 지연을 관측한다. (`lib/dev/config.ts`의 `DEV_DEREGISTRATION_DELAY`, ADR-0025) |
-| **`applyCommonTags`는 태그 맵을 인자로 받는다** | prod는 `COMMON_TAGS`(`Env: 'mvp'` **유지**), dev는 `DEV_COMMON_TAGS`(`Env: 'dev'`)다. 태그는 App 스코프에서 전 리소스로 전파되므로, prod의 `Env`를 `'prod'`로 "정정"하면 VPC·서브넷·SG·ECS·로그 그룹·Aurora·S3까지 전 리소스에 태그 diff가 생기고 일부는 교체될 수 있다. **이 레포에서 환경 식별자는 태그가 아니라 스택 ID 접두사다.** (`lib/common/config.ts`의 `applyCommonTags`, ADR-0021 4번) |
-| **`bin/infra.ts`와 `test/helpers.ts`는 직접 스택을 조립하지 않는다** | 양쪽 다 `synthProd`/`synthDev`를 거쳐야 테스트 픽스처와 실제 배포 조립이 갈라지지 않는다. 예전에는 두 파일이 4스택 조립을 각각 손으로 들고 있었고, 한쪽만 고치면 통과하는 조립과 배포되는 조립이 달라졌다. (ADR-0021 1번) |
-
----
+| **`lib/prod/`와 `lib/dev/`는 서로 import 하지 않는다** | 의존은 `prod → common`, `dev → common` 단방향뿐이다. dev에 필요한 값이 prod에 있으면 common으로 올리거나 dev에 둔다. (ADR-0021) |
+| **dev 네트워크 모드는 bridge / bridge / awsvpc다** | telemetry-ingest와 enrollment-api는 dynamic host port를 쓰는 instance target이다. ClickHouse만 A 레코드 등록을 위해 awsvpc/ip target을 쓴다. |
+| **두 Spring 이미지는 `linux/arm64`다** | 앱 호스트가 `AmiHardwareType.ARM`인 t4g라 amd64 이미지는 pull 뒤 실행되지 않는다. synth와 template assertion만으로 이미지 manifest architecture를 증명할 수 없다. |
+| **dev에는 실제 Secret 3개만 둔다** | RDS master, 관리자 API token, 공유 token hash다. 파생 libpq DSN·Postgres URI Secret은 없다. username/password와 token은 ECS `secrets`로 주입하고 합성 산출물이나 output에 값을 노출하지 않는다. 공유 hash Secret의 construct ID `DevAuthProxyTokenHashSecret`은 기존 물리 Secret 연속성을 위해 유지한 이름일 뿐이며, 최종 런타임 소비자는 telemetry-ingest와 enrollment-api다. |
+| **두 앱은 기존 token hash Secret 하나를 공유한다** | telemetry-ingest의 인증과 enrollment-api의 token 발급/검증이 같은 HMAC key를 써야 한다. 새 Secret을 만들거나 header로 legacy identity를 전파하지 않는다. |
+| **public base URL은 ALB DNS에서 late binding한다** | `PULSEMETRY_PUBLIC_BASE_URL=http://<ALB DNS>`를 수동 context나 고정값으로 복제하지 않는다. weak reference는 export 잠금만 완화하므로 배포 순서는 별도 런북을 따른다. |
+| **`PULSEMETRY_BINARIES_DIR=/app/binaries`를 유지한다** | `/windows`, `/unix`, `/bin/*`는 enrollment-api로 라우팅한다. 이 레포는 URL/라우팅만 제공하며 이미지 안 실제 바이너리 공급은 별도 책임이다. |
+| **dev 로그 그룹은 `/ecs/dev/` 접두를 쓴다** | prod 물리 이름과 충돌하지 않으며 최종 앱 로그는 `/ecs/dev/telemetry-ingest`, `/ecs/dev/enrollment-api`, `/ecs/dev/clickhouse`다. |
+| **dev ALB listener는 모두 `open: false`다** | CDK 기본 `open: true`가 `0.0.0.0/0` ingress를 자동 추가해 `devAllowedCidr` 제한을 무력화하는 것을 막는다. |
+| **`:80`은 명시한 경로만 전달한다** | OTLP 정확한 세 경로는 ingest, enrollment/bootstrap 경로는 enrollment-api로 보낸다. default는 404이고 `/v1/healthz` public rule, `/api/*`, `:4318`은 없다. |
+| **새 앱 target group만 60초 deregistration delay를 쓴다** | telemetry-ingest와 enrollment-api는 교체 배포 시간을 줄이기 위한 dev 초기값 60초다. ClickHouse와 prod는 300초를 유지한다. (ADR-0025, ADR-0026) |
+| **telemetry-ingest만 240초 health grace를 쓴다** | ClickHouse schema startup 5회와 30초 응답 헤더 timeout, 2초 backoff를 합친 약 160초에 Spring/RDS/host 여유를 둔 초기값이다. 정상 healthy 판정은 지연하지 않으며 본문 무기한 대기는 막지 못한다. enrollment-api는 CDK 기본 60초다. |
+| **`applyCommonTags`는 태그 맵을 인자로 받는다** | prod는 `Env=mvp`, dev는 `Env=dev`, cicd는 `Env=cicd`다. prod의 값을 임의로 바꾸면 전 리소스 diff가 생긴다. |
+| **`bin/infra.ts`와 `test/helpers.ts`는 직접 스택을 조립하지 않는다** | 둘 다 `synthProd`/`synthDev`/`synthCicd`를 거쳐 실제 배포와 테스트 조립이 갈라지지 않게 한다. |
 
 ## 4. 설정과 환경 분기
 
@@ -223,140 +241,85 @@ binding을 먼저 끊고 다음 배포에서 리소스를 삭제한다. 새 Spri
 
 ### 상수는 어디에 두는가
 
-새 상수를 넣기 전에 **"이 값이 dev에서 달라야 할 이유가 있는가"**를 먼저 묻는다. 없으면 `common/`, 있으면 각 환경 폴더다. 스택에 리터럴을 새로 박지 말고 아래에서 import 한다.
-
-| 파일 | 성격 | 내용 |
-|---|---|---|
-| `lib/common/config.ts` | **환경 무관 계약** | `PORTS`, `CLOUD_MAP_NAMESPACE`, `CLICKHOUSE_SERVICE_NAME`, `CLICKHOUSE_HOST`, `CLICKHOUSE_HTTP_URL`, `CLICKHOUSE_DEFAULT_DB`, `CLICKHOUSE_IMAGE`, `CLICKHOUSE_CONTAINER_ENV`, `ENRICHMENT_ENV`, `ENROLLMENT_ENV`, `ECR_NAMESPACE`, `ECR_REPOS`, `CONTROL_DB_NAME`, `CONTROL_DB_SSLMODE`, `buildJdbcUrl`, `LibpqDsnParts`, `buildLibpqDsn`, `applyCommonTags` |
-| `lib/common/clickhouse-user-data.ts` | 환경 무관 | `/dev/xvdb` 포맷 + `/data/clickhouse` 마운트 user data (dev/prod 공용) |
-| `lib/common/deploy-targets.ts` | **환경별 값이지만 매핑은 환경 무관** | `DeployEnv`, `DEPLOY_ENVS`, `ECS_CLUSTER_NAMES`, `ECS_SERVICE_NAMES` |
-| `lib/prod/config.ts` | 운영 전용 | `COMMON_TAGS`, `PROD_IMAGE_TAG`, `PRIMARY_AZ_INDEX`, `SUBNET_GROUP`, `EdgeConfig`, `InfraConfig`, `loadConfig`, `DEFAULT_COGNITO_DOMAIN_PREFIX` |
-| `lib/dev/config.ts` | dev 전용 | `DEV_COMMON_TAGS`, `DEV_VPC_CIDR`, `DEV_SUBNET_GROUP`, `DEV_LOG_GROUP_PREFIX`, 인스턴스 타입/볼륨 상수, `DEV_OPEN_CIDR`, `DevConfig`, `loadDevConfig`, `warnOnOpenIngress` |
-| `lib/cicd/config.ts` | cicd 전용 | `CICD_COMMON_TAGS`, `GITHUB_OIDC_URL`/`_DOMAIN`/`_AUDIENCE`, `GITHUB_ORG`, `GITHUB_REPOS`, `GitHubRepository`, `buildGithubOidcSubject`, `DEPLOY_BRANCHES`, `ECR_PUSH_ACTIONS`, `ECS_DEPLOY_ACTIONS`, `DeployTarget`, `DEPLOY_TARGETS`, `CicdConfig`, `loadCicdConfig` |
-
-**`deploy-targets.ts`는 배치 규칙의 명시적 예외다.** 클러스터 이름은 환경별 값이라 규칙만 보면 각 환경 폴더 행이지만, **소비자가 셋(prod 스택 / dev 스택 / cicd 스택)이라서** 각 환경 폴더에 두면 `lib/cicd/`가 `lib/prod/`와 `lib/dev/`를 둘 다 import 해야 한다 — 그게 바로 규칙이 막으려던 커플링이다. "값은 환경별이되 **환경 → 값 매핑은 환경 무관 계약**"이라는 근거로 `common/`에 두되, `config.ts`에 섞지 않고 별도 파일로 격리한다. 반대로 GitHub org·레포·브랜치·`DEPLOY_TARGETS`는 소비자가 `lib/cicd/` 하나뿐이라 `common/`에 두지 않는다. (ADR-0024 6번)
-
-`common/`이 커지면 "환경 무관"의 경계가 흐려져 예전 `lib/config.ts`가 그대로 재현된다. 애매하면 `common/`이 아니라 각 환경 폴더에 둔다 (ADR-0021 Negative).
+새 상수는 dev에서 달라야 할 이유가 없으면 `common/`, 있으면 환경 폴더에 둔다. `prod → common`,
+`dev → common`, `cicd → common`만 허용한다. `lib/common/config.ts`의 `ENROLLMENT_ENV`·`INGEST_ENV`와
+`ECR_REPOS`, `lib/common/deploy-targets.ts`의 `ECS_CLUSTER_NAMES`·`ECS_SERVICE_NAMES`는 앱 스택,
+DeployStack, 앱 workflow가 공유한다. prod의 `ENRICHMENT_ENV`와 Collector·legacy ECR 상수는 운영 계약으로
+남긴다. dev 고유값은 `lib/dev/config.ts`의 `DEV_TELEMETRY_INGEST_HEALTH_CHECK_GRACE`,
+`DEV_TELEMETRY_ARCHIVE_PREFIX`, `DEV_ENROLLMENT_BINARIES_DIR` 등에서 관리한다.
 
 ### 배포별 가변값 (CDK context 키)
 
-| 환경 | 키 | 기본값 | 비고 |
+| 환경 | 키 | 기본값 | 의미 |
 |---|---|---|---|
-| prod | `certificateArn` | 없음 | 있으면 모드 A(HTTPS + ALB 인증), 없으면 모드 B |
-| prod | `domainName` | 없음 | Cognito callback URL 기준 주소와 일치해야 한다 |
-| prod | `cognitoDomainPrefix` | `soma-376-mvp-auth` | 리전 내 전역 유일 |
-| dev | `devAllowedCidr` | **`0.0.0.0/0`** | ALB(80/4318/8123)와 RDS(5432)의 인바운드 소스. 쉼표로 여러 개 가능. **미지정(또는 명시)이면 synth 경고 `infra:dev-open-ingress`** |
-| dev | `devAppAsgMaxCapacity` | `1` | 앱 호스트 ASG 최대 용량. 부하 테스트 확장 손잡이. 1 미만이거나 정수가 아니면 즉시 throw |
-| dev | `devImageTag` | **`dev`** | dev/prod가 같은 ECR 레포를 공유하고 태그로만 갈린다. `pr-42` 같은 실험 태그로 갈아탈 때 쓴다 |
-| cicd | `githubOidcProviderArn` | 없음 | 주면 OIDC 공급자를 만들지 않고 참조만 한다. 계정당 1개뿐이라 이미 있으면 필수다. **형식이 틀리면 즉시 throw** |
+| prod | `edgeMode` | `B` | `A`이면 Cognito JWT + TLS/CloudFront, `B`이면 인증 없는 HTTP MVP |
+| prod | `certificateArn` | 없음 | 모드 A의 ACM 인증서 |
+| prod | `customDomain` | 없음 | 모드 A의 도메인 |
+| dev | `devAllowedCidr` | `0.0.0.0/0` | ALB `80/8123`과 RDS `5432` ingress source. 미지정/전면 공개면 `infra:dev-open-ingress` 경고 |
+| dev | `devAppAsgMaxCapacity` | `1` | 앱 ASG 최대 호스트 수. 병행 단계에서만 명시적으로 `2`를 쓰고 cleanup 뒤 기본값 `1`로 복귀 |
+| dev | `devImageTag` | `dev` | dev ECS task가 참조하는 앱 이미지 태그 |
+| cicd | `githubOidcProviderArn` | 없음 | 기존 GitHub OIDC provider 참조. 없으면 새 provider를 만들고 RETAIN |
 
-prod는 `lib/prod/config.ts`의 `loadConfig`, dev는 `lib/dev/config.ts`의 `loadDevConfig`, cicd는 `lib/cicd/config.ts`의 `loadCicdConfig`가 읽는다.
+`cdk.json`의 `@aws-cdk/core:enableRefactorFeatureFlag=true`와
+`@aws-cdk/core:stackRelativeExports=true`는 weak cross-stack reference 동작을 포함한 합성 계약이다.
+끄거나 `cdk.json`을 읽지 않는 bare `App` 테스트를 만들지 않는다.
 
-**운영 이미지 태그에는 대응되는 context 키가 없다.** `PROD_IMAGE_TAG`는 `lib/prod/config.ts`에 고정이다 — CLI 인자로 바꿀 수 있게 하면 "지금 운영에 어떤 이미지가 있는가"의 답이 코드가 아니라 누군가의 셸 히스토리로 옮겨간다. 운영 이미지 승격도 롤백도 ECR에서 `prod` 태그를 옮겨 붙이고 force-new-deployment 하는 절차다 (ADR-0024 7번).
+### 앱 레포 배포 계약
 
-### 앱 레포 배포 계약 (PROJ-65)
-
-앱 레포 워크플로가 알아야 할 값의 전부다. 이 표와 코드가 어긋나면 **워크플로만 `AccessDenied`로 죽고 인프라 쪽에는 아무 신호도 남지 않는다.**
-
-| 항목 | 값 |
+| 항목 | 계약 |
 |---|---|
-| 역할 이름 | `github-deploy-<레포>-<env>` — `github-deploy-ai-telemetry-pipeline-dev` 등 4개. ARN은 `DeployStack`의 `CfnOutput` |
-| 신뢰 조건 | `aud` = `sts.amazonaws.com`, `sub` = `repo:soma-376@297555253/<레포>@<레포-ID>:ref:refs/heads/<브랜치>` (**완전 일치**). 레포 ID는 `ai-telemetry-pipeline=1309872274`, `pulsemetry-backend=1325324450` |
-| 브랜치 | `develop` → dev, `main` → prod |
-| 클러스터 | `soma-376-dev` / `soma-376-prod` |
-| 서비스 | `collector`, `dashboard`, `auth-proxy`(dev 전용). `clickhouse`는 배포 대상 아님 |
-| 이미지 태그 | dev는 `dev`, prod는 `prod`. **`linux/arm64` 필수** (ADR-0015) |
-| 워크플로 요구사항 | `permissions: id-token: write`. **GitHub Environment를 쓰지 않는다** — `sub`가 `...:environment:<name>`으로 바뀌어 신뢰 조건과 불일치한다. PR·태그 트리거도 같은 이유로 배포 잡에 쓸 수 없다 |
-| prod 워크플로·승인 게이트 | **미정.** prod 배포 워크플로는 아직 어느 앱 레포에도 없다. 승인 게이트 방식은 도입 시점에 정하되, GitHub Environment를 켜면 위 `sub` 제약 때문에 신뢰 조건을 함께 고쳐야 한다(ADR-0024). 각 역할은 **최초 사용 직전**에 6장의 사후 확인 절차(`aws iam get-role`)를 돌린다 |
-| 주의 | `ecs describe-services`에 **권한 없는 서비스를 섞으면 호출 전체가 거부된다.** 그 역할에 부여된 서비스만 한 호출에 넣는다 |
-| 알려진 스위치 | `ecr:BatchGetImage`는 순수 `docker buildx --push`에도 필요해 기본 권한에 포함한다. `--cache-from type=registry`를 쓰기 시작하면 `ecr:GetDownloadUrlForLayer`를 `ECR_PUSH_ACTIONS`에 추가한다 |
+| 이미지 URI | `<account>.dkr.ecr.ap-northeast-2.amazonaws.com/soma-376/<app>:<tag>` |
+| 이미지 태그 | dev=`dev`, prod=`prod`; workflow는 같은 immutable commit SHA tag도 함께 push |
+| 역할 | backend-dev는 `telemetry-ingest`, `enrollment-api` ECR push와 두 ECS service 재배포. pipeline-dev는 trust와 ARN output만 유지하고 permission statement 0개 |
+| prod 역할 | pipeline-prod는 `collector`, backend-prod는 `dashboard`; prod 대상은 이 전환에서 불변 |
+| 금지 권한 | `iam:PassRole`, `ecs:RegisterTaskDefinition` |
+| ECS 이름 | cluster `soma-376-dev` / `soma-376-prod`; service 이름은 `lib/common/deploy-targets.ts`가 단일 출처 |
 
-### 컨테이너 런타임 계약 (앱 레포와의 인터페이스)
+pipeline-dev의 0개 권한에는 `ecr:GetAuthorizationToken`도 포함한다. 빈 resource policy를 만들지 않는다.
+역할 자체, immutable GitHub OIDC trust, `CfnOutput`은 PROJ-106의 레포 archive 결정까지 유지한다.
 
-**원칙적으로 이 절은 dev/prod 공통이다.** 같은 이미지, 같은 환경변수 이름, 같은 `clickhouse.obs.local` — 계약이 환경마다 갈리면 "dev에서 검증했다"는 말의 의미가 사라진다. 다만 `api-server`의 enrollment-api 계약은 PROJ-112에서 dev 슬롯에 먼저 반영했고, prod 배포 단위 정리는 후속 작업이다. (ADR-0021 2번/5번)
+### 컨테이너 런타임 계약
 
-**컨테이너마다 계약이 다르다.** 앱이 실제로 읽는 이름이 권위이며, 앱은 어느 값도 하드코딩하지 않는다. 주입 범위(대상 / 비대상)는 `test/prod/application-stack.test.ts`와 `test/dev/application-stack.test.ts`가 양쪽 모두 검증한다.
+#### dev `telemetry-ingest`
 
-#### `api-server` (Spring Boot enrollment-api — 현재 dev 슬롯)
+일반 환경변수는 `PULSEMETRY_INGEST_PORT=4316`, `PULSEMETRY_DB_URL` JDBC URL,
+`PULSEMETRY_CLICKHOUSE_URL=http://clickhouse.obs.local:8123`, ClickHouse database,
+`PULSEMETRY_ARCHIVE_TYPE=s3`, Raw Signal bucket과 archive prefix다. prefix는 빈 문자열이어도 앱이
+`<product>/<signal>/year=...` key를 만든다. RDS `username`/`password`와 공유 token hash는 각각
+`PULSEMETRY_DB_USERNAME`, `PULSEMETRY_DB_PASSWORD`, `PULSEMETRY_TOKEN_HASH_SECRET` ECS secret이다.
+Task role에는 Raw Signal S3 read/write가 필요하다.
 
-권위 소스는 `pulsemetry-backend`의 `apps/enrollment-api/src/main/resources/application.yaml`이다.
+인증은 Spring Security가 수행한다. `SecurityContextHolder` → `SecurityContextIdentitySource` →
+`IdentityStamper` 경로로 인증된 tenant/member/installation identity를 기록한다. legacy identity header를
+전파하지 않으며 같은 key가 payload에 여러 번 있어도 모두 인증된 값으로 덮어쓴다.
 
-| 값 | 전달 경로 |
-|---|---|
-| `jdbc:postgresql://<RDS>:5432/controlplane?sslmode=require` | 환경변수 `PULSEMETRY_DB_URL` |
-| RDS 사용자 이름 | 마스터 Secret의 `username` 필드 → 시크릿 `PULSEMETRY_DB_USERNAME` |
-| RDS 비밀번호 | 마스터 Secret의 `password` 필드 → 시크릿 `PULSEMETRY_DB_PASSWORD` |
-| 정적 관리자 API 토큰 | `DevEnrollmentAdminApiToken`의 JSON `token` 필드 → 시크릿 `PULSEMETRY_ADMIN_API_TOKEN` |
-| telemetry token HMAC 키 | auth-proxy와 같은 Secret → 시크릿 `PULSEMETRY_TOKEN_HASH_SECRET` |
+#### dev `enrollment-api`
 
-관리자 토큰은 Secrets Manager가 64자 영숫자로 생성하며, `DevEdgeStack`은 값이 아닌 `AdminApiTokenSecretArn`만 출력한다. `PULSEMETRY_PUBLIC_BASE_URL`은 아직 주입하지 않아 앱 기본값을 쓰며, 외부 bootstrap 경로와 함께 후속 작업에서 정한다. prod `api-server`의 기존 `DB_CREDS`/`DB_NAME` 계약은 이 작업에서 바꾸지 않았다.
+일반 환경변수는 `PULSEMETRY_DB_URL`, `PULSEMETRY_PUBLIC_BASE_URL=http://<ALB DNS>`,
+`PULSEMETRY_BINARIES_DIR=/app/binaries`다. RDS `username`/`password`, 관리자 token, 공유 token hash는
+각각 `PULSEMETRY_DB_USERNAME`, `PULSEMETRY_DB_PASSWORD`, `PULSEMETRY_ADMIN_API_TOKEN`,
+`PULSEMETRY_TOKEN_HASH_SECRET` ECS secret이다. public base URL은 EdgeStack의 실제 ALB DNS를 late
+binding하며 Secret 값은 환경변수나 output에 두지 않는다.
 
-#### `post-processor` (`ai-telemetry-pipeline`, Python — ADR-0018)
+`/windows`, `/unix`, `/bin/*` 라우팅은 설치 URL만 제공한다. `/app/binaries`에 실제 산출물을 넣는 일은
+이미지 공급 작업이다. 또한 public base URL은 bootstrap 주소일 뿐 manifest OTLP endpoint가 아니다.
+원격 endpoint는 backend와 telemetryctl 계약상 HTTPS여야 한다. 현재 dev에는 TLS listener/certificate가
+없으므로 CLI enrollment → manifest → OTLP forward E2E는 별도 HTTPS 선행 과제가 끝날 때까지 막힌다.
 
-앱은 아래 **세 개만** 읽는다. 그 외에는 무엇을 넣어도 무시된다.
+#### prod legacy 앱과 공통 ClickHouse
 
-| 값 | 전달 경로 | 앱 소스 |
-|---|---|---|
-| ClickHouse HTTP URL (`http://clickhouse.obs.local:8123`) | 환경변수 `ENRICHMENT_CH_URL` | `apps/telemetry-processor/enrichment/sink_clickhouse.py:44` |
-| ClickHouse DB 이름 (`default`) | 환경변수 `ENRICHMENT_CH_DB` | `apps/telemetry-processor/enrichment/sink_clickhouse.py:48` |
-| libpq keyword/value DSN 한 줄 | **시크릿** `ENRICHMENT_PG_DSN` | `apps/telemetry-processor/enrichment/providers/org.py:33` |
+prod `post-processor`는 `ENRICHMENT_CH_URL`, `ENRICHMENT_CH_DB`, `ENRICHMENT_PG_DSN`만 읽고
+`PostProcessorPgDsn` 파생 Secret을 사용한다. prod `api-server`/`batch-processor`, Collector의
+`OTEL_CONFIG`, `user: '0'`, `config/otel-collector.yaml` 계약은 그대로다. 최종 dev에는 이 컨테이너와
+파생 Secret이 없다. ClickHouse는 두 환경 모두 고정 `:24.8-alpine`,
+`CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1`, 비밀번호 없는 default user를 유지하고 SG로 접근을 제한한다.
 
-`post-processor`는 `DB_CREDS` JSON을 파싱하지 않는다. 그래서 `DataStack`이 `aurora.clusterEndpoint.hostname`과 마스터 시크릿에서 DSN을 조립한 **파생 시크릿**(`PostProcessorPgDsn`)을 만들고 ECS `secrets`로 넣는다 — `environment`에 넣으면 `aws ecs describe-task-definition`에 DB 비밀번호가 평문으로 드러난다.
+### EdgeStack
 
-DSN 형식: `host=… port=5432 dbname=controlplane user=… password=… sslmode=require`
-DB는 `api-server`와 같은 `controlplane`을 공유한다.
-
-`RAW_BUCKET`(버킷 이름)도 함께 주입되지만 **현재 앱은 읽지 않는다.** ADR-0017이 예고한 collector의 `awss3` exporter 전환에 대비해 태스크 역할의 S3 권한과 함께 남겨둔 것이다.
-
-#### `auth-proxy` (`ai-telemetry-pipeline`의 `apps/auth-proxy`, Node/TypeScript — ADR-0023)
-
-**현재 dev에만 있다.** 권위 소스는 `apps/auth-proxy/src/config/env.ts`다.
-
-| 값 | 전달 경로 | 비고 |
-|---|---|---|
-| Collector OTLP 주소 (`http://collector.obs.local:4318`) | 환경변수 `COLLECTOR_BASE_URL` | 뒤에 `/v1/traces` 등을 이어붙인다. **끝 슬래시 금지** |
-| Postgres 접속 문자열 | **시크릿** `DATABASE_URL` | **URI 형식** |
-| Bearer 토큰 HMAC-SHA256 키 | **시크릿** `TOKEN_HASH_SECRET` | enrollment 서버와 공유 |
-| 로그 레벨 | 환경변수 `LOG_LEVEL` | dev는 `debug`. **현재 앱이 읽지 않는다**(PROJ-51 대기). auth-proxy 자체가 backend Spring Security로 이관 예정이라, 이관 확정 시 주입을 걷어낸다 |
-
-`PORT`(기본 4316)와 `MAX_OTLP_BODY_SIZE`(기본 10MiB)는 기본값을 쓰므로 주입하지 않는다.
-
-**`DATABASE_URL`은 `post-processor`의 `ENRICHMENT_PG_DSN`과 형식이 다르다. 재사용하면 안 된다.** psycopg는 libpq keyword/value를 읽지만 `pg`의 파서(`pg-connection-string`)는 `new URL()` 기반의 **URI 전용**이다. keyword/value를 넣으면 공백이 `%20`으로 인코딩되어 통째로 망가진다. 그래서 `lib/common/config.ts`에 `buildLibpqDsn()`과 `buildPostgresUri()`가 나란히 있다 — 중복이 아니라 두 앱이 다른 형식을 요구한다는 사실이다.
-
-**URI 쿼리의 `uselibpqcompat=true`를 빼면 안 된다.** `pg-connection-string`은 이 플래그가 없으면 `sslmode=require`를 **`verify-full`의 별칭**으로 취급한다(라이브러리가 직접 경고를 낸다). 그러면 `rejectUnauthorized`가 켜지고 RDS 기본 CA는 Node 기본 CA 번들에 없으므로 **접속 자체가 실패한다.** `CONTROL_DB_SSLMODE = 'require'`의 "CA 검증을 하지 않는다"는 주석은 libpq에서만 참이다.
-
-**`TOKEN_HASH_SECRET`은 회전할 수 없다.** 키가 바뀌면 이미 발급된 모든 토큰의 `token_hash`가 매칭 불가가 되어 전 클라이언트가 401을 받는다. 회전하려면 토큰 전량 재발급이나 이중 키 검증이 선행되어야 한다.
-
-**앱은 필수 값이 비면 즉시 throw하고 기동에 실패한다.** `post-processor`와 달리 조용한 폴백이 없어, 이름 오타는 태스크 재시작 루프와 `/ecs/dev/auth-proxy` 로그로 드러난다.
-
-#### `batch-processor` / `otel-collector` / `clickhouse`
-
-| 값 | 전달 경로 | 대상 |
-|---|---|---|
-| ClickHouse 호스트명 | 환경변수 `CLICKHOUSE_HOST` | `batch-processor` (대응 모듈 미존재 — 손대지 않는다) |
-| collector 설정 YAML 전문 | 환경변수 `OTEL_CONFIG` (+ `--config=env:OTEL_CONFIG`) | `otel-collector` |
-| `CLICKHOUSE_DB` / `CLICKHOUSE_USER` / `CLICKHOUSE_PASSWORD` / `CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT` | 환경변수 (`lib/common/config.ts`의 `CLICKHOUSE_CONTAINER_ENV`) | `clickhouse` (이미지 entrypoint — ADR-0019) |
-
-`OTEL_CONFIG`는 DB 자격증명이 아니라 collector 설정 본문이다.
-
-### EdgeStack 모드 A / B
-
-`lib/prod/edge-stack.ts`의 `const isHttps = Boolean(props.edge.certificateArn)` 한 줄이 전체 분기를 결정한다.
-
-| | 모드 A (`-c certificateArn=...` 제공) | 모드 B (기본값) |
-|---|---|---|
-| 리스너 | 443 HTTPS + 80 → 443 리다이렉트 | 80 HTTP |
-| `/v1/*` (OTLP) | `ListenerAction.authenticateJwt` → collector TG | 인증 없이 forward |
-| `/api/*` | `AuthenticateCognitoAction` → dashboard TG | 인증 없이 forward |
-| 기본 액션 | fixed response 404 | fixed response 404 |
-| 기타 | — | synth 시 모드 B 경고(`infra:edge-no-auth`) 방출 |
-
-모드 A 가 구성하는 `/v1/*` `authenticateJwt`·`/api/*` `AuthenticateCognitoAction` 은 **의도적 잔존
-코드다** — 인증 결정은 허브 ADR 0001(앱 계층 검증)로 대체됐고, Spring Security 이관 시 함께 걷어낸다.
-
-**`DevEdgeStack`에는 이 분기가 없다.** HTTP 전용이며(:80 + :4318 + :8123), Cognito도 CloudFront도 만들지 않는다. `:80`의 `/v1/*`만 auth-proxy가 인증하고 나머지 경로의 방어선은 `devAllowedCidr` 하나뿐이다 (ADR-0022 8번/9번, ADR-0023 3번).
-
----
+prod의 모드 A/B, Cognito, CloudFront, TLS 계약은 바꾸지 않는다. dev는 HTTP `:80`의 정확한 OTLP 세
+경로와 enrollment/bootstrap 경로만 두 새 instance target group으로 전달하고 default 404를 쓴다.
+`:8123` ClickHouse ip target은 유지한다. `:4318`, `/api/*`, 구 target group/output은 최종 상태에 없다.
+모든 listener는 `open: false`이고 `devAllowedCidr`가 유일한 network boundary다.
 
 ## 5. 지금 남은 작업
 
@@ -366,7 +329,7 @@ DB는 `api-server`와 같은 `controlplane`을 공유한다.
 
 - **ADR-0008 은 허브 ADR 0001 로 대체됐다(`Superseded by`, PROJ-79).** ALB 단 인증
   (`authenticate-cognito`·`jwt-validation`)은 양 경로 모두 채택하지 않는다 — ALB 는 TLS 종단만 담당하고,
-  토큰 인증은 앱 계층이 한다(현행 auth-proxy → backend Spring Security 이관, Cognito 무관).
+  토큰 인증은 앱 계층이 한다(dev는 telemetry-ingest Spring Security, prod 전환은 별도 작업이며 Cognito와 무관).
   모드 A/모드 B 의 현행 정의는 **TLS 종단 유무**다(ADR-0008 의 "대체 후의 모드 정의" 블록).
 - 남은 미결은 **도메인·ACM 인증서 확보(TLS 종단)** 하나다. 확보 시 순서:
   1. DNS를 Route 53에서 관리할지 외부 DNS 공급자를 유지할지 결정하고, ALB에 연결할 도메인을 확정한다.
@@ -382,8 +345,8 @@ DB는 `api-server`와 같은 `controlplane`을 공유한다.
 
 - PROJ-79에서 `Accepted`로 전환했다. 단일 `ApplicationStack` 경계가 확정 결정이다.
 - Revisit Trigger 둘 — "앱 팀의 인프라 레포 수정 부담이 실제 병목이 되면 스택 분리",
-  그리고 "backend ADR-0007(collector 이관)이 `Accepted`가 되면 ADR-0017(collector config 소유권) 재검토".
-  backend ADR-0006(파이프라인 전체 병합)은 **기각**으로 닫혀 전제(레포 2개)는 유지된다.
+  그리고 "backend로 수집 파이프라인을 이관하면 ADR-0017의 Collector config 소유권 재검토"다.
+  허브 ADR 0004·0005가 Accepted가 되어 dev는 ADR-0026으로 Collector를 제거했다. prod의 ADR-0017 계약은 별도 전환 결정 전까지 유지한다.
 
 ### (C) ADR-0012 — 컨트롤 플레인 DB 엔진으로 PostgreSQL 검토 `Proposed`
 
@@ -398,16 +361,17 @@ DB는 `api-server`와 같은 `controlplane`을 공유한다.
 
 ### (D) DB 자격 증명 분리 설계
 
-현재 `post-processor`와 `api-server`에는 Aurora PostgreSQL의 master secret이 주입된다. 이는 운영용 최종 설계가 아니며, master credential은 DB 초기화와 관리 작업에만 제한하는 것을 목표로 한다.
+prod `post-processor`와 `api-server`, dev `telemetry-ingest`와 `enrollment-api`에는 각 환경 PostgreSQL master secret이 주입된다. 이는 운영용 최종 설계가 아니며, master credential은 DB 초기화와 관리 작업에만 제한하는 것을 목표로 한다.
 
 **`enrollment` 스키마의 부트스트랩 주체는 backend Flyway로 확정됐다**(backend ADR 0009 —
-주체는 더 이상 이 ADR의 결정 대상이 아니다). dev 배포 전까지의 잠정 절차는 backend 명세
-§9.4의 로컬 `bootRun`이다. 이 항목의 새 ADR이 정하는 것은 **ECS에서 그 마이그레이션을
-실행할 자리**와 자격 증명 분리다.
+주체는 더 이상 이 ADR의 결정 대상이 아니다). 현재 dev 구현에서는 enrollment-api가 시작할 때
+Flyway를 실행하고 telemetry-ingest는 Flyway를 비활성화한다. PROJ-139에서 구현할 workflow의 승인된
+순서는 enrollment-api를 먼저 배포해 stable 상태를 확인한 뒤 telemetry-ingest를 배포하는 것이다.
+앞으로 결정할 범위는 **prod에서 마이그레이션을 실행할 자리**와 DB 자격 증명 분리다.
 
 구현을 변경하기 전에 다음 항목을 새 ADR로 결정해야 한다.
 
-- 마이그레이션 실행 자리: one-off ECS task, 애플리케이션 시작 시 Flyway 등 (수동 `psql`은 제외 — 쓰지 않기로 확정)
+- prod 마이그레이션 실행 자리: one-off ECS task, 애플리케이션 시작 시 Flyway 등 (수동 `psql`은 제외 — 쓰지 않기로 확정)
 - master, migration, runtime DB user의 권한과 수명주기
 - runtime DB user를 서비스별로 분리할지 공유할지
 - secret rotation과 ECS 재배포 및 마이그레이션 실행을 조정하는 방식
@@ -421,7 +385,7 @@ ADR-0018이 `post-processor`용 파생 DSN 시크릿을 도입했지만, **그 D
 `docs/adr/0014-keep-clickhouse-in-app-subnet-for-mvp.md`
 
 - 현재 ClickHouse ASG와 ECS 서비스는 primary AZ의 app subnet을 사용하고,
-  전용 보안 그룹이 Collector와 Dashboard의 8123/9000 접근만 허용한다.
+  전용 보안 그룹이 prod Collector/Dashboard와 dev app host의 8123/9000 접근만 허용한다.
 - 같은 NAT Gateway와 기본 Network ACL을 사용하는 별도 private subnet은
   MVP에서 즉시 얻는 격리 효과가 제한적이므로 현재 구성을 유지하는 안이다.
 - 팀 합의 후 `Accepted`로 전환한다. 전용 egress, Network ACL, VPC endpoint,
@@ -431,11 +395,11 @@ ADR-0018이 `post-processor`용 파생 DSN 시크릿을 도입했지만, **그 D
 
 ### (F) ADR-0020 — 로그 그룹 정책 기록
 
-현재 `ApplicationStack`은 컨테이너별 CloudWatch Logs 로그 그룹 5개를 만들고,
+현재 prod `ApplicationStack`은 컨테이너별 CloudWatch Logs 로그 그룹 5개를 만들고,
 보존 기간을 14일, 삭제 정책을 `RemovalPolicy.DESTROY`로 설정한다. 이 구성은
 구현되어 있지만 운영·비용·보안 관점의 결정 근거가 ADR에 없다.
 
-**`DevApplicationStack`도 같은 정책(14일, `RemovalPolicy.DESTROY`)을 쓰며
+**`DevApplicationStack`은 최종 세 컨테이너 로그 그룹에 같은 정책(14일, `RemovalPolicy.DESTROY`)을 쓰며
 `/ecs/dev/` 접두사만 다르다.** ADR-0022 10번이 이를 명시적으로 ADR-0020에
 위임했으므로, 아래 항목을 정할 때 **환경별 차등 여부**도 함께 결정한다.
 
@@ -461,40 +425,37 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 
 ### (H) 알려진 잔여 이슈 (여유가 있으면)
 
-- **auth-proxy가 조회하는 `enrollment` 스키마의 부트스트랩 주체는 backend Flyway다**(backend ADR 0009). 스키마가 없으면 접속은 성공하고 첫 인증 요청에서 `relation "enrollment.telemetry_tokens" does not exist`로 깨진다. PROJ-112 인프라를 아직 배포하지 않은 환경에서는 backend 명세 §9.4의 로컬 `bootRun` 절차로 먼저 마이그레이션하며, 배포 후에는 기존 dev `api-server` 슬롯의 enrollment-api 기동이 이를 맡는다. `psql` 직접 주입은 쓰지 않는다. (ADR-0023 Follow-up)
-- **backend의 `:apps:enrollment-api`는 기존 dev `api-server` 컨테이너 슬롯에서 기동할 환경 계약을 갖췄다**(PROJ-112). 다만 서비스/태스크의 `dashboard` 명명, `PULSEMETRY_PUBLIC_BASE_URL`, 외부 bootstrap 라우팅은 그대로라 배포 단위 재정의가 후속 작업이다. 토큰 해시 키는 auth-proxy와 같은 Secret을 공유한다.
-- **`:4318` 디버그 리스너는 인증 우회 경로다.** 의도적으로 남긴 것이지만 `devAllowedCidr` 기본값이 `0.0.0.0/0`이면 인증 없는 OTLP 수신구가 인터넷에 열린다. `infra:dev-open-ingress` 경고가 이를 함께 알린다.
-- **`post-processor`가 조회하는 RDS `enrollment` 스키마도 같은 부트스트랩 문제다.** 앱은 ClickHouse DDL만 기동 시 멱등 적용하고(`ensure_schema`), 조회 대상 `enrollment.installations` / `enrollment.team_memberships` / `enrollment.teams`(옛 `company`/`employee` 계열은 PROJ-40·41에서 교체됨)는 compose의 `/docker-entrypoint-initdb.d` 마운트에 의존한다. ECS에는 그 메커니즘이 없다 → **접속은 성공하고 첫 조회에서 `relation "enrollment.installations" does not exist`로 깨진다.** 부트스트랩 주체는 backend Flyway로 확정됐고(위 항목), ECS 실행 자리는 위 (D)의 마이그레이션 ADR이 정한다.
-- `README.md`가 `cdk init` 보일러플레이트 그대로다. ADR-0007이 명시적으로 요구하는 **배포 런북이 어디에도 없다** (6장이 그 자리를 임시로 메우고 있다).
-- **이 레포 자체의 빌드/테스트 CI가 없다.** GitHub Actions는 `pull_request_auto_fill.yml`과 `pull_request_auto_assign.yml` 둘뿐이고, `npm test` / `cdk synth`를 아무도 돌리지 않는다. ADR-0024가 만든 것은 **앱 레포**가 쓸 배포 역할이며 이 레포의 검증 CI와는 별개다 — 혼동하지 않는다.
-- `EdgeStack` / `DevEdgeStack` 외에 `CfnOutput`이 없다. 앱 팀이 VPC ID / 클러스터 이름 등을 가져갈 SSM 파라미터 export가 없다.
-- `.DS_Store`가 루트 / `.github/` / `docs/`에 존재한다.
-- **`DevDashboardTask`의 bridge 전제는 batch-processor 쪽만 아직 추정이다.** enrollment-api 소스에는 batch-processor localhost 의존이 없지만, batch-processor 대응 모듈은 아직 없어 반대 방향 호출을 확인할 수 없다. **배포 후 로그로 확인하고, 틀렸다면 awsvpc로 바꾼다** — 그 경우 인터넷 egress와 ECS Exec을 함께 잃는다. (ADR-0022 Follow-up)
-- **awsvpc 태스크(collector/clickhouse)에 인터넷 egress가 없다.** 태스크 ENI에는 퍼블릭 IP가 붙지 않고(EC2 launch type에는 `assignPublicIp` 옵션 자체가 없다) NAT도 없다. 외부 API를 부르는 코드가 들어오면 **synth·test·deploy가 전부 통과하고 기동도 성공한 뒤 그 코드 경로에서만 타임아웃으로 죽는다.** (ADR-0022 5(a))
-- **`devAllowedCidr` 기본값이 `0.0.0.0/0`이라 무인자 dev 배포는 인증 없는 Collector(4318), ClickHouse(8123), RDS(5432)를 인터넷에 공개한다.** ClickHouse `default` 유저는 비밀번호가 없고 `access_management=1`이므로 8123에 닿는 주체는 사실상 관리자다. synth 경고가 유일한 방어선이다. (ADR-0022 9번, ADR-0023 3번)
-- **dev RDS와 운영 Aurora 둘 다 `StorageEncrypted`를 설정하지 않는다.** CFN 검증기가 경고를 낸다. 프로덕션 전환 시 `RemovalPolicy.DESTROY` 일괄 재검토와 함께 묶어서 다룬다.
+- `README.md`는 여전히 `cdk init` 보일러플레이트이며 이 장의 배포 런북을 정식 문서로 옮겨야 한다.
+- 이 레포 자체의 `npm test`/`cdk synth` CI가 없다. DeployStack은 앱 레포 배포 권한이며 infra 검증 CI가 아니다.
+- `.DS_Store`가 루트, `.github/`, `docs/`에 남아 있다.
+- dev에서 인터넷 egress가 없는 awsvpc 태스크는 ClickHouse뿐이다. 외부 API 호출을 넣으면 런타임에서만 타임아웃날 수 있다.
+- `devAllowedCidr=0.0.0.0/0`이면 비밀번호 없는 ClickHouse `:8123`과 RDS `:5432`가 인터넷에 열린다. synth 경고를 무시하지 않는다.
+- dev RDS와 prod Aurora 모두 `StorageEncrypted`를 명시하지 않는다. prod 전환 때 removal policy와 함께 검토한다.
+- `/app/binaries`의 실제 설치 파일 공급은 이 레포 범위가 아니다. URL과 rule만 있어도 설치 E2E는 완료되지 않는다.
+- dev 원격 OTLP endpoint에 필요한 HTTPS listener/certificate/domain이 없다. backend·telemetryctl·Schema 계약을 HTTP 허용으로 낮추지 않고 별도 선행 과제로 해결한다.
 
-### (I) ADR-0026 dev 백엔드 전환 `Accepted, 구현·배포 대기`
+### (I) ADR-0026 dev 백엔드 전환 `Accepted, 배포 증거 대기`
 
-- 목표는 `telemetry-ingest`·`enrollment-api`·`clickhouse` 세 서비스다. 현재 develop 코드와 이 문서
-  2장의 상세 표는 아직 구 4서비스 상태이며, PROJ-137은 AWS 상태를 바꾸거나 확인하지 않았다.
-- 구현 순서는 PROJ-138(이름/IAM 추가) → PROJ-140~142(신규 서비스·환경 계약) →
-  PROJ-143(ALB 전환) → PROJ-144(binding 분리 배포 후 구 리소스 삭제 배포)다.
-  backend workflow PROJ-139는 PROJ-105/PR #13의 develop 머지까지 대기한다.
-- 신규 서비스의 실제 배포는 ECR 선생성·ARM64 `:dev` 이미지·앱 환경 계약이 준비된 뒤에만 한다.
-  정상 workflow는 enrollment-api를 먼저 안정화하고 telemetry-ingest를 배포하며, 둘 다 stable일 때만
-  성공으로 처리한다.
-- ALB 전환은 정확한 OTLP 세 경로만 priority 1로 보내고 enrollment/bootstrap은 priority 3·4로
-  나눈다. `:4318`은 닫지만 구 target group과 ECS binding은 PROJ-144의 두 배포 전까지 유지한다.
-- prod 합성 산출물은 기준선과 동일해야 한다. `config/otel-collector.yaml`, `ENRICHMENT_ENV`, prod ECR
-  상수와 파생 DSN을 dev 정리와 함께 지우지 않는다.
+- 최종 문서 상태는 `telemetry-ingest`, `enrollment-api`, `clickhouse` 세 서비스와 앱 SG 4개, 실제 Secret 3개다. prod는 불변이다.
+- PROJ-143 라우팅은 `6c11f19`에서 전체 279 tests, PROJ-144 detach는 `f08c207`에서 전체 280 tests로
+  로컬 검증됐다. 두 단계 모두 AWS에는 배포하지 않았으며 live target health와 service event는 미확인이다.
+- PROJ-144 delete는 `d45df19`에서 전체 254 tests, build와 prod mode A/B·dev·cicd fixture synth를
+  통과했다. prod template/IAM과 기존 cluster·ALB·RDS·Raw Signal bucket·실제 Secret·ClickHouse
+  properties는 기준선과 같고, ApplicationStack의 cross-stack reference 31개는 detach producer output과
+  이름·값이 일치한다. 이 역시 로컬 합성 증거이며 AWS 배포 증거가 아니다.
+- HTTP ALB에서는 인증 실패/성공, S3 PUT, ClickHouse insert, enrollment/bootstrap을 각각 검증한다. CLI enrollment → manifest → OTLP forward는 HTTPS 선행 과제 전에는 완료할 수 없다.
+- PROJ-144는 먼저 구 세 서비스의 `AWS::ECS::Service.LoadBalancers: []`를 L1 override로 합성해 binding만 분리하고 구 target group을 유지한다. test가 정확한 빈 배열을 고정한다.
+- 삭제 commit 배포 전에는 detach 배포 완료, 구 binding 부재, 새 target group·ALB DNS·DB 실제 Secret·S3 output 존재를 확인한다. `DevApplicationStack --exclusively`로 구 service/task를 먼저 제거하고 구 task/ENI/SG 미사용을 읽기 확인한 뒤 dev `--all`, 마지막 cicd 권한 회수 순서로 배포한다. weak reference는 물리 ECS/ENI/SG 종속성을 없애지 않는다.
+- pipeline-dev 역할은 trust와 ARN output을 유지하며 ECR login을 포함한 permission statement가 0개다. 역할 삭제는 PROJ-106에서 결정한다.
+- `config/otel-collector.yaml`, `ENRICHMENT_ENV`, prod ECR 상수와 prod 파생 DSN은 삭제하지 않는다.
+- 로컬 구현은 `buildTelemetryIngestService()`·`buildEnrollmentApiService()`·`buildClickhouseService()`, dev SG construct 4개, 실제 Secret 3개와 Edge output 7개로 대조했다. 실제 배포가 끝나기 전에는 live 상태 증거로 쓰지 않는다.
 
 ---
 
 ## 6. 명령어
 
 ```bash
-npm test              # jest (@swc/jest) — 13 스위트, 233 테스트
+npm test              # jest (@swc/jest); 정확한 suite/test 수는 현재 checkout 결과를 따른다
 npm run build         # tsc (tsconfig의 noEmit: true — 순수 타입 체크)
 
 npm run synth         # = cdk synth --all       (prod. cdk.json: `npx tsc && npx tsx bin/infra.ts`)
@@ -516,187 +477,107 @@ npx cdk synth --all -c certificateArn=arn:aws:acm:ap-northeast-2:<account>:certi
 
 ### 배포 전 필수 선행 절차 (ADR-0007)
 
-**ECR 레포를 먼저 만들고 이미지를 push해야 한다. 안 하면 첫 `cdk deploy`가 롤백된다.**
+ECR repository는 CDK 밖에서 먼저 만들고 `linux/arm64` 이미지를 push한다. 최종 dev 자체 빌드 대상은
+`soma-376/telemetry-ingest`, `soma-376/enrollment-api`이고 tag는 `dev`와 immutable commit SHA 두 개다.
+prod 기존 repository와 `prod` tag 계약은 바꾸지 않는다. image architecture는 synth로 검증할 수 없으므로
+ECR manifest와 실제 task start를 확인한다.
 
-```bash
-for repo in soma-376/post-processor soma-376/auth-proxy soma-376/api-server soma-376/batch-processor; do
-  aws ecr create-repository --repository-name "$repo" --region ap-northeast-2
-done
-# 각 앱 레포에서 이미지 빌드 후 push → 그 다음에 cdk deploy
-```
-
-레포 이름은 `lib/common/config.ts`의 `ECR_REPOS`와 정확히 일치해야 한다. **앱 레포 CI의 push 대상도 같은 `soma-376/` 네임스페이스를 써야 한다** (ADR-0007). 이 레포에서 강제할 수 없는 규칙이므로 배포 전에 앱 레포 쪽에 전달한다.
-
-**이 선행 절차는 dev에도 그대로 적용된다.** dev/prod가 **같은 ECR 레포를 공유**하고 태그로만 갈리므로(ADR-0021 5번) 레포는 한 번만 만들면 되지만, **dev는 `:dev`, prod는 `:prod` 태그를 읽으므로**(ADR-0024 7번) 그 태그에 이미지가 없으면 첫 배포가 같은 방식으로 실패한다. dev에서 태그를 갈아타려면 `-c devImageTag=<tag>`다.
-
-기존 이미지를 새 태그로 옮겨 붙이려면 재빌드 없이 매니페스트만 다시 태깅하면 된다:
-
-```bash
-for repo in soma-376/post-processor soma-376/auth-proxy soma-376/api-server soma-376/batch-processor; do
-  MANIFEST=$(aws ecr batch-get-image --repository-name "$repo" --image-ids imageTag=latest \
-    --query 'images[0].imageManifest' --output text --region ap-northeast-2)
-  aws ecr put-image --repository-name "$repo" --image-tag dev \
-    --image-manifest "$MANIFEST" --region ap-northeast-2
-done
-# prod 는 --image-tag prod 로, auth-proxy 를 뺀 3개 레포에 대해 같은 절차를 돈다
-```
-
-**이미지는 반드시 `linux/arm64`로 빌드해야 한다** (ADR-0015). Fargate 태스크가 ARM64이고 **dev의 EC2 호스트도 t4g(Graviton) + ARM AMI**이므로, amd64 이미지를 올리면 양쪽 다 태스크가 기동하지 못한다.
-
-```bash
-# 앱 레포에서 — 플랫폼을 항상 명시한다
-docker buildx build --platform linux/arm64 \
-  -t <account>.dkr.ecr.ap-northeast-2.amazonaws.com/soma-376/api-server:<tag> \
-  --push .
-```
-
-플랫폼을 생략하면 빌드 머신에 따라 결과가 갈린다. Apple Silicon에서는 arm64가, x86 CI 러너에서는 amd64가 나온다. 아키텍처 불일치는 `cdk synth`와 `npm test`로는 잡히지 않고(이미지 URI에 아키텍처가 없다) 태스크 기동 시점에 `image Manifest does not contain descriptor matching platform 'linux/arm64'`로만 드러난다. ECS가 이를 재시도하므로 배포가 실패로 끝나지 않고 길게 지연되는 형태가 된다.
-
-이후 앱 배포는 CDK를 거치지 않는다:
-
-```bash
-aws ecs update-service --cluster soma-376-prod --service collector --force-new-deployment
-aws ecs wait services-stable --cluster soma-376-prod --services collector
-```
-
-클러스터는 `soma-376-dev` / `soma-376-prod`, 서비스는 `collector` / `dashboard` / `auth-proxy`(dev 전용)다. 이름의 단일 출처는 `lib/common/deploy-targets.ts`이며, GitHub Actions가 이 명령을 돌릴 권한은 `DeployStack`의 배포 역할이 준다 (ADR-0024).
+앱 workflow는 CDK를 실행하지 않고 해당 ECS service에 `--force-new-deployment`한 뒤 두 서비스가 모두
+stable일 때 성공한다. enrollment-api를 먼저 안정화하고 telemetry-ingest를 뒤이어 배포한다.
 
 ### 배포 역할 배포 (ADR-0024)
 
-앱 인프라와 독립이라 언제든 따로 배포할 수 있다. **먼저 계정에 GitHub OIDC 공급자가 이미 있는지 확인한다** — URL당 하나뿐이라 중복 생성은 `EntityAlreadyExists`로 스택을 통째로 롤백시킨다.
+GitHub OIDC provider는 account당 하나이며 RETAIN이다. 기존 provider가 있으면
+`-c githubOidcProviderArn=<arn>`으로 참조한다. 최종 pipeline-dev role은 trust와 ARN output만 유지하고
+inline/attached permission statement가 없어야 한다. backend-dev role만 새 ECR/service 두 개를 대상으로
+한다. prod 역할과 대상은 기준선 그대로인지 synth diff로 확인한다.
 
 ```bash
 aws iam list-open-id-connect-providers
-
-# 없으면 그대로
-npm run deploy:cicd
-
-# 이미 있으면 그 ARN 을 넘겨 참조 모드로
-npx cdk deploy --all -c env=cicd \
-  -c githubOidcProviderArn=arn:aws:iam::<account>:oidc-provider/token.actions.githubusercontent.com
-
-# 사후 확인 - 신뢰 정책의 sub 와 인라인 정책의 리소스 ARN 을 눈으로 본다
-ROLE=github-deploy-ai-telemetry-pipeline-dev
-aws iam get-role --role-name "$ROLE" \
-  --query 'Role.AssumeRolePolicyDocument'
-for POLICY_NAME in $(aws iam list-role-policies --role-name "$ROLE" \
-  --query 'PolicyNames[]' --output text); do
-  aws iam get-role-policy --role-name "$ROLE" --policy-name "$POLICY_NAME" \
-    --query 'PolicyDocument.Statement[].{Sid:Sid,Action:Action,Resource:Resource}'
-done
+npm run synth:cicd
+npx cdk deploy --all -c env=cicd -c githubOidcProviderArn=<existing-provider-arn>
 ```
 
-새 배포 저장소를 추가할 때는 synth에서 GitHub API를 호출하지 않는다. 아래 명령으로 immutable
-조직/저장소 ID와 현재 subject prefix를 확인한 뒤 `lib/cicd/config.ts`에 문자열로 기록한다.
+실제 배포는 사용자 승인을 받은 운영 단계에서만 수행한다.
+
+### dev 최종 배포·검증 런북 (ADR-0026)
 
 ```bash
-gh api repos/soma-376/<repo> --jq '{id, owner_id: .owner.id, created_at}'
-gh api repos/soma-376/<repo>/actions/oidc/customization/sub
-```
-
-배포 후 역할 ARN 4개는 `DeployStack`의 `CfnOutput`에 있다. 앱 레포에 넘길 값은 4장의 "앱 레포 배포 계약" 표가 전부다.
-
-### ECS 물리 이름 도입 교체 런북 (ADR-0024)
-
-`clusterName` / `serviceName`은 **교체 유발 속성**이다. 다만 Cluster 교체와 Service 교체는
-실패 조건이 다르므로 `cdk diff`를 아래 순서로 판정한다.
-
-1. **`AWS::ECS::Cluster`가 Replacement면** 아래 전체 스택 파괴·재배포 절차를 쓴다. ASG
-   인스턴스가 기존 클러스터에 계속 등록되어 새 클러스터의 컨테이너 인스턴스가 0대가 되기
-   때문이다.
-2. **Cluster는 유지되고 `AWS::ECS::Service`만 Replacement면** `ServiceName` 전후 값을 본다.
-   이름이 그대로인데 다른 속성이 교체를 유발하면 CloudFormation이 같은 클러스터에 같은 이름의
-   새 서비스를 먼저 만들려다 실패한다. 이 경우도 in-place 업데이트를 하지 않고, 기존 서비스를
-   먼저 없애는 change-specific delete-before-create 절차를 별도로 세운다.
-3. **`ServiceName` 자체가 다른 고유 이름으로 바뀌거나 새로 지정되면** 위 동일 이름 충돌과 새
-   클러스터 0대 문제는 적용되지 않는다. 서비스 교체에 필요한 호스트 용량을 확인하고
-   `deploy-targets.ts`·IAM ARN·앱 레포 워크플로 계약을 같은 변경에서 함께 갱신한다.
-4. Cluster와 Service 모두 Replacement가 아니면 일반 업데이트로 진행한다.
-
-현재 PROJ-64는 이미 배포된 스택에 `clusterName`을 추가해 **1번 Cluster Replacement**가
-발생하는 최초 1회 절차다. 이후 변경도 속성 이름만 보고 판단하지 말고 항상 `cdk diff`의
-리소스별 Replacement와 `ServiceName` 전후 값을 확인한다.
-
-**Cluster Replacement는 in-place 업데이트를 시도하지 않는다.** ASG 런치 템플릿 user data에
-클러스터 이름이 박혀 있어(`>> /etc/ecs/ecs.config`), 클러스터가 교체되면 새 클러스터에
-컨테이너 인스턴스가 0대인 상태가 된다. EC2 launch type 서비스가 steady state에 도달하지 못해
-CFN이 대기하다 실패하고, 등록된 인스턴스가 있는 구 클러스터는 삭제도 거부되어
-`UPDATE_ROLLBACK_FAILED`로 갇히기 쉽다.
-
-**파괴 범위는 `ApplicationStack` 하나로 끝난다.** 합성 매니페스트상 의존은 `ApplicationStack → EdgeStack`이고(ECS 서비스가 `Fn::GetStackOutput`으로 타깃 그룹을 참조한다) 크로스 스택 참조가 `weak`라 Export 잠금이 없다. 따라서 **ALB DNS 이름이 보존되고** `NetworkStack`·`DataStack`(VPC·RDS·시크릿)도 그대로다.
-
-```bash
-# ── dev 에서 먼저 리허설한다 ──────────────────────────────
-# 0) :dev 태그 이미지를 먼저 올린다 (위 재태깅 스니펫). 없으면 재배포가 기동에서 죽는다.
-npx cdk diff --all -c env=dev -c devAllowedCidr=<내 IP>/32   # Replacement 표시를 눈으로 확인
-npx cdk destroy DevApplicationStack -c env=dev
-npx cdk deploy  DevApplicationStack -c env=dev -c devAllowedCidr=<내 IP>/32
-
-# 이름과 ARN 형식을 함께 확인한다. IAM 정책이 장문 ARN 을 전제하므로
-# arn:...:service/soma-376-dev/collector 형태여야 한다.
-aws ecs describe-services --cluster soma-376-dev \
-  --services collector auth-proxy dashboard clickhouse --region ap-northeast-2 \
-  --query 'services[].{name:serviceName,arn:serviceArn,running:runningCount}'
-
-# ── prod (유지보수 창) ───────────────────────────────────
-# :prod 태그 push 선행 → 그 다음
-npx cdk diff --all
-npx cdk destroy ApplicationStack
-npx cdk deploy  ApplicationStack
-aws elbv2 describe-target-health --target-group-arn <collector TG>
-```
-
-**함께 잃는 것**: ClickHouse `/data/clickhouse`(호스트 EBS와 함께 소멸 — ADR-0006이 수용한 리스크), 로그 그룹(`RemovalPolicy.DESTROY`), Cloud Map `obs.local` 네임스페이스(같은 이름으로 재생성). prod는 collector/dashboard/clickhouse가 파괴~기동 완료까지 내려가는 **계획된 전면 중단**이다.
-
-네임스페이스 삭제가 걸리면 deregister되지 못한 Cloud Map 인스턴스가 남은 것이다 — `aws servicediscovery list-services` / `list-instances`로 확인하고 수동 deregister 후 재시도한다.
-
-### dev 배포 런북 (ADR-0022)
-
-**ADR-0017의 배포 전 게이트가 dev에도 그대로 적용된다.** dev가 운영과 **같은 `config/otel-collector.yaml`을 읽으므로**, collector config를 로컬 `docker run`으로 실제 기동해 `Everything is ready`를 확인하기 전에는 dev 배포도 하지 않는다. 정리할 때는 컨테이너 ID를 지목한다(`--filter ancestor=...`는 로컬 개발 컨테이너까지 지운다).
-
-```bash
-# dev 합성 — devAllowedCidr 를 안 주면 infra:dev-open-ingress 경고가 뜬다
+npm test
+npm run build
 npx cdk synth --all -c env=dev
-npx cdk deploy --all -c env=dev -c devAllowedCidr=<내 IP>/32
-
-# 스택 목록이 섞이지 않는지
-npx cdk list                 # NetworkStack DataStack ApplicationStack EdgeStack
-npx cdk list -c env=dev      # DevNetworkStack DevDataStack DevApplicationStack DevEdgeStack
+npx cdk diff --all -c env=dev -c devAllowedCidr=<내 IP>/32
 ```
 
-배포 후 검증은 아래 경로를 각각 밟는다. 엔드포인트와 Secret ARN은 `DevEdgeStack`의 `CfnOutput`(`AlbDnsName`, `OtlpEndpoint`, `OtlpDebugEndpoint`, `ApiEndpoint`, `ClickhouseDebugUrl`, `RdsEndpoint`, `RdsSecretArn`, `TokenHashSecretArn`, `AdminApiTokenSecretArn`)에서 가져온다.
+배포 전 `telemetry-ingest`, `enrollment-api`, `clickhouse` 세 service, 두 새 instance target group, dev SG 4개,
+실제 Secret 3개, 앱 ASG `maxCapacity: 1`, ingest grace 240초, enrollment grace 60초 기본값을 template에서
+확인한다. Edge output은 `AlbDnsName`, `OtlpEndpoint`, `ClickhouseDebugUrl`, `RdsEndpoint`, `RdsSecretArn`,
+`TokenHashSecretArn`, `AdminApiTokenSecretArn` 7개여야 하고 prod template은 기준선과 같아야 한다.
 
-**선행 조건 — `enrollment` 스키마를 먼저 넣어야 한다.** auth-proxy는 `enrollment.telemetry_tokens` / `installations` / `members` / `tenants`를 조회한다. 부트스트랩 주체는 **backend Flyway**다(5장 (H)) — backend 명세 §9.4의 로컬 `bootRun` 레시피(공식 잠정 절차)로 공유 RDS에 마이그레이션을 태운다. 파이프라인 DDL을 `psql`로 직접 넣는 우회는 쓰지 않는다(아래 4)의 `psql`은 조회·디버깅용 접속이다). 스키마가 없으면 접속은 성공하고 첫 인증에서 `relation "enrollment.telemetry_tokens" does not exist`로 깨진다.
+HTTP ALB 경계 검증은 다음을 각각 확인한다.
 
 ```bash
-# 1) 인증 — 토큰 없이 던지면 401 이어야 한다. 이게 ADR-0023 의 목적이다
-curl -i -X POST "http://<alb-dns>/v1/traces" \
-  -H 'Content-Type: application/json' -d '{"resourceSpans":[]}'
+# OTLP 인증 실패와 성공
+curl -i -X POST 'http://<alb-dns>/v1/traces'   -H 'Content-Type: application/json' -d '{"resourceSpans":[]}'
+curl -i -X POST 'http://<alb-dns>/v1/traces'   -H 'Authorization: Bearer <token>'   -H 'Content-Type: application/json' -d '{"resourceSpans":[]}'
 
-# 2) OTLP 파이프라인 — ALB :80 /v1/* → auth-proxy → collector.obs.local:4318
-#    → localhost:8080 → post-processor
-curl -i -X POST "http://<alb-dns>/v1/traces" -H "Authorization: Bearer <token>" \
-  -H 'Content-Type: application/json' -d '{"resourceSpans":[]}'
-aws logs tail /ecs/dev/auth-proxy --follow --region ap-northeast-2
-aws logs tail /ecs/dev/post-processor --follow --region ap-northeast-2
+# 신규 앱 health는 TG가 직접 호출한다. public listener rule은 없어야 한다.
+aws elbv2 describe-target-health --target-group-arn <telemetry-ingest-tg>
+aws elbv2 describe-target-health --target-group-arn <enrollment-api-tg>
 
-# 2-1) 인증을 건너뛰고 collector 만 검증 — :4318 디버그 리스너 (ADR-0023 3번)
-curl -i -X POST "http://<alb-dns>:4318/v1/traces" \
-  -H 'Content-Type: application/json' -d '{"resourceSpans":[]}'
+# ClickHouse 직접 경계는 기존 :8123
+curl 'http://<alb-dns>:8123/?query=SELECT%201'
 
-# 3) ClickHouse 직접 쿼리 — ALB :8123 리스너 (EC2 퍼블릭 IP는 인스턴스 교체마다 바뀐다)
-curl "http://<alb-dns>:8123/?query=SELECT%201"
-
-# 4) RDS 직접 접속 — publiclyAccessible + devAllowedCidr 가 이걸 위한 구성이다
-psql "host=<rds-endpoint> port=5432 dbname=controlplane user=postgres sslmode=require"
-
-# 5) 컨테이너 진입 — 호스트 SSM 후 docker
-aws ssm start-session --target <instance-id> --region ap-northeast-2
-sudo docker ps
-sudo docker exec -it <container-id> /bin/sh
+# 제거 경계
+curl -i 'http://<alb-dns>:4318/v1/traces'
+curl -i 'http://<alb-dns>/api/'
 ```
 
-**auth-proxy가 401 대신 502/503을 준다면** Collector 도달 실패를 먼저 의심한다 — ALB 헬스체크는 `/health`만 보므로 타깃은 계속 healthy로 남는다. `docker exec`으로 들어가 `collector.obs.local`이 A 레코드로 풀리는지, `DevCollectorSg` ← `DevAppHostSg` : 4318 룰이 살아 있는지 확인한다.
+유효 token 요청 뒤 Raw Signal S3 PUT과 ClickHouse insert를 실제 데이터로 확인하고 enrollment/bootstrap
+HTTP route를 검증한다. `/app/binaries`에 파일이 없으면 설치 download E2E는 미완료다.
+`PULSEMETRY_PUBLIC_BASE_URL`은 HTTP bootstrap URL이고 manifest OTLP endpoint가 아니다. 원격 endpoint는
+HTTPS여야 하므로 CLI enrollment → manifest → OTLP forward는 별도 TLS listener/certificate/domain 작업
+후에만 검증한다.
+
+### PROJ-144 detach·delete 배포 순서
+
+1. detach commit은 구 collector/auth-proxy/dashboard service의 L1 `CfnService`에
+   `LoadBalancers: []` property override를 명시한다. CDK `BaseService`가 빈 target 목록을 `undefined`로
+   생략하므로 `addTarget` 제거만으로는 attachment 제거 update가 되지 않는다. 합성 테스트는 세 서비스의
+   정확한 빈 배열과 구 target group 유지를 고정한다. CloudFormation 계약은
+   [`AWS::ECS::Service.LoadBalancers`](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-ecs-service.html#cfn-ecs-service-loadbalancers)를 따른다.
+2. detach 배포가 끝나 실제 구 service attachment가 없음을 확인한다. delete commit 배포 전에는 새 target
+   group, ALB DNS, DB 실제 Secret, Raw Signal S3 output이 현재 배포에 존재해야 한다.
+   PROJ-143 뒤 구 target group과 ECS resource properties가 남아 있어도 listener action이 없으면 ALB는
+   target을 `unused`/`Target.NotInUse`로 보고 health check를 수행하지 않는다. 따라서 구 경로는 healthy
+   warm standby가 아니다. rollback할 때는 이전 Edge listener template을 명시적으로 다시 배포한 뒤 구
+   target의 initial health check 통과를 확인한다. multi-stack 배포에서 나중의 ApplicationStack이
+   실패해도 먼저 완료된 EdgeStack은 자동으로 이전 template로 돌아가지 않는다.
+3. delete commit에서는 먼저 CDK CLI의
+   [`--exclusively`](https://docs.aws.amazon.com/cdk/v2/guide/ref-cli-cmd-deploy.html)를 사용해
+   ApplicationStack만 배포하고 구 service/task를 제거한다.
+
+```bash
+npx cdk deploy DevApplicationStack --exclusively -c env=dev \
+  -c devAllowedCidr=<내 IP>/32
+```
+
+4. `aws ecs list-tasks`/`describe-tasks`와 EC2 ENI/SG 읽기 조회로 구 collector running task와 task ENI가
+   없고 `DevCollectorSg`가 사용 중이 아님을 확인한다. weak reference는 ECS/ENI/SG 물리 종속성을 없애지
+   않는다.
+5. 그 뒤 `npx cdk deploy --all -c env=dev -c devAllowedCidr=<내 IP>/32`로 Network/Data/Edge의 구 SG,
+   derived Secret, target group, listener/output를 정리한다. manifest 순서상 Network/Data/Edge가 App보다
+   앞이므로 처음부터 `--all`하면 SG가 사용 중인 상태에서 EC2
+   [`DeleteSecurityGroup`의 `DependencyViolation`](https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DeleteSecurityGroup.html)이
+   날 수 있다.
+6. 마지막으로 cicd stack을 배포해 pipeline-dev 권한을 0개로 회수한다. 최종 delete commit에서는 구
+   service와 함께 임시 `LoadBalancers: []` override도 제거한다.
+
+이 런북은 명령과 검증 순서만 기록하며 문서 작성 중에는 실제 AWS 배포를 수행하지 않는다.
+ALB target 상태와 ECS service attachment 의미는
+[ALB target health](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/target-group-health-checks.html)와
+[ECS service definition parameters](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/service_definition_parameters.html)를
+따른다.
 
 ### 운영자 접속 (ADR-0016)
 
@@ -708,7 +589,7 @@ SSH 인그레스도 키페어도 없다. 접속은 전부 SSM 채널을 쓴다. 
 | prod `post-processor`, `api-server` (Fargate) | `aws ecs execute-command` | `ecs:ExecuteCommand` |
 | **dev — 전 컨테이너** | 호스트 `aws ssm start-session` + `sudo docker exec` | `ssm:StartSession` |
 
-**dev에는 ECS Exec이 없다.** 네 서비스 모두 `enableExecuteCommand`를 켜지 않았고, 켜도 awsvpc 태스크(collector/clickhouse)는 `ssmmessages` 엔드포인트에 도달할 경로가 없어 동작하지 않는다. **이건 결함이 아니라 티켓의 전제다** — 호스트에 SSM으로 붙으면 네트워크 모드와 무관하게 **모든** 컨테이너에 `docker exec`으로 들어갈 수 있고, `docker logs`·`docker inspect`·호스트에서의 `curl`까지 열린다 (ADR-0022 5(b), ADR-0016).
+**dev에는 ECS Exec이 없다.** 최종 세 서비스는 호스트 SSM 뒤 `docker exec`으로 진입한다. awsvpc인 ClickHouse는 NAT나 `ssmmessages` VPC endpoint가 없고, 두 bridge 앱도 ECS Exec을 켜지 않는다. 호스트에서 `docker logs`·`docker inspect`·`curl`을 사용한다 (ADR-0022 5(b), ADR-0016, ADR-0026).
 
 dev 인스턴스는 `Env` 태그로 찾는다.
 
@@ -787,32 +668,33 @@ diff /tmp/before/NetworkStack.template.json /tmp/after/NetworkStack.template.jso
 - 모드 A 테스트는 `MODE_A_EDGE`를, 모드 B는 인자 없이 기본값을 쓴다. dev context 키는 `buildDevApp({ devAllowedCidr: '203.0.113.10/32' })`처럼 객체로 주입한다 — CLI의 `-c key=value`와 같은 자리다.
 - 고정 env는 `TEST_ENV = { account: '111111111111', region: 'ap-northeast-2' }`다.
 
-**dev 테스트가 고정하는 핵심 계약** — 전부 "synth·test·deploy는 통과하고 런타임에만 죽는" 종류라 어서션이 유일한 방어선이다.
+**dev 테스트가 고정하는 핵심 계약**
 
 | 계약 | 스위트 |
 |---|---|
-| 태스크 `NetworkMode` 4종 (awsvpc / bridge / bridge / awsvpc) | `test/dev/application-stack.test.ts` |
-| 리스너 `open: false` — 좁힌 CIDR 옆에 `0.0.0.0/0` 인그레스가 남지 않는다 | `test/dev/network-stack.test.ts` |
-| 로그 그룹 6개의 `/ecs/dev/` 접두 (그리고 운영 이름을 하나도 쓰지 않음) | `test/dev/application-stack.test.ts` |
-| 자동 생성 비밀번호의 `ExcludeCharacters` (따옴표 없는 libpq DSN **과 URI** 의 전제) | `test/dev/data-stack.test.ts` |
-| auth-proxy가 읽는 환경변수·시크릿 이름 4개와 `COLLECTOR_BASE_URL` 값 | `test/dev/application-stack.test.ts` |
-| collector 서비스의 Cloud Map **A** 레코드 등록 | `test/dev/application-stack.test.ts` |
-| `DevCollectorSg` ← `DevAppHostSg` : 4318 (bridge auth-proxy의 유일한 통로) | `test/dev/network-stack.test.ts` |
-| `/v1/*`가 auth-proxy TG로, `:4318`이 collector TG로 간다 | `test/dev/edge-stack.test.ts` |
-| auth-proxy URI DSN의 `uselibpqcompat=true` (없으면 TLS 검증이 켜져 접속 실패) | `test/dev/data-stack.test.ts` |
+| ECS service 3개와 network mode bridge / bridge / awsvpc, 서비스 물리 이름 | `test/dev/application-stack.test.ts` |
+| telemetry-ingest/enrollment-api 각각 1024 MiB, 앱 ASG 최종 `maxCapacity: 1` | `test/dev/application-stack.test.ts` |
+| telemetry-ingest 환경·Secret·S3 권한과 enrollment-api 환경·Secret | `test/dev/application-stack.test.ts` |
+| 두 앱이 같은 token hash Secret을 쓰고 실제 Secret은 총 3개, 파생 DSN/URI 없음 | `test/dev/data-stack.test.ts`, `test/dev/application-stack.test.ts` |
+| 로그 그룹 3개와 `/ecs/dev/` 접두 | `test/dev/application-stack.test.ts` |
+| SG 4개, `open: false`, `80/8123/5432`만 CIDR ingress, `4318` 없음 | `test/dev/network-stack.test.ts`, `test/dev/edge-stack.test.ts` |
+| `:80` default 404와 priority 1/3/4의 정확한 paths, `/v1/healthz` public rule 없음 | `test/dev/edge-stack.test.ts` |
+| 신규 target group 2개는 instance/60초, ClickHouse는 ip/300초 | `test/dev/edge-stack.test.ts` |
+| telemetry-ingest만 health grace 240초, enrollment-api는 60초 기본값 | `test/dev/application-stack.test.ts` |
+| ALB DNS late binding public base URL과 `/app/binaries` | `test/dev/application-stack.test.ts` |
+| 구 collector/auth-proxy/dashboard/service/TG/Cloud Map binding/derived Secret/output가 없음 | dev 세 스위트 |
+| detach 단계에서는 구 세 `AWS::ECS::Service.LoadBalancers`가 정확히 `[]`이고 구 TG 유지 | PROJ-144 detach 전용 합성 test; 최종 delete에서 override/test 제거 |
 
-**cicd 테스트가 고정하는 핵심 계약** — 전부 "배포는 전부 성공하고 GitHub Actions만 죽는" 종류다. IAM은 리소스 ARN의 실존을 검증하지 않으므로 어서션이 유일한 방어선이다.
+**cicd 테스트가 고정하는 핵심 계약**
 
 | 계약 | 왜 |
 |---|---|
-| 신뢰 조건 `sub`가 immutable 조직/레포 ID와 브랜치까지 `StringEquals` 완전 일치 | name-only 형식은 새 저장소 토큰과 불일치하고, `StringLike` + `*`로 "완화"하면 PR 헤드 브랜치가 운영 역할을 가져간다 |
-| **교차 환경 부정** — dev 역할에 `soma-376-prod`가 없고 그 반대도 | 역할을 환경별로 나눈 이유 자체 |
-| **교차 레포 부정** — 파이프라인 역할에 `api-server`/`batch-processor`가 없고 그 반대도 | 한 팀이 다른 팀 이미지를 밀 수 있으면 레포별 분리가 무의미 |
-| prod 파이프라인 역할에 `auth-proxy`가 없음 | 운영에 없는 서비스 = 죽은 계약 (ADR-0023) |
-| `iam:PassRole` / `ecs:RegisterTaskDefinition` 부재, `*`로 끝나는 액션 부재 | 권한 상승 경로 차단 |
-| `Resource: '*'`인 statement가 `GetAuthorizationToken` 하나뿐 | 그 statement에 다른 액션이 얹히면 계정 전역이 된다 |
-| **IAM 서비스 ARN ↔ 실제 `ClusterName`/`ServiceName` 교차 검증** | `deploy-targets.ts`와 application-stack이 갈라지는 것을 잡는 유일한 지점 |
-| `ThumbprintList` 부재, OIDC 공급자 `Retain`, Lambda 0개 | 인증서 회전 사고 / 신뢰 앵커 유실 / 커스텀 리소스 회귀 |
+| trust `sub`가 immutable org/repo ID와 branch까지 `StringEquals` | wildcard나 name-only subject를 막는다 |
+| backend-dev가 신규 ECR/service 두 개만 대상으로 함 | 물리 이름과 workflow 계약 drift를 잡는다 |
+| pipeline-dev role의 permission statement 0개, trust/output 유지 | ECR login 포함 권한 회수를 보장한다 |
+| prod 역할의 ECR/service policy가 기준선과 같음 | dev cleanup이 prod 권한을 바꾸지 않게 한다 |
+| `iam:PassRole`, `ecs:RegisterTaskDefinition`, wildcard action 부재 | 권한 상승 경로를 막는다 |
+| OIDC provider `Retain`, `ThumbprintList`/Lambda 없음 | provider 수명과 인증서 회전 계약을 지킨다 |
 
 ```ts
 import { Template } from 'aws-cdk-lib/assertions';

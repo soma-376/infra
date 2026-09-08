@@ -64,7 +64,8 @@ ECR 저장소와 ECS 서비스의 물리 이름은 표의 앱 이름과 정확�
 `minHealthyPercent: 0`, `maxHealthyPercent: 100` 교체 배포 설정을 사용한다. ClickHouse의 awsvpc,
 Cloud Map `clickhouse.obs.local`, 타깃 타입, 배포 설정은 바꾸지 않는다.
 
-`telemetry-ingest`의 `Ec2Service`에만 `healthCheckGracePeriod: Duration.seconds(240)`을 명시한다.
+`telemetry-ingest`의 `Ec2Service`에만 `DEV_TELEMETRY_INGEST_HEALTH_CHECK_GRACE`로
+`healthCheckGracePeriod: Duration.seconds(240)`을 명시한다.
 backend `ClickHouseHttpClient.DEFAULT_TIMEOUT`은 ClickHouse HTTP 응답 헤더를 30초까지 기다리고,
 `TelemetryIngestProperties.ClickHouse.Schema`는 기본 `startupAttempts=5`, `startupBackoff=2초`다.
 `ClickHouseSchema.afterPropertiesSet()`은 일시 장애를 다섯 번 시도하고 각 실패 뒤 backoff를 거친다.
@@ -173,6 +174,13 @@ ECS 서비스 삭제 순서와 롤백 경로를 보존하기 위해 PROJ-143에�
 service binding을 바로 삭제하지 않는다. 리스너가 새 target group을 향하고 `:4318`이 닫힌 상태를
 먼저 배포한다. 기존 `/api/*` 규칙도 이 단계에는 유지한다.
 
+구 target group과 ECS resource properties를 그대로 남기는 것은 이 단계의 명확한 CloudFormation
+blocker를 피하지만 healthy warm standby를 뜻하지 않는다. listener action에서 빠진 target group의
+target은 ALB에서 `unused`/`Target.NotInUse` 상태가 되고 health check가 중단된다. 이 판단은 합성
+리소스 비교에 근거하며 이 ADR 작성 중 live target event를 조회하지 않았다. rollback 때는 이전
+`:80 /v1/* → auth-proxy` listener action을 명시적으로 복원하고 구 target이 initial health check를
+통과한 뒤 트래픽 복구로 판정한다.
+
 ### 6. 정리는 두 번의 배포로 나눈다
 
 새 경로의 live E2E가 성공한 뒤 PROJ-144를 다음 두 커밋·배포로 실행한다.
@@ -188,8 +196,10 @@ service binding을 바로 삭제하지 않는다. 리스너가 새 target group�
 
 기존 weak cross-stack reference 설정을 유지한 채 실제 ECS `LoadBalancers` binding을 먼저 해제하고,
 그 배포가 끝난 뒤 target group을 삭제한다. 새 strong export/import 결합이나 이를 숨기는 수동
-`exportValue`는 추가하지 않는다. 두 배포 사이에 실패하면 첫 배포 이전 템플릿 또는 구 리스너
-액션으로 돌아가 기존 서비스를 다시 연결한다.
+`exportValue`는 추가하지 않는다. 두 배포 사이에 실패하면 첫 배포 이전 Application template과
+이전 Edge listener template을 각각 명시적으로 다시 배포해 기존 서비스를 연결한다. multi-stack
+배포에서 나중의 ApplicationStack이 실패해도 이미 완료된 EdgeStack update는 자동으로 이전 listener
+action으로 돌아가지 않는다. Edge 복원 뒤 구 target의 initial health check 통과를 확인한다.
 
 두 번째 삭제 커밋은 `--all` 한 번으로 바로 배포하지 않는다. 합성 manifest에서는
 `DevApplicationStack`이 `DevNetworkStack`·`DevDataStack`·`DevEdgeStack` 뒤에 배포된다. 이 순서로
@@ -281,6 +291,8 @@ NAT 없는 awsvpc 태스크의 인터넷 egress 제약까지 가져오므로 기
 - bridge 동적 host port와 기존 한 대 최종 구성은 교체 중 다운타임을 계속 감수한다.
 - weak cross-stack reference는 producer/consumer 결합을 CloudFormation이 강제하지 않으므로 배포 순서를
   운영자가 지켜야 한다.
+- 구 target group을 남겨도 listener가 연결되지 않은 동안에는 health check가 중단되어 warm standby가
+  아니다. rollback에는 이전 Edge listener 명시 배포와 initial health 확인 시간이 든다.
 - 1024 MiB 예약은 실제 Spring heap·off-heap 사용량의 충분성을 증명하지 않는다. live 관측 전에는
   메모리 안정성을 주장할 수 없다.
 - ingest의 240초 ECS health grace는 최악 응답 헤더 timeout 경로를 기준으로 잡은 초기값이다. 실제 기동
@@ -317,6 +329,8 @@ NAT 없는 awsvpc 태스크의 인터넷 egress 제약까지 가져오므로 기
 - 구 서비스는 live E2E 전 삭제되지 않고, binding 분리와 리소스 삭제가 서로 다른 배포로 실행된다.
 - binding 분리 템플릿은 구 세 `AWS::ECS::Service`의 `LoadBalancers`를 정확히 `[]`로 합성하고 구 target
   group은 유지한다. 최종 삭제 커밋에서는 서비스와 함께 임시 property override도 제거한다.
+- 구 target group 보존이 warm standby를 뜻하지 않으며 rollback은 이전 Edge listener의 명시 배포와
+  구 target initial health 확인을 포함한다.
 - 삭제 배포는 ApplicationStack 단독 삭제 → 구 task·ENI·SG 미사용 확인 → 전체 dev 정리 → cicd 권한
   회수 순서를 따른다.
 - HTTP ALB curl 검증과 HTTPS가 필요한 CLI enrollment E2E가 구분되고, 후자는 별도 선행 과제로
@@ -333,4 +347,6 @@ NAT 없는 awsvpc 태스크의 인터넷 egress 제약까지 가져오므로 기
 - [AWS CDK CLI `deploy`와 `--exclusively`](https://docs.aws.amazon.com/cdk/v2/guide/ref-cli-cmd-deploy.html)
 - [CloudFormation `AWS::ECS::Service.LoadBalancers`](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-ecs-service.html#cfn-ecs-service-loadbalancers)
 - [EC2 `DeleteSecurityGroup`과 `DependencyViolation`](https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DeleteSecurityGroup.html)
+- [Application Load Balancer target group health checks와 `Target.NotInUse`](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/target-group-health-checks.html)
+- [Amazon ECS service definition parameters와 load balancer attachment](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/service_definition_parameters.html)
 - [AWS CDK reference strength](https://github.com/aws/aws-cdk/blob/main/packages/aws-cdk-lib/README.md#reference-strength)
