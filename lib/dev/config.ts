@@ -65,7 +65,7 @@ export const DEV_LOG_GROUP_PREFIX = '/ecs/dev';
 export const DEV_DEREGISTRATION_DELAY = Duration.seconds(60);
 
 /**
- * 앱 호스트 ASG 인스턴스 타입 (collector 태스크 + dashboard 태스크).
+ * 앱 호스트 ASG 인스턴스 타입 (ClickHouse 외 모든 dev 앱 태스크).
  *
  * ARM64 로 고정한다 - 비용이 아니라 **운영과 같은 이미지를 쓰기 위해서**다.
  * dev 가 x86 이면 앱 레포가 두 아키텍처를 빌드해야 하고, 그러면 "dev 에서
@@ -115,8 +115,12 @@ export const DEV_RAW_SIGNAL_EXPIRATION_DAYS = 7;
  */
 export const DEV_OPEN_CIDR = '0.0.0.0/0';
 
-/** `devAppAsgMaxCapacity` 기본값. 지금은 호스트 1대로 충분하다. */
-const DEV_DEFAULT_APP_ASG_MAX_CAPACITY = 1;
+/**
+ * `devAppAsgMaxCapacity` 기본값. ADR-0026 병행 기간에는 구 서비스 2304 MiB와 신규
+ * Spring 서비스 2048 MiB의 예약 합이 4 GiB를 넘으므로 호스트 2대까지 열어 둔다.
+ * 구 서비스 제거 뒤 1로 되돌린다.
+ */
+const DEV_DEFAULT_APP_ASG_MAX_CAPACITY = 2;
 
 /**
  * `devImageTag` 기본값. dev/prod 가 같은 ECR 레포를 공유하고 태그로만 갈린다
