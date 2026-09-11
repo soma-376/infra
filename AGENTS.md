@@ -488,8 +488,6 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
   나눈다. `:4318`은 닫지만 구 target group과 ECS binding은 PROJ-144의 두 배포 전까지 유지한다.
 - prod 합성 산출물은 기준선과 동일해야 한다. `config/otel-collector.yaml`, `ENRICHMENT_ENV`, prod ECR
   상수와 파생 DSN을 dev 정리와 함께 지우지 않는다.
-- 전환 기록과 검증 명령은 `docs/workflows/proj-134.md`가 소유한다. 실제 배포와 계약 현행화는
-  각각 PROJ-143/144와 PROJ-145의 관문을 통과한 뒤 기록한다.
 
 ---
 

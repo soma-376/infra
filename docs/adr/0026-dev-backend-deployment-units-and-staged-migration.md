@@ -176,7 +176,7 @@ service binding을 바로 삭제하지 않는다. 리스너가 새 target group�
 
 | 순서 | 티켓 | 결과 | 실행 관문 |
 |---:|---|---|---|
-| 1 | PROJ-137 | 이 ADR과 영향 ADR·원장 | 선행 없음 |
+| 1 | PROJ-137 | 이 ADR과 영향 ADR | 선행 없음 |
 | 2 | PROJ-138 | ECR·ECS 물리 이름과 IAM을 병행 가능한 상태로 추가 | PROJ-137 |
 | 병행 | PROJ-139 | backend가 두 ARM64 이미지를 빌드·push하고 두 서비스를 재배포 | PROJ-138 및 PROJ-105/PR #13의 `develop` 머지 |
 | 3 | PROJ-140 | telemetry-ingest 서비스 추가, 라우팅은 유지 | 코드: PROJ-138, 실제 배포: PROJ-139와 PROJ-141 |
@@ -235,7 +235,7 @@ NAT 없는 awsvpc 태스크의 인터넷 egress 제약까지 가져오므로 기
 - 병행 기간에는 t4g.medium 앱 호스트를 최대 두 대까지 사용해 dev 비용이 일시적으로 늘어난다.
 - bridge 동적 host port와 기존 한 대 최종 구성은 교체 중 다운타임을 계속 감수한다.
 - weak cross-stack reference는 producer/consumer 결합을 CloudFormation이 강제하지 않으므로 배포 순서를
-  원장과 운영자가 지켜야 한다.
+  운영자가 지켜야 한다.
 - 1024 MiB 예약은 실제 Spring heap·off-heap 사용량의 충분성을 증명하지 않는다. live 관측 전에는
   메모리 안정성을 주장할 수 없다.
 - 바이너리 공급이 이 작업 밖이라 enrollment URL이 배선돼도 설치 E2E는 바로 완료되지 않을 수 있다.
@@ -259,8 +259,6 @@ NAT 없는 awsvpc 태스크의 인터넷 egress 제약까지 가져오므로 기
 - 신규 두 앱이 같은 기존 token hash Secret을 쓰며 Secret 값은 합성 산출물에 나타나지 않는다.
 - prod synth 산출물은 기준선과 동일하다.
 - 구 서비스는 live E2E 전 삭제되지 않고, binding 분리와 리소스 삭제가 서로 다른 배포로 실행된다.
-- PROJ-105/PR #13 머지 관문, 이미지 준비 관문, 두 서비스 stable 성공 조건과 문서 현행화 순서가
-  작업 원장에 기록된다.
 
 ## References
 
