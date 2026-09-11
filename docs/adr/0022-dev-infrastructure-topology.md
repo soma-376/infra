@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted — 부분 대체: [ADR 0023](0023-dev-auth-proxy-between-alb-and-collector.md) 이 8번의 "인증 없는 엣지" 와 4번의 태스크 3개 구성을 대체한다(auth-proxy 태스크 추가, `/v1/*` 는 인증 경유, `:4318` 은 디버그 직행). 네트워크·컴퓨트·데이터·확장 경로 결정은 그대로 유효하다.
+Accepted — 부분 대체: [ADR 0026](0026-dev-backend-deployment-units-and-staged-migration.md)이 ADR-0023의
+변경까지 포함해 앱 태스크·네트워크 모드·ALB·로그 그룹 표를 `telemetry-ingest`·`enrollment-api`·
+`clickhouse` 세 서비스 목표로 대체한다. VPC·SG 소유 경계·RDS·ClickHouse·EC2/bridge 판정 기준과
+확장 경로는 그대로 유효하다.
 
 ## Context
 

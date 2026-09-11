@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted
+Accepted — 부분 대체: [ADR 0026](0026-dev-backend-deployment-units-and-staged-migration.md)이 dev의
+post-processor·파생 DSN 소비 경로와 enrollment-api 임시 `api-server` 슬롯을 제거한다. prod의
+post-processor 환경 계약·파생 DSN과 공통 계약 상수는 그대로 유효하다.
 
 ## Context
 

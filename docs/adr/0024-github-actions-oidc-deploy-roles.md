@@ -1,7 +1,11 @@
 # 0024. GitHub Actions 배포 - 레포×환경 4개 OIDC 역할과 ECS 물리 이름 고정
 
 ## Status
-Accepted
+
+Accepted — 부분 대체: [ADR 0026](0026-dev-backend-deployment-units-and-staged-migration.md)이 dev backend의
+배포 대상을 `enrollment-api`·`telemetry-ingest`로 바꾸고, 기존 pipeline dev 역할은 신뢰 정책과 output만
+유지한 채 permission statement를 0개로 만든다. 역할 4개 구조, prod 대상, OIDC 신뢰 경계와
+`iam:PassRole`·태스크 정의 등록 금지는 그대로 유효하다.
 
 ## Context
 

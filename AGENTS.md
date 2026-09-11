@@ -21,7 +21,7 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 
 **ADR 우선 원칙은 이 레포의 기존 규칙과 같다** — 1장의 "코드와 ADR이 어긋나면 ADR이 기준이다"가
 전 레포 공통 규칙이며, 크로스레포 결정만 `../docs/adr/`가 소유한다. 스코프 판정은 `adr-new` 스킬이 안내한다.
-단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0026`부터이고 **`0020`은 예약**이다(5장 (F)).
+단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0027`부터이고 **`0020`은 예약**이다(5장 (F)).
 
 **ADR 본문에서 타 레포 소스를 인용할 때는 행 번호 대신 함수·상수 이름으로 앵커한다**
 (예: `sink_clickhouse.py` 의 `execute()`). 행 번호 정합은 검증할 방법이 없어 반드시 낡는다 —
@@ -118,6 +118,24 @@ NetworkStack ──> DataStack ──┐
 
 **OTLP 경로에 인증이 생겼다** (ADR-0023). ALB `:80`의 `/v1/*`는 auth-proxy를 거치고, auth-proxy가 `collector.obs.local`(Cloud Map A 레코드)로 Collector에 전달한다. 인증 없이 Collector로 직행하는 기존 경로는 **`:4318` 디버그 리스너**로 남아 있다 — 프록시 장애와 파이프라인 장애를 가르는 용도이며, ALB는 forward 시 URL을 재작성하지 않으므로 경로가 아니라 포트로 나눈다.
 
+#### Accepted 목표와 전환 상태 (ADR-0026)
+
+위 표와 경로는 **현재 `develop` 코드가 합성하는 전환 전 상태**다. PROJ-137에서는 AWS에 배포하거나
+실제 서비스 상태를 확인하지 않았으므로 live 환경도 같다고 단정하지 않는다. Accepted 목표는
+`telemetry-ingest`(bridge, 4316, 1024 MiB)·`enrollment-api`(bridge, 8080, 1024 MiB)·
+`clickhouse`(기존 awsvpc) 세 ECS 서비스다. auth-proxy·Collector·post-processor·dashboard는
+신규 두 앱의 배포와 live E2E 뒤 단계적으로 제거한다.
+
+전환 중에는 구 서비스 예약 2304 MiB와 신규 예약 2048 MiB의 합 4352 MiB가 t4g.medium 한 대의
+4 GiB를 넘으므로 앱 ASG `maxCapacity`를 임시로 2까지 연다. 구 서비스 제거 뒤 1로 되돌린다.
+이 수치는 배치 가능성 계산이며 런타임 메모리 안정성 근거가 아니다. 실제 배포는 PROJ-105/PR #13의
+`develop` 머지, 두 ARM64 이미지와 환경·Secret 계약 준비, enrollment-api 선행 안정화,
+telemetry-ingest 안정화와 실제 RDS·S3·ClickHouse E2E를 모두 관문으로 삼는다.
+
+prod의 Collector config, 기존 컨테이너/ECR/환경 계약과 파생 DSN은 이 전환에서 바꾸지 않는다.
+구 dev 규칙은 해당 리소스가 남아 있는 단계까지만 적용하고, 목표 구성 및 제거 순서는
+[ADR-0026](docs/adr/0026-dev-backend-deployment-units-and-staged-migration.md)이 우선한다.
+
 ### CI/CD 스택 (cicd)
 
 | 스택 | 파일 | 주요 리소스 |
@@ -163,6 +181,11 @@ NetworkStack ──> DataStack ──┐
 | **IAM `Description`은 영문으로 쓴다** | 이 레포는 주석과 문서를 한국어로 쓰지만 IAM의 `Description`은 Latin-1 밖의 문자를 거부한다. 한국어를 넣으면 `cdk synth`는 경고만 내고 통과한 뒤 `cdk deploy`가 실패한다. (`lib/cicd/deploy-stack.ts`) |
 
 ### dev 환경 전용 규칙
+
+아래 auth-proxy·Collector·dashboard 관련 행은 **전환 전 코드와 병행 단계에서 해당 리소스가 존재하는
+동안만** 불변이다. ADR-0026이 승인한 티켓 순서와 live E2E 관문을 통과한 뒤에는 그 ADR에 따라
+binding을 먼저 끊고 다음 배포에서 리소스를 삭제한다. 새 Spring 서비스에는 ADR-0026의 bridge,
+동적 host port, 공유 token hash Secret, 정확한 ALB 경로 규칙을 적용한다.
 
 | 규칙 | 왜 |
 |---|---|
@@ -430,7 +453,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0026`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy, `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay로 이미 쓰였고, `0020`은 위 (F)의 로그 그룹 정책용으로 여전히 예약되어 있다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0027`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환으로 이미 쓰였고, `0020`은 위 (F)의 로그 그룹 정책용으로 여전히 예약되어 있다.
    형식은 `docs/adr/0000-adr-template.md`를 따른다.
 3. 상수는 **"이 값이 dev에서 달라야 할 이유가 있는가"**로 위치를 정한다 — 없으면 `lib/common/config.ts`, 운영 전용이면 `lib/prod/config.ts`, dev 전용이면 `lib/dev/config.ts`. 스택에서는 import만 한다 (4장).
 4. `test/prod/*.test.ts` / `test/dev/*.test.ts` / `test/cicd/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`(prod), `buildDevApp()`(dev), `buildCicdApp()`(cicd)를 재사용한다.
@@ -450,6 +473,21 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 - **awsvpc 태스크(collector/clickhouse)에 인터넷 egress가 없다.** 태스크 ENI에는 퍼블릭 IP가 붙지 않고(EC2 launch type에는 `assignPublicIp` 옵션 자체가 없다) NAT도 없다. 외부 API를 부르는 코드가 들어오면 **synth·test·deploy가 전부 통과하고 기동도 성공한 뒤 그 코드 경로에서만 타임아웃으로 죽는다.** (ADR-0022 5(a))
 - **`devAllowedCidr` 기본값이 `0.0.0.0/0`이라 무인자 dev 배포는 인증 없는 Collector(4318), ClickHouse(8123), RDS(5432)를 인터넷에 공개한다.** ClickHouse `default` 유저는 비밀번호가 없고 `access_management=1`이므로 8123에 닿는 주체는 사실상 관리자다. synth 경고가 유일한 방어선이다. (ADR-0022 9번, ADR-0023 3번)
 - **dev RDS와 운영 Aurora 둘 다 `StorageEncrypted`를 설정하지 않는다.** CFN 검증기가 경고를 낸다. 프로덕션 전환 시 `RemovalPolicy.DESTROY` 일괄 재검토와 함께 묶어서 다룬다.
+
+### (I) ADR-0026 dev 백엔드 전환 `Accepted, 구현·배포 대기`
+
+- 목표는 `telemetry-ingest`·`enrollment-api`·`clickhouse` 세 서비스다. 현재 develop 코드와 이 문서
+  2장의 상세 표는 아직 구 4서비스 상태이며, PROJ-137은 AWS 상태를 바꾸거나 확인하지 않았다.
+- 구현 순서는 PROJ-138(이름/IAM 추가) → PROJ-140~142(신규 서비스·환경 계약) →
+  PROJ-143(ALB 전환) → PROJ-144(binding 분리 배포 후 구 리소스 삭제 배포)다.
+  backend workflow PROJ-139는 PROJ-105/PR #13의 develop 머지까지 대기한다.
+- 신규 서비스의 실제 배포는 ECR 선생성·ARM64 `:dev` 이미지·앱 환경 계약이 준비된 뒤에만 한다.
+  정상 workflow는 enrollment-api를 먼저 안정화하고 telemetry-ingest를 배포하며, 둘 다 stable일 때만
+  성공으로 처리한다.
+- ALB 전환은 정확한 OTLP 세 경로만 priority 1로 보내고 enrollment/bootstrap은 priority 3·4로
+  나눈다. `:4318`은 닫지만 구 target group과 ECS binding은 PROJ-144의 두 배포 전까지 유지한다.
+- prod 합성 산출물은 기준선과 동일해야 한다. `config/otel-collector.yaml`, `ENRICHMENT_ENV`, prod ECR
+  상수와 파생 DSN을 dev 정리와 함께 지우지 않는다.
 
 ---
 

@@ -1,7 +1,10 @@
 # 0023. dev 인증 프록시 - ALB와 Collector 사이에 auth-proxy 태스크 삽입
 
 ## Status
-Accepted
+
+Superseded by [ADR 0026](0026-dev-backend-deployment-units-and-staged-migration.md). dev OTLP 인증과 처리
+전체가 backend `telemetry-ingest`로 이동하므로 auth-proxy·Collector·`:4318` 직행 경로와 이 ADR의
+네트워크·Secret·ALB 결정은 단계적으로 제거한다.
 
 ## Context
 

@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted
+Accepted — 부분 대체: [ADR 0026](0026-dev-backend-deployment-units-and-staged-migration.md)이 dev의 두
+co-location 묶음을 독립 `telemetry-ingest`·`enrollment-api` 서비스로 대체한다. prod의 두 태스크 묶음과
+`batch-processor: essential: false` 결정은 그대로 유효하다.
 
 ## Context
 

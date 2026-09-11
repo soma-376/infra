@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted
+Accepted — 부분 대체: [ADR 0026](0026-dev-backend-deployment-units-and-staged-migration.md)이 최종 dev 대상에
+`telemetry-ingest`와 `enrollment-api`를 추가하고 collector·auth-proxy·dashboard를 단계적으로 제거한다.
+신규 두 앱과 전환 중의 기존 dashboard는 60초를 사용하며 ClickHouse 300초는 그대로 유효하다.
 
 ## Context
 
