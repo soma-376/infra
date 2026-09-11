@@ -78,6 +78,8 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     albSecurityGroup: network.albSecurityGroup,
     collectorService: application.collectorService,
     authProxyService: application.authProxyService,
+    telemetryIngestService: application.telemetryIngestService,
+    enrollmentApiService: application.enrollmentApiService,
     dashboardService: application.dashboardService,
     clickhouseService: application.clickhouseService,
     dbEndpoint: data.dbEndpoint,
@@ -85,6 +87,10 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     tokenHashSecretArn: data.tokenHashSecretArn,
     adminApiTokenSecretArn: data.adminApiTokenSecretArn,
   });
+
+  // enrollment-api가 응답에 넣는 설치 URL은 실제 ALB DNS와 같아야 한다. Edge가 ALB를
+  // 만든 뒤 application의 컨테이너 정의에 weak cross-stack reference로 연결한다.
+  application.bindEnrollmentPublicBaseUrl(edge.publicBaseUrl);
 
   return { network, data, application, edge };
 }
