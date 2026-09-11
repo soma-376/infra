@@ -112,6 +112,9 @@ export const DEV_RAW_SIGNAL_EXPIRATION_DAYS = 7;
  */
 export const DEV_TELEMETRY_ARCHIVE_PREFIX = '';
 
+/** enrollment-api 이미지 안에서 bootstrap 바이너리를 서빙할 디렉터리. (ADR-0026) */
+export const DEV_ENROLLMENT_BINARIES_DIR = '/app/binaries';
+
 /**
  * `devAllowedCidr` 미지정 시의 기본 인바운드 소스 (ADR-0022 9번).
  *

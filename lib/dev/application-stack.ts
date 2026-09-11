@@ -18,6 +18,7 @@ import {
   AmiHardwareType,
   AsgCapacityProvider,
   Cluster,
+  ContainerDefinition,
   ContainerImage,
   Ec2Service,
   Ec2TaskDefinition,
@@ -67,6 +68,7 @@ import {
   DEV_APP_INSTANCE_TYPE,
   DEV_CLICKHOUSE_DATA_VOLUME_GIB,
   DEV_CLICKHOUSE_INSTANCE_TYPE,
+  DEV_ENROLLMENT_BINARIES_DIR,
   DEV_LOG_GROUP_PREFIX,
   DEV_TELEMETRY_ARCHIVE_PREFIX,
 } from './config';
@@ -102,6 +104,7 @@ const MEMORY_RESERVATION_MIB = {
   authProxy: 256,
   // Spring heap·off-heap을 합친 실사용 충분성은 배포 뒤 별도로 관측한다. (ADR-0026)
   telemetryIngest: 1024,
+  enrollmentApi: 1024,
 } as const;
 
 /**
@@ -147,9 +150,15 @@ export interface DevApplicationStackProps extends StackProps {
   readonly clickhouseSecurityGroup: ISecurityGroup;
 }
 
+interface EnrollmentApiResources {
+  readonly task: Ec2TaskDefinition;
+  readonly container: ContainerDefinition;
+  readonly service: Ec2Service;
+}
+
 /**
  * DevApplicationStack: ECS 클러스터(단일), Cloud Map `obs.local`,
- * ASG 2개 + 캐패시티 프로바이더 2개, 병행 단계 Ec2Service 5개.
+ * ASG 2개 + 캐패시티 프로바이더 2개, 병행 단계 Ec2Service 6개.
  *
  * 운영과의 기본 차이는 **launch type 과 네트워크 모드**다. 다만 PROJ-112에서
  * enrollment-api 계약을 dev의 기존 api-server 슬롯에 먼저 반영했으며, prod 배포 단위
@@ -169,6 +178,11 @@ export class DevApplicationStack extends Stack {
   public readonly authProxyService: Ec2Service;
   /** 신규 Spring 수집 서비스. PROJ-143에서 ALB 타깃으로 연결한다. (ADR-0026) */
   public readonly telemetryIngestService: Ec2Service;
+  /** 신규 enrollment-api 태스크와 서비스. PROJ-143에서 ALB 타깃으로 연결한다. */
+  public readonly enrollmentApiTask: Ec2TaskDefinition;
+  public readonly enrollmentApiService: Ec2Service;
+
+  private readonly enrollmentApiContainer: ContainerDefinition;
 
   private readonly namespace: PrivateDnsNamespace;
 
@@ -215,6 +229,13 @@ export class DevApplicationStack extends Stack {
       props,
       appCapacityProvider,
     );
+    const enrollmentApi = this.buildEnrollmentApiService(
+      props,
+      appCapacityProvider,
+    );
+    this.enrollmentApiTask = enrollmentApi.task;
+    this.enrollmentApiContainer = enrollmentApi.container;
+    this.enrollmentApiService = enrollmentApi.service;
     this.dashboardService = this.buildDashboardService(
       props,
       appCapacityProvider,
@@ -222,6 +243,18 @@ export class DevApplicationStack extends Stack {
     this.clickhouseService = this.buildClickhouseService(
       props,
       clickhouseCapacityProvider,
+    );
+  }
+
+  /**
+   * EdgeStack이 만든 실제 ALB DNS를 enrollment-api 환경변수에 뒤늦게 연결한다.
+   * `synthDev()`가 EdgeStack 생성 직후 반드시 호출하며, weak cross-stack reference를
+   * 그대로 사용한다. context나 localhost 기본값으로 우회하지 않는다. (ADR-0026)
+   */
+  public bindEnrollmentPublicBaseUrl(publicBaseUrl: string): void {
+    this.enrollmentApiContainer.addEnvironment(
+      ENROLLMENT_ENV.publicBaseUrl,
+      publicBaseUrl,
     );
   }
 
@@ -643,7 +676,85 @@ export class DevApplicationStack extends Stack {
   }
 
   // ============================================================
-  // 태스크 ④ : Dashboard Backend - bridge
+  // 태스크 ④ : Enrollment API - bridge
+  // ============================================================
+  private buildEnrollmentApiService(
+    props: DevApplicationStackProps,
+    capacityProvider: AsgCapacityProvider,
+  ): EnrollmentApiResources {
+    const task = new Ec2TaskDefinition(this, 'DevEnrollmentApiTask', {
+      // 단일 Spring 컨테이너이고 Cloud Map 등록 대상이 아니므로 bridge를 쓴다.
+      // 기존 앱 호스트의 egress와 ENI를 재사용하고 host port는 동적으로 받는다.
+      // (ADR-0022 4번, ADR-0026)
+      networkMode: NetworkMode.BRIDGE,
+    });
+
+    const container = task.addContainer('enrollment-api', {
+      image: ContainerImage.fromEcrRepository(
+        Repository.fromRepositoryName(
+          this,
+          'DevEnrollmentApiRepo',
+          ECR_REPOS.enrollmentApi,
+        ),
+        props.devConfig.imageTag,
+      ),
+      portMappings: [{ containerPort: PORTS.enrollmentApi }],
+      environment: {
+        [ENROLLMENT_ENV.dbUrl]: buildJdbcUrl({
+          host: props.dbEndpoint,
+          port: PORTS.aurora,
+          dbname: CONTROL_DB_NAME,
+          sslmode: CONTROL_DB_SSLMODE,
+        }),
+        [ENROLLMENT_ENV.binariesDir]: DEV_ENROLLMENT_BINARIES_DIR,
+        // PULSEMETRY_PUBLIC_BASE_URL은 EdgeStack 생성 뒤 bind 메서드가 실제 ALB DNS로
+        // 추가한다. 여기서 localhost나 별도 context 기본값을 두지 않는다.
+      },
+      secrets: {
+        [ENROLLMENT_ENV.dbUsername]: EcsSecret.fromSecretsManager(
+          props.dbSecret,
+          'username',
+        ),
+        [ENROLLMENT_ENV.dbPassword]: EcsSecret.fromSecretsManager(
+          props.dbSecret,
+          'password',
+        ),
+        [ENROLLMENT_ENV.adminApiToken]: EcsSecret.fromSecretsManager(
+          props.adminApiTokenSecret,
+          ENROLLMENT_ADMIN_API_TOKEN_SECRET_KEY,
+        ),
+        [ENROLLMENT_ENV.tokenHashSecret]: EcsSecret.fromSecretsManager(
+          props.tokenHashSecret,
+        ),
+      },
+      memoryReservationMiB: MEMORY_RESERVATION_MIB.enrollmentApi,
+      logging: LogDriver.awsLogs({
+        streamPrefix: 'enrollment-api',
+        logGroup: this.makeLogGroup(
+          'DevEnrollmentApiLog',
+          'enrollment-api',
+        ),
+      }),
+    });
+
+    const service = new Ec2Service(this, 'DevEnrollmentApiService', {
+      cluster: this.cluster,
+      taskDefinition: task,
+      serviceName: ECS_SERVICE_NAMES.enrollmentApi,
+      desiredCount: 1,
+      capacityProviderStrategies: [
+        { capacityProvider: capacityProvider.capacityProviderName, weight: 1 },
+      ],
+      // PROJ-143 전에는 ALB target을 붙이지 않고 기존 dashboard 경로를 유지한다.
+      propagateTags: PropagatedTagSource.SERVICE,
+      ...REPLACEMENT_DEPLOYMENT,
+    });
+
+    return { task, container, service };
+  }
+
+  // ============================================================
+  // 태스크 ⑤ : Dashboard Backend - bridge
   // ============================================================
   private buildDashboardService(
     props: DevApplicationStackProps,
@@ -742,7 +853,7 @@ export class DevApplicationStack extends Stack {
   }
 
   // ============================================================
-  // 태스크 ⑤ : ClickHouse - awsvpc
+  // 태스크 ⑥ : ClickHouse - awsvpc
   // ============================================================
   private buildClickhouseService(
     props: DevApplicationStackProps,

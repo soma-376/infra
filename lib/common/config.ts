@@ -79,6 +79,9 @@ export const PORTS = {
   // telemetry-ingest Spring 앱의 기본 포트. authProxy 와 숫자는 같지만 서로 다른
   // 배포 단위의 계약이므로 이름을 공유하지 않는다. (ADR-0026)
   telemetryIngest: 4316,
+  // enrollment-api Spring 앱의 기본 포트. 기존 apiServer와 숫자는 같지만 신규
+  // 독립 배포 단위의 계약이므로 이름을 분리한다. (ADR-0026)
+  enrollmentApi: 8080,
   clickhouseHttp: 8123,
   clickhouseNative: 9000,
   aurora: 5432,
@@ -204,6 +207,8 @@ export const ENROLLMENT_ENV = {
   dbPassword: 'PULSEMETRY_DB_PASSWORD',
   adminApiToken: 'PULSEMETRY_ADMIN_API_TOKEN',
   tokenHashSecret: 'PULSEMETRY_TOKEN_HASH_SECRET',
+  publicBaseUrl: 'PULSEMETRY_PUBLIC_BASE_URL',
+  binariesDir: 'PULSEMETRY_BINARIES_DIR',
 } as const;
 
 /**
