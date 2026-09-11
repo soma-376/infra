@@ -19,6 +19,10 @@ export interface DevEdgeStackProps extends StackProps {
   readonly collectorService: Ec2Service;
   /** 인증 프록시. `:80` 의 `/v1/*` 가 향하는 곳이다. (ADR-0023) */
   readonly authProxyService: Ec2Service;
+  /** PROJ-143에서 정확한 OTLP 세 경로의 타깃으로 연결한다. */
+  readonly telemetryIngestService: Ec2Service;
+  /** PROJ-143에서 enrollment와 bootstrap 경로의 타깃으로 연결한다. */
+  readonly enrollmentApiService: Ec2Service;
   readonly dashboardService: Ec2Service;
   readonly clickhouseService: Ec2Service;
   /** RDS 엔드포인트 호스트명 (CfnOutput 용). */
@@ -45,6 +49,9 @@ export interface DevEdgeStackProps extends StackProps {
  * `DevAlbSg` 의 허용 CIDR 하나뿐이다 (`infra:dev-open-ingress` 경고 참조).
  */
 export class DevEdgeStack extends Stack {
+  /** enrollment-api 응답에 넣을 실제 ALB HTTP base URL. */
+  public readonly publicBaseUrl: string;
+
   constructor(scope: Construct, id: string, props: DevEdgeStackProps) {
     super(scope, id, props);
 
@@ -54,6 +61,7 @@ export class DevEdgeStack extends Stack {
       securityGroup: props.albSecurityGroup,
       vpcSubnets: { subnetType: SubnetType.PUBLIC },
     });
+    this.publicBaseUrl = `http://${alb.loadBalancerDnsName}`;
 
     this.buildAppListener(props, alb);
     this.buildOtlpDebugListener(props, alb);

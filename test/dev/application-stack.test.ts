@@ -18,6 +18,7 @@ import {
   PORTS,
 } from '../../lib/common/config';
 import {
+  DEV_ENROLLMENT_BINARIES_DIR,
   DEV_LOG_GROUP_PREFIX,
   DEV_TELEMETRY_ARCHIVE_PREFIX,
 } from '../../lib/dev/config';
@@ -29,8 +30,9 @@ import {
 import { buildDevApp } from '../helpers';
 
 describe('DevApplicationStack', () => {
-  const { application } = buildDevApp();
+  const { application, edge } = buildDevApp();
   const template = Template.fromStack(application);
+  const edgeTemplate = Template.fromStack(edge).toJSON();
 
   function taskDefinitionWithContainer(containerName: string): any {
     const taskDefinitions = Object.values(
@@ -82,7 +84,7 @@ describe('DevApplicationStack', () => {
 
     // 서비스 이름은 유일성 스코프가 클러스터 안이라 운영과 같은 이름을 쓴다.
     // 그래야 워크플로우가 `--cluster` 하나만 갈아끼워 환경을 바꿀 수 있다.
-    test('병행 단계 서비스 5개의 이름이 고정되어 있다', () => {
+    test('병행 단계 서비스 6개의 이름이 고정되어 있다', () => {
       const names = Object.values(template.findResources('AWS::ECS::Service'))
         .map((resource: any) => resource.Properties.ServiceName)
         .sort();
@@ -92,12 +94,15 @@ describe('DevApplicationStack', () => {
           ECS_SERVICE_NAMES.collector,
           ECS_SERVICE_NAMES.authProxy,
           ECS_SERVICE_NAMES.telemetryIngest,
+          ECS_SERVICE_NAMES.enrollmentApi,
           ECS_SERVICE_NAMES.dashboard,
           ECS_SERVICE_NAMES.clickhouse,
         ].sort(),
       );
 
       expect(application.telemetryIngestService).toBeDefined();
+      expect(application.enrollmentApiTask).toBeDefined();
+      expect(application.enrollmentApiService).toBeDefined();
     });
   });
 
@@ -196,12 +201,19 @@ describe('DevApplicationStack', () => {
       });
     });
 
-    test('telemetry-ingest 추가 뒤에도 awsvpc 태스크는 기존 둘뿐이다', () => {
+    test('신규 Spring 서비스 둘을 추가해도 awsvpc 태스크는 기존 둘뿐이다', () => {
       const awsvpcTasks = Object.values(
         template.findResources('AWS::ECS::TaskDefinition'),
       ).filter((resource: any) => resource.Properties.NetworkMode === 'awsvpc');
 
       expect(awsvpcTasks).toHaveLength(2);
+    });
+
+    test('enrollment-api 태스크는 bridge 다 - 동적 포트와 호스트 ENI 사용의 전제다', () => {
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        NetworkMode: 'bridge',
+        ContainerDefinitions: [Match.objectLike({ Name: 'enrollment-api' })],
+      });
     });
   });
 
@@ -367,6 +379,152 @@ describe('DevApplicationStack', () => {
   });
 
   // ============================================================
+  // 신규 enrollment-api 배포 단위와 런타임 계약 (PROJ-142, ADR-0026)
+  // ============================================================
+  describe('신규 enrollment-api 배포 단위', () => {
+    test('독립 태스크에 enrollment-api 컨테이너 하나만 둔다', () => {
+      const definitions = taskDefinitionWithContainer('enrollment-api')
+        .Properties.ContainerDefinitions;
+
+      expect(definitions.map((definition: any) => definition.Name)).toEqual([
+        'enrollment-api',
+      ]);
+    });
+
+    test('8080 동적 host port와 1024 MiB 소프트 예약을 쓴다', () => {
+      const definition = container('enrollment-api');
+
+      expect(definition.PortMappings).toEqual([
+        {
+          ContainerPort: PORTS.enrollmentApi,
+          HostPort: 0,
+          Protocol: 'tcp',
+        },
+      ]);
+      expect(PORTS.enrollmentApi).toBe(8080);
+      expect(definition.MemoryReservation).toBe(1024);
+      expect(definition.Memory).toBeUndefined();
+    });
+
+    test('PROJ-143 전에는 ALB binding을 만들지 않는다', () => {
+      expect(
+        service(ECS_SERVICE_NAMES.enrollmentApi).Properties.LoadBalancers,
+      ).toBeUndefined();
+    });
+
+    test('application.yaml의 PULSEMETRY 이름 7개만 정확히 사용한다', () => {
+      expect(Object.values(ENROLLMENT_ENV).sort()).toEqual(
+        [
+          'PULSEMETRY_DB_URL',
+          'PULSEMETRY_DB_USERNAME',
+          'PULSEMETRY_DB_PASSWORD',
+          'PULSEMETRY_ADMIN_API_TOKEN',
+          'PULSEMETRY_TOKEN_HASH_SECRET',
+          'PULSEMETRY_PUBLIC_BASE_URL',
+          'PULSEMETRY_BINARIES_DIR',
+        ].sort(),
+      );
+      expect(
+        [
+          ...Object.keys(envMap('enrollment-api')),
+          ...secretNames('enrollment-api'),
+        ].sort(),
+      ).toEqual(Object.values(ENROLLMENT_ENV).sort());
+    });
+
+    test('JDBC URL·실제 ALB base URL·바이너리 경로를 일반 env로 넣는다', () => {
+      const env = envMap('enrollment-api');
+      const dbUrl = JSON.stringify(env[ENROLLMENT_ENV.dbUrl]);
+      const publicBaseUrl = env[ENROLLMENT_ENV.publicBaseUrl] as any;
+
+      expect(dbUrl).toContain('jdbc:postgresql://');
+      expect(dbUrl).toContain(
+        `:${PORTS.aurora}/${CONTROL_DB_NAME}?sslmode=${CONTROL_DB_SSLMODE}`,
+      );
+      expect(publicBaseUrl).toEqual({
+        'Fn::Join': [
+          '',
+          [
+            'http://',
+            {
+              'Fn::GetStackOutput': {
+                StackName: 'DevEdgeStack',
+                OutputName: expect.any(String),
+                Region: expect.any(String),
+              },
+            },
+          ],
+        ],
+      });
+
+      const outputName =
+        publicBaseUrl['Fn::Join'][1][1]['Fn::GetStackOutput'].OutputName;
+      const albDnsOutput = edgeTemplate.Outputs[outputName];
+      const [albLogicalId, attribute] = albDnsOutput.Value['Fn::GetAtt'];
+
+      expect(attribute).toBe('DNSName');
+      expect(edgeTemplate.Resources[albLogicalId]).toMatchObject({
+        Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer',
+      });
+      expect(JSON.stringify(publicBaseUrl)).not.toContain('localhost');
+      expect(env[ENROLLMENT_ENV.binariesDir]).toBe(
+        DEV_ENROLLMENT_BINARIES_DIR,
+      );
+      expect(DEV_ENROLLMENT_BINARIES_DIR).toBe('/app/binaries');
+    });
+
+    test('DB·관리자 토큰·token hash 네 값만 ECS secrets로 주입한다', () => {
+      expect(secretNames('enrollment-api').sort()).toEqual(
+        [
+          ENROLLMENT_ENV.dbUsername,
+          ENROLLMENT_ENV.dbPassword,
+          ENROLLMENT_ENV.adminApiToken,
+          ENROLLMENT_ENV.tokenHashSecret,
+        ].sort(),
+      );
+      expect(
+        JSON.stringify(
+          secretEntry('enrollment-api', ENROLLMENT_ENV.dbUsername).ValueFrom,
+        ),
+      ).toContain(':username::');
+      expect(
+        JSON.stringify(
+          secretEntry('enrollment-api', ENROLLMENT_ENV.dbPassword).ValueFrom,
+        ),
+      ).toContain(':password::');
+      expect(
+        JSON.stringify(
+          secretEntry('enrollment-api', ENROLLMENT_ENV.adminApiToken)
+            .ValueFrom,
+        ),
+      ).toContain(`:${ENROLLMENT_ADMIN_API_TOKEN_SECRET_KEY}::`);
+      expect(
+        secretEntry('enrollment-api', ENROLLMENT_ENV.tokenHashSecret)
+          .ValueFrom,
+      ).toEqual(
+        secretEntry('telemetry-ingest', INGEST_ENV.tokenHashSecret).ValueFrom,
+      );
+    });
+
+    test('민감값은 신규 컨테이너의 일반 env에 나타나지 않는다', () => {
+      const env = envMap('enrollment-api');
+      const serialized = JSON.stringify(
+        container('enrollment-api').Environment,
+      );
+
+      for (const secretName of [
+        ENROLLMENT_ENV.dbUsername,
+        ENROLLMENT_ENV.dbPassword,
+        ENROLLMENT_ENV.adminApiToken,
+        ENROLLMENT_ENV.tokenHashSecret,
+      ]) {
+        expect(Object.keys(env)).not.toContain(secretName);
+      }
+      expect(serialized).not.toContain('resolve:secretsmanager');
+    });
+  });
+
+  // ============================================================
   // auth-proxy 런타임 계약 (ADR-0023)
   // ============================================================
   describe('auth-proxy 런타임 계약', () => {
@@ -437,9 +595,9 @@ describe('DevApplicationStack', () => {
   });
 
   // ============================================================
-  // enrollment-api 런타임 계약 (PROJ-112)
+  // 기존 api-server의 enrollment-api 런타임 계약 (PROJ-112)
   // ============================================================
-  describe('enrollment-api 런타임 계약', () => {
+  describe('기존 api-server의 enrollment-api 런타임 계약', () => {
     test('JDBC URL 을 일반 환경변수 하나로 정확히 합성한다', () => {
       const env = envMap('api-server');
 
@@ -517,16 +675,17 @@ describe('DevApplicationStack', () => {
 
     // 접두사를 빼면 첫 cdk deploy 가 `already exists` 로 통째로 롤백된다 - 로그 그룹
     // 이름은 계정 + 리전 스코프에서 유일하고 운영이 이미 /ecs/collector 를 쓴다.
-    test('컨테이너 로그 그룹 7개가 전부 /ecs/dev/ 접두사를 쓴다', () => {
+    test('컨테이너 로그 그룹 8개가 전부 /ecs/dev/ 접두사를 쓴다', () => {
       const names = ecsLogGroupNames();
 
-      expect(names).toHaveLength(7);
+      expect(names).toHaveLength(8);
       expect(names.sort()).toEqual(
         [
           `${DEV_LOG_GROUP_PREFIX}/collector`,
           `${DEV_LOG_GROUP_PREFIX}/post-processor`,
           `${DEV_LOG_GROUP_PREFIX}/auth-proxy`,
           `${DEV_LOG_GROUP_PREFIX}/telemetry-ingest`,
+          `${DEV_LOG_GROUP_PREFIX}/enrollment-api`,
           `${DEV_LOG_GROUP_PREFIX}/api-server`,
           `${DEV_LOG_GROUP_PREFIX}/batch`,
           `${DEV_LOG_GROUP_PREFIX}/clickhouse`,
@@ -544,6 +703,25 @@ describe('DevApplicationStack', () => {
         (resource: any) =>
           resource.Properties.LogGroupName ===
           `${DEV_LOG_GROUP_PREFIX}/telemetry-ingest`,
+      );
+
+      expect(found).toHaveLength(1);
+      expect(found[0]).toMatchObject({
+        DeletionPolicy: 'Delete',
+        UpdateReplacePolicy: 'Delete',
+        Properties: {
+          RetentionInDays: 14,
+        },
+      });
+    });
+
+    test('enrollment-api 로그는 14일 보존 뒤 스택과 함께 삭제한다', () => {
+      const found = Object.values(
+        template.findResources('AWS::Logs::LogGroup'),
+      ).filter(
+        (resource: any) =>
+          resource.Properties.LogGroupName ===
+          `${DEV_LOG_GROUP_PREFIX}/enrollment-api`,
       );
 
       expect(found).toHaveLength(1);
@@ -741,6 +919,7 @@ describe('DevApplicationStack', () => {
       ['post-processor', ECR_REPOS.postProcessor],
       ['auth-proxy', ECR_REPOS.authProxy],
       ['telemetry-ingest', ECR_REPOS.telemetryIngest],
+      ['enrollment-api', ECR_REPOS.enrollmentApi],
       ['api-server', ECR_REPOS.apiServer],
       ['batch-processor', ECR_REPOS.batchProcessor],
     ];
@@ -802,9 +981,9 @@ describe('DevApplicationStack', () => {
           .join(''),
       );
 
-    // post-processor, auth-proxy, telemetry-ingest, api-server, batch-processor.
-    // collector 와 clickhouse 는 퍼블릭 레지스트리라 Fn::Join 이 아니다.
-    expect(ecrImages).toHaveLength(5);
+    // post-processor, auth-proxy, telemetry-ingest, enrollment-api, api-server,
+    // batch-processor. collector와 clickhouse는 퍼블릭 레지스트리라 Fn::Join이 아니다.
+    expect(ecrImages).toHaveLength(6);
     for (const image of ecrImages) {
       expect(image).toContain(':pr-42');
       expect(image).not.toContain(':latest');
@@ -820,8 +999,8 @@ describe('DevApplicationStack', () => {
 
     // 앱 ASG max를 2로 열어도 배포 시작 시 여분 호스트가 이미 있다는 보장은 없다.
     // 새 태스크 자리를 전제로 하지 않는 교체 배포를 유지한다. (ADR-0026)
-    test('다섯 서비스 모두 교체 배포(0/100, desired 1)로 고정한다', () => {
-      expect(services()).toHaveLength(5);
+    test('여섯 서비스 모두 교체 배포(0/100, desired 1)로 고정한다', () => {
+      expect(services()).toHaveLength(6);
       for (const service of services()) {
         expect(service.Properties.DesiredCount).toBe(1);
         expect(service.Properties.DeploymentConfiguration).toMatchObject({
@@ -840,17 +1019,18 @@ describe('DevApplicationStack', () => {
       }
     });
 
-    test('앱 호스트의 현재 소프트 예약 합은 3328 MiB다', () => {
+    test('병행 기간 앱 호스트 소프트 예약 합은 4352 MiB다', () => {
       const reservations = [
         'otel-collector',
         'post-processor',
         'auth-proxy',
         'telemetry-ingest',
+        'enrollment-api',
         'api-server',
         'batch-processor',
       ].map((name) => container(name).MemoryReservation as number);
 
-      expect(reservations.reduce((sum, value) => sum + value, 0)).toBe(3328);
+      expect(reservations.reduce((sum, value) => sum + value, 0)).toBe(4352);
     });
   });
 
