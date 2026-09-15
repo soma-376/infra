@@ -1,4 +1,9 @@
-import { DevConfig, DEV_OPEN_CIDR, loadDevConfig } from '../../lib/dev/config';
+import {
+  DevConfig,
+  DEV_OPEN_CIDR,
+  DEV_TELEMETRY_INGEST_HEALTH_CHECK_GRACE,
+  loadDevConfig,
+} from '../../lib/dev/config';
 import { PROD_IMAGE_TAG } from '../../lib/prod/config';
 import { buildDevApp } from '../helpers';
 
@@ -13,6 +18,10 @@ import { buildDevApp } from '../helpers';
 // 이미 고정한다. 여기서 중복하지 않는다.
 const devConfig = (context: Record<string, unknown> = {}): DevConfig =>
   loadDevConfig(buildDevApp(context).app);
+
+test('telemetry-ingest health check 기동 유예는 240초다', () => {
+  expect(DEV_TELEMETRY_INGEST_HEALTH_CHECK_GRACE.toSeconds()).toBe(240);
+});
 
 describe('loadDevConfig - devAllowedCidr', () => {
   // 기본값이 열려 있다는 사실 자체가 계약이다. 여기가 바뀌면 warnOnOpenIngress 의

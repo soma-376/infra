@@ -57,12 +57,22 @@ export const DEV_LOG_GROUP_PREFIX = '/ecs/dev';
  * dev ALB 타깃의 deregistration delay (ADR-0025).
  *
  * 교체 배포에서는 AWS 기본값 300초의 connection draining이 먼저 끝난 뒤 새 태스크를
- * 띄우므로 auth-proxy, dashboard, collector에는 MVP 초기 기준인 60초를 적용한다.
+ * 띄우므로 ClickHouse 외 ALB 타깃 그룹에는 MVP 초기 기준인 60초를 적용한다.
  * 이 값은 실트래픽으로 최적화한 결과나 AWS 공식 권장값이 아니다. ClickHouse는 장시간
  * 연결과 쿼리 특성을 별도로 검증하기 전까지 기본값 300초를 유지하고, prod 적용도
  * 관측 이후 결정한다.
  */
 export const DEV_DEREGISTRATION_DELAY = Duration.seconds(60);
+
+/**
+ * telemetry-ingest 전용 ECS health check 기동 유예 (ADR-0026).
+ *
+ * ClickHouse 스키마 준비가 응답 헤더 timeout과 재시도를 모두 소진하면 약
+ * 160초가 걸릴 수 있다. 로드 밸런서를 쓰면 CDK 기본 60초로는 기동 중인
+ * 태스크를 ECS scheduler가 조기 교체할 수 있어 ingest 서비스에만 240초를 둔다.
+ * healthy 전환을 지연하는 대기 시간이 아니며, 배포 후 실제 기동 시간을 관측한다.
+ */
+export const DEV_TELEMETRY_INGEST_HEALTH_CHECK_GRACE = Duration.seconds(240);
 
 /**
  * 앱 호스트 ASG 인스턴스 타입 (ClickHouse 외 모든 dev 앱 태스크).
@@ -241,12 +251,11 @@ export function warnOnOpenIngress(
 
   Annotations.of(scope).addWarningV2(
     'infra:dev-open-ingress',
-    `devAllowedCidr 미지정(또는 ${DEV_OPEN_CIDR} 명시): ALB(80/4318/8123)와 RDS(5432)의 ` +
+    `devAllowedCidr 미지정(또는 ${DEV_OPEN_CIDR} 명시): ALB(80/8123)와 RDS(5432)의 ` +
       '인바운드가 인터넷에 전면 공개된다. ClickHouse 의 default 유저는 비밀번호가 없고 ' +
       'access_management=1 을 가지므로(ADR-0019) 8123 에 닿을 수 있는 주체는 사실상 ' +
       '관리자이며, RDS 는 마스터 자격증명 무차별 대입에 노출된다. ' +
-      '4318 은 auth-proxy 를 거치지 않고 Collector 로 직행하는 디버그 리스너라 ' +
-      '인증 없는 OTLP 수신구가 그대로 열린다(ADR-0023 3번). ' +
+      '80의 telemetry-ingest·enrollment-api·dashboard 경로도 같은 CIDR에 공개된다. ' +
       '`-c devAllowedCidr=<내 IP>/32` 로 좁혀서 배포한다 (ADR-0022 9번).',
   );
 }
