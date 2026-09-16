@@ -21,6 +21,7 @@ import {
   DEV_ENROLLMENT_BINARIES_DIR,
   DEV_LOG_GROUP_PREFIX,
   DEV_TELEMETRY_ARCHIVE_PREFIX,
+  DEV_TELEMETRY_INGEST_HEALTH_CHECK_GRACE,
 } from '../../lib/dev/config';
 import { PROD_IMAGE_TAG } from '../../lib/prod/config';
 import {
@@ -238,10 +239,21 @@ describe('DevApplicationStack', () => {
       expect(container('telemetry-ingest').Memory).toBeUndefined();
     });
 
-    test('PROJ-143 전에는 ALB binding을 만들지 않는다', () => {
-      expect(
-        service(ECS_SERVICE_NAMES.telemetryIngest).Properties.LoadBalancers,
-      ).toBeUndefined();
+    test('ALB binding과 240초 health check 기동 유예를 적용한다', () => {
+      const properties = service(ECS_SERVICE_NAMES.telemetryIngest).Properties;
+
+      expect(properties.LoadBalancers).toHaveLength(1);
+      expect(properties.LoadBalancers[0]).toMatchObject({
+        ContainerName: 'telemetry-ingest',
+        ContainerPort: PORTS.telemetryIngest,
+      });
+      expect(JSON.stringify(properties.LoadBalancers[0].TargetGroupArn)).toContain(
+        'DevEdgeStack',
+      );
+      expect(properties.HealthCheckGracePeriodSeconds).toBe(
+        DEV_TELEMETRY_INGEST_HEALTH_CHECK_GRACE.toSeconds(),
+      );
+      expect(DEV_TELEMETRY_INGEST_HEALTH_CHECK_GRACE.toSeconds()).toBe(240);
     });
   });
 
@@ -406,10 +418,18 @@ describe('DevApplicationStack', () => {
       expect(definition.Memory).toBeUndefined();
     });
 
-    test('PROJ-143 전에는 ALB binding을 만들지 않는다', () => {
-      expect(
-        service(ECS_SERVICE_NAMES.enrollmentApi).Properties.LoadBalancers,
-      ).toBeUndefined();
+    test('ALB binding을 추가하고 CDK 기본 60초 기동 유예를 유지한다', () => {
+      const properties = service(ECS_SERVICE_NAMES.enrollmentApi).Properties;
+
+      expect(properties.LoadBalancers).toHaveLength(1);
+      expect(properties.LoadBalancers[0]).toMatchObject({
+        ContainerName: 'enrollment-api',
+        ContainerPort: PORTS.enrollmentApi,
+      });
+      expect(JSON.stringify(properties.LoadBalancers[0].TargetGroupArn)).toContain(
+        'DevEdgeStack',
+      );
+      expect(properties.HealthCheckGracePeriodSeconds).toBe(60);
     });
 
     test('application.yaml의 PULSEMETRY 이름 7개만 정확히 사용한다', () => {
@@ -1008,6 +1028,38 @@ describe('DevApplicationStack', () => {
           MaximumPercent: 100,
         });
       }
+    });
+
+    // PROJ-143은 리스너만 신규 앱으로 전환한다. 롤백 가능성을 남기기
+    // 위해 구 세 서비스의 target group binding은 PROJ-144까지 유지한다.
+    test('기존 collector·auth-proxy·dashboard의 ALB binding을 보존한다', () => {
+      for (const [serviceName, containerName, containerPort] of [
+        [ECS_SERVICE_NAMES.collector, 'otel-collector', PORTS.otlp],
+        [ECS_SERVICE_NAMES.authProxy, 'auth-proxy', PORTS.authProxy],
+        [ECS_SERVICE_NAMES.dashboard, 'api-server', PORTS.apiServer],
+      ] as const) {
+        const loadBalancers = service(serviceName).Properties.LoadBalancers;
+
+        expect(loadBalancers).toHaveLength(1);
+        expect(loadBalancers[0]).toMatchObject({
+          ContainerName: containerName,
+          ContainerPort: containerPort,
+        });
+        expect(JSON.stringify(loadBalancers[0].TargetGroupArn)).toContain(
+          'DevEdgeStack',
+        );
+      }
+    });
+
+    test('240초 health check 기동 유예는 telemetry-ingest에만 적용한다', () => {
+      const withExtendedGrace = services()
+        .filter(
+          (resource: any) =>
+            resource.Properties.HealthCheckGracePeriodSeconds === 240,
+        )
+        .map((resource: any) => resource.Properties.ServiceName);
+
+      expect(withExtendedGrace).toEqual([ECS_SERVICE_NAMES.telemetryIngest]);
     });
 
     // awsvpc 태스크는 ssmmessages 에 도달할 경로가 없어(NAT 도 인터페이스

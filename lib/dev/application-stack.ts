@@ -71,6 +71,7 @@ import {
   DEV_ENROLLMENT_BINARIES_DIR,
   DEV_LOG_GROUP_PREFIX,
   DEV_TELEMETRY_ARCHIVE_PREFIX,
+  DEV_TELEMETRY_INGEST_HEALTH_CHECK_GRACE,
 } from './config';
 
 /**
@@ -174,11 +175,11 @@ export class DevApplicationStack extends Stack {
   public readonly collectorService: Ec2Service;
   public readonly dashboardService: Ec2Service;
   public readonly clickhouseService: Ec2Service;
-  /** 인증 프록시. ALB `:80` 의 `/v1/*` 가 이 서비스를 향한다. (ADR-0023) */
+  /** 기존 인증 프록시. PROJ-144 정리 전까지 ALB binding을 유지한다. */
   public readonly authProxyService: Ec2Service;
-  /** 신규 Spring 수집 서비스. PROJ-143에서 ALB 타깃으로 연결한다. (ADR-0026) */
+  /** Spring 수집 서비스. ALB의 정확한 OTLP 세 경로를 받는다. (ADR-0026) */
   public readonly telemetryIngestService: Ec2Service;
-  /** 신규 enrollment-api 태스크와 서비스. PROJ-143에서 ALB 타깃으로 연결한다. */
+  /** enrollment-api 태스크와 서비스. enrollment·bootstrap 경로를 받는다. */
   public readonly enrollmentApiTask: Ec2TaskDefinition;
   public readonly enrollmentApiService: Ec2Service;
 
@@ -669,7 +670,9 @@ export class DevApplicationStack extends Stack {
       capacityProviderStrategies: [
         { capacityProvider: capacityProvider.capacityProviderName, weight: 1 },
       ],
-      // PROJ-143 전에는 ALB target을 붙이지 않고 서비스만 병행 생성한다.
+      // ClickHouse 스키마 준비의 최장 재시도 경로가 CDK 기본 60초를
+      // 넘을 수 있어 ingest에만 명시적으로 기동 유예를 둔다. (ADR-0026)
+      healthCheckGracePeriod: DEV_TELEMETRY_INGEST_HEALTH_CHECK_GRACE,
       propagateTags: PropagatedTagSource.SERVICE,
       ...REPLACEMENT_DEPLOYMENT,
     });
@@ -745,7 +748,7 @@ export class DevApplicationStack extends Stack {
       capacityProviderStrategies: [
         { capacityProvider: capacityProvider.capacityProviderName, weight: 1 },
       ],
-      // PROJ-143 전에는 ALB target을 붙이지 않고 기존 dashboard 경로를 유지한다.
+      // ALB target이 붙으면 CDK 기본 60초 health check 기동 유예를 쓴다.
       propagateTags: PropagatedTagSource.SERVICE,
       ...REPLACEMENT_DEPLOYMENT,
     });
