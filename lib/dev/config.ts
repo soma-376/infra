@@ -48,8 +48,8 @@ export const DEV_SUBNET_GROUP = {
  * `Resource of type 'AWS::Logs::LogGroup' with identifier '/ecs/collector'
  * already exists` 로 스택이 통째로 롤백된다. (ADR-0021 Constraints)
  *
- * basename 은 운영과 같게 유지한다 - 같은 컨테이너의 로그를 찾을 때 접두사만
- * 바꿔 끼우면 되게 하기 위함이다.
+ * 최종 두 Spring 앱은 dev 전용 basename을 쓰고, ClickHouse는 운영과 같은
+ * basename을 쓴다. 세 로그 그룹 모두 이 접두사 아래에 둔다.
  */
 export const DEV_LOG_GROUP_PREFIX = '/ecs/dev';
 
@@ -135,11 +135,11 @@ export const DEV_ENROLLMENT_BINARIES_DIR = '/app/binaries';
 export const DEV_OPEN_CIDR = '0.0.0.0/0';
 
 /**
- * `devAppAsgMaxCapacity` 기본값. ADR-0026 병행 기간에는 구 서비스 2304 MiB와 신규
- * Spring 서비스 2048 MiB의 예약 합이 4 GiB를 넘으므로 호스트 2대까지 열어 둔다.
- * 구 서비스 제거 뒤 1로 되돌린다.
+ * `devAppAsgMaxCapacity` 기본값. 구 서비스 정리 후 앱 호스트 소프트 예약은
+ * telemetry-ingest와 enrollment-api 합 2048 MiB다. 기본 호스트를 한 대로
+ * 되돌리고, 부하 검증이 필요하면 context로 늘린다. (ADR-0026)
  */
-const DEV_DEFAULT_APP_ASG_MAX_CAPACITY = 2;
+const DEV_DEFAULT_APP_ASG_MAX_CAPACITY = 1;
 
 /**
  * `devImageTag` 기본값. dev/prod 가 같은 ECR 레포를 공유하고 태그로만 갈린다
@@ -255,7 +255,7 @@ export function warnOnOpenIngress(
       '인바운드가 인터넷에 전면 공개된다. ClickHouse 의 default 유저는 비밀번호가 없고 ' +
       'access_management=1 을 가지므로(ADR-0019) 8123 에 닿을 수 있는 주체는 사실상 ' +
       '관리자이며, RDS 는 마스터 자격증명 무차별 대입에 노출된다. ' +
-      '80의 telemetry-ingest·enrollment-api·dashboard 경로도 같은 CIDR에 공개된다. ' +
+      '80의 telemetry-ingest·enrollment-api 경로도 같은 CIDR에 공개된다. ' +
       '`-c devAllowedCidr=<내 IP>/32` 로 좁혀서 배포한다 (ADR-0022 9번).',
   );
 }

@@ -22,7 +22,8 @@ import {
  * 골라 컨테이너 포트에 매핑한다(ephemeral port range). ALB 인스턴스 타깃은 그 동적
  * 포트로 등록되므로, ALB 와 운영자가 호스트에 닿으려면 이 범위 전체를 열어야 한다.
  *
- * `DevDashboardTask` 가 bridge 인 한 이 상수는 지울 수 없다. (ADR-0022 4번)
+ * telemetry-ingest 와 enrollment-api 가 bridge 인 한 이 상수는 지울 수 없다.
+ * (ADR-0026)
  */
 const EPHEMERAL_PORT_MIN = 32768;
 const EPHEMERAL_PORT_MAX = 65535;
@@ -36,9 +37,9 @@ export interface DevNetworkStackProps extends StackProps {
 
 /**
  * DevNetworkStack: dev 전용 VPC(퍼블릭 서브넷 전용, NAT 없음) + S3 게이트웨이
- * 엔드포인트 + SG 5개 전부.
+ * 엔드포인트 + SG 4개 전부.
  *
- * **SG 5개와 모든 cross-SG 룰을 이 스택에만 둔다.** `AGENTS.md` 3장의 불변 규칙을
+ * **SG 4개와 모든 cross-SG 룰을 이 스택에만 둔다.** `AGENTS.md` 3장의 불변 규칙을
  * dev 에 그대로 계승한 것이다 - SG 간 참조가 스택 내부 참조가 되어 스택 간 순환
  * 의존을 원천 차단하고, 하류 스택(`DevDataStack`, `DevApplicationStack`,
  * `DevEdgeStack`)은 props 로 주입만 받는다. 이 성질은 환경과 무관하다. (ADR-0022 2번)
@@ -52,8 +53,6 @@ export class DevNetworkStack extends Stack {
   public readonly albSecurityGroup: SecurityGroup;
   /** EC2 호스트 2대(앱 ASG + ClickHouse ASG) 공용 SG. */
   public readonly appHostSecurityGroup: SecurityGroup;
-  /** collector 태스크 ENI(awsvpc)용 SG. */
-  public readonly collectorSecurityGroup: SecurityGroup;
   /** ClickHouse 태스크 ENI(awsvpc)용 SG. */
   public readonly clickhouseSecurityGroup: SecurityGroup;
   public readonly rdsSecurityGroup: SecurityGroup;
@@ -90,9 +89,9 @@ export class DevNetworkStack extends Stack {
       ],
     });
 
-    // 게이트웨이 엔드포인트는 요금이 없다. 그리고 awsvpc 태스크(collector,
-    // ClickHouse)의 ENI 에는 퍼블릭 IP 가 붙지 않고 NAT 도 없으므로, 이것이
-    // 태스크가 S3 에 닿는 **유일한 경로**다. (ADR-0022 1번/5(a))
+    // 게이트웨이 엔드포인트는 요금이 없다. 그리고 awsvpc ClickHouse 태스크의
+    // ENI 에는 퍼블릭 IP 가 붙지 않고 NAT 도 없으므로, 이것이 태스크가 S3 에 닿는
+    // **유일한 경로**다. (ADR-0022 1번/5(a))
     this.vpc.addGatewayEndpoint('S3Endpoint', {
       service: GatewayVpcEndpointAwsService.S3,
     });
@@ -123,11 +122,6 @@ export class DevNetworkStack extends Stack {
     this.appHostSecurityGroup = new SecurityGroup(this, 'DevAppHostSg', {
       vpc: this.vpc,
       description: 'dev ECS EC2 hosts (app ASG + ClickHouse ASG)',
-      allowAllOutbound: true,
-    });
-    this.collectorSecurityGroup = new SecurityGroup(this, 'DevCollectorSg', {
-      vpc: this.vpc,
-      description: 'dev Collector task ENI (awsvpc)',
       allowAllOutbound: true,
     });
     this.clickhouseSecurityGroup = new SecurityGroup(this, 'DevClickhouseSg', {
@@ -164,7 +158,7 @@ export class DevNetworkStack extends Stack {
       );
     });
 
-    // 앱 호스트 <- ALB : bridge 태스크(dashboard)의 동적 호스트 포트.
+    // 앱 호스트 <- ALB : bridge 앱 태스크의 동적 호스트 포트.
     this.appHostSecurityGroup.addIngressRule(
       this.albSecurityGroup,
       ephemeralPorts,
@@ -181,53 +175,20 @@ export class DevNetworkStack extends Stack {
       );
     });
 
-    // Collector 태스크 ENI <- ALB:4318. PROJ-143은 공개 리스너와 ALB SG
-    // 인그레스를 제거하지만, 롤백을 위한 기존 target group·service binding과
-    // 이 룰은 PROJ-144 정리 전까지 유지한다. (ADR-0026)
-    this.collectorSecurityGroup.addIngressRule(
-      this.albSecurityGroup,
-      Port.tcp(PORTS.otlp),
-      'OTLP from ALB',
-    );
-
-    // Collector 태스크 ENI <- 앱 호스트:4318 (auth-proxy -> Collector).
+    // ClickHouse 태스크 ENI <- 앱 호스트 : 8123/9000.
     //
-    // **출발 SG 가 앱 호스트 SG 인 이유는 `DevAuthProxyTask` 가 bridge 이기 때문이다.**
-    // bridge 태스크는 자기 ENI 가 없어 아웃바운드가 호스트 ENI 를 타므로, 출발 SG 는
-    // 태스크 SG 가 아니라 `DevAppHostSg` 다. 바로 아래 ClickHouse 룰이 batch-processor
-    // 때문에 같은 형태인 것과 정확히 같은 사정이다. 이 룰을 "쓰지 않는 것 같다"고
-    // 지우면 auth-proxy 만 조용히 타임아웃으로 죽는다.
-    //
-    // 대가로 같은 호스트의 dashboard 태스크도 4318 에 닿을 수 있다. bridge 를 고른
-    // 트레이드오프이며 ADR-0023 Negative 에 기록되어 있다. (ADR-0022 4번, ADR-0023 2번)
-    this.collectorSecurityGroup.addIngressRule(
+    // telemetry-ingest 가 bridge 태스크라 자기 ENI 없이 호스트 ENI 로 통신하므로
+    // 출발 SG 는 `DevAppHostSg` 다. (ADR-0026)
+    this.clickhouseSecurityGroup.addIngressRule(
       this.appHostSecurityGroup,
-      Port.tcp(PORTS.otlp),
-      'OTLP from app hosts (bridge auth-proxy)',
+      Port.tcp(PORTS.clickhouseHttp),
+      'ClickHouse HTTP',
     );
-
-    // ClickHouse 태스크 ENI <- {collector 태스크 ENI, 앱 호스트} : 8123/9000.
-    //
-    // **앱 호스트 SG 가 peer 에 들어가는 이유는 `DevDashboardTask` 가 bridge 이기
-    // 때문이다.** bridge 태스크는 자기 ENI 가 없어 아웃바운드가 호스트 ENI 를
-    // 타므로, batch-processor 가 ClickHouse 로 보내는 트래픽의 출발 SG 는 태스크
-    // SG 가 아니라 `DevAppHostSg` 다. 이 룰을 "쓰지 않는 것 같다"고 지우면
-    // batch-processor 만 조용히 타임아웃으로 죽는다. (ADR-0022 4번)
-    for (const peer of [
-      this.collectorSecurityGroup,
+    this.clickhouseSecurityGroup.addIngressRule(
       this.appHostSecurityGroup,
-    ]) {
-      this.clickhouseSecurityGroup.addIngressRule(
-        peer,
-        Port.tcp(PORTS.clickhouseHttp),
-        'ClickHouse HTTP',
-      );
-      this.clickhouseSecurityGroup.addIngressRule(
-        peer,
-        Port.tcp(PORTS.clickhouseNative),
-        'ClickHouse native',
-      );
-    }
+      Port.tcp(PORTS.clickhouseNative),
+      'ClickHouse native',
+    );
     // ClickHouse 태스크 ENI <- ALB:8123. EC2 퍼블릭 IP 가 인스턴스 교체마다 바뀌므로
     // (ADR-0010 과 같은 사정) ALB :8123 리스너가 안정적인 직접 쿼리 주소를 준다.
     this.clickhouseSecurityGroup.addIngressRule(
@@ -236,22 +197,16 @@ export class DevNetworkStack extends Stack {
       'ClickHouse HTTP from ALB (debug listener)',
     );
 
-    // RDS <- {collector 태스크 ENI, 앱 호스트} : 5432.
-    // 앱 호스트가 필요한 이유는 위 ClickHouse 와 같다 - api-server 가 bridge 라
-    // Postgres 연결의 출발 SG 가 호스트 ENI 다.
-    for (const peer of [
-      this.collectorSecurityGroup,
+    // RDS <- 앱 호스트 : 5432. telemetry-ingest 와 enrollment-api 가 bridge 태스크라
+    // Postgres 연결의 출발 SG 는 호스트 ENI 다. (ADR-0026)
+    this.rdsSecurityGroup.addIngressRule(
       this.appHostSecurityGroup,
-    ]) {
-      this.rdsSecurityGroup.addIngressRule(
-        peer,
-        Port.tcp(PORTS.aurora),
-        'Postgres from app tier',
-      );
-    }
-    // RDS <- 허용 CIDR : 로컬 psql 직접 접속. `publiclyAccessible: true` 와 한 몸이며
-    // (ADR-0022 6번) `AGENTS.md` 5장 (H)의 "RDS 조직 스키마를 아무도 부트스트랩하지
-    // 않는다"를 dev 에서 손으로 해결할 수 있는 유일한 경로다.
+      Port.tcp(PORTS.aurora),
+      'Postgres from app tier',
+    );
+    // RDS <- 허용 CIDR : 로컬 psql 진단 접근. 스키마는 enrollment-api의 Flyway가
+    // 관리하며, 이 경로는 `publiclyAccessible: true`와 함께 dev 운영자가 직접 상태를
+    // 확인할 때만 쓴다. (ADR-0022 6번, ADR-0026)
     this.forEachAllowedCidr((peer, cidr) => {
       this.rdsSecurityGroup.addIngressRule(
         peer,

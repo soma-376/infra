@@ -1,9 +1,7 @@
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import {
   CONTROL_DB_NAME,
-  CONTROL_DB_SSLMODE,
   ENROLLMENT_ADMIN_API_TOKEN_SECRET_KEY,
-  PORTS,
 } from '../../lib/common/config';
 import {
   DEV_RAW_SIGNAL_EXPIRATION_DAYS,
@@ -54,18 +52,17 @@ describe('DevDataStack', () => {
     });
   });
 
-  // 마스터(RDS 자동 생성) + post-processor 파생 DSN + auth-proxy 파생 URI +
-  // 공유 토큰 해시 키 + enrollment-api 관리자 토큰. (ADR-0018, ADR-0023, PROJ-112)
-  test('시크릿 5개를 만든다', () => {
-    template.resourceCountIs('AWS::SecretsManager::Secret', 5);
+  // 마스터(RDS 자동 생성) + 공유 토큰 해시 키 + enrollment-api 관리자 토큰.
+  // 폐기한 post-processor/auth-proxy 파생 접속 시크릿은 다시 만들지 않는다. (ADR-0026)
+  test('최종 시크릿 3개만 만든다', () => {
+    template.resourceCountIs('AWS::SecretsManager::Secret', 3);
   });
 
   /**
    * 논리 ID 접두사로 시크릿 하나를 집는다.
    *
-   * 예전에는 `SecretString` 유무로 갈랐지만 auth-proxy 가 들어오면서 파생 시크릿이
-   * 둘이 되어 더 이상 유일하지 않다. 논리 ID 는 construct ID 에서 유도되므로
-   * 이 방식이 어느 시크릿을 보는지 이름으로 드러난다.
+   * 논리 ID 는 construct ID 에서 유도되므로 이 방식이 어느 시크릿을 보는지
+   * 이름으로 드러난다.
    */
   function secretByIdPrefix(prefix: string): any {
     const matched = Object.entries(
@@ -76,87 +73,19 @@ describe('DevDataStack', () => {
     return matched[0][1];
   }
 
-  /** post-processor 용 libpq keyword/value DSN 시크릿. */
-  function derivedDsnSecret(): any {
-    return secretByIdPrefix('DevPostProcessorPgDsn');
-  }
+  test('폐기한 파생 접속 시크릿을 만들지 않는다', () => {
+    const logicalIds = Object.keys(
+      template.findResources('AWS::SecretsManager::Secret'),
+    );
 
-  /** auth-proxy 용 URI 형식 DSN 시크릿. (ADR-0023) */
-  function authProxyDatabaseUrlSecret(): any {
-    return secretByIdPrefix('DevAuthProxyDatabaseUrl');
-  }
-
-  /** Fn::Join 의 리터럴 조각만 이어붙인다. */
-  function joinedLiterals(secret: any): string {
-    return (secret.Properties.SecretString['Fn::Join'][1] as unknown[])
-      .filter((part): part is string => typeof part === 'string')
-      .join('');
-  }
-
-  // DSN 에는 DB 비밀번호가 통째로 들어간다. 합성 산출물에 평문이 한 조각이라도
-  // 남으면 CloudFormation 템플릿과 콘솔에 그대로 노출된다. (ADR-0018, ADR-0022 7번)
-  // **파생 시크릿 둘 다 검사한다.** auth-proxy 쪽에서 이 성질이 깨져도 증상은 같다 -
-  // 템플릿과 콘솔에 DB 비밀번호가 그대로 남는다. (ADR-0018, ADR-0023)
-  test.each([
-    ['post-processor libpq DSN', () => derivedDsnSecret()],
-    ['auth-proxy Postgres URI', () => authProxyDatabaseUrlSecret()],
-  ])(
-    '%s 시크릿은 Fn::Join + 동적 참조로만 이뤄지고 평문 자격증명이 없다',
-    (_label, pick) => {
-      const join = pick().Properties.SecretString['Fn::Join'];
-      expect(join).toBeDefined();
-
-      const parts = join[1] as unknown[];
-      const literals = parts
-        .filter((part): part is string => typeof part === 'string')
-        .join('');
-
-      // username/password 는 반드시 동적 참조로만 등장한다.
-      expect(literals).toContain('{{resolve:secretsmanager:');
-      expect(literals).toContain(':SecretString:username::}}');
-      expect(literals).toContain(':SecretString:password::}}');
-
-      // 리터럴이 아닌 조각은 전부 CFN intrinsic 이어야 한다.
-      for (const part of parts) {
-        if (typeof part === 'string') {
-          continue;
-        }
-        expect(Object.keys(part as object)[0]).toMatch(/^(Ref|Fn::GetAtt)$/);
-      }
-    },
-  );
-
-  // 형식이 운영과 갈리면 post-processor 가 dev 에서만 다르게 동작한다. (ADR-0022 7번)
-  test('DSN 리터럴에 운영과 같은 접속 계약이 들어간다', () => {
-    const literals = joinedLiterals(derivedDsnSecret());
-
-    expect(literals).toContain(`dbname=${CONTROL_DB_NAME}`);
-    expect(literals).toContain(` port=${PORTS.aurora} `);
-    expect(literals).toContain(`sslmode=${CONTROL_DB_SSLMODE}`);
-  });
-
-  // **auth-proxy 는 libpq DSN 을 읽지 못한다.** `pg` 의 파서는 URI 전용이라
-  // keyword/value 를 주면 공백이 %20 으로 인코딩되어 통째로 망가진다. 두 시크릿의
-  // 형식이 서로 달라야 한다는 것이 계약이다. (ADR-0023)
-  test('auth-proxy DSN 은 libpq 가 아니라 URI 형식이다', () => {
-    const literals = joinedLiterals(authProxyDatabaseUrlSecret());
-
-    expect(literals).toContain('postgresql://');
-    expect(literals).toContain(`:${PORTS.aurora}/${CONTROL_DB_NAME}?`);
-    // libpq keyword/value 흔적이 섞이면 안 된다.
-    expect(literals).not.toContain('host=');
-    expect(literals).not.toContain('dbname=');
-  });
-
-  // **`uselibpqcompat=true` 가 빠지면 배포는 성공하고 auth-proxy 만 런타임에 죽는다.**
-  // pg-connection-string 은 이 플래그가 없을 때 sslmode=require 를 verify-full 의
-  // 별칭으로 취급해 rejectUnauthorized 를 켜고, RDS 기본 CA 는 Node 기본 CA 번들에
-  // 없으므로 접속 자체가 실패한다. 라이브러리가 직접 이 플래그를 권고한다. (ADR-0023)
-  test('auth-proxy URI 는 libpq 호환 플래그와 함께 sslmode 를 준다', () => {
-    const literals = joinedLiterals(authProxyDatabaseUrlSecret());
-
-    expect(literals).toContain('uselibpqcompat=true');
-    expect(literals).toContain(`sslmode=${CONTROL_DB_SSLMODE}`);
+    for (const prefix of [
+      'DevPostProcessorPgDsn',
+      'DevAuthProxyDatabaseUrl',
+    ]) {
+      expect(logicalIds.some((logicalId) => logicalId.startsWith(prefix))).toBe(
+        false,
+      );
+    }
   });
 
   // 이 키가 바뀌면 이미 발급된 모든 토큰의 해시가 매칭 불가가 되므로 회전을 켜지
@@ -164,6 +93,10 @@ describe('DevDataStack', () => {
   test('토큰 해시 키는 CDK 가 생성하고 값이 템플릿에 남지 않는다', () => {
     const secret = secretByIdPrefix('DevAuthProxyTokenHashSecret');
 
+    // 기존 Secret 을 교체하지 않도록 legacy description 을 그대로 고정한다.
+    expect(secret.Properties.Description).toBe(
+      'HMAC-SHA256 key for dev auth-proxy telemetry token hashing (TOKEN_HASH_SECRET). Shared with the enrollment server.',
+    );
     expect(secret.Properties.SecretString).toBeUndefined();
     expect(secret.Properties.GenerateSecretString).toMatchObject({
       PasswordLength: 64,
@@ -192,21 +125,9 @@ describe('DevDataStack', () => {
     expect(secret.UpdateReplacePolicy).toBe('Delete');
   });
 
-  // 우리는 libpq DSN 값을 따옴표로 감싸지 않는다(합성 시점엔 토큰이라 감쌀 수 없다).
-  // 대신 aws-rds 가 자동 생성 비밀번호에서 제외하는 문자 집합이, 따옴표 없는
-  // keyword/value DSN 을 깨뜨리는 문자 4개를 전부 포함한다는 사실에 의존한다.
-  // **이건 우연히 성립하는 커플링이라** 라이브러리 업그레이드로 조용히 깨질 수 있고,
-  // 깨지면 배포는 성공하고 post-processor 만 런타임에 죽는다. (ADR-0018)
-  //
-  // DEFAULT_PASSWORD_EXCLUDE_CHARS 는 aws-rds/lib/private/util 에만 있고 공개
-  // 엔트리포인트에서 export 되지 않으므로 합성 템플릿을 권위 소스로 삼는다.
-  // DatabaseInstance 도 DatabaseCluster 와 같은 상수를 쓰지만 그 사실 자체는
-  // 상수 import 로 검증할 수 없다.
-  //
-  // **auth-proxy 가 들어오면서 이 커플링이 두 배가 됐다.** URI 형식은 libpq 와 다른
-  // 문자에 취약하고(`@` `/` `?` `#` `%` `:` `[` `]`), 합성 시점에 password 는 토큰이라
-  // 퍼센트 인코딩도 불가능하다. 두 집합을 한 테스트에서 함께 고정한다. (ADR-0023)
-  test('자동 생성 비밀번호는 libpq DSN 과 URI 를 깨뜨릴 문자를 모두 제외한다', () => {
+  // 파생 접속 시크릿을 삭제해도 실제 RDS 마스터 Secret 의 논리 ID와 생성 속성은
+  // 바뀌면 안 된다. 변경되면 기존 username/password 가 교체된다. (ADR-0026)
+  test('RDS 마스터 Secret의 논리 ID와 생성 속성을 보존한다', () => {
     // GenerateSecretString 을 쓰는 시크릿이 셋이다(마스터 + 토큰 해시 키 + 관리자 토큰).
     // 여기서 보려는 것은 **RDS 마스터 비밀번호**이므로 GenerateStringKey 로 좁힌다.
     const generated = Object.values(
@@ -218,29 +139,20 @@ describe('DevDataStack', () => {
     );
 
     expect(generated).toHaveLength(1);
-    const generate = (generated[0] as any).Properties.GenerateSecretString;
-
-    const excluded: string = generate.ExcludeCharacters;
-    const unsafe: ReadonlyArray<readonly [string, string]> = [
-      // libpq keyword/value (ADR-0018)
-      ['공백(키 구분자)', ' '],
-      ['작은따옴표(인용)', "'"],
-      ['큰따옴표(인용)', '"'],
-      ['역슬래시(이스케이프)', '\\'],
-      // URI (ADR-0023)
-      ['@(userinfo 구분자)', '@'],
-      ['/(경로 구분자)', '/'],
-      ['?(쿼리 구분자)', '?'],
-      ['#(프래그먼트 구분자)', '#'],
-      ['%(퍼센트 인코딩)', '%'],
-      [':(userinfo/포트 구분자)', ':'],
-      ['[(IPv6 리터럴)', '['],
-      ['](IPv6 리터럴)', ']'],
-    ];
-    for (const [label, char] of unsafe) {
-      // 어느 문자가 빠졌는지 실패 메시지에 그대로 드러나게 한다.
-      expect({ [label]: excluded.includes(char) }).toEqual({ [label]: true });
-    }
+    expect(Object.entries(template.findResources('AWS::SecretsManager::Secret'))
+      .find(([, resource]: [string, any]) =>
+        resource.Properties.GenerateSecretString?.GenerateStringKey ===
+        'password',
+      )?.[0],
+    ).toBe(
+      'DevDataStackDevPostgresSecret0E0FB6843fdaad7efa858a3daf9490cf0a702aeb',
+    );
+    expect((generated[0] as any).Properties.GenerateSecretString).toEqual({
+      ExcludeCharacters: ' %+~`#$&*()|[]{}:;<>?!\'/@"\\',
+      GenerateStringKey: 'password',
+      PasswordLength: 30,
+      SecretStringTemplate: '{"username":"postgres"}',
+    });
   });
 
   test('raw signal 버킷은 퍼블릭 접근을 전부 막는다', () => {

@@ -19,6 +19,9 @@ const PIPELINE_PROD = `github-deploy-${GITHUB_REPOS.pipeline.name}-prod`;
 const DASHBOARD_DEV = `github-deploy-${GITHUB_REPOS.dashboard.name}-dev`;
 const DASHBOARD_PROD = `github-deploy-${GITHUB_REPOS.dashboard.name}-prod`;
 const ALL_ROLES = [PIPELINE_DEV, PIPELINE_PROD, DASHBOARD_DEV, DASHBOARD_PROD];
+const PERMISSIONED_ROLES = [PIPELINE_PROD, DASHBOARD_DEV, DASHBOARD_PROD];
+const RETIRED_AUTH_PROXY_REPO = `${ECR_NAMESPACE}/auth-proxy`;
+const RETIRED_AUTH_PROXY_SERVICE = 'auth-proxy';
 
 describe('DeployStack', () => {
   const { deploy } = buildCicdApp();
@@ -83,13 +86,17 @@ describe('DeployStack', () => {
     return found;
   };
 
-  const ecsServicePairsFor = (roleName: string): string[] =>
-    statementsFor(roleName)
-      .filter((s) =>
-        (asArray(s.Action) as string[]).includes('ecs:UpdateService'),
-      )
-      .flatMap((s) => asArray(s.Resource).map(arnLiterals))
-      .map((arn) => arn.split(':service/')[1]);
+  const ecrRepositoriesFor = (roleName: string): string[] =>
+    asArray(statementWithAction(roleName, 'ecr:PutImage').Resource)
+      .map(arnLiterals)
+      .map((arn) => arn.split(':repository/')[1])
+      .sort();
+
+  const ecsServicesFor = (roleName: string): string[] =>
+    asArray(statementWithAction(roleName, 'ecs:UpdateService').Resource)
+      .map(arnLiterals)
+      .map((arn) => arn.split(':service/')[1])
+      .sort();
 
   // ============================================================
   // OIDC 공급자
@@ -201,9 +208,27 @@ describe('DeployStack', () => {
   // 권한 - 이미지 push 와 강제 재배포 둘뿐
   // ============================================================
   describe('권한 정책', () => {
+    test('dev pipeline 역할은 신뢰와 ARN output만 유지하고 permission statement가 0개다', () => {
+      const [logicalId, role] = roleResource(PIPELINE_DEV);
+
+      expect(statementsFor(PIPELINE_DEV)).toEqual([]);
+      expect(role.Properties.Policies).toBeUndefined();
+      expect(role.Properties.ManagedPolicyArns).toBeUndefined();
+      expect(trustStatement(PIPELINE_DEV).Action).toEqual(
+        'sts:AssumeRoleWithWebIdentity',
+      );
+
+      const output = Object.values(template.findOutputs('*')).find(
+        (candidate: any) =>
+          candidate.Value?.['Fn::GetAtt']?.[0] === logicalId &&
+          candidate.Value?.['Fn::GetAtt']?.[1] === 'Arn',
+      );
+      expect(output).toBeDefined();
+    });
+
     // 이 액션은 리소스 수준 권한을 지원하지 않아 `*` 가 강제된다. 그래서 이 statement 에
     // 다른 액션이 얹히면 그 액션까지 계정 전역이 된다.
-    test.each(ALL_ROLES)(
+    test.each(PERMISSIONED_ROLES)(
       '%s 의 `*` 리소스 statement 는 GetAuthorizationToken 하나뿐이다',
       (roleName) => {
         const statement = statementWithAction(
@@ -220,14 +245,17 @@ describe('DeployStack', () => {
       },
     );
 
-    test.each(ALL_ROLES)('%s 의 ECR push 액션 집합이 정확하다', (roleName) => {
-      const statement = statementWithAction(roleName, 'ecr:PutImage');
-      expect((asArray(statement.Action) as string[]).sort()).toEqual(
-        [...ECR_PUSH_ACTIONS].sort(),
-      );
-    });
+    test.each(PERMISSIONED_ROLES)(
+      '%s 의 ECR push 액션 집합이 정확하다',
+      (roleName) => {
+        const statement = statementWithAction(roleName, 'ecr:PutImage');
+        expect((asArray(statement.Action) as string[]).sort()).toEqual(
+          [...ECR_PUSH_ACTIONS].sort(),
+        );
+      },
+    );
 
-    test.each(ALL_ROLES)(
+    test.each(PERMISSIONED_ROLES)(
       '%s 는 manifest push 용 BatchGetImage 만 ECR 레포 범위로 허용한다',
       (roleName) => {
         const batchGetStatement = statementWithAction(
@@ -249,12 +277,15 @@ describe('DeployStack', () => {
       },
     );
 
-    test.each(ALL_ROLES)('%s 의 ECS 액션 집합이 정확하다', (roleName) => {
-      const statement = statementWithAction(roleName, 'ecs:UpdateService');
-      expect((asArray(statement.Action) as string[]).sort()).toEqual(
-        [...ECS_DEPLOY_ACTIONS].sort(),
-      );
-    });
+    test.each(PERMISSIONED_ROLES)(
+      '%s 의 ECS 액션 집합이 정확하다',
+      (roleName) => {
+        const statement = statementWithAction(roleName, 'ecs:UpdateService');
+        expect((asArray(statement.Action) as string[]).sort()).toEqual(
+          [...ECS_DEPLOY_ACTIONS].sort(),
+        );
+      },
+    );
 
     // `--force-new-deployment` 는 기존 태스크 정의를 재사용하므로 이 셋이 필요 없다.
     // 넣는 순간 CI 가 태스크 정의를 갈아끼우고 임의 역할을 붙일 수 있게 된다. (ADR-0024 5번)
@@ -272,6 +303,16 @@ describe('DeployStack', () => {
 
       expect(actions.filter((a) => a.startsWith('iam:'))).toEqual([]);
       expect(actions.filter((a) => a.endsWith('*'))).toEqual([]);
+    });
+
+    test.each(ALL_ROLES)('%s 의 정책에 빈 Resource 목록이 없다', (roleName) => {
+      for (const statement of statementsFor(roleName)) {
+        const resources = asArray(statement.Resource);
+        expect(resources.length).toBeGreaterThan(0);
+        expect(resources).not.toContain('');
+        expect(resources).not.toContain(null);
+        expect(resources).not.toContain(undefined);
+      }
     });
   });
 
@@ -309,8 +350,8 @@ describe('DeployStack', () => {
           ECR_REPOS.telemetryIngest,
         ],
       ],
-      [DASHBOARD_DEV, [ECR_REPOS.postProcessor, ECR_REPOS.authProxy]],
-      [DASHBOARD_PROD, [ECR_REPOS.postProcessor, ECR_REPOS.authProxy]],
+      [DASHBOARD_DEV, [ECR_REPOS.postProcessor, RETIRED_AUTH_PROXY_REPO]],
+      [DASHBOARD_PROD, [ECR_REPOS.postProcessor, RETIRED_AUTH_PROXY_REPO]],
     ])('%s 는 다른 레포의 ECR 레포를 건드릴 수 없다', (roleName, foreign) => {
       const text = resourceTextFor(roleName);
       for (const repo of foreign) {
@@ -318,31 +359,21 @@ describe('DeployStack', () => {
       }
     });
 
-    test('backend dev 역할은 기존 대상과 신규 배포 단위를 모두 허용한다', () => {
-      const repositories = asArray(
-        statementWithAction(DASHBOARD_DEV, 'ecr:PutImage').Resource,
-      )
-        .map(arnLiterals)
-        .map((arn) => arn.split(':repository/')[1])
-        .sort();
-      const services = asArray(
-        statementWithAction(DASHBOARD_DEV, 'ecs:UpdateService').Resource,
-      )
-        .map(arnLiterals)
-        .map((arn) => arn.split(':service/')[1])
-        .sort();
+    test('pipeline prod 역할은 기존 대상만 유지한다', () => {
+      expect(ecrRepositoriesFor(PIPELINE_PROD)).toEqual([
+        ECR_REPOS.postProcessor,
+      ]);
+      expect(ecsServicesFor(PIPELINE_PROD)).toEqual([
+        `${ECS_CLUSTER_NAMES.prod}/${ECS_SERVICE_NAMES.collector}`,
+      ]);
+    });
 
-      expect(repositories).toEqual(
-        [
-          ECR_REPOS.apiServer,
-          ECR_REPOS.batchProcessor,
-          ECR_REPOS.enrollmentApi,
-          ECR_REPOS.telemetryIngest,
-        ].sort(),
+    test('backend dev 역할은 신규 배포 단위 둘만 허용한다', () => {
+      expect(ecrRepositoriesFor(DASHBOARD_DEV)).toEqual(
+        [ECR_REPOS.enrollmentApi, ECR_REPOS.telemetryIngest].sort(),
       );
-      expect(services).toEqual(
+      expect(ecsServicesFor(DASHBOARD_DEV)).toEqual(
         [
-          `${ECS_CLUSTER_NAMES.dev}/${ECS_SERVICE_NAMES.dashboard}`,
           `${ECS_CLUSTER_NAMES.dev}/${ECS_SERVICE_NAMES.enrollmentApi}`,
           `${ECS_CLUSTER_NAMES.dev}/${ECS_SERVICE_NAMES.telemetryIngest}`,
         ].sort(),
@@ -350,23 +381,10 @@ describe('DeployStack', () => {
     });
 
     test('backend prod 역할은 기존 대상만 유지한다', () => {
-      const repositories = asArray(
-        statementWithAction(DASHBOARD_PROD, 'ecr:PutImage').Resource,
-      )
-        .map(arnLiterals)
-        .map((arn) => arn.split(':repository/')[1])
-        .sort();
-      const services = asArray(
-        statementWithAction(DASHBOARD_PROD, 'ecs:UpdateService').Resource,
-      )
-        .map(arnLiterals)
-        .map((arn) => arn.split(':service/')[1])
-        .sort();
-
-      expect(repositories).toEqual(
+      expect(ecrRepositoriesFor(DASHBOARD_PROD)).toEqual(
         [ECR_REPOS.apiServer, ECR_REPOS.batchProcessor].sort(),
       );
-      expect(services).toEqual([
+      expect(ecsServicesFor(DASHBOARD_PROD)).toEqual([
         `${ECS_CLUSTER_NAMES.prod}/${ECS_SERVICE_NAMES.dashboard}`,
       ]);
     });
@@ -375,7 +393,7 @@ describe('DeployStack', () => {
     // AGENTS.md 3장이 금지하는 죽은 계약이 된다.
     test('prod 파이프라인 역할에 auth-proxy 가 전혀 없다', () => {
       expect(resourceTextFor(PIPELINE_PROD)).not.toContain(
-        ECS_SERVICE_NAMES.authProxy,
+        RETIRED_AUTH_PROXY_SERVICE,
       );
     });
 
@@ -417,13 +435,15 @@ describe('DeployStack', () => {
     ];
 
     test.each(ALL_ROLES)(
-      '%s 의 모든 ECS ARN 이 실제로 만들어지는 서비스다',
+      '%s 의 비어 있지 않은 모든 ECS ARN 이 실제로 만들어지는 서비스다',
       (roleName) => {
-        const servicePairs = ecsServicePairsFor(roleName);
-
-        expect(servicePairs.length).toBeGreaterThan(0);
-        for (const servicePair of servicePairs) {
-          expect(deployed).toContain(servicePair);
+        const ecsArns = statementsFor(roleName)
+          .filter((s) =>
+            (asArray(s.Action) as string[]).includes('ecs:UpdateService'),
+          )
+          .flatMap((s) => asArray(s.Resource).map(arnLiterals));
+        for (const arn of ecsArns) {
+          expect(deployed).toContain(arn.split(':service/')[1]);
         }
       },
     );

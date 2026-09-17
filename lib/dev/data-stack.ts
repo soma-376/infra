@@ -1,7 +1,6 @@
 import {
   Duration,
   RemovalPolicy,
-  SecretValue,
   Stack,
   StackProps,
 } from 'aws-cdk-lib/core';
@@ -17,12 +16,8 @@ import {
 import { ISecret, Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { BlockPublicAccess, Bucket, IBucket } from 'aws-cdk-lib/aws-s3';
 import {
-  buildLibpqDsn,
-  buildPostgresUri,
   CONTROL_DB_NAME,
-  CONTROL_DB_SSLMODE,
   ENROLLMENT_ADMIN_API_TOKEN_SECRET_KEY,
-  PORTS,
 } from '../common/config';
 import {
   DEV_RAW_SIGNAL_EXPIRATION_DAYS,
@@ -69,19 +64,8 @@ export class DevDataStack extends Stack {
   /** DatabaseInstance 가 Secrets Manager 에 자동 생성한 시크릿 (참조만; 값 접근 금지). */
   public readonly dbSecret: ISecret;
   /**
-   * post-processor 전용 파생 시크릿. 값은 libpq keyword/value DSN 한 줄이며
-   * ECS 가 `ENRICHMENT_PG_DSN` 으로 주입한다. (ADR-0018, ADR-0022 7번)
-   */
-  public readonly postProcessorPgDsnSecret: ISecret;
-  /**
-   * auth-proxy 전용 파생 시크릿. 값은 **URI 형식** DSN 한 줄이며 ECS 가
-   * `DATABASE_URL` 로 주입한다. 위 `postProcessorPgDsnSecret` 과 형식이 다른 이유는
-   * `buildPostgresUri()` 주석에 있다. (ADR-0023)
-   */
-  public readonly authProxyDatabaseUrlSecret: ISecret;
-  /**
-   * auth-proxy 의 Bearer 토큰 HMAC-SHA256 키. **enrollment-api와 공유하는 값이다.**
-   * 토큰 발급 측이 같은 키로 해시해야 조회가 성립한다. (ADR-0023)
+   * telemetry-ingest 와 enrollment-api 가 공유하는 Bearer 토큰 HMAC-SHA256 키.
+   * 토큰 발급 측과 검증 측이 같은 키를 써야 조회가 성립한다. (ADR-0026)
    */
   public readonly tokenHashSecret: ISecret;
   /** enrollment-api 의 정적 관리자 API 토큰. JSON `token` 필드로 저장한다. */
@@ -120,81 +104,12 @@ export class DevDataStack extends Stack {
 
     // 마스터 시크릿은 참조(ISecret)만 노출한다. 합성 시점에 값을 평문으로 읽어
     // 다른 리소스 속성에 박는 코드는 두지 않는다.
-    //
-    // 예외는 단 하나, 바로 아래 파생 DSN 시크릿이다. 거기서도 실제로 오가는 것은
-    // `{{resolve:secretsmanager:...}}` 동적 참조 토큰이지 평문이 아니다.
-    // 새 예외를 만들려면 ADR-0018 을 먼저 갱신한다.
     this.dbSecret = this.database.secret!;
-
-    // post-processor(ai-telemetry-pipeline)는 접속 정보를 조각으로 받지 못한다.
-    // libpq DSN 문자열 하나(ENRICHMENT_PG_DSN)만 읽는다(src/enrichment/rds.py:21).
-    // 그래서 여기서 조립한 파생 시크릿을 만들고 DevApplicationStack 이 ECS `secrets`
-    // 로 주입한다 - 그래야 평문 DSN 이 `aws ecs describe-task-definition` 과 ECS
-    // 콘솔에 남지 않는다. **운영과 형식이 갈리면 post-processor 가 dev 에서만
-    // 다르게 동작하므로 구조를 그대로 재현한다.** (ADR-0018, ADR-0022 7번)
-    //
-    // unsafeUnwrap() 은 평문을 꺼내는 함수가 아니다. cdk.json 의
-    // `@aws-cdk/core:checkSecretUsage` 가 건 합성 가드를 해제할 뿐이고(안 부르면
-    // `Resolution error` 로 synth 가 실패한다), 반환값은
-    // `{{resolve:secretsmanager:<arn>:SecretString:password::}}` 토큰 문자열이다.
-    // 합성 산출물에는 Fn::Join / Fn::GetAtt / 동적 참조만 남는다.
-    //
-    // **우연한 커플링 주의.** `buildLibpqDsn()` 은 값을 따옴표로 감싸지 않는다 -
-    // 합성 시점에 user/password 는 토큰이라 감쌀 방법이 없다. aws-rds 의
-    // `DEFAULT_PASSWORD_EXCLUDE_CHARS` 가 공백·`'`·`"`·`\` 넷을 전부 빼주기
-    // 때문에만 성립한다. `DatabaseInstance` 도 `DatabaseCluster` 와 같은 상수를
-    // 쓰지만 **그 상수는 공개 export 가 아니라 상수 import 로 검증할 수 없다.**
-    // 깨지면 배포는 성공하고 post-processor 만 런타임에 죽으므로,
-    // `test/dev/data-stack.test.ts` 가 합성 템플릿의 `ExcludeCharacters` 문자열로
-    // 고정한다. (ADR-0018, ADR-0022 7번)
-    const pgDsn = buildLibpqDsn({
-      host: this.database.dbInstanceEndpointAddress,
-      // dbInstanceEndpointPort 는 문자열 토큰이라 보간이 불안정하다. 인스턴스에
-      // port 를 주지 않았으므로 엔진 기본값이고, 이 값은 DevNetworkStack 의 RDS
-      // ingress 룰과 같은 상수여야 한다. (상수 이름이 aurora 인 것은 기존 명명이다)
-      port: PORTS.aurora,
-      // 자동 생성 시크릿에는 dbname 키가 없으므로 직접 넣는다.
-      dbname: CONTROL_DB_NAME,
-      user: this.dbSecret.secretValueFromJson('username').unsafeUnwrap(),
-      password: this.dbSecret.secretValueFromJson('password').unsafeUnwrap(),
-      sslmode: CONTROL_DB_SSLMODE,
-    });
-
-    this.postProcessorPgDsnSecret = new Secret(this, 'DevPostProcessorPgDsn', {
-      description:
-        'libpq DSN for dev post-processor (ENRICHMENT_PG_DSN). Derived from the RDS master secret at deploy time.',
-      secretStringValue: SecretValue.unsafePlainText(pgDsn),
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
-
-    // auth-proxy 는 같은 DB 를 보지만 **형식이 다른** DSN 을 읽는다 (ADR-0023).
-    // psycopg 는 libpq keyword/value 를, `pg` 는 URI 를 받는다. 같은 조각으로 두 문자열을
-    // 만드는 것이지 둘 중 하나가 잉여인 것이 아니다. 자세한 근거와 `uselibpqcompat`
-    // 플래그의 필요성은 `buildPostgresUri()` 주석에 있다.
-    const authProxyDatabaseUrl = buildPostgresUri({
-      host: this.database.dbInstanceEndpointAddress,
-      port: PORTS.aurora,
-      dbname: CONTROL_DB_NAME,
-      user: this.dbSecret.secretValueFromJson('username').unsafeUnwrap(),
-      password: this.dbSecret.secretValueFromJson('password').unsafeUnwrap(),
-      sslmode: CONTROL_DB_SSLMODE,
-    });
-
-    this.authProxyDatabaseUrlSecret = new Secret(
-      this,
-      'DevAuthProxyDatabaseUrl',
-      {
-        description:
-          'Postgres URI for dev auth-proxy (DATABASE_URL). Derived from the RDS master secret at deploy time.',
-        secretStringValue: SecretValue.unsafePlainText(authProxyDatabaseUrl),
-        removalPolicy: RemovalPolicy.DESTROY,
-      },
-    );
 
     // Bearer 토큰 해시 키. **값을 CDK 가 만들고 아무 데도 기록하지 않는다** - 코드에도,
     // CFN 템플릿에도, cdk context 에도 남지 않고 Secrets Manager 안에서만 존재한다.
     //
-    // enrollment-api(별도 레포)가 토큰 발급 시 같은 키로 HMAC 해시해야 auth-proxy 의
+    // enrollment-api 가 토큰 발급 시 같은 키로 HMAC 해시해야 telemetry-ingest 의
     // 조회가 성립하므로, ARN 을 `DevEdgeStack` 의 CfnOutput 으로 노출한다.
     //
     // **회전을 설정하지 않는다.** 이 키가 바뀌면 이미 발급된 모든 토큰의 `token_hash` 가
@@ -263,8 +178,8 @@ export class DevDataStack extends Stack {
   }
 
   /**
-   * 토큰 해시 키 ARN. **enrollment-api가 함께 쓰는 값이다** - 같은 키로 해시해야
-   * auth-proxy 의 조회가 성립한다. `DevEdgeStack` 의 CfnOutput 용. (ADR-0023)
+   * 토큰 해시 키 ARN. telemetry-ingest 와 enrollment-api 가 같은 키를 쓴다.
+   * `DevEdgeStack` 의 CfnOutput 용. (ADR-0026)
    */
   public get tokenHashSecretArn(): string {
     return this.tokenHashSecret.secretArn;
