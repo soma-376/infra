@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted — 애플리케이션 API 경로와 health check는 [허브 ADR 0016](../../../docs/adr/0016-use-api-v1-for-application-http-routes.md)이 부분 대체한다. OTLP 경로와 서비스 토폴로지는 유효하다.
 
 이 ADR은 dev 환경에 한해 다음 결정을 대체한다.
 

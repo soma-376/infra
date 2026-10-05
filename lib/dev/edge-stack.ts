@@ -120,7 +120,7 @@ export class DevEdgeStack extends Stack {
         targetType: TargetType.INSTANCE,
         deregistrationDelay: DEV_DEREGISTRATION_DELAY,
         healthCheck: {
-          path: '/v1/healthz',
+          path: '/api/v1/healthz',
           healthyHttpCodes: '200',
         },
       },
@@ -142,7 +142,7 @@ export class DevEdgeStack extends Stack {
         targetType: TargetType.INSTANCE,
         deregistrationDelay: DEV_DEREGISTRATION_DELAY,
         healthCheck: {
-          path: '/v1/healthz',
+          path: '/api/v1/healthz',
           healthyHttpCodes: '200',
         },
       },
@@ -169,9 +169,11 @@ export class DevEdgeStack extends Stack {
       priority: 3,
       conditions: [
         ListenerCondition.pathPatterns([
-          '/v1/enroll',
-          '/v1/installations/*',
-          '/v1/invitations*',
+          '/api/v1/enroll',
+          '/api/v1/installations/*',
+          '/api/v1/invitations*',
+          '/api/v1/auth/*',
+          '/api/v1/manifest',
         ]),
       ],
       action: ListenerAction.forward([enrollmentApiTargetGroup]),
@@ -180,6 +182,17 @@ export class DevEdgeStack extends Stack {
       priority: 4,
       conditions: [
         ListenerCondition.pathPatterns(['/windows', '/unix', '/bin/*']),
+      ],
+      action: ListenerAction.forward([enrollmentApiTargetGroup]),
+    });
+    listener.addAction('DevEnrollmentManagementForward', {
+      priority: 5,
+      conditions: [
+        ListenerCondition.pathPatterns([
+          '/api/v1/organizations/*',
+          '/api/v1/inquiries',
+          '/api/v1/check-updates',
+        ]),
       ],
       action: ListenerAction.forward([enrollmentApiTargetGroup]),
     });

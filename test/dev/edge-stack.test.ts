@@ -72,8 +72,8 @@ describe('DevEdgeStack', () => {
     });
   });
 
-  test('우선순위 1·3·4가 정확한 경로와 앱별 타깃 그룹을 가리킨다', () => {
-    expect(listenerRules()).toHaveLength(3);
+  test('우선순위 1·3·4·5가 정확한 경로와 앱별 타깃 그룹을 가리킨다', () => {
+    expect(listenerRules()).toHaveLength(4);
 
     const telemetryIngestTg = targetGroupByPrefix('DevTelemetryIngestTg');
     const enrollmentApiTg = targetGroupByPrefix('DevEnrollmentApiTg');
@@ -86,15 +86,22 @@ describe('DevEdgeStack', () => {
       {
         priority: 3,
         paths: [
-          '/v1/enroll',
-          '/v1/installations/*',
-          '/v1/invitations*',
+          '/api/v1/enroll',
+          '/api/v1/installations/*',
+          '/api/v1/invitations*',
+          '/api/v1/auth/*',
+          '/api/v1/manifest',
         ],
         targetGroupLogicalId: enrollmentApiTg[0],
       },
       {
         priority: 4,
         paths: ['/windows', '/unix', '/bin/*'],
+        targetGroupLogicalId: enrollmentApiTg[0],
+      },
+      {
+        priority: 5,
+        paths: ['/api/v1/organizations/*', '/api/v1/inquiries', '/api/v1/check-updates'],
         targetGroupLogicalId: enrollmentApiTg[0],
       },
     ];
@@ -119,6 +126,7 @@ describe('DevEdgeStack', () => {
       (rule: any) => rule.Properties.Conditions[0].PathPatternConfig.Values,
     );
     expect(publicPaths).not.toContain('/v1/*');
+    expect(publicPaths.some((path: string) => path.startsWith('/v1/') && !['/v1/traces', '/v1/metrics', '/v1/logs'].includes(path))).toBe(false);
     expect(publicPaths).not.toContain('/v1/healthz');
     expect(publicPaths).not.toContain('/api/*');
   });
@@ -158,14 +166,14 @@ describe('DevEdgeStack', () => {
     }
   });
 
-  test('신규 두 앱은 /v1/healthz의 200만 healthy로 판정한다', () => {
+  test('신규 두 앱은 /api/v1/healthz의 200만 healthy로 판정한다', () => {
     for (const prefix of [
       'DevTelemetryIngestTg',
       'DevEnrollmentApiTg',
     ]) {
       expect(targetGroupByPrefix(prefix)[1].Properties).toMatchObject({
         TargetType: 'instance',
-        HealthCheckPath: '/v1/healthz',
+        HealthCheckPath: '/api/v1/healthz',
         Matcher: { HttpCode: '200' },
       });
     }

@@ -145,11 +145,11 @@ ClickHouse만 `clickhouse.obs.local` A 레코드를 위해 awsvpc/ip target을 �
 `/app/binaries`다. 이 레포는 URL과 라우팅만 제공하며 실제 바이너리 공급은 별도 작업이다.
 
 dev `:80` 리스너의 default는 404다. priority 1의 정확한 `/v1/traces`, `/v1/metrics`, `/v1/logs`만
-telemetry-ingest로 보내고, priority 3의 `/v1/enroll`, `/v1/installations/*`, `/v1/invitations*`와
-priority 4의 `/windows`, `/unix`, `/bin/*`를 같은 enrollment target group으로 보낸다. `/v1/healthz`는
+telemetry-ingest로 보내고, priority 3의 `/api/v1/enroll`, `/api/v1/installations/*`, `/api/v1/invitations*`, `/api/v1/auth/*`, `/api/v1/manifest`와
+priority 4의 `/windows`, `/unix`, `/bin/*`, priority 5의 조직 관리·문의·업데이트 확인 경로를 같은 enrollment target group으로 보낸다. `/api/v1/healthz`는
 두 새 target group의 200 health check 전용이며 public rule이 아니다. 두 새 target group은 60초 deregistration delay를,
 ClickHouse는 300초를 쓴다. ingest 서비스만 240초 health check grace를 사용하며 정상 healthy 판정은
-즉시 반영된다. `:4318`, 구 `/api/*`, 구 target group과 서비스는 최종 상태에 없다.
+즉시 반영된다. `:4318`, 무제한 `/api/*` 규칙, 구 target group과 서비스는 최종 상태에 없다.
 
 현재 ALB는 HTTP만 제공한다. `PULSEMETRY_PUBLIC_BASE_URL=http://<ALB DNS>`는 bootstrap 주소이고,
 manifest의 OTLP endpoint와 같은 계약이 아니다. backend·telemetryctl·JSON Schema는 원격 endpoint에
@@ -214,7 +214,7 @@ listener·certificate를 추가하지 않는다. prod의 기존 Fargate 서비�
 | **`PULSEMETRY_BINARIES_DIR=/app/binaries`를 유지한다** | `/windows`, `/unix`, `/bin/*`는 enrollment-api로 라우팅한다. 이 레포는 URL/라우팅만 제공하며 이미지 안 실제 바이너리 공급은 별도 책임이다. |
 | **dev 로그 그룹은 `/ecs/dev/` 접두를 쓴다** | prod 물리 이름과 충돌하지 않으며 최종 앱 로그는 `/ecs/dev/telemetry-ingest`, `/ecs/dev/enrollment-api`, `/ecs/dev/clickhouse`다. |
 | **dev ALB listener는 모두 `open: false`다** | CDK 기본 `open: true`가 `0.0.0.0/0` ingress를 자동 추가해 `devAllowedCidr` 제한을 무력화하는 것을 막는다. |
-| **`:80`은 명시한 경로만 전달한다** | OTLP 정확한 세 경로는 ingest, enrollment/bootstrap 경로는 enrollment-api로 보낸다. default는 404이고 `/v1/healthz` public rule, `/api/*`, `:4318`은 없다. |
+| **`:80`은 명시한 경로만 전달한다** | OTLP 정확한 세 경로는 ingest, `/api/v1`의 enrollment·인증·조직 관리·문의·업데이트 경로와 bootstrap 경로는 enrollment-api로 보낸다. default는 404이고 `/api/v1/healthz` public rule, 무제한 `/api/*`, `:4318`은 없다. |
 | **새 앱 target group만 60초 deregistration delay를 쓴다** | telemetry-ingest와 enrollment-api는 교체 배포 시간을 줄이기 위한 dev 초기값 60초다. ClickHouse와 prod는 300초를 유지한다. (ADR-0025, ADR-0026) |
 | **telemetry-ingest만 240초 health grace를 쓴다** | ClickHouse schema startup 5회와 30초 응답 헤더 timeout, 2초 backoff를 합친 약 160초에 Spring/RDS/host 여유를 둔 초기값이다. 정상 healthy 판정은 지연하지 않으며 본문 무기한 대기는 막지 못한다. enrollment-api는 CDK 기본 60초다. |
 | **`applyCommonTags`는 태그 맵을 인자로 받는다** | prod는 `Env=mvp`, dev는 `Env=dev`, cicd는 `Env=cicd`다. prod의 값을 임의로 바꾸면 전 리소스 diff가 생긴다. |
@@ -317,8 +317,8 @@ prod `post-processor`는 `ENRICHMENT_CH_URL`, `ENRICHMENT_CH_DB`, `ENRICHMENT_PG
 ### EdgeStack
 
 prod의 모드 A/B, Cognito, CloudFront, TLS 계약은 바꾸지 않는다. dev는 HTTP `:80`의 정확한 OTLP 세
-경로와 enrollment/bootstrap 경로만 두 새 instance target group으로 전달하고 default 404를 쓴다.
-`:8123` ClickHouse ip target은 유지한다. `:4318`, `/api/*`, 구 target group/output은 최종 상태에 없다.
+경로와 `/api/v1` enrollment·인증·조직 관리·문의·업데이트, bootstrap 경로만 두 새 instance target group으로 전달하고 default 404를 쓴다.
+`:8123` ClickHouse ip target은 유지한다. `:4318`, 무제한 `/api/*`, 구 target group/output은 최종 상태에 없다.
 모든 listener는 `open: false`이고 `devAllowedCidr`가 유일한 network boundary다.
 
 ## 5. 지금 남은 작업
@@ -678,7 +678,7 @@ diff /tmp/before/NetworkStack.template.json /tmp/after/NetworkStack.template.jso
 | 두 앱이 같은 token hash Secret을 쓰고 실제 Secret은 총 3개, 파생 DSN/URI 없음 | `test/dev/data-stack.test.ts`, `test/dev/application-stack.test.ts` |
 | 로그 그룹 3개와 `/ecs/dev/` 접두 | `test/dev/application-stack.test.ts` |
 | SG 4개, `open: false`, `80/8123/5432`만 CIDR ingress, `4318` 없음 | `test/dev/network-stack.test.ts`, `test/dev/edge-stack.test.ts` |
-| `:80` default 404와 priority 1/3/4의 정확한 paths, `/v1/healthz` public rule 없음 | `test/dev/edge-stack.test.ts` |
+| `:80` default 404와 priority 1/3/4/5의 명시한 paths, `/api/v1/healthz` public rule 없음 | `test/dev/edge-stack.test.ts` |
 | 신규 target group 2개는 instance/60초, ClickHouse는 ip/300초 | `test/dev/edge-stack.test.ts` |
 | telemetry-ingest만 health grace 240초, enrollment-api는 60초 기본값 | `test/dev/application-stack.test.ts` |
 | ALB DNS late binding public base URL과 `/app/binaries` | `test/dev/application-stack.test.ts` |
