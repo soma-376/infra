@@ -49,6 +49,12 @@ export const DEV_BOOTSTRAP_PATHS = ['/windows', '/unix', '/bin/*'] as const;
 /** dev ALB 전체에 연결하는 REGIONAL Web ACL 이름. (ADR-0027) */
 export const DEV_WAF_WEB_ACL_NAME = 'soma-376-dev';
 
+/** WAF의 CloudWatch Logs 목적지는 aws-waf-logs- 접두사를 요구한다. (ADR-0027) */
+export const DEV_WAF_LOG_GROUP_NAME = 'aws-waf-logs-soma-376-dev';
+
+/** 로그 redaction과 Web ACL data protection이 함께 보호할 header 이름. (ADR-0027) */
+export const DEV_WAF_REDACTED_HEADERS = ['authorization', 'cookie', 'x-admin-token'] as const;
+
 /**
  * 개별 Count override와 exact label 매핑을 함께 검토할 수 있도록 static version을 고정한다.
  * WAF 요청 로그는 관리형 룰셋 버전을 직접 기록하지 않으며 `formatVersion`은 로그 형식 버전이다.

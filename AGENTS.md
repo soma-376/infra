@@ -494,6 +494,16 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
   snapshot 없음), build와 prod A/B·dev·cicd fixture synth를 통과했다. PR #18 대비 기존 리소스와
   다른 환경 템플릿은 동일하고 dev Edge에 Web ACL·association 두 리소스만 추가된다. 새 앱
   내용 검사와 기존 등록 rate 세 조건을 구별하며 `RemainingRateBlock`의 여섯 leaf를 유지한다.
+- PROJ-200 반영 전 PROJ-159 로컬 검증은 전체 334 tests(14 suites, snapshot 없음), build와
+  prod A/B·dev·cicd fixture synth를 통과했다. 당시 develop 템플릿 대비 dev Edge의 Web ACL·association·로그 그룹·logging
+  configuration 4개만 추가됐고 기존 dev 리소스 및 다른 12개 환경별 템플릿은 동일하다.
+- PROJ-200 기준 PROJ-199까지의 누적 구현은 전체 369 tests(14 suites, snapshot 없음), build와
+  prod A/B·dev·cicd fixture synth를 통과했다. PR #18 대비 13개 템플릿 중 12개는 전체 JSON이
+  동일하고 dev Edge도 기존 리소스·output·기타 필드는 동일하며 WAF·로그 리소스 4개만 추가된다.
+  PROJ-198 → 199의 Web ACL Rules는 동일하고 로그 리소스 2개와 `DataProtectionConfig`만 추가된다.
+  prod·dev·cicd CLI synth도 고정 테스트 env/AZ context와 `--no-lookups`로 통과했다. sandbox의
+  tsx IPC 제한은 `node --import tsx`로 회피했고 기존 CDK 경고는 남아 있다. 이 합성은 서울 리전
+  입력 수용·실제 배포·차단·로그 전달을 확인한 증거가 아니다.
 
 ---
 
