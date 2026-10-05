@@ -20,6 +20,78 @@ export const DEV_COMMON_TAGS: Readonly<Record<string, string>> = {
 };
 
 /**
+ * ALB 라우팅과 WAF가 공유하는 dev 앱 경로의 literal exact/말단 wildcard 정의.
+ * PROJ-200의 앱 API는 `/api/v1`, OTLP는 `/v1`을 유지한다.
+ * `/api/v1/invitations*`는 slash 없는 접미사도 포함하고 bare `/bin`은 포함하지 않는다.
+ * (ADR-0026, ADR-0027, PR #18)
+ */
+export const DEV_OTLP_PATHS = ['/v1/traces', '/v1/metrics', '/v1/logs'] as const;
+/** 기존 300건 rate를 공유하는 등록·토큰·초대 세 조건. 새 인증·조회 경로는 포함하지 않는다. */
+export const DEV_ENROLLMENT_REGISTRATION_PATHS = [
+  '/api/v1/enroll',
+  '/api/v1/installations/*',
+  '/api/v1/invitations*',
+] as const;
+/** ALB priority 3의 최대 다섯 경로 조건. WAF 내용 검사는 모두 Block한다. */
+export const DEV_ENROLLMENT_API_PATHS = [
+  ...DEV_ENROLLMENT_REGISTRATION_PATHS,
+  '/api/v1/auth/*',
+  '/api/v1/manifest',
+] as const;
+/** ALB priority 5의 조직 관리·문의·업데이트 경로. */
+export const DEV_ENROLLMENT_MANAGEMENT_PATHS = [
+  '/api/v1/organizations/*',
+  '/api/v1/inquiries',
+  '/api/v1/check-updates',
+] as const;
+export const DEV_BOOTSTRAP_PATHS = ['/windows', '/unix', '/bin/*'] as const;
+
+/** dev ALB 전체에 연결하는 REGIONAL Web ACL 이름. (ADR-0027) */
+export const DEV_WAF_WEB_ACL_NAME = 'soma-376-dev';
+
+/**
+ * 개별 Count override와 exact label 매핑을 함께 검토할 수 있도록 static version을 고정한다.
+ * WAF 요청 로그는 관리형 룰셋 버전을 직접 기록하지 않으며 `formatVersion`은 로그 형식 버전이다.
+ * 과거 요청의 버전은 당시 합성 템플릿·commit·배포 기록과 대조해야 한다. 서울 리전의 버전 가용성과
+ * 실제 rule/label은 배포 전 API로 확인하고 갱신·만료 전 rule·label·예외를 함께 재검증한다.
+ * IP 목록 두 그룹은 비버전 그룹이다. (ADR-0027)
+ */
+export const DEV_WAF_MANAGED_RULE_VERSIONS = {
+  common: 'Version_1.23',
+  knownBadInputs: 'Version_1.26',
+  sqlInjection: 'Version_2.4',
+} as const;
+
+/** 악성 IP 판정과 별개인 dev 접근 국가 정책. 모든 경로에 적용한다. (ADR-0027) */
+export const DEV_WAF_BLOCKED_COUNTRIES = ['CN', 'RU', 'KP', 'IR'] as const;
+
+/** 세 rate 규칙의 출발지 IP별 요청 집계 구간. X-Forwarded-For는 사용하지 않는다. */
+export const DEV_WAF_RATE_EVALUATION_WINDOW_SECONDS = 300;
+
+/**
+ * 실측값이나 AWS 권장값이 아닌 dev 초기 가설이다. OTLP는 배치·재시도·공유 NAT의 burst를
+ * Count로 관찰하고 등록·토큰·초대 세 조건은 저빈도 등록·토큰 발급의 반복 호출을 제한한다.
+ * remaining에는 새 인증·manifest·조직 관리·문의·업데이트와 bootstrap·다운로드·SQL 디버깅이
+ * 포함된다. 여러 설치 GET·반복 요청과 같은 NAT의
+ * 동시 설치에 여유를 두되, 서로 다른 요청을 한 IP로 합산하는 한계는 실트래픽으로 재검토한다.
+ * 요청 건수는 다운로드 바이트·비용·SQL 복잡도를 제한하지 않는다. (ADR-0027)
+ */
+export const DEV_WAF_RATE_LIMITS = {
+  otlp: 10_000,
+  enrollment: 300,
+  remaining: 1_000,
+} as const;
+
+/**
+ * rate Block은 인증 거부와 구별되는 429를 사용하고 이 값을 Retry-After로 안내한다.
+ * telemetryctl의 classify()는 OTLP 전송의 403을 인증 실패, 429를 재시도로 분류한다.
+ * Forwarder.send()가 인증 실패 때 토큰 캐시를 무효화해 재조회하고 재시도 예산을 제한한다.
+ * parseRetryAfter()가 최대 대기 시간으로 자르므로 정확히 60초 대기하거나 이때 WAF 차단이
+ * 풀린다고 보장하지 않는다. enrollment·bootstrap 전체의 자동 재시도 계약도 아니다. (ADR-0027)
+ */
+export const DEV_WAF_RETRY_AFTER_SECONDS = 60;
+
+/**
  * dev VPC CIDR (ADR-0022 1번).
  *
  * 운영 VPC 는 `ipAddresses` 를 주지 않아 CDK 기본값 `10.0.0.0/16` 을 쓴다. dev 에
