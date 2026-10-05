@@ -54,6 +54,12 @@ exact 경로의 trailing slash·자식 경로와 `/api/v1/healthz`도 공개 앱
 구 `/v1/enroll`·`/v1/installations/*`·`/v1/invitations*`는 더 이상 앱 경로가 아니며,
 `/api/v1/*` 전체 wildcard를 추가하지 않는다. OTLP는 `/api/v1`로 옮기지 않는다.
 
+WAF의 URI 비교는 `TextTransformations: NONE`으로 client 원문을 사용한다. ALB는 URI normalization
+후 path-pattern을 평가하지만 구체적인 decode·dot segment·중복 slash 처리와 WAF의 실제 분류
+정합은 이번 로컬 검증에서 확인하지 않았다. 공유 경로 상수와 template assertion의 정합 증거는
+canonical 경로·trailing slash·prefix 경계에 한정한다. ALB와 같은 전체 normalization 동작을 구현했다고
+표현하지 않고, 임의의 URL decode·path normalization으로 정확한 OTLP Count 예외를 넓히지 않는다.
+
 Web ACL은 두 listener 모두에 적용되며 실제 listener port를 조건으로 구분하지 않는다.
 따라서 `:8123`에서도 앱과 같은 URI를 요청하면 앱 정책을 적용한다. 정상 SQL 본문·query의 Count는
 앱 경로 밖에 한정하며 Host 헤더를 이용한 전면 Allow 예외는 만들지 않는다. 이는 다른 Block 규칙을
@@ -176,6 +182,13 @@ bootstrap 등 모든 CLI HTTP 요청의 자동 재시도를 뜻하지 않는다.
 평가 순서는 국가 → Amazon IP·Anonymous IP 그룹 → 세 rate 규칙 → Common·KnownBadInputs·SQLi
 그룹 → 본문·query·확장자 label Block으로 고정한다. Count는 이후 규칙 평가를 계속하고 Block은 종료한다.
 
+나머지 rate의 scope-down은 `NOT(OR(OTLP 3개 + /api/v1 등록·토큰·초대 3개 경로 조건))`로 표현한다.
+두 경로 그룹의 OR을 다시 OR로 감싸는 불필요한 중첩을 만들지 않는다. 이는 경로·제한·동작을
+바꾸지 않는 구문 정리다. PROJ-198 배포에서 `OR_STATEMENT`의 nested statement 오류가 보고됐으며,
+논리 평가기와 CDK synth만으로 AWS WAF의 서비스 입력 수용 여부를 검증하지 못했다.
+공식 API는 OR을 nestable로 설명하므로 일반적인 OR 중첩 금지나 임의의 깊이 한도를 규칙으로
+가정하지 않는다. 원본과 수정한 Rules의 `CheckCapacity` 및 재배포 결과로 원인·해소 여부를 확인한다.
+
 ### 5. Count·Block 로그만 남기고 민감 필드를 마스킹한다
 
 | 항목 | 결정 |
@@ -251,8 +264,15 @@ bootstrap 등 모든 CLI HTTP 요청의 자동 재시도를 뜻하지 않는다.
 
 ## Follow-up
 
+- 배포 전 합성된 Web ACL의 `Rules`를 서울 리전 `CheckCapacity`로 검증한다. CLI로 JSON의
+  `ByteMatchStatement.SearchString`을 전달할 때는 `--cli-binary-format raw-in-base64-out`을 사용한다.
+  template assertion은 정책·구문 회귀를 확인하고 이 API는 서비스 입력·WCU를 확인한다.
+  API 성공도 실제 배포·차단 성공을 뜻하지 않는다.
 - 배포 전 `ListAvailableManagedRuleGroupVersions`·버전을 지정한 `DescribeManagedRuleGroup`으로 서울 리전
   가용성·룰·label·만료 조건을 확인한다. 문서의 최신 버전 표를 API 확인의 대체 증거로 쓰지 않는다.
+- 배포 전 `curl --path-as-is`로 percent encoding·dot segment·중복 slash 경로의 ALB 라우팅과
+  WAF 원문 분류가 일치하는지 확인한다. 앱으로 라우팅되는 요청이 디버깅 Count 예외로 분류되면
+  경로 정책을 보완한 뒤 배포를 완료한다. 로컬 합성 평가기로 ALB의 normalization을 증명하지 않는다.
 - 인프라 배포 principal의 `wafv2:PutLoggingConfiguration` 및 CloudWatch Logs delivery·resource policy
   생성/조회 권한을 확인한다. 로그 설정 성공 시 WAF가 CloudWatch Logs resource policy를 구성하므로
   실제 전달도 확인한다. 이 권한은 앱 레포의 GitHub 배포 역할에 추가하지 않는다.
@@ -273,9 +293,11 @@ bootstrap 등 모든 CLI HTTP 요청의 자동 재시도를 뜻하지 않는다.
 - 기존 `buildDevApp()` fixture의 template assertion으로 dev ALB association, 기본 Allow, 고정 버전,
   국가·override·exact-label 조건, IP별 rate·429, 로그·마스킹·샘플링을 검증한다. snapshot은 추가하지 않는다.
 - 정상 요청 조건, OTLP 본문 Count, 국가·악성 IP Block, 앱 본문/query Block, SQL 디버깅 Count,
-  `/bin/file.exe` 예외·`/other/file.exe` Block과 trailing slash·prefix 경계를 합성 정책에서 검증한다.
-- 전체 `npm test`, `npm run build`, prod A/B·dev·cicd synth가 통과하고 기존 템플릿 대비 변경은
-  dev WAF·로그 리소스에 한정된다. 기존 ALB listener·target group·다른 환경 리소스는 동일하다.
+  `/bin/file.exe` 예외·`/other/file.exe` Block과 canonical 경로·trailing slash·prefix 경계를 합성 정책에서
+  검증한다. percent encoding·dot segment·중복 slash의 실제 ALB/WAF 정합은 위 배포 전 확인 대상이다.
+- 전체 `npm test`, `npm run build`, prod A/B·dev·cicd synth가 통과하고 PR #18(`8836ef9`)
+  템플릿 대비 변경은 dev WAF·로그 리소스에 한정된다. PR #18의 ALB listener·target group·
+  health check와 다른 환경 리소스는 동일하다.
 
 이 검증은 AWS의 실제 탐지 signature 실행, 리전 버전 수용, 실제 차단·로그 전달·오탐 0건을 증명하지 않는다.
 
@@ -288,6 +310,8 @@ bootstrap 등 모든 CLI HTTP 요청의 자동 재시도를 뜻하지 않는다.
 - [AWS 관리형 기본 규칙·label](https://docs.aws.amazon.com/waf/latest/developerguide/aws-managed-rule-groups-baseline.html), [SQLi 규칙·label](https://docs.aws.amazon.com/waf/latest/developerguide/aws-managed-rule-groups-use-case.html), [IP 목록](https://docs.aws.amazon.com/waf/latest/developerguide/aws-managed-rule-groups-ip-rep.html)
 - [관리형 버전 변경 이력](https://docs.aws.amazon.com/waf/latest/developerguide/aws-managed-rule-groups-changelog.html), [버전 관리](https://docs.aws.amazon.com/waf/latest/developerguide/waf-managed-rule-groups-versioning.html), [개별 action override](https://docs.aws.amazon.com/waf/latest/developerguide/web-acl-rule-group-override-options.html)
 - [ALB 본문 검사 한도](https://docs.aws.amazon.com/waf/latest/developerguide/web-acl-setting-body-inspection-limit.html), [Rate 기준](https://docs.aws.amazon.com/waf/latest/developerguide/waf-rule-statement-type-rate-based-high-level-settings.html)
+- [OR statement 중첩](https://docs.aws.amazon.com/waf/latest/developerguide/waf-rule-statement-type-or.html), [CheckCapacity](https://docs.aws.amazon.com/waf/latest/APIReference/API_CheckCapacity.html)
+- [ALB path-pattern normalization](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/rule-condition-types.html#path-conditions), [WAF URI path 원문 검사](https://docs.aws.amazon.com/waf/latest/developerguide/waf-rule-statement-fields-list.html)
 - [WAF 로그 필드](https://docs.aws.amazon.com/waf/latest/developerguide/logging-fields.html), [ActionCondition](https://docs.aws.amazon.com/waf/latest/APIReference/API_ActionCondition.html), [로그 마스킹·샘플링](https://docs.aws.amazon.com/waf/latest/developerguide/logging.html)
 - [CloudWatch Logs 목적지·배포 권한](https://docs.aws.amazon.com/waf/latest/developerguide/logging-cw-logs.html), [PutLoggingConfiguration](https://docs.aws.amazon.com/waf/latest/APIReference/API_PutLoggingConfiguration.html)
 - [DataProtectionConfig](https://docs.aws.amazon.com/waf/latest/APIReference/API_DataProtectionConfig.html), [DataProtection](https://docs.aws.amazon.com/waf/latest/APIReference/API_DataProtection.html), [FieldToProtect](https://docs.aws.amazon.com/waf/latest/APIReference/API_FieldToProtect.html)

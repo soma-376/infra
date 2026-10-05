@@ -11,14 +11,21 @@ import {
   TargetType,
 } from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import { PORTS } from '../common/config';
-import { DEV_DEREGISTRATION_DELAY } from './config';
+import {
+  DEV_BOOTSTRAP_PATHS,
+  DEV_DEREGISTRATION_DELAY,
+  DEV_ENROLLMENT_API_PATHS,
+  DEV_ENROLLMENT_MANAGEMENT_PATHS,
+  DEV_OTLP_PATHS,
+} from './config';
+import { DevWaf } from './waf';
 
 export interface DevEdgeStackProps extends StackProps {
   readonly vpc: IVpc;
   readonly albSecurityGroup: ISecurityGroup;
   /** 정확한 OTLP 세 경로의 타깃. */
   readonly telemetryIngestService: Ec2Service;
-  /** enrollment와 bootstrap 경로가 공유하는 타깃. */
+  /** 등록·인증·관리 API와 bootstrap 경로가 공유하는 타깃. */
   readonly enrollmentApiService: Ec2Service;
   readonly clickhouseService: Ec2Service;
   /** RDS 엔드포인트 호스트명 (CfnOutput 용). */
@@ -32,7 +39,7 @@ export interface DevEdgeStackProps extends StackProps {
 }
 
 /**
- * DevEdgeStack: internet-facing ALB(리스너 2개) + CfnOutput.
+ * DevEdgeStack: internet-facing ALB(리스너 2개) + dev WAF + CfnOutput.
  *
  * **Cognito / CloudFront / 프론트엔드 S3 를 만들지 않는다. 의도적 생략이다.**
  * dev 프론트엔드는 로컬에서 띄워 이 ALB 를 향하게 한다 - 프론트 개발 중에는
@@ -40,8 +47,8 @@ export interface DevEdgeStackProps extends StackProps {
  * 루프를 느리게 만든다. Cognito 를 만들지 않는 덕에 ADR-0021 Constraints 의
  * "Cognito 도메인 prefix 충돌"이 애초에 발생하지 않는다. (ADR-0022 8번)
  *
- * `:80`은 정확한 OTLP 세 경로를 telemetry-ingest로, enrollment·bootstrap
- * 경로를 enrollment-api로 전달한다. 인증을 우회하던 `:4318`과 기존
+ * `:80`은 정확한 OTLP 세 경로를 telemetry-ingest로, `/api/v1`의 등록·인증·관리와
+ * bootstrap 경로를 enrollment-api로 전달한다. 인증을 우회하던 `:4318`과 기존
  * `/api/*` 리스너 규칙은 제거했다. (ADR-0026)
  */
 export class DevEdgeStack extends Stack {
@@ -61,6 +68,9 @@ export class DevEdgeStack extends Stack {
 
     this.buildAppListener(props, alb);
     this.buildClickhouseListener(props, alb);
+
+    // association은 두 리스너 전체에 적용하며 기존 listener·target group·SG는 바꾸지 않는다.
+    new DevWaf(this, 'DevWaf', { loadBalancerArn: alb.loadBalancerArn });
 
     new CfnOutput(this, 'AlbDnsName', { value: alb.loadBalancerDnsName });
     new CfnOutput(this, 'OtlpEndpoint', {
@@ -157,42 +167,28 @@ export class DevEdgeStack extends Stack {
     listener.addAction('DevOtlpForward', {
       priority: 1,
       conditions: [
-        ListenerCondition.pathPatterns([
-          '/v1/traces',
-          '/v1/metrics',
-          '/v1/logs',
-        ]),
+        ListenerCondition.pathPatterns([...DEV_OTLP_PATHS]),
       ],
       action: ListenerAction.forward([telemetryIngestTargetGroup]),
     });
     listener.addAction('DevEnrollmentForward', {
       priority: 3,
       conditions: [
-        ListenerCondition.pathPatterns([
-          '/api/v1/enroll',
-          '/api/v1/installations/*',
-          '/api/v1/invitations*',
-          '/api/v1/auth/*',
-          '/api/v1/manifest',
-        ]),
+        ListenerCondition.pathPatterns([...DEV_ENROLLMENT_API_PATHS]),
       ],
       action: ListenerAction.forward([enrollmentApiTargetGroup]),
     });
     listener.addAction('DevBootstrapForward', {
       priority: 4,
       conditions: [
-        ListenerCondition.pathPatterns(['/windows', '/unix', '/bin/*']),
+        ListenerCondition.pathPatterns([...DEV_BOOTSTRAP_PATHS]),
       ],
       action: ListenerAction.forward([enrollmentApiTargetGroup]),
     });
     listener.addAction('DevEnrollmentManagementForward', {
       priority: 5,
       conditions: [
-        ListenerCondition.pathPatterns([
-          '/api/v1/organizations/*',
-          '/api/v1/inquiries',
-          '/api/v1/check-updates',
-        ]),
+        ListenerCondition.pathPatterns([...DEV_ENROLLMENT_MANAGEMENT_PATHS]),
       ],
       action: ListenerAction.forward([enrollmentApiTargetGroup]),
     });
