@@ -1,6 +1,6 @@
 # AGENTS.md
 
-> 이 문서는 PROJ-144 로컬 구현을 반영한다. AWS 배포와 live E2E는 수행하지 않았으므로 아래 구성은
+> 이 문서는 PROJ-144와 PROJ-159의 로컬 구현·정책을 반영한다. AWS 배포와 live E2E는 수행하지 않았으므로 아래 구성은
 > 배포된 dev 현행을 증명하지 않는다.
 
 이 레포에서 작업하는 코딩 에이전트를 위한 핸드오프 문서다. 코드를 수정하기 전에 **3장(불변 규칙)** 과 **5장(남은 작업)** 을 반드시 읽는다.
@@ -24,7 +24,7 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 
 **ADR 우선 원칙은 이 레포의 기존 규칙과 같다** — 1장의 "코드와 ADR이 어긋나면 ADR이 기준이다"가
 전 레포 공통 규칙이며, 크로스레포 결정만 `../docs/adr/`가 소유한다. 스코프 판정은 `adr-new` 스킬이 안내한다.
-단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0027`부터이고 **`0020`은 예약**이다(5장 (F)).
+단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0028`부터이고 **`0020`은 예약**이다(5장 (F)).
 
 **ADR 본문에서 타 레포 소스를 인용할 때는 행 번호 대신 함수·상수 이름으로 앵커한다**
 (예: `sink_clickhouse.py` 의 `execute()`). 행 번호 정합은 검증할 방법이 없어 반드시 낡는다 —
@@ -73,7 +73,7 @@ lib/
 └── cicd/     DeployStack 1개 + app.ts(synthCicd) + config.ts
 test/
 ├── prod/     운영 스위트 6개
-├── dev/      dev 스위트 5개
+├── dev/      dev 스위트 6개
 ├── cicd/     cicd 스위트 2개
 └── helpers.ts   buildApp() / buildDevApp() / buildCicdApp() / MODE_A_EDGE / TEST_ENV
 ```
@@ -125,7 +125,7 @@ Network/Data/Edge 뒤 Application 순서가 될 수 있다. PROJ-144 delete에�
 | `DevNetworkStack` | `lib/dev/network-stack.ts` | 전용 VPC (`10.1.0.0/16`, 2 AZ × public 1 티어, NAT 0개), S3 Gateway Endpoint, **ALB/AppHost/ClickHouse/RDS SG 4개 + 모든 cross-SG 룰** |
 | `DevDataStack` | `lib/dev/data-stack.ts` | RDS PostgreSQL 16.13 `db.t4g.micro` (`controlplane`, gp3 20GB, `publiclyAccessible`), 실제 Secret 3개(마스터, 공유 token hash, 관리자 토큰), Raw Signal S3(7일 만료) |
 | `DevApplicationStack` | `lib/dev/application-stack.ts` | ECS 클러스터, Cloud Map `obs.local`, 앱/ClickHouse ASG와 capacity provider, `Ec2Service` 3개 |
-| `DevEdgeStack` | `lib/dev/edge-stack.ts` | internet-facing ALB (`:80`, `:8123`), 신규 앱 target group 2개, `AlbDnsName`·`OtlpEndpoint`·`ClickhouseDebugUrl`·`RdsEndpoint`·`RdsSecretArn`·`TokenHashSecretArn`·`AdminApiTokenSecretArn` output 7개. Cognito·CloudFront·프론트엔드 S3 없음 |
+| `DevEdgeStack` | `lib/dev/edge-stack.ts` | internet-facing ALB (`:80`, `:8123`), 신규 앱 target group 2개, dev REGIONAL WAF와 탐지 로그, `AlbDnsName`·`OtlpEndpoint`·`ClickhouseDebugUrl`·`RdsEndpoint`·`RdsSecretArn`·`TokenHashSecretArn`·`AdminApiTokenSecretArn` output 7개. Cognito·CloudFront·프론트엔드 S3 없음 |
 
 | ECS 서비스 | 컨테이너 포트 | 네트워크 모드 | 호스트/예약 |
 |---|---:|---|---|
@@ -156,6 +156,12 @@ manifest의 OTLP endpoint와 같은 계약이 아니다. backend·telemetryctl·
 HTTPS를 요구하므로 HTTP curl 경계 검증은 가능하지만 CLI enrollment → manifest → OTLP forward E2E는
 별도 HTTPS 선행 과제가 완료되기 전에는 불가능하다. 계약을 HTTP 허용으로 완화하거나 이 작업에 TLS
 listener·certificate를 추가하지 않는다. prod의 기존 Fargate 서비스와 Collector 구성은 그대로다.
+
+dev WAF는 ALB 전체의 REGIONAL Web ACL이며 기본 Allow다(ADR-0027). 국가 CN·RU·KP·IR, 악성 IP,
+URI·헤더 공격은 OTLP에도 Block한다. 정확한 OTLP 세 경로의 본문·rate는 Count, query는 Block이고,
+앱 경로 밖의 SQL 본문·query는 Count다. WAF는 실제 listener port를 직접 구분하지 않으므로 `:8123`에
+앱 URI를 쓰면 같은 앱 정책이 적용된다. Host 기반 전면 Allow를 만들지 않는다. 탐지 로그는
+`aws-waf-logs-soma-376-dev`에 14일 보존하며, 지정 인증 헤더·query 마스킹과 샘플링 비활성화를 적용한다.
 
 ### CI/CD 스택 (cicd)
 
@@ -215,6 +221,10 @@ listener·certificate를 추가하지 않는다. prod의 기존 Fargate 서비�
 | **dev 로그 그룹은 `/ecs/dev/` 접두를 쓴다** | prod 물리 이름과 충돌하지 않으며 최종 앱 로그는 `/ecs/dev/telemetry-ingest`, `/ecs/dev/enrollment-api`, `/ecs/dev/clickhouse`다. |
 | **dev ALB listener는 모두 `open: false`다** | CDK 기본 `open: true`가 `0.0.0.0/0` ingress를 자동 추가해 `devAllowedCidr` 제한을 무력화하는 것을 막는다. |
 | **`:80`은 명시한 경로만 전달한다** | OTLP 정확한 세 경로는 ingest, `/api/v1`의 enrollment·인증·조직 관리·문의·업데이트 경로와 bootstrap 경로는 enrollment-api로 보낸다. default는 404이고 `/api/v1/healthz` public rule, 무제한 `/api/*`, `:4318`은 없다. |
+| **dev WAF의 개별 Count 예외와 경로별 exact-label Block을 함께 유지한다** | OTLP 본문·앱 경로 밖 SQL 본문/query는 Count지만 국가·악성 IP·URI·헤더 Block은 ingest에도 남는다. `/bin/` 확장자 예외는 `RestrictedExtensions_URIPATH` 한 규칙뿐이다. 앱 경로는 ALB와 공유하며 Host 기반 전면 Allow로 바꾸지 않는다. 앱의 인증·압축 전후 크기·압축 해제·JSON/protobuf·OTLP 구조 검증을 WAF가 대신하지 않는다. (ADR-0027) |
+| **WAF 앱 내용 검사와 등록 rate 범위는 구별한다** | PROJ-200의 `/api/v1` 인증·manifest·조직 관리·문의·업데이트 경로도 본문/query Block에 포함한다. 300건/300초는 `/api/v1/enroll`·`/api/v1/installations/*`·`/api/v1/invitations*` 세 조건만 합산하고, 추가된 앱 경로는 나머지 1,000건/300초에 포함한다. `/api/v1/*` 전체를 앱 경로나 등록 rate로 넓히지 않는다. (ADR-0027) |
+| **WAF 관리형 버전·override 이름·label을 함께 갱신한다** | Common `Version_1.23`, KnownBadInputs `Version_1.26`, SQLi `Version_2.4`를 고정한다. WAF 요청 로그에는 관리형 룰셋 버전이 직접 기록되지 않고 `formatVersion`은 로그 형식 버전이다. 과거 요청 분석은 당시 CDK·commit·배포 기록과 대조하며 갱신·만료 전 룰/label을 재검증한다. IP 목록은 비버전 그룹이다. (ADR-0027) |
+| **WAF 로그 redaction·data protection·sampling을 별도 계약으로 고정한다** | 기본 DROP에서 `BLOCK`·`COUNT`·`EXCLUDED_AS_COUNT`만 KEEP한다. Authorization·Cookie·X-Admin-Token과 전체 query를 `RedactedFields` 및 `DataProtectionConfig`의 SUBSTITUTION으로 보호하고 match/rate 상세도 포함한다. 요청 sampling은 전부 끄며, redaction만으로 sample 보호를 가정하지 않는다. (ADR-0027) |
 | **새 앱 target group만 60초 deregistration delay를 쓴다** | telemetry-ingest와 enrollment-api는 교체 배포 시간을 줄이기 위한 dev 초기값 60초다. ClickHouse와 prod는 300초를 유지한다. (ADR-0025, ADR-0026) |
 | **telemetry-ingest만 240초 health grace를 쓴다** | ClickHouse schema startup 5회와 30초 응답 헤더 timeout, 2초 backoff를 합친 약 160초에 Spring/RDS/host 여유를 둔 초기값이다. 정상 healthy 판정은 지연하지 않으며 본문 무기한 대기는 막지 못한다. enrollment-api는 CDK 기본 60초다. |
 | **`applyCommonTags`는 태그 맵을 인자로 받는다** | prod는 `Env=mvp`, dev는 `Env=dev`, cicd는 `Env=cicd`다. prod의 값을 임의로 바꾸면 전 리소스 diff가 생긴다. |
@@ -417,7 +427,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0027`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환으로 이미 쓰였고, `0020`은 위 (F)의 로그 그룹 정책용으로 여전히 예약되어 있다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0028`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF로 이미 쓰였고, `0020`은 위 (F)의 로그 그룹 정책용으로 여전히 예약되어 있다.
    형식은 `docs/adr/0000-adr-template.md`를 따른다.
 3. 상수는 **"이 값이 dev에서 달라야 할 이유가 있는가"**로 위치를 정한다 — 없으면 `lib/common/config.ts`, 운영 전용이면 `lib/prod/config.ts`, dev 전용이면 `lib/dev/config.ts`. 스택에서는 import만 한다 (4장).
 4. `test/prod/*.test.ts` / `test/dev/*.test.ts` / `test/cicd/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`(prod), `buildDevApp()`(dev), `buildCicdApp()`(cicd)를 재사용한다.
@@ -449,6 +459,27 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 - pipeline-dev 역할은 trust와 ARN output을 유지하며 ECR login을 포함한 permission statement가 0개다. 역할 삭제는 PROJ-106에서 결정한다.
 - `config/otel-collector.yaml`, `ENRICHMENT_ENV`, prod ECR 상수와 prod 파생 DSN은 삭제하지 않는다.
 - 로컬 구현은 `buildTelemetryIngestService()`·`buildEnrollmentApiService()`·`buildClickhouseService()`, dev SG construct 4개, 실제 Secret 3개와 Edge output 7개로 대조했다. 실제 배포가 끝나기 전에는 live 상태 증거로 쓰지 않는다.
+
+### (J) ADR-0027 dev ALB WAF `Accepted, 배포 증거 대기`
+
+- PROJ-197은 정책·ADR·핸드오프, PROJ-198은 dev Web ACL·association·Block/Count·rate,
+  PROJ-199는 로그·마스킹·로컬 회귀 검증을 맡는다. AWS 배포와 실트래픽 검증은 이번 완료 범위가 아니다.
+- PROJ-200(PR #18)의 `/api/v1` 앱 경로 전체를 본문/query Block에 포함한다. OTLP 세 경로와
+  bootstrap 경로는 유지하고 `/api/v1/healthz`는 public 앱 경로에 포함하지 않는다.
+- IP별 300초 기준으로 정확한 OTLP 세 경로 10,000건 Count, 등록·토큰·초대 세 조건만 300건 Block,
+  추가된 인증·manifest·조직 관리·문의·업데이트와 bootstrap·다운로드·SQL 디버깅 등 나머지 합계
+  1,000건 Block이다. Block rate는 429와
+  `Retry-After: 60`을 쓰며 정확한 차단 해제 시간을 보장하지 않는다. 값은 실측·AWS 권장값이 아닌
+  dev 초기값이고 공유 NAT·동시 설치·재시도, 나머지 경로 합산 및 요청 건수 기준의 한계를 관측한다.
+- 서울 리전의 선택 버전 가용성·실제 룰·label은 AWS 세션 만료로 미확인이다. 배포 전
+  `ListAvailableManagedRuleGroupVersions`·버전을 지정한 `DescribeManagedRuleGroup`으로 확인한다.
+  버전 만료·변경 때는 override·label·예외를 다시 검증하고 CDK·commit·배포 시각을 남긴다.
+- 인프라 배포 principal의 WAF logging configuration·CloudWatch Logs delivery/resource policy
+  권한과 실제 로그 전달을 확인한다. 앱 GitHub 배포 역할에 이 권한을 추가하지 않는다.
+- OTLP Count는 앱의 인증·압축 전후 크기 제한·압축 해제·JSON/protobuf 파싱·OTLP 구조 검증 확인이
+  필요하다는 뜻이다. 이번 작업으로 앱 검사 구현 완료나 안전성을 주장하지 않는다.
+- 정상 요청 오탐 차단 목표는 0건이며 관찰 기간·표본·담당자는 미정이다. template assertion과 synth는
+  정책 조건만 증명하고 실제 signature 실행·차단·로그 마스킹·오탐 0건은 배포 후 별도로 검증한다.
 
 ---
 
@@ -658,7 +689,7 @@ diff /tmp/before/NetworkStack.template.json /tmp/after/NetworkStack.template.jso
 
 ## 7. 테스트 작성 규칙
 
-테스트는 `test/prod/`(6 스위트), `test/dev/`(5 스위트), `test/cicd/`(2 스위트)로 나뉘고, 픽스처 `helpers.ts`만 루트에 둔다.
+테스트는 `test/prod/`(6 스위트), `test/dev/`(6 스위트), `test/cicd/`(2 스위트)로 나뉘고, 픽스처 `helpers.ts`만 루트에 둔다.
 
 - `aws-cdk-lib/assertions` 기반 **template assertion만** 쓴다. 스냅샷 테스트는 쓰지 않는다.
   - 예외: `lib/common/config.ts`의 **순수 함수**(예: `buildLibpqDsn`)와 `lib/dev/config.ts`의 `loadDevConfig`, `lib/cicd/config.ts`의 `loadCicdConfig` 파싱 로직은 CDK 리소스를 만들지 않으므로 `test/prod/config.test.ts` / `test/dev/config.test.ts` / `test/cicd/config.test.ts`에서 일반 단위 테스트로 검증한다. 이 파싱 테스트는 context 입력용 `new App()`을 직접 써도 되지만, 스택을 합성하는 테스트는 여전히 template assertion과 아래 팩토리만 쓴다.
@@ -682,6 +713,8 @@ diff /tmp/before/NetworkStack.template.json /tmp/after/NetworkStack.template.jso
 | 신규 target group 2개는 instance/60초, ClickHouse는 ip/300초 | `test/dev/edge-stack.test.ts` |
 | telemetry-ingest만 health grace 240초, enrollment-api는 60초 기본값 | `test/dev/application-stack.test.ts` |
 | ALB DNS late binding public base URL과 `/app/binaries` | `test/dev/application-stack.test.ts` |
+| WAF ALB 연결·버전·국가·개별 Count·exact-label·경로 경계·IP별 rate/429 | `test/dev/waf.test.ts` |
+| WAF 탐지 로그 14일·DROP/KEEP·header/query redaction·data protection·sampling 비활성화 | `test/dev/waf.test.ts` |
 | 구 collector/auth-proxy/dashboard/service/TG/Cloud Map binding/derived Secret/output가 없음 | dev 세 스위트 |
 | detach 단계에서는 구 세 `AWS::ECS::Service.LoadBalancers`가 정확히 `[]`이고 구 TG 유지 | PROJ-144 detach 전용 합성 test; 최종 delete에서 override/test 제거 |
 
