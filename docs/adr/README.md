@@ -28,7 +28,7 @@
 | 0023 | [dev 인증 프록시 - ALB와 Collector 사이에 auth-proxy 태스크 삽입](0023-dev-auth-proxy-between-alb-and-collector.md) | Superseded by ADR 0026 |
 | 0024 | [GitHub Actions 배포 - 레포×환경 4개 OIDC 역할과 ECS 물리 이름 고정](0024-github-actions-oidc-deploy-roles.md) | Accepted (dev 대상 부분 대체: ADR 0026) |
 | 0025 | [개발 MVP의 비-ClickHouse ALB 타깃에 60초 deregistration delay 적용](0025-use-60-second-dev-deregistration-delay.md) | Accepted (dev 대상 부분 대체: ADR 0026) |
-| 0026 | [dev 백엔드를 telemetry-ingest·enrollment-api·ClickHouse 세 서비스로 전환](0026-dev-backend-deployment-units-and-staged-migration.md) | Accepted |
+| 0026 | [dev 백엔드를 telemetry-ingest·enrollment-api·ClickHouse 세 서비스로 전환](0026-dev-backend-deployment-units-and-staged-migration.md) | Accepted (API 경로·health check는 허브 ADR 0016이 부분 대체) |
 
 새 ADR을 작성할 때는 다음 미사용 번호(`0027-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 로그 그룹 정책 ADR용으로 예약되어 있다(`AGENTS.md` 섹션 5 (F)).
 
