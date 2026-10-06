@@ -1,5 +1,7 @@
 import { Construct } from 'constructs';
-import { CfnWebACL, CfnWebACLAssociation } from 'aws-cdk-lib/aws-wafv2';
+import { CfnLoggingConfiguration, CfnWebACL, CfnWebACLAssociation } from 'aws-cdk-lib/aws-wafv2';
+import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
+import { ArnFormat, RemovalPolicy, Stack } from 'aws-cdk-lib/core';
 import {
   DEV_BOOTSTRAP_PATHS,
   DEV_ENROLLMENT_API_PATHS,
@@ -7,9 +9,11 @@ import {
   DEV_ENROLLMENT_REGISTRATION_PATHS,
   DEV_OTLP_PATHS,
   DEV_WAF_BLOCKED_COUNTRIES,
+  DEV_WAF_LOG_GROUP_NAME,
   DEV_WAF_MANAGED_RULE_VERSIONS,
   DEV_WAF_RATE_EVALUATION_WINDOW_SECONDS,
   DEV_WAF_RATE_LIMITS,
+  DEV_WAF_REDACTED_HEADERS,
   DEV_WAF_RETRY_AFTER_SECONDS,
   DEV_WAF_WEB_ACL_NAME,
 } from './config';
@@ -83,11 +87,72 @@ export class DevWaf extends Construct {
       defaultAction: { allow: {} },
       visibilityConfig: visibility(DEV_WAF_WEB_ACL_NAME),
       rules: buildRules(),
+      // RedactedFields만으로는 Headers 검사의 match 상세 등을 보호하지 못하므로
+      // Web ACL에서도 지정 필드를 치환한다. false는 match/rate 상세도 보호한다는 뜻이다.
+      // 마스킹과 요청 sampling은 별도 설정이므로 모든 sampling도 끈다.
+      // (ADR-0027)
+      dataProtectionConfig: {
+        dataProtections: [
+          {
+            action: 'SUBSTITUTION',
+            field: { fieldType: 'SINGLE_HEADER', fieldKeys: [...DEV_WAF_REDACTED_HEADERS] },
+            excludeRuleMatchDetails: false,
+            excludeRateBasedDetails: false,
+          },
+          {
+            action: 'SUBSTITUTION',
+            field: { fieldType: 'QUERY_STRING' },
+            excludeRuleMatchDetails: false,
+            excludeRateBasedDetails: false,
+          },
+        ],
+      },
     });
     new CfnWebACLAssociation(this, 'Association', {
       resourceArn: props.loadBalancerArn,
       webAclArn: this.webAcl.attrArn,
     });
+    this.configureLogging();
+  }
+
+  private configureLogging(): void {
+    const logGroup = new LogGroup(this, 'LogGroup', {
+      logGroupName: DEV_WAF_LOG_GROUP_NAME,
+      retention: RetentionDays.TWO_WEEKS,
+      removalPolicy: RemovalPolicy.DESTROY,
+      // 별도 KMS key 없이 CloudWatch Logs 기본 암호화를 사용한다. (ADR-0027)
+    });
+    const logging = new CfnLoggingConfiguration(this, 'Logging', {
+      resourceArn: this.webAcl.attrArn,
+      // LogGroup ARN의 :*는 WAF 목적지 ARN에 넣지 않는다. 이름 참조로 ARN을
+      // 조립하고 아래에서 로그 그룹의 생성 순서도 명시한다.
+      logDestinationConfigs: [Stack.of(this).formatArn({
+        service: 'logs',
+        resource: 'log-group',
+        resourceName: logGroup.logGroupName,
+        arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+      })],
+      // 최종 Allow여도 관리형 개별 Count override 탐지를 남기려면
+      // EXCLUDED_AS_COUNT까지 KEEP해야 한다. 탐지 없는 Allow는 DROP한다. (ADR-0027)
+      // CDK에서 loggingFilter와 SingleHeader 내부는 any이므로 CFN 대소문자를 직접 쓴다.
+      loggingFilter: {
+        DefaultBehavior: 'DROP',
+        Filters: [{
+          Behavior: 'KEEP',
+          Requirement: 'MEETS_ANY',
+          Conditions: ['BLOCK', 'COUNT', 'EXCLUDED_AS_COUNT'].map((action) => ({
+            ActionCondition: { Action: action },
+          })),
+        }],
+      },
+      // 로그 redaction은 요청 sampling에 적용되지 않는다. 위 ACL 보호와 모든
+      // 규칙의 sampling false도 함께 유지한다. (ADR-0027)
+      redactedFields: [
+        ...DEV_WAF_REDACTED_HEADERS.map((name) => ({ singleHeader: { Name: name } })),
+        { queryString: {} },
+      ],
+    });
+    logging.node.addDependency(logGroup);
   }
 }
 
