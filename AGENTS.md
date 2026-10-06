@@ -474,12 +474,26 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 - 서울 리전의 선택 버전 가용성·실제 룰·label은 AWS 세션 만료로 미확인이다. 배포 전
   `ListAvailableManagedRuleGroupVersions`·버전을 지정한 `DescribeManagedRuleGroup`으로 확인한다.
   버전 만료·변경 때는 override·label·예외를 다시 검증하고 CDK·commit·배포 시각을 남긴다.
+- WAF는 `NONE`으로 URI 원문을 비교하며 ALB normalization 정합 증거는 canonical·trailing slash·prefix
+  합성 조건에 한정한다. 배포 전 `curl --path-as-is`로 percent encoding·dot segment·중복 slash의
+  ALB/WAF 분류를 확인하고 앱 라우팅이 디버깅 Count에 들어가면 정책을 보완한다.
 - 인프라 배포 principal의 WAF logging configuration·CloudWatch Logs delivery/resource policy
   권한과 실제 로그 전달을 확인한다. 앱 GitHub 배포 역할에 이 권한을 추가하지 않는다.
 - OTLP Count는 앱의 인증·압축 전후 크기 제한·압축 해제·JSON/protobuf 파싱·OTLP 구조 검증 확인이
   필요하다는 뜻이다. 이번 작업으로 앱 검사 구현 완료나 안전성을 주장하지 않는다.
 - 정상 요청 오탐 차단 목표는 0건이며 관찰 기간·표본·담당자는 미정이다. template assertion과 synth는
   정책 조건만 증명하고 실제 signature 실행·차단·로그 마스킹·오탐 0건은 배포 후 별도로 검증한다.
+- PROJ-198 배포에서 `OR_STATEMENT` nested statement 오류가 보고돼 나머지 rate 범위의
+  `NOT(OR(OR3, OR3))`를 같은 의미의 `NOT(OR6)`로 평탄화했다. 일반적인 OR 중첩 금지나
+  서비스 깊이 한도가 문서로 확인된 것은 아니다. 배포 전 합성 Rules를 `CheckCapacity`로 확인한다.
+- PROJ-200 반영 전 OR 평탄화 수정은 전체 330 tests·build·prod A/B·dev·cicd fixture synth를
+  통과했고, 당시 템플릿 변경은
+  `RemainingRateBlock`의 OR 구조 한 곳에 한정됐다. AWS 세션 만료로 수정 전후 `CheckCapacity`
+  대조는 수행하지 못했으며 실제 오류 해소는 서비스 검증·재배포로 확인해야 한다.
+- PROJ-200(PR #18, `8836ef9`) 위로 PROJ-197 → 198을 누적한 구현은 전체 365 tests(14 suites,
+  snapshot 없음), build와 prod A/B·dev·cicd fixture synth를 통과했다. PR #18 대비 기존 리소스와
+  다른 환경 템플릿은 동일하고 dev Edge에 Web ACL·association 두 리소스만 추가된다. 새 앱
+  내용 검사와 기존 등록 rate 세 조건을 구별하며 `RemainingRateBlock`의 여섯 leaf를 유지한다.
 
 ---
 
