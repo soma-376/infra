@@ -1,0 +1,14 @@
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfplan.*
+*.tfvars
+*.tfvars.json
+*.backend.hcl
+bootstrap/backend.tf
+crash.log
+crash.*.log
+!*.example
+
+!environments/*/runtime.auto.tfvars.json

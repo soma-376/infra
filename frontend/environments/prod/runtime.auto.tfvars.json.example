@@ -1,0 +1,9 @@
+{
+  "runtime": {
+    "domain_name": "prod.frontend.example.com",
+    "route53_zone_id": "Z_REPLACE_WITH_PUBLIC_ZONE_ID",
+    "image_digest": "sha256:REPLACE_WITH_ARM64_ECR_IMAGE_DIGEST",
+    "enrollment_api_url": "https://enrollment.prod.example.com",
+    "dashboard_api_url": "https://dashboard.prod.example.com"
+  }
+}

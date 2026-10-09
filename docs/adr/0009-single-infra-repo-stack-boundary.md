@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted — 프론트엔드의 도구·상태 분리는 [ADR 0027](0027-isolate-frontend-terraform-network.md)이 부분 대체한다. 기존 CDK 앱 경계와 인프라 저장소 소유권은 유지한다.
 
 ## Context
 
