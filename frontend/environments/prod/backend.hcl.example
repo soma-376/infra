@@ -1,0 +1,2 @@
+bucket = "REPLACE_WITH_BOOTSTRAP_PROD_STATE_BUCKET"
+allowed_account_ids = ["REPLACE_WITH_ACCOUNT_ID"]

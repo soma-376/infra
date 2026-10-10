@@ -1,0 +1,9 @@
+aws_account_id = "REPLACE_WITH_ACCOUNT_ID"
+# 실제 OIDC token의 sub 앞부분을 확인해 교체한다. immutable ID 유무를 추측하지 않는다.
+github_subject_prefix = "repo:soma-376@297555253/infra@1310491235"
+
+# 도메인이 준비된 뒤 권한을 추가한다. 아래 zone 자체는 Terraform이 생성하지 않는다.
+# frontend_dns = {
+#   dev = { domain_name = "dev.frontend.example.com", zone_id = "Z_REPLACE_WITH_PUBLIC_ZONE_ID" }
+#   prod = { domain_name = "frontend.example.com", zone_id = "Z_REPLACE_WITH_PUBLIC_ZONE_ID" }
+# }

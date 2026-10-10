@@ -1,0 +1,10 @@
+{
+  "runtime": {
+    "domain_name": "dev.frontend.example.com",
+    "route53_zone_id": "Z_REPLACE_WITH_PUBLIC_ZONE_ID",
+    "image_digest": "sha256:REPLACE_WITH_ARM64_ECR_IMAGE_DIGEST",
+    "enrollment_api_url": "https://enrollment.dev.example.com",
+    "dashboard_api_url": "https://dashboard.dev.example.com",
+    "dev_ami_id": "ami-REPLACE_WITH_ECS_AL2023_ARM64_ID"
+  }
+}
