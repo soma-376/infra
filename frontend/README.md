@@ -105,8 +105,8 @@ S3 최신 상태와 버전 관리가 확인된 뒤 로컬 상태·백업·계획
 |---|---|---|
 | `frontend-dev-plan` | 검토된 동일 저장소 PR 및 필요한 검증 실행 | `TF_STATE_BUCKET`, `TF_PLAN_ROLE_ARN` |
 | `frontend-prod-plan` | 검토된 동일 저장소 PR 및 필요한 검증 실행 | `TF_STATE_BUCKET`, `TF_PLAN_ROLE_ARN` |
-| `frontend-dev` | `develop` 브랜치만 | `TF_STATE_BUCKET`, `TF_APPLY_ROLE_ARN` |
-| `frontend-prod` | `main` 브랜치만 | `TF_STATE_BUCKET`, `TF_APPLY_ROLE_ARN` |
+| `frontend-dev-apply` | `develop` 브랜치만 | `TF_STATE_BUCKET`, `TF_APPLY_ROLE_ARN` |
+| `frontend-prod-apply` | `main` 브랜치만 | `TF_STATE_BUCKET`, `TF_APPLY_ROLE_ARN` |
 
 - 네 Environment 모두 required reviewers와 자기 승인 금지를 설정한다. PR 코드도 상태를 읽을 수
   있으므로 plan 역할 승인은 코드·workflow 검토 후에만 한다. fork PR는 AWS plan을 실행하지 않는다.
@@ -115,9 +115,11 @@ S3 최신 상태와 버전 관리가 확인된 뒤 로컬 상태·백업·계획
 - `develop`, `main`은 PR·리뷰·필수 검증을 요구하고 직접 push 및 보호 우회를 제한한다.
   workflow와 `frontend/` 변경도 인프라 담당자가 검토한다.
 - 저장소 변수 `AWS_ACCOUNT_ID`에 계정 ID를 넣고, 각 Environment에는 bootstrap output의
-  해당 버킷·역할 ARN을 넣는다. 마지막에 저장소 변수 `FRONTEND_TERRAFORM_ENABLED=true`를 설정한다.
-- 처음부터 이 변수를 켜지 않는다. 부트스트랩이 없는 첫 PR는 자격증명 없는 검증만 통과시키며
-  AWS plan은 skipped다. 초기 부트스트랩 완료 이후 AWS plan도 필수 리뷰에 포함한다.
+  해당 버킷·역할 ARN을 넣는다. 최초 bootstrap과 환경 보호 설정을 완료한 뒤 workflow를 실행한다.
+- 초기 준비용 실행 플래그는 제거했다. 동일 저장소 PR는 검증 성공 후 dev/prod plan을 실행하며,
+  설정이나 권한이 누락되면 실패로 표시한다. AWS plan 결과도 필수 리뷰에 포함한다.
+- apply는 `develop`/`main`의 변경과 해당 Environment의 보호 규칙을 따른다. 저장소에 남아 있는
+  `FRONTEND_TERRAFORM_ENABLED` 변수는 더 이상 사용하지 않으므로 삭제해도 된다.
 - 일반 개발자의 로컬 AWS 권한에서 인프라 쓰기를 제한하는 것은 계정 관리자 책임이다.
   workflow 추가만으로 기존 관리자 권한이 회수되지는 않는다.
 
@@ -125,8 +127,8 @@ S3 최신 상태와 버전 관리가 확인된 뒤 로컬 상태·백업·계획
 
 ```text
 PR → fmt/validate/mock test → 보호된 Environment 승인 → dev/prod plan
-develop 머지 → 검증 → frontend-dev 승인 → 최종 plan → 같은 계획 apply
-main 머지 → 검증 → frontend-prod 승인 → 최종 plan → 같은 계획 apply
+develop 머지 → 검증 → frontend-dev-apply 승인 → 최종 plan → 같은 계획 apply
+main 머지 → 검증 → frontend-prod-apply 승인 → 최종 plan → 같은 계획 apply
 ```
 
 Environment 승인은 머지된 코드와 PR 계획을 기준으로 **job 시작 전**에 한다. 승인 후 최신 상태로

@@ -49,7 +49,7 @@ run "separate_state_and_ci_privileges" {
     error_message = "모든 상태 버킷은 공개 차단과 버전 관리가 필요합니다."
   }
   assert {
-    condition     = alltrue([for role in aws_iam_role.terraform : jsondecode(role.assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:aud"] == "sts.amazonaws.com"]) && jsondecode(aws_iam_role.terraform["prod-apply"].assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:soma-376/infra:environment:frontend-prod"
+    condition     = alltrue([for role in aws_iam_role.terraform : jsondecode(role.assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:aud"] == "sts.amazonaws.com"]) && alltrue([for key, role in aws_iam_role.terraform : jsondecode(role.assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:soma-376/infra:environment:frontend-${key}"])
     error_message = "OIDC는 정확한 저장소·Environment와 audience를 검증해야 합니다."
   }
   assert {

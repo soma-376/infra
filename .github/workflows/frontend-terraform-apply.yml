@@ -17,7 +17,6 @@ concurrency:
 
 jobs:
   validate:
-    if: vars.FRONTEND_TERRAFORM_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -35,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 75
     # 이 Environment에서 승인과 허용 브랜치를 강제한다.
-    environment: ${{ github.ref_name == 'main' && 'frontend-prod' || 'frontend-dev' }}
+    environment: ${{ github.ref_name == 'main' && 'frontend-prod-apply' || 'frontend-dev-apply' }}
     permissions:
       contents: read
       id-token: write

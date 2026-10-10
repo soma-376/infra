@@ -31,9 +31,7 @@ jobs:
   plan:
     needs: validate
     # fork PR에는 AWS 역할과 상태 접근권한을 주지 않는다.
-    if: >-
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      vars.FRONTEND_TERRAFORM_ENABLED == 'true'
+    if: github.event.pull_request.head.repo.full_name == github.repository
     strategy:
       fail-fast: false
       matrix:

@@ -83,7 +83,7 @@ locals {
     for entry in flatten([
       for env in local.environments : [
         { key = "${env}-plan", env = env, mode = "plan", github_environment = "frontend-${env}-plan" },
-        { key = "${env}-apply", env = env, mode = "apply", github_environment = "frontend-${env}" }
+        { key = "${env}-apply", env = env, mode = "apply", github_environment = "frontend-${env}-apply" }
       ]
     ]) : entry.key => entry
   }
