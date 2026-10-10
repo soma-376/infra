@@ -114,7 +114,7 @@ S3 최신 상태와 버전 관리가 확인된 뒤 로컬 상태·백업·계획
   보호 규칙 없이 Environment만 생성하면 어느 브랜치든 그 역할을 요청할 수 있으므로 활성화하지 않는다.
 - `develop`, `main`은 PR·리뷰·필수 검증을 요구하고 직접 push 및 보호 우회를 제한한다.
   workflow와 `frontend/` 변경도 인프라 담당자가 검토한다.
-- 저장소 변수 `FRONTEND_AWS_ACCOUNT_ID`에 계정 ID를 넣고, 각 Environment에는 bootstrap output의
+- 저장소 변수 `AWS_ACCOUNT_ID`에 계정 ID를 넣고, 각 Environment에는 bootstrap output의
   해당 버킷·역할 ARN을 넣는다. 마지막에 저장소 변수 `FRONTEND_TERRAFORM_ENABLED=true`를 설정한다.
 - 처음부터 이 변수를 켜지 않는다. 부트스트랩이 없는 첫 PR는 자격증명 없는 검증만 통과시키며
   AWS plan은 skipped다. 초기 부트스트랩 완료 이후 AWS plan도 필수 리뷰에 포함한다.
