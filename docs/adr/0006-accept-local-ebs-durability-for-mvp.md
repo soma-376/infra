@@ -4,6 +4,8 @@
 
 Accepted (스냅샷 정책은 다음 단계)
 
+EKS 활성화 dev 경로의 실행·접속·스토리지·스택 경계는 [ADR 0028](0028-dev-eks-auto-mode-transition.md)이 부분 대체한다. 기존 ECS와 prod 경로는 계속 유효하다.
+
 ## Context
 
 ClickHouse 데이터는 인스턴스 로컬 EBS 볼륨(`/data/clickhouse`, `/dev/xvdb`)에 저장된다. Auto Scaling Group이 이 인스턴스를 교체하면 해당 볼륨과 함께 데이터가 유실된다.

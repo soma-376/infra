@@ -18,6 +18,8 @@ Accepted — 애플리케이션 API 경로와 health check는 [허브 ADR 0016](
 ClickHouse A 레코드 결정은 유지하고, dev Collector A 레코드 등록만 폐지한다. 위 ADR의 prod 결정과
 그 밖의 결정은 그대로 유효하다.
 
+EKS 활성화 dev 경로의 실행·접속·스토리지·스택 경계는 [ADR 0028](0028-dev-eks-auto-mode-transition.md)이 부분 대체한다. 기존 ECS와 prod 경로는 계속 유효하다.
+
 ## Context
 
 허브 ADR 0004는 `ai-telemetry-pipeline`을 `pulsemetry-backend`로 병합하기로 했고, 허브 ADR 0005는
