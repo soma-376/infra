@@ -45,6 +45,7 @@ dev는 OTel Collector를 배포하지 않고 `pulsemetry-backend/apps/telemetry-
 - Secret 원문·Kubernetes Secret 복제 없이 ASCP/CSI/configtree를 사용한다. 검증 S3 prefix `eks_validation`에서 병행 운영 `eks`로 바꿀 때 PutObject IAM 범위도 함께 변경한다.
 - 실제 배포 후에는 `devEksEnabled=true`를 배포 설정에 고정한다. 옵션을 끈 Network/Edge 합성 결과를 배포하지 않는다.
 - Canary 수치·RPO/RTO는 초기 가설이다. live 검증·데이터 이관·ECS 제거는 PROJ-213~215로 남긴다.
+- 설치·검증·복구는 [EKS 수동 런북](docs/runbooks/dev-eks-manual-deployment.md), 구현 시점의 증거와 한계는 [로컬 검증 기록](docs/runbooks/dev-eks-local-validation.md)을 따른다.
 
 ## 1. 이 레포는 무엇인가
 
