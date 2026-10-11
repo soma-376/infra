@@ -76,6 +76,7 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     env,
     vpc: network.vpc,
     albSecurityGroup: network.albSecurityGroup,
+    eksValidationAlbSecurityGroup: network.eksValidationAlbSecurityGroup,
     telemetryIngestService: application.telemetryIngestService,
     enrollmentApiService: application.enrollmentApiService,
     clickhouseService: application.clickhouseService,
