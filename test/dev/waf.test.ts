@@ -266,6 +266,13 @@ describe('dev ALB WAF 정책 합성', () => {
     expect(found).toHaveLength(1);
     return found[0];
   };
+  const loggingConfig = (): any => {
+    const resources = Object.values(
+      template.findResources('AWS::WAFv2::LoggingConfiguration'),
+    );
+    expect(resources).toHaveLength(1);
+    return resources[0];
+  };
   const labelBlockRules = (): any[] => [
     rule('AppBodyLabelBlock'),
     rule('AppQueryLabelBlock'),
@@ -549,6 +556,89 @@ describe('dev ALB WAF 정책 합성', () => {
     });
   });
 
+  test('dev WAF 로그 그룹은 14일 보존·DESTROY·기본 암호화로 설정한다', () => {
+    const logGroups = Object.values(
+      template.findResources('AWS::Logs::LogGroup'),
+    ) as any[];
+    expect(logGroups).toHaveLength(1);
+    expect(logGroups[0].Properties).toMatchObject({
+      LogGroupName: 'aws-waf-logs-soma-376-dev',
+      RetentionInDays: 14,
+    });
+    expect(logGroups[0].Properties.KmsKeyId).toBeUndefined();
+    expect(logGroups[0].DeletionPolicy).toBe('Delete');
+    expect(logGroups[0].UpdateReplacePolicy).toBe('Delete');
+  });
+
+  test('logging은 ACL ARN과 wildcard 없는 로그 ARN을 연결하고 로그 그룹 생성에 의존한다', () => {
+    const [webAclId] = Object.keys(
+      template.findResources('AWS::WAFv2::WebACL'),
+    );
+    const [logGroupId] = Object.keys(
+      template.findResources('AWS::Logs::LogGroup'),
+    );
+    expect(loggingConfig().Properties.ResourceArn).toEqual({
+      'Fn::GetAtt': [webAclId, 'Arn'],
+    });
+    expect(loggingConfig().Properties.LogDestinationConfigs).toEqual([
+      {
+        'Fn::Join': ['', [
+          'arn:aws:logs:ap-northeast-2:111111111111:log-group:',
+          { Ref: logGroupId },
+        ]],
+      },
+    ]);
+    expect(loggingConfig().DependsOn).toEqual(
+      expect.arrayContaining([logGroupId]),
+    );
+  });
+
+  test('로그 필터는 기본 DROP이며 Block·Count·개별 Count override 중 하나를 KEEP한다', () => {
+    expect(loggingConfig().Properties.LoggingFilter).toEqual({
+      DefaultBehavior: 'DROP',
+      Filters: [{
+        Behavior: 'KEEP',
+        Requirement: 'MEETS_ANY',
+        Conditions: [
+          { ActionCondition: { Action: 'BLOCK' } },
+          { ActionCondition: { Action: 'COUNT' } },
+          { ActionCondition: { Action: 'EXCLUDED_AS_COUNT' } },
+        ],
+      }],
+    });
+  });
+
+  // 로그 전달·실제 민감 필드 비노출은 AWS 배포 후 검증 대상이다. 여기서는
+  // redaction과 match/rate 상세를 포함하는 data protection 합성 설정만 고정한다.
+  test('세 민감 header와 전체 query를 redaction·data protection으로 보호하도록 설정한다', () => {
+    const headers = ['authorization', 'cookie', 'x-admin-token'];
+    const redactedFields = loggingConfig().Properties.RedactedFields;
+    expect(redactedFields).toHaveLength(4);
+    expect(redactedFields).toEqual(expect.arrayContaining([
+      ...headers.map((name) => ({ SingleHeader: { Name: name } })),
+      { QueryString: {} },
+    ]));
+
+    const protections = webAcl().Properties.DataProtectionConfig.DataProtections;
+    expect(protections).toHaveLength(2);
+    expect(protections.map((value: any) => value.Field.FieldType).sort())
+      .toEqual(['QUERY_STRING', 'SINGLE_HEADER']);
+    for (const protection of protections) {
+      expect(protection).toMatchObject({
+        Action: 'SUBSTITUTION',
+        ExcludeRuleMatchDetails: false,
+        ExcludeRateBasedDetails: false,
+      });
+      expect(protection.FieldToProtect).toBeUndefined();
+      if (protection.Field.FieldType === 'SINGLE_HEADER') {
+        expect([...protection.Field.FieldKeys].sort())
+          .toEqual([...headers].sort());
+      } else {
+        expect(protection.Field.FieldKeys).toBeUndefined();
+      }
+    }
+  });
+
   // rate 동작 시점은 AWS의 근사 판정이며, 이 표는 합성된 ScopeDown의 경로 구분만
   // 검증한다. N+1번째 요청이 429가 된다는 주장이 아니다.
   test.each(PATH_CASES)(
@@ -578,6 +668,7 @@ describe('WAF 환경 경계', () => {
       const template = Template.fromStack(edge);
       template.resourceCountIs('AWS::WAFv2::WebACL', 0);
       template.resourceCountIs('AWS::WAFv2::WebACLAssociation', 0);
+      template.resourceCountIs('AWS::WAFv2::LoggingConfiguration', 0);
     },
   );
 
@@ -586,5 +677,6 @@ describe('WAF 환경 경계', () => {
     const template = Template.fromStack(deploy);
     template.resourceCountIs('AWS::WAFv2::WebACL', 0);
     template.resourceCountIs('AWS::WAFv2::WebACLAssociation', 0);
+    template.resourceCountIs('AWS::WAFv2::LoggingConfiguration', 0);
   });
 });
