@@ -1,0 +1,11 @@
+# CDK outputs에서 생성한다. 고정 계정·리소스 ID를 저장하지 않는다.
+nodeRoleName: ""
+subnetIds: []
+appNodeSecurityGroupId: ""
+clickhouseNodeSecurityGroupId: ""
+clickhouseAvailabilityZone: ""
+# 최초 배치 예산이다. 실측 후 NodePool limits와 Pod requests를 함께 검토한다.
+apps:
+  cpuLimit: "8"
+clickhouse:
+  cpuLimit: "4"
