@@ -1,3 +1,6 @@
+import { ISecret } from 'aws-cdk-lib/aws-secretsmanager';
+import { IBucket } from 'aws-cdk-lib/aws-s3';
+import { DevEksRuntime } from './eks-runtime';
 import { DevEksLbc } from './eks-lbc';
 import { CfnOutput, Stack, StackProps } from 'aws-cdk-lib/core';
 import { IVpc, ISecurityGroup } from 'aws-cdk-lib/aws-ec2';
@@ -7,6 +10,11 @@ import { Construct } from 'constructs';
 import { DEV_EKS_CLUSTER_NAME, DEV_EKS_OPERATOR_ROLE_NAME, DEV_EKS_VERSION, DevEksConfig } from './eks-config';
 
 export interface DevEksStackProps extends StackProps {
+  readonly dbEndpoint: string;
+  readonly dbSecret: ISecret;
+  readonly tokenHashSecret: ISecret;
+  readonly adminApiTokenSecret: ISecret;
+  readonly rawSignalBucket: IBucket;
   readonly vpc: IVpc;
   readonly controlPlaneSecurityGroup: ISecurityGroup;
   readonly appNodeSecurityGroup: ISecurityGroup;
@@ -73,8 +81,17 @@ export class DevEksStack extends Stack {
       accessPolicies: [{ policyArn: `arn:${this.partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy`, accessScope: { type: 'cluster' } }],
     });
     new DevEksLbc(this, 'Lbc', { clusterName: this.cluster.ref });
+    new DevEksRuntime(this, 'Runtime', {
+      clusterName: this.cluster.ref, dbSecret: props.dbSecret,
+      tokenHashSecret: props.tokenHashSecret, adminApiTokenSecret: props.adminApiTokenSecret,
+      rawSignalBucket: props.rawSignalBucket, archivePrefix: props.config.archivePrefix,
+    });
 
     const outputs: Record<string, string> = {
+      DbEndpoint: props.dbEndpoint, DbSecretArn: props.dbSecret.secretArn,
+      TokenHashSecretArn: props.tokenHashSecret.secretArn,
+      AdminApiTokenSecretArn: props.adminApiTokenSecret.secretArn,
+      RawSignalBucketName: props.rawSignalBucket.bucketName,
       EksClusterName: this.cluster.ref, EksClusterEndpoint: this.cluster.attrEndpoint,
       EksRegion: this.region, EksVpcId: props.vpc.vpcId,
       EksSubnetIds: props.vpc.publicSubnets.map(subnet => subnet.subnetId).join(','),

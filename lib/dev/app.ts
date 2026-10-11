@@ -91,6 +91,9 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
 
   const eks = config.eks.enabled ? new DevEksStack(app, 'DevEksStack', {
     env, vpc: network.vpc, config: config.eks,
+    dbEndpoint: data.dbEndpoint, dbSecret: data.dbSecret,
+    tokenHashSecret: data.tokenHashSecret, adminApiTokenSecret: data.adminApiTokenSecret,
+    rawSignalBucket: data.rawSignalBucket,
     controlPlaneSecurityGroup: network.eksControlPlaneSecurityGroup!,
     appNodeSecurityGroup: network.eksAppNodeSecurityGroup!,
     clickhouseNodeSecurityGroup: network.eksClickhouseNodeSecurityGroup!,
