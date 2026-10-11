@@ -1,11 +1,14 @@
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { load, loadAll } from 'js-yaml';
 import { App, Stack } from 'aws-cdk-lib/core';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { DevEksLbc } from '../../lib/dev/eks-lbc';
 import { TEST_ENV } from '../helpers';
 
 const clusterName = 'soma-376-dev-eks';
+const lbcPath = path.join(__dirname, '../../helm/dev/platform/lbc');
 
 // 단일 construct의 IAM 경계를 검사한다. 실제 활성화된 dev 스택의 조립은 eks-stack suite가 검사한다.
 function lbcTemplate(namespace?: string): Template {
@@ -98,5 +101,56 @@ describe('dev EKS LBC Pod Identity와 외부 TG 소유권', () => {
     expect(statements.every(statement => statement.Condition.StringEquals['aws:RequestedRegion'] === TEST_ENV.region)).toBe(true);
     const resources = Object.values(template.toJSON().Resources).map(resource => (resource as { Type: string }).Type);
     expect(resources.every(type => ['AWS::IAM::Role', 'AWS::IAM::Policy', 'AWS::EKS::PodIdentityAssociation'].includes(type))).toBe(true);
+  });
+});
+
+describe('고정 LBC chart·CRD와 Helm 권한 경계', () => {
+  test('공식 3.6.0 archive와 그 안의 CRD 원본 checksum을 고정한다', () => {
+    const expected = {
+      'vendor/aws-load-balancer-controller-3.6.0.tgz': 'ee0403fcd713d6f1d28b1ff17d0d6d47e011cc4dd727a0aed0d95ae46897226a',
+      'crds/crds.yaml': 'a4fcee6ec3fefe69be490b53b6a244b93bbdb1c927f4782dff2b59316581bb7f',
+      'crds/gateway-crds.yaml': '3a4264e2a7cf132944fd095b04ce86299385f26ea31b1e89d0ac21761e1865a0',
+    };
+    for (const [file, checksum] of Object.entries(expected)) {
+      expect(createHash('sha256').update(fs.readFileSync(path.join(lbcPath, file))).digest('hex')).toBe(checksum);
+    }
+    const source = JSON.parse(fs.readFileSync(path.join(lbcPath, 'SOURCE.json'), 'utf8'));
+    expect(source.chart).toMatchObject({ version: '3.6.0', appVersion: 'v3.6.0', sha256: expected['vendor/aws-load-balancer-controller-3.6.0.tgz'] });
+    expect(source.controller.commit).toBe('267b5458b4c4c3066d47673a36dda275af07a6d6');
+  });
+
+  test('TGB는 OSS API 그룹이며 kubeconform schema가 고정 CRD의 v1beta1 schema와 같다', () => {
+    const crds = loadAll(fs.readFileSync(path.join(lbcPath, 'crds/crds.yaml'), 'utf8')) as any[];
+    const tgb = crds.find(crd => crd.metadata.name === 'targetgroupbindings.elbv2.k8s.aws');
+    expect(tgb.spec.group).toBe('elbv2.k8s.aws');
+    const schema = tgb.spec.versions.find((version: any) => version.name === 'v1beta1').schema.openAPIV3Schema;
+    expect(schema.properties.spec.properties.controllerClass).toBeUndefined();
+    expect(JSON.parse(fs.readFileSync(path.join(lbcPath, 'schemas/targetgroupbinding_elbv2.k8s.aws_v1beta1.json'), 'utf8'))).toEqual(schema);
+  });
+
+  test('IMDS를 대체하는 runtime 입력·ServiceAccount·앱 노드 배치를 명시하고 다른 controller를 끈다', () => {
+    const values = load(fs.readFileSync(path.join(lbcPath, 'values.yaml'), 'utf8')) as any;
+    expect([values.clusterName, values.region, values.vpcId]).toEqual(['', '', '']);
+    expect(values.image.tag).toBe('v3.6.0');
+    expect(values.serviceAccount).toMatchObject({ create: true, name: 'aws-load-balancer-controller', annotations: {} });
+    expect(values.nodeSelector).toEqual({ 'kubernetes.io/arch': 'arm64', 'karpenter.sh/nodepool': 'pulsemetry-dev-apps' });
+    expect(values.tolerations).toEqual([]);
+    expect(values.watchNamespace).toBe('pulsemetry-dev');
+    expect(values.enableBackendSecurityGroup).toBe(false);
+    expect(values.enableManageBackendSecurityGroupRules).toBe(false);
+    expect(values.enableServiceMutatorWebhook).toBe(false);
+    expect(values.createIngressClassResource).toBe(false);
+    expect(values.ingressClassParams.create).toBe(false);
+    expect(values.disableIngressClassAnnotation).toBe(true);
+    expect(values.enableWaf).toBe(false);
+    expect(values.enableWafv2).toBe(false);
+    expect(values.enableShield).toBe(false);
+    expect(values.controllerConfig.featureGates).toMatchObject({
+      EnableServiceController: false,
+      NLBGatewayAPI: false,
+      ALBGatewayAPI: false,
+      NLBSecurityGroup: false,
+      GlobalAcceleratorController: false,
+    });
   });
 });
