@@ -156,5 +156,8 @@ cdk.out
 # AWS 계정별 조회 결과가 포함되는 CDK 로컬 context 캐시
 cdk.context.json
 
+# 배포 output과 계정별 Helm values는 로컬 생성물이다.
+generated/
+
 # 검증한 upstream Helm archive는 버전·checksum과 함께 보관한다.
 !helm/dev/platform/lbc/vendor/aws-load-balancer-controller-3.6.0.tgz
