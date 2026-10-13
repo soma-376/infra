@@ -1,0 +1,17 @@
+{{- range .Values.targetGroupBindings }}
+---
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: clickhouse-{{ .stage }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "pulsemetry.clickhouse.labels" $ | nindent 4 }}
+spec:
+  targetGroupARN: {{ .targetGroupARN | quote }}
+  targetType: ip
+  vpcID: {{ $.Values.vpcId | quote }}
+  serviceRef:
+    name: clickhouse
+    port: http
+{{- end }}

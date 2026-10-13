@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.workload }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pulsemetry.app.labels" . | nindent 4 }}
+spec:
+  type: NodePort
+  externalTrafficPolicy: Cluster
+  selector:
+    {{- include "pulsemetry.app.selector" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ include "pulsemetry.app.port" . }}
+      targetPort: http
+      nodePort: {{ include "pulsemetry.app.nodePort" . }}
+      protocol: TCP

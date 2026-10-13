@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object", "additionalProperties": false,
+  "required": ["replicaCount", "availabilityZone", "storage", "resources", "targetGroupBindings", "vpcId"],
+  "properties": {
+    "replicaCount": {"const": 1},
+    "availabilityZone": {"type": "string", "pattern": "^ap-northeast-2[a-d]$"},
+    "storage": {
+      "type": "object", "additionalProperties": false, "required": ["className", "size"],
+      "properties": {"className": {"const": "pulsemetry-dev-gp3"}, "size": {"const": "50Gi"}}
+    },
+    "resources": {
+      "type": "object", "additionalProperties": false, "required": ["requests", "limits"],
+      "properties": {
+        "requests": {
+          "type": "object", "additionalProperties": false, "required": ["cpu", "memory"],
+          "properties": {"cpu": {"const": "250m"}, "memory": {"const": "1Gi"}}
+        },
+        "limits": {
+          "type": "object", "additionalProperties": false, "required": ["cpu", "memory"],
+          "properties": {"cpu": {"const": "1"}, "memory": {"const": "2Gi"}}
+        }
+      }
+    },
+    "targetGroupBindings": {
+      "type": "array", "maxItems": 2,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["stage", "targetGroupARN", "confirmExclusiveOwnership"],
+        "properties": {
+          "stage": {"enum": ["validation", "canary"]},
+          "targetGroupARN": {"type": "string", "pattern": "^arn:aws:elasticloadbalancing:ap-northeast-2:[0-9]{12}:targetgroup/soma-376-dev-eks-[a-z0-9-]+/[a-f0-9]{16}$"},
+          "confirmExclusiveOwnership": {"const": true}
+        }
+      }
+    },
+    "vpcId": {"type": "string", "pattern": "^(vpc-[a-f0-9]{8}([a-f0-9]{9})?)?$"}
+  }
+}
