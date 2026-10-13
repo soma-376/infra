@@ -24,7 +24,7 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 
 **ADR 우선 원칙은 이 레포의 기존 규칙과 같다** — 1장의 "코드와 ADR이 어긋나면 ADR이 기준이다"가
 전 레포 공통 규칙이며, 크로스레포 결정만 `../docs/adr/`가 소유한다. 스코프 판정은 `adr-new` 스킬이 안내한다.
-단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0028`부터이고 **`0020`은 예약**이다(5장 (F)).
+단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0029`부터이고 **`0020`은 예약**이다(5장 (F)).
 
 **ADR 본문에서 타 레포 소스를 인용할 때는 행 번호 대신 함수·상수 이름으로 앵커한다**
 (예: `sink_clickhouse.py` 의 `execute()`). 행 번호 정합은 검증할 방법이 없어 반드시 낡는다 —
@@ -34,6 +34,16 @@ ADR-0018·0019가 같은 이유로 두 번 낡았다. 기존 문서의 일괄 �
 dev는 OTel Collector를 배포하지 않고 `pulsemetry-backend/apps/telemetry-ingest`가 수집부터 적재까지 맡는다.
 
 ---
+
+### EKS 병행 전환 규칙 (ADR-0028)
+
+- PROJ-206~212는 구현·문서·로컬 검증·커밋 범위다. AWS 배포와 실환경 완료를 증명하지 않는다.
+- `devEksEnabled=false`의 기존 ECS 4스택과 prod/cicd는 유지한다. true에서 DevEksStack과 검증 ALB/TG를 추가한다.
+- 이하 ECS 전용 불변식은 기존 경로에 적용한다. EKS 활성화 경로의 예외는 [ADR-0028](docs/adr/0028-dev-eks-auto-mode-transition.md)이 우선하며 사용자 정의 SG와 cross-SG 규칙의 Network 소유는 그대로다.
+- CDK는 AWS 리소스, Helm은 Kubernetes 선언, Auto Mode는 노드 생성·교체를 소유한다. 기존 ECS TG를 TGB에 연결하지 않는다.
+- Secret 원문·Kubernetes Secret 복제 없이 ASCP/CSI/configtree를 사용한다. 검증 S3 prefix `eks_validation`에서 병행 운영 `eks`로 바꿀 때 PutObject IAM 범위도 함께 변경한다.
+- 실제 배포 후에는 `devEksEnabled=true`를 배포 설정에 고정한다. 옵션을 끈 Network/Edge 합성 결과를 배포하지 않는다.
+- Canary 수치·RPO/RTO는 초기 가설이다. live 검증·데이터 이관·ECS 제거는 PROJ-213~215로 남긴다.
 
 ## 1. 이 레포는 무엇인가
 
@@ -427,7 +437,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0028`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF로 이미 쓰였고, `0020`은 위 (F)의 로그 그룹 정책용으로 여전히 예약되어 있다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0029`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 dev EKS 병행 전환으로 이미 쓰였고, `0020`은 위 (F)의 로그 그룹 정책용으로 여전히 예약되어 있다.
    형식은 `docs/adr/0000-adr-template.md`를 따른다.
 3. 상수는 **"이 값이 dev에서 달라야 할 이유가 있는가"**로 위치를 정한다 — 없으면 `lib/common/config.ts`, 운영 전용이면 `lib/prod/config.ts`, dev 전용이면 `lib/dev/config.ts`. 스택에서는 import만 한다 (4장).
 4. `test/prod/*.test.ts` / `test/dev/*.test.ts` / `test/cicd/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`(prod), `buildDevApp()`(dev), `buildCicdApp()`(cicd)를 재사용한다.
