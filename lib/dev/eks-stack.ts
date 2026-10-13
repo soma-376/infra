@@ -1,3 +1,4 @@
+import { DevEksLbc } from './eks-lbc';
 import { CfnOutput, Stack, StackProps } from 'aws-cdk-lib/core';
 import { IVpc, ISecurityGroup } from 'aws-cdk-lib/aws-ec2';
 import { CfnAccessEntry, CfnCluster } from 'aws-cdk-lib/aws-eks';
@@ -71,6 +72,8 @@ export class DevEksStack extends Stack {
       clusterName: this.cluster.ref, principalArn: this.operatorRole.roleArn, type: 'STANDARD',
       accessPolicies: [{ policyArn: `arn:${this.partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy`, accessScope: { type: 'cluster' } }],
     });
+    new DevEksLbc(this, 'Lbc', { clusterName: this.cluster.ref });
+
     const outputs: Record<string, string> = {
       EksClusterName: this.cluster.ref, EksClusterEndpoint: this.cluster.attrEndpoint,
       EksRegion: this.region, EksVpcId: props.vpc.vpcId,

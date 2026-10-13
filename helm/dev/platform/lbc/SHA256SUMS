@@ -1,0 +1,3 @@
+ee0403fcd713d6f1d28b1ff17d0d6d47e011cc4dd727a0aed0d95ae46897226a  vendor/aws-load-balancer-controller-3.6.0.tgz
+a4fcee6ec3fefe69be490b53b6a244b93bbdb1c927f4782dff2b59316581bb7f  crds/crds.yaml
+3a4264e2a7cf132944fd095b04ce86299385f26ea31b1e89d0ac21761e1865a0  crds/gateway-crds.yaml

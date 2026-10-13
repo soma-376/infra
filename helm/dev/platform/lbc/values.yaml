@@ -1,0 +1,63 @@
+# chart/controller v3.6.0. 배포된 CDK output으로 generated/lbc.yaml을 생성해 함께 전달한다.
+# Auto Mode의 IMDS 제약에 의존하지 않도록 세 값을 모두 명시한다.
+clusterName: ""
+region: ""
+vpcId: ""
+
+image:
+  repository: public.ecr.aws/eks/aws-load-balancer-controller
+  tag: v3.6.0
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+serviceAccount:
+  create: true
+  name: aws-load-balancer-controller
+  annotations: {}
+  automountServiceAccountToken: true
+
+nodeSelector:
+  kubernetes.io/arch: arm64
+  karpenter.sh/nodepool: pulsemetry-dev-apps
+tolerations: []
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+# TGB만 사용한다. Ingress controller의 완전 비활성화 flag는 v3.6.0에 없다.
+# 전용 미사용 ingress class + class 리소스 미생성 + IAM 쓰기 제한을 함께 적용한다.
+watchNamespace: pulsemetry-dev
+ingressClass: pulsemetry-tgb-only
+createIngressClassResource: false
+ingressClassParams:
+  create: false
+disableIngressClassAnnotation: true
+disableIngressGroupNameAnnotation: true
+enableServiceMutatorWebhook: false
+webhookConfig:
+  disableIngressValidation: true
+
+enableBackendSecurityGroup: false
+enableManageBackendSecurityGroupRules: false
+enableWaf: false
+enableWafv2: false
+enableShield: false
+enablePodReadinessGateInject: false
+enableEndpointSlices: true
+clusterSecretsPermissions:
+  allowAllSecrets: false
+controllerConfig:
+  featureGates:
+    EnableServiceController: false
+    NLBGatewayAPI: false
+    ALBGatewayAPI: false
+    NLBSecurityGroup: false
+    GlobalAcceleratorController: false
+    ALBTargetControlAgent: false
+    EnableCertificateManagement: false
+
+# 직접 TGB의 SG 처리에는 위 SG flag가 적용되지 않는다. TGB에서 spec.networking을
+# 생략하고 CDK Network가 모든 SG 규칙을 소유하며 LBC 역할에는 SG 쓰기를 주지 않는다.

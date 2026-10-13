@@ -1,0 +1,27 @@
+{
+  "chart": {
+    "name": "aws-load-balancer-controller",
+    "version": "3.6.0",
+    "appVersion": "v3.6.0",
+    "url": "https://aws.github.io/eks-charts/aws-load-balancer-controller-3.6.0.tgz",
+    "sha256": "ee0403fcd713d6f1d28b1ff17d0d6d47e011cc4dd727a0aed0d95ae46897226a"
+  },
+  "controller": {
+    "repository": "https://github.com/kubernetes-sigs/aws-load-balancer-controller",
+    "tag": "v3.6.0",
+    "tagObject": "b5570b83d5d1045b17e0a31c3bce92882c7fe866",
+    "commit": "267b5458b4c4c3066d47673a36dda275af07a6d6"
+  },
+  "crds": [
+    {
+      "file": "crds/crds.yaml",
+      "archivePath": "aws-load-balancer-controller/crds/crds.yaml",
+      "sha256": "a4fcee6ec3fefe69be490b53b6a244b93bbdb1c927f4782dff2b59316581bb7f"
+    },
+    {
+      "file": "crds/gateway-crds.yaml",
+      "archivePath": "aws-load-balancer-controller/crds/gateway-crds.yaml",
+      "sha256": "3a4264e2a7cf132944fd095b04ce86299385f26ea31b1e89d0ac21761e1865a0"
+    }
+  ]
+}
