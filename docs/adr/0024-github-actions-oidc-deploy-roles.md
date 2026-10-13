@@ -132,12 +132,22 @@ GitHub 조직/저장소 ID는 `lib/cicd/config.ts`의 `GITHUB_ORG` / `GITHUB_REP
 
 ### 4. 역할은 레포 × 환경 4개
 
+아래 표는 ADR-0026의 dev 전환 전 결정이다. 현재 dev 권한 범위는 표 아래의 정정을 따른다.
+
 | 역할 이름 | 신뢰하는 `sub` | ECR push 대상 | ECS 강제 재배포 대상 |
 |---|---|---|---|
 | `github-deploy-ai-telemetry-pipeline-dev` | `repo:soma-376@297555253/ai-telemetry-pipeline@1309872274:ref:refs/heads/develop` | `soma-376/post-processor`, `soma-376/auth-proxy` | `soma-376-dev/collector`, `soma-376-dev/auth-proxy` |
 | `github-deploy-ai-telemetry-pipeline-prod` | `repo:soma-376@297555253/ai-telemetry-pipeline@1309872274:ref:refs/heads/main` | `soma-376/post-processor` | `soma-376-prod/collector` |
 | `github-deploy-pulsemetry-backend-dev` | `repo:soma-376@297555253/pulsemetry-backend@1325324450:ref:refs/heads/develop` | `soma-376/api-server`, `soma-376/batch-processor` | `soma-376-dev/dashboard` |
 | `github-deploy-pulsemetry-backend-prod` | `repo:soma-376@297555253/pulsemetry-backend@1325324450:ref:refs/heads/main` | `soma-376/api-server`, `soma-376/batch-processor` | `soma-376-prod/dashboard` |
+
+**현재 dev 범위 (ADR-0026·PROJ-226).** pipeline-dev 역할은 신뢰 정책과 ARN output만 유지하며
+ECR 인증을 포함한 permission statement는 0개다. backend-dev 역할의 ECR 대상은
+`soma-376/enrollment-api`, `soma-376/telemetry-ingest`, 이미지 공급 준비 대상인
+`soma-376/dashboard-api`다. ECS 강제 재배포 대상은 기존 `soma-376-dev/enrollment-api`와
+`soma-376-dev/telemetry-ingest` 두 개를 유지한다. PROJ-226은 기존 ECR 액션 목록의 Resource에
+dashboard-api를 추가할 뿐, 서비스 정의나 ECS 재배포 권한을 추가하지 않는다. 전체 배포 계약과
+ADR 채택은 PROJ-220, 서비스 정의는 PROJ-221의 범위다. prod 두 역할과 OIDC 신뢰 정책은 유지한다.
 
 **레포당 하나가 아니라 레포 × 환경인 이유**는 dev 잡이 운영 서비스를 강제 업데이트할 경로
 자체를 없애기 위해서다. 역할 하나가 두 환경을 다 들면 dev 워크플로우의 버그나 `develop`에
@@ -156,9 +166,11 @@ GitHub 조직/저장소 ID는 `lib/cicd/config.ts`의 `GITHUB_ORG` / `GITHUB_REP
 - **`clickhouse` 서비스가 어디에도 없다.** 공개 이미지를 고정 태그로 쓰므로
   ([ADR-0019](0019-clickhouse-container-runtime-contract.md)) 앱 레포가 재배포할 대상이 아니다.
 
-ECR 레포는 dev/prod가 공유하므로(ADR-0021 5번) 두 환경 역할의 ECR 리소스는 같다. 갈리는 것은
-ECS 서비스 ARN과 push하는 **태그**이며, **태그는 IAM 조건으로 표현할 수 없다** - ECR은 이미지
-태그 기반 조건 키를 제공하지 않는다. 즉 태그 분리는 여전히 규율이지 강제가 아니다.
+ECR 레포 이름에 환경을 넣지 않지만(ADR-0021 5번), 역할의 ECR 리소스는 환경별로 실제 공급하는
+이미지 대상에 맞춘다. ADR-0026 이후 backend-dev와 backend-prod의 대상은 다르다. 양쪽이 같은
+레포를 소비하는 경우에는 ECS 서비스 ARN과 push하는 **태그**가 갈리며, **태그는 IAM 조건으로
+표현할 수 없다** - ECR은 이미지 태그 기반 조건 키를 제공하지 않는다. 즉 태그 분리는 여전히
+규율이지 강제가 아니다.
 
 ### 5. 권한은 위 두 동작만 덮는다
 
