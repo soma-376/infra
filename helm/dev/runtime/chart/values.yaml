@@ -1,0 +1,6 @@
+# CDK output 참조만 generated/runtime.yaml로 전달한다. Secret 값을 넣지 않는다.
+region: ""
+secrets:
+  dbArn: ""
+  tokenHashArn: ""
+  adminApiTokenArn: ""

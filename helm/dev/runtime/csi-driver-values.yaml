@@ -1,0 +1,27 @@
+# 별도 release에서 chart/driver 1.6.1을 설치한다. Kubernetes Secret 복제·회전은 끈다.
+syncSecret:
+  enabled: false
+enableSecretRotation: false
+tokenRequests:
+  - audience: sts.amazonaws.com
+  - audience: pods.eks.amazonaws.com
+linux:
+  enabled: true
+  image:
+    tag: v1.6.1
+  crds:
+    enabled: true
+    image:
+      tag: v1.6.1
+  nodeSelector:
+    kubernetes.io/arch: arm64
+  # ClickHouse 전용 노드에도 driver가 있어야 CSI mount가 막히지 않는다.
+  tolerations:
+    - key: workload
+      operator: Equal
+      value: clickhouse
+      effect: NoSchedule
+    - key: CriticalAddonsOnly
+      operator: Exists
+windows:
+  enabled: false

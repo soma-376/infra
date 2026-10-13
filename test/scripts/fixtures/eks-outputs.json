@@ -1,0 +1,25 @@
+{
+  "DevEksStack": {
+    "EksClusterName": "soma-376-dev-eks",
+    "EksRegion": "ap-northeast-2",
+    "EksVpcId": "vpc-0123456789abcdef0",
+    "EksSubnetIds": "subnet-0123456789abcdef0,subnet-0123456789abcdef1",
+    "EksAppNodeSecurityGroupId": "sg-0123456789abcdef0",
+    "EksClickhouseNodeSecurityGroupId": "sg-0123456789abcdef1",
+    "EksClickhouseAvailabilityZone": "ap-northeast-2a",
+    "EksNodeRoleName": "soma-376-dev-eks-node",
+    "DbEndpoint": "database.example.test",
+    "DbSecretArn": "arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:db-abc123",
+    "TokenHashSecretArn": "arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:hmac-abc123",
+    "AdminApiTokenSecretArn": "arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:admin-abc123",
+    "RawSignalBucketName": "fixture-raw-signals",
+    "ApplicationLogGroupName": "/eks/dev/application",
+    "ArchivePrefix": "eks_validation"
+  },
+  "DevEdgeStack": {
+    "ValidationPublicBaseUrl": "http://validation-alb.example.test",
+    "ValidationEnrollmentApiTargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:111111111111:targetgroup/soma-376-dev-eks-enroll-v/0123456789abcdef",
+    "ValidationTelemetryIngestTargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:111111111111:targetgroup/soma-376-dev-eks-ingest-v/0123456789abcdef",
+    "ValidationClickhouseTargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:111111111111:targetgroup/soma-376-dev-eks-ch-v/0123456789abcdef"
+  }
+}
