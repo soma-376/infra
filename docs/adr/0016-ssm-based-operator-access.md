@@ -4,6 +4,8 @@
 
 Accepted — 부분 대체: [ADR 0022](0022-dev-infrastructure-topology.md) 가 dev 환경의 ECS Exec 결정을 대체한다(호스트 SSM + docker exec — 5(b)). EC2 Session Manager 와 운영 Fargate 의 ECS Exec 결정은 그대로 유효하다.
 
+EKS 활성화 dev 경로의 실행·접속·스토리지·스택 경계는 [ADR 0028](0028-dev-eks-auto-mode-transition.md)이 부분 대체한다. 기존 ECS와 prod 경로는 계속 유효하다.
+
 ## Context
 
 ClickHouse EC2 인스턴스에 접속할 수단이 없었다. 로그 확인, 디스크 사용량 점검, ClickHouse 프로세스 상태 확인 같은 기본 운영 작업조차 불가능한 상태다.

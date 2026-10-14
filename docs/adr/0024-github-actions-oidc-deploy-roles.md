@@ -7,6 +7,8 @@ Accepted — 부분 대체: [ADR 0026](0026-dev-backend-deployment-units-and-sta
 유지한 채 permission statement를 0개로 만든다. 역할 4개 구조, prod 대상, OIDC 신뢰 경계와
 `iam:PassRole`·태스크 정의 등록 금지는 그대로 유효하다.
 
+[ADR-0029](0029-dev-dashboard-api-ecs-and-eks-deployment.md)이 backend-dev의 ECS 재배포 목표를 enrollment·ingest·dashboard 세 앱으로 확장한다. PROJ-226 기준 코드는 ECR 공급 권한만 추가한 상태이며 서비스 재배포 권한 구현은 PROJ-221이다. 기존 prod·OIDC trust와 태스크 정의 등록·PassRole 금지는 유효하다.
+
 ## Context
 
 인프라는 구축되어 있지만 **앱 배포가 수동이다.** `develop` 병합 후 누군가 손으로 이미지를
