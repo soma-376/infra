@@ -8,6 +8,8 @@ PROJ-159의 PROJ-197·198·199는 문서·CDK·테스트·환경별 synth까지 
 정책이 확정됐다는 뜻이며, AWS 배포·실제 차단·로그 전달·정상 요청 오탐 0건의 증거는 아니다.
 기존 로그 그룹 정책용 ADR-0020 예약은 유지한다.
 
+[ADR-0029](0029-dev-dashboard-api-ecs-and-eks-deployment.md)이 dashboard의 명시한 경로를 앱 본문/query 검사에 추가한다. 기존 등록 rate 세 조건과 OTLP·나머지 rate, 국가·악성 IP·URI·헤더 차단 및 로그 보호 결정은 유효하다. 이번 문서 채택은 WAF 코드 변경·배포 증거가 아니다.
+
 ## Context
 
 dev ALB는 정확한 OTLP 세 경로, `/api/v1` 앱 API, bootstrap·바이너리 다운로드와 ClickHouse

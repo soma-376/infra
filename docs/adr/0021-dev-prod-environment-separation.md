@@ -4,6 +4,8 @@
 
 Accepted — 부분 대체: [ADR 0024](0024-github-actions-oidc-deploy-roles.md) 7번이 Decision 5 의 dev 기본 이미지 태그(`latest` → `dev`)를 대체한다. 나머지 결정은 그대로 유효하다.
 
+EKS 활성화 dev 경로의 실행·접속·스토리지·스택 경계는 [ADR 0028](0028-dev-eks-auto-mode-transition.md)이 부분 대체한다. 기존 ECS와 prod 경로는 계속 유효하다.
+
 ## Context
 
 `AGENTS.md` 4장은 이 결정을 **명시적으로 예약해 두었다.**

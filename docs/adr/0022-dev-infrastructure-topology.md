@@ -7,6 +7,8 @@ Accepted — 부분 대체: [ADR 0026](0026-dev-backend-deployment-units-and-sta
 `clickhouse` 세 서비스 목표로 대체한다. VPC·SG 소유 경계·RDS·ClickHouse·EC2/bridge 판정 기준과
 확장 경로는 그대로 유효하다.
 
+EKS 활성화 dev 경로의 실행·접속·스토리지·스택 경계는 [ADR 0028](0028-dev-eks-auto-mode-transition.md)이 부분 대체한다. 기존 ECS와 prod 경로는 계속 유효하다.
+
 ## Context
 
 PROJ-37 티켓이 dev 인프라에 **두 가지 제약을 명시**했다.

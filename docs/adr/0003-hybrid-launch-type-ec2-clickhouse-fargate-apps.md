@@ -4,6 +4,8 @@
 
 Accepted
 
+EKS 활성화 dev 경로의 실행·접속·스토리지·스택 경계는 [ADR 0028](0028-dev-eks-auto-mode-transition.md)이 부분 대체한다. 기존 ECS와 prod 경로는 계속 유효하다.
+
 ## Context
 
 ClickHouse는 스테이트풀 워크로드로 영속 스토리지가 필요하다. Fargate와 EFS 조합은 MergeTree 엔진의 I/O 패턴에서 성능 저하가 크게 나타난다. 반대로 모든 컴포넌트를 EC2 단일 인스턴스에 올리는 방안은 비용은 최소화할 수 있지만, Spring Boot 기반 앱 서비스와 ClickHouse가 같은 인스턴스에서 동거하며 발생하는 메모리 경합과 인스턴스 관리 부담이 뒤따른다.

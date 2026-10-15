@@ -9,6 +9,36 @@
 
 ---
 
+## dashboard와 EKS 문서의 현재 기준
+
+이 브랜치의 코드는 PROJ-226까지다. dev ECS는 기존 `enrollment-api`·`telemetry-ingest`·`clickhouse` 세 서비스이며
+`ECR_REPOS.dashboardApi`와 이미지 공급 권한만 준비되어 있다. dashboard 서비스 생성·설정 주입·라우팅 및
+backend-dev의 dashboard ECS 재배포 권한은 PROJ-221에서 구현한다. 아래 기존 서비스 수·Secret 수·배포 증거는
+그 기준의 기록이며 dashboard 후속 설계가 이미 구현·배포됐다는 뜻이 아니다.
+
+채택된 후속 배포 결정은 [ADR-0029](docs/adr/0029-dev-dashboard-api-ecs-and-eks-deployment.md)다.
+사용자 JWT 키 공급은 [허브 ADR-0022](../docs/adr/0022-user-jwt-key-provisioning.md)와
+[infra ADR-0030](docs/adr/0030-dev-user-jwt-keys-from-secrets-manager.md)을 따른다.
+환경별 개인키·공개키 고정 Secret ARN 두 개와 버전 지정 파일 공급을 채택했지만 초기화·CDK writer·EKS 키 mount는
+아직 구현하지 않았다. enrollment는 두 원본, dashboard는 공개키만 읽으며 ingest에는 JWT 권한을 추가하지 않는다.
+기존 실제 Secret 3개와 과거 검증 수치는 현재 코드·기록의 기준으로 유지한다.
+목표는 dev 네 서비스와 같은 ARM64 artifact의 ECS/EKS 소비다. dashboard는 포트 8081, ECS bridge·동적 host port·
+1024 MiB 소프트 예약과 기존 앱 ASG, EKS apps NodePool·독립 release·전용 검증 TG를 사용한다.
+NodePort 숫자는 PROJ-223에서 확정하고 Network SG·TG·CDK output·Helm Service와 일치시킨다.
+소프트 예약 3072 MiB 계산은 실제 메모리·배치 안정성을 증명하지 않는다.
+
+공통 경로·method·OPTIONS, 설정명 전체 표, source/cache 네 연결·DDL·공개키 kid와 사용자 세션 조회 계약은
+[허브 dashboard 계약](../docs/contracts/dashboard-api.md)과 [허브 ADR-0021](../docs/adr/0021-dashboard-runtime-and-deployment-contract.md)이 권위다.
+`auth/me`, 조직 onboarding·invitations GET과 기존 enrollment 쓰기는 유지한다. 내부 health check·public default 404,
+기존 WAF 등록 rate 세 조건도 유지한다. dashboard에 기존 HMAC·관리자 token·raw S3 권한을 공유하지 않는다.
+
+최초 이미지 공급 → 수동 CDK 서비스 생성·기능 검증 → enrollment·ingest·dashboard 순차 ECS CD → 동일 digest의
+수동 EKS Helm 검증 순서다. EKS ADR-0028과 런북은 PROJ-212의 기존 문서를 가져왔으며, 실제 실행에는
+PROJ-207~211 누적 EKS 코드와 PROJ-221~224 dashboard 구현이 먼저 필요하다.
+[기존 EKS 런북](docs/runbooks/dev-eks-manual-deployment.md)과 [역사적 로컬 검증 기록](docs/runbooks/dev-eks-local-validation.md)을 따른다.
+
+---
+
 ## 0. 중앙 허브와 공통 규칙
 
 Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 조직 → 팀 → 구성원 축으로 모아 보여주는
@@ -24,7 +54,7 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 
 **ADR 우선 원칙은 이 레포의 기존 규칙과 같다** — 1장의 "코드와 ADR이 어긋나면 ADR이 기준이다"가
 전 레포 공통 규칙이며, 크로스레포 결정만 `../docs/adr/`가 소유한다. 스코프 판정은 `adr-new` 스킬이 안내한다.
-단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0028`부터이고 **`0020`은 예약**이다(5장 (F)).
+단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0031`부터이고 **`0020`은 예약**이다(5장 (F)).
 
 **ADR 본문에서 타 레포 소스를 인용할 때는 행 번호 대신 함수·상수 이름으로 앵커한다**
 (예: `sink_clickhouse.py` 의 `execute()`). 행 번호 정합은 검증할 방법이 없어 반드시 낡는다 —
@@ -214,7 +244,8 @@ URI·헤더 공격은 OTLP에도 Block한다. 정확한 OTLP 세 경로의 본�
 | **`lib/prod/`와 `lib/dev/`는 서로 import 하지 않는다** | 의존은 `prod → common`, `dev → common` 단방향뿐이다. dev에 필요한 값이 prod에 있으면 common으로 올리거나 dev에 둔다. (ADR-0021) |
 | **dev 네트워크 모드는 bridge / bridge / awsvpc다** | telemetry-ingest와 enrollment-api는 dynamic host port를 쓰는 instance target이다. ClickHouse만 A 레코드 등록을 위해 awsvpc/ip target을 쓴다. |
 | **두 Spring 이미지는 `linux/arm64`다** | 앱 호스트가 `AmiHardwareType.ARM`인 t4g라 amd64 이미지는 pull 뒤 실행되지 않는다. synth와 template assertion만으로 이미지 manifest architecture를 증명할 수 없다. |
-| **dev에는 실제 Secret 3개만 둔다** | RDS master, 관리자 API token, 공유 token hash다. 파생 libpq DSN·Postgres URI Secret은 없다. username/password와 token은 ECS `secrets`로 주입하고 합성 산출물이나 output에 값을 노출하지 않는다. 공유 hash Secret의 construct ID `DevAuthProxyTokenHashSecret`은 기존 물리 Secret 연속성을 위해 유지한 이름일 뿐이며, 최종 런타임 소비자는 telemetry-ingest와 enrollment-api다. |
+| **기존 dev 코드의 실제 Secret은 3개다** | RDS master, 관리자 API token, 공유 token hash다. 파생 libpq DSN·Postgres URI Secret은 없다. username/password와 token은 ECS `secrets`로 주입하고 합성 산출물이나 output에 값을 노출하지 않는다. 공유 hash Secret의 construct ID `DevAuthProxyTokenHashSecret`은 기존 물리 Secret 연속성을 위해 유지한 이름일 뿐이며, 최종 런타임 소비자는 telemetry-ingest와 enrollment-api다. JWT 개인키·공개키 별도 원본 두 개의 추가 참조는 ADR-0030의 후속 구현이며 기존 3개를 재생성하지 않는다. |
+| **사용자 JWT 키 수명과 앱 배포를 분리한다** | 초기 키 생성·두 Secret 등록·키쌍 검증은 명시적인 작업이다. 일반 배포에서 생성하지 않으며 고정 ARN·VersionId·active-kid·파일 맵으로 ECS/EKS가 같은 원본을 소비한다. enrollment는 두 키, dashboard는 공개키만 받고 ingest에는 JWT 권한이 없다. PEM은 설정값 대신 파일로 공급하고, 교체는 전체 verifier → signer → 마지막 구 발급 후 330초 이상 → 구 공개키 제거다. ECS task role은 writer와 앱이 공유한다. 문서 채택을 코드·AWS 배포 완료로 보지 않는다. (허브 ADR-0022, infra ADR-0030) |
 | **두 앱은 기존 token hash Secret 하나를 공유한다** | telemetry-ingest의 인증과 enrollment-api의 token 발급/검증이 같은 HMAC key를 써야 한다. 새 Secret을 만들거나 header로 legacy identity를 전파하지 않는다. |
 | **public base URL은 ALB DNS에서 late binding한다** | `PULSEMETRY_PUBLIC_BASE_URL=http://<ALB DNS>`를 수동 context나 고정값으로 복제하지 않는다. weak reference는 export 잠금만 완화하므로 배포 순서는 별도 런북을 따른다. |
 | **`PULSEMETRY_BINARIES_DIR=/app/binaries`를 유지한다** | `/windows`, `/unix`, `/bin/*`는 enrollment-api로 라우팅한다. 이 레포는 URL/라우팅만 제공하며 이미지 안 실제 바이너리 공급은 별도 책임이다. |
@@ -427,7 +458,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0028`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF로 이미 쓰였고, `0020`은 위 (F)의 로그 그룹 정책용으로 여전히 예약되어 있다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0031`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급으로 이미 쓰였고, `0020`은 위 (F)의 로그 그룹 정책용으로 여전히 예약되어 있다.
    형식은 `docs/adr/0000-adr-template.md`를 따른다.
 3. 상수는 **"이 값이 dev에서 달라야 할 이유가 있는가"**로 위치를 정한다 — 없으면 `lib/common/config.ts`, 운영 전용이면 `lib/prod/config.ts`, dev 전용이면 `lib/dev/config.ts`. 스택에서는 import만 한다 (4장).
 4. `test/prod/*.test.ts` / `test/dev/*.test.ts` / `test/cicd/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`(prod), `buildDevApp()`(dev), `buildCicdApp()`(cicd)를 재사용한다.
@@ -504,6 +535,15 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
   prod·dev·cicd CLI synth도 고정 테스트 env/AZ context와 `--no-lookups`로 통과했다. sandbox의
   tsx IPC 제한은 `node --import tsx`로 회피했고 기존 CDK 경고는 남아 있다. 이 합성은 서울 리전
   입력 수용·실제 배포·차단·로그 전달을 확인한 증거가 아니다.
+
+### (K) ADR-0030 사용자 JWT 키 공급 `Accepted, 후속 구현·배포 증거 대기`
+
+- 허브 ADR-0022가 키 형식·초기화·버전 보존·교체를, infra ADR-0030이 dev ECS writer와 EKS ASCP/CSI 파일 전달을 소유한다.
+- 고정 ARN 두 개의 원본은 앱 stack·이미지 수명과 분리해 운영자가 보존한다. 활성·교체·롤백 버전 label을 유지하고 삭제·재생성으로 ARN을 바꾸지 않는다.
+- ECS task별 SDK writer·공유 volume·앱 SUCCESS 의존성, task 역할 공유 범위와 writer 메모리를 구현·검증한다.
+- EKS는 개별 objectVersion·키 파일 alias·명시적 kid 맵과 UID 10001의 실제 접근을 검증한다. 기존 configtree에는 경로만 전달한다.
+- 키 누락·빈 파일·읽기 불가·PEM 오류·키쌍/kid 불일치·부분 등록 실패·신구 토큰 검증·교체·양방향 롤백을 수락 조건으로 남긴다.
+- 이번 문서 변경은 실제 키 생성·Secret 등록·코드 변경·AWS 배포를 수행하지 않는다. 기존 3개 Secret·과거 검증 결과를 JWT 공급 완료 증거로 재해석하지 않는다.
 
 ---
 
