@@ -1,7 +1,7 @@
 # dev EKS 워크로드
 
-ADR-0028의 dev 병행 구성을 세 release로 설치한다. `spring-app` chart를 `enrollment-api`와
-`telemetry-ingest` release에서 각각 사용하고, ClickHouse는 `clickhouse` release를 사용한다.
+ADR-0028·0029의 dev 병행 구성을 네 release로 구분한다. `spring-app` chart를 `enrollment-api`·
+`telemetry-ingest`·`dashboard-api` release에서 각각 사용하고, ClickHouse는 `clickhouse` release를 사용한다.
 namespace `pulsemetry-dev`, NodePool과 StorageClass는 기반 platform release가 먼저 만든다.
 
 | release | chart / 기본 values | 워크로드 / Service | 포트 |
@@ -9,15 +9,37 @@ namespace `pulsemetry-dev`, NodePool과 StorageClass는 기반 platform release�
 | `clickhouse` | `clickhouse` | StatefulSet / ClusterIP | 8123, 9000 |
 | `enrollment-api` | `spring-app` / `enrollment-api.yaml` | Deployment / NodePort | 8080 / 30080 |
 | `telemetry-ingest` | `spring-app` / `telemetry-ingest.yaml` | Deployment / NodePort | 4316 / 30416 |
+| `dashboard-api` | `spring-app` / `dashboard-api.yaml` | Deployment / NodePort | 8081 / 30081 |
 
 기본 values만으로 앱을 실행하지 않는다. 앱별 `image.repository`와 `image.digest`에 실제 ARM64
 이미지 digest를 전달하고 runtime overlay로 RDS·S3 참조와 CSI mount를 구성한다. chart는 이미지
 digest 형식을 검사하지만 registry manifest의 ARM64 포함 여부는 배포 전에 별도로 확인한다.
 ClickHouse의 `availabilityZone`은 CDK output의 첫 번째 AZ를 사용한다.
 
+PROJ-223은 dashboard NodePort를 30081로 정하고 CDK의 `DEV_EKS_NODE_PORTS.dashboard`와
+`EksDashboardApiNodePort` output, chart schema/helpers를 일치시킨다. 실제 클러스터에 이미 쓰는
+Service가 없는지는 배포 전 확인한다. PROJ-224가 SG·검증 TG에 같은 값을 연결하기 전에는 설치하지 않는다.
+
+`eks-values.mjs`는 세 앱의 `--enrollment-image`, `--ingest-image`, `--dashboard-image`를 필수로
+받아 CDK output에서 `generated/*.yaml`을 만든다. 정적 workload values 뒤 생성 YAML을 전달한다.
+예를 들어 dashboard chart의 로컬 렌더링은 다음과 같다.
+
+```bash
+helm template dashboard-api helm/dev/workloads/spring-app \
+  --namespace pulsemetry-dev \
+  --values helm/dev/workloads/dashboard-api.yaml \
+  --values generated/dashboard-api.yaml
+```
+
+이 단계의 `generated/dashboard-api.yaml`은 immutable image·포트·VPC 참조만 준비하며 runtime은
+꺼져 있고 TGB는 비어 있다. PROJ-231의 네 연결·JWT 공개키 공급과 PROJ-224의 전용 검증 TG가
+완성되기 전에는 배포 입력으로 사용하지 않는다. 사용자 기존 `generated/`는 로컬 검증에서 덮어쓰지 않는다.
+
 앱 `runtime.enabled=true`는 별도 runtime-config release의 `secretProviderClass`를 참조한다.
-두 앱의 필수 파일은 `PULSEMETRY_DB_USERNAME`, `PULSEMETRY_DB_PASSWORD`,
+기존 두 앱의 필수 파일은 `PULSEMETRY_DB_USERNAME`, `PULSEMETRY_DB_PASSWORD`,
 `PULSEMETRY_TOKEN_HASH_SECRET`이고 enrollment만 `PULSEMETRY_ADMIN_API_TOKEN`을 추가한다.
+dashboard runtime의 필수 파일은 source/cache 네 연결의 username/password 여덟 개이며
+HMAC·관리자 토큰을 포함하지 않는다. 해당 SPC 구현은 PROJ-231이 소유한다.
 chart는 `SPRING_CONFIG_IMPORT=configtree:/mnt/secrets-store/`를 설정하고 UID/GID/fsGroup 10001로
 파일을 읽는다. 같은 이미지의 initContainer가 파일 존재·읽기·비어 있지 않음을 검사하며 내용은
 출력하지 않는다. Secret 값과 `SPRING_CONFIG_IMPORT`를 `env` map에 넣으면 렌더링을 거부한다.
@@ -30,8 +52,8 @@ chart는 `SPRING_CONFIG_IMPORT=configtree:/mnt/secrets-store/`를 설정하고 U
 변경하지 않는다. chart에는 Ingress나 LoadBalancer Service가 없다.
 
 앱은 request 1Gi/limit 2Gi, replica 1과 `Recreate`를 사용한다. HTTP readiness
-`/api/v1/healthz`는 DB 상태를 포함하고 TCP liveness는 외부 DB 실패만으로 프로세스를 재시작하지
-않는다. startup probe는 ingest에 48회 × 5초, enrollment에 12회 × 5초를 허용한다. 이 값과
+`/api/v1/healthz`를 사용한다. dashboard health는 저장소·인증 기능 성공을 대신하지 않는다.
+TCP liveness는 외부 DB 실패만으로 프로세스를 재시작하지 않는다. startup probe는 ingest에 48회 × 5초, enrollment·dashboard에 12회 × 5초를 허용한다. 이 값과
 메모리·CPU는 실측 전 초기값이다.
 
 ClickHouse는 `24.8-alpine`과 기존 default user 설정, 50Gi PVC를 유지한다.
