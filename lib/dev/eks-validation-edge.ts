@@ -1,9 +1,10 @@
 import { CfnOutput, Duration, Tags } from 'aws-cdk-lib/core';
 import { ISecurityGroup, IVpc, SubnetType } from 'aws-cdk-lib/aws-ec2';
-import { ApplicationLoadBalancer, ApplicationProtocol, ApplicationTargetGroup, ListenerAction, ListenerCondition, TargetType } from 'aws-cdk-lib/aws-elasticloadbalancingv2';
+import { ApplicationLoadBalancer, ApplicationProtocol, ApplicationTargetGroup, ListenerAction, TargetType } from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import { CfnWebACLAssociation } from 'aws-cdk-lib/aws-wafv2';
 import { Construct } from 'constructs';
-import { DEV_BOOTSTRAP_PATHS, DEV_DEREGISTRATION_DELAY, DEV_ENROLLMENT_API_PATHS, DEV_ENROLLMENT_MANAGEMENT_PATHS, DEV_OTLP_PATHS } from './config';
+import { DEV_DEREGISTRATION_DELAY } from './config';
+import { installDevAppRoutes } from './app-routing';
 import { DEV_EKS_CLUSTER_NAME, DEV_EKS_NODE_PORTS } from './eks-config';
 import { DEV_EKS_TARGET_GROUP_CLUSTER_TAG } from './eks-lbc';
 
@@ -34,19 +35,14 @@ export class DevEksValidationEdge extends Construct {
     };
     const ingest = tg('IngestTg', 'ingest', DEV_EKS_NODE_PORTS.ingest, '/api/v1/healthz', TargetType.INSTANCE);
     const enrollment = tg('EnrollmentTg', 'enroll', DEV_EKS_NODE_PORTS.enrollment, '/api/v1/healthz', TargetType.INSTANCE);
+    const dashboard = tg('DashboardTg', 'dashboard', DEV_EKS_NODE_PORTS.dashboard, '/api/v1/healthz', TargetType.INSTANCE);
     const clickhouse = tg('ClickhouseTg', 'ch', 8123, '/ping', TargetType.IP);
     const http = alb.addListener('Http', {
       port: 80, protocol: ApplicationProtocol.HTTP, open: false,
       defaultAction: ListenerAction.fixedResponse(404, { contentType: 'text/plain', messageBody: 'Not Found' }),
     });
-    for (const [id, priority, paths, target] of [
-      ['Otlp', 1, DEV_OTLP_PATHS, ingest],
-      ['Enrollment', 3, DEV_ENROLLMENT_API_PATHS, enrollment],
-      ['Bootstrap', 4, DEV_BOOTSTRAP_PATHS, enrollment],
-      ['Management', 5, DEV_ENROLLMENT_MANAGEMENT_PATHS, enrollment],
-    ] as const) {
-      http.addAction(id, { priority, conditions: [ListenerCondition.pathPatterns([...paths])], action: ListenerAction.forward([target]) });
-    }
+    // ECS와 EKS는 같은 path/method/preflight 계약을 서로 독립된 TG에 연결한다.
+    installDevAppRoutes(this, http, { enrollment, dashboard, ingest }, 'Otlp');
     alb.addListener('Clickhouse', { port: 8123, protocol: ApplicationProtocol.HTTP, open: false, defaultAction: ListenerAction.forward([clickhouse]) });
     new CfnWebACLAssociation(this, 'WafAssociation', { resourceArn: alb.loadBalancerArn, webAclArn: props.webAclArn });
     for (const [name, value] of Object.entries({
@@ -55,6 +51,7 @@ export class DevEksValidationEdge extends Construct {
       ValidationClickhouseUrl: `http://${alb.loadBalancerDnsName}:8123`,
       ValidationTelemetryIngestTargetGroupArn: ingest.targetGroupArn,
       ValidationEnrollmentApiTargetGroupArn: enrollment.targetGroupArn,
+      ValidationDashboardApiTargetGroupArn: dashboard.targetGroupArn,
       ValidationClickhouseTargetGroupArn: clickhouse.targetGroupArn,
     })) new CfnOutput(this, name, { value }).overrideLogicalId(name);
   }
