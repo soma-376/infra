@@ -2,9 +2,22 @@
 
 > PROJ-206~212 구현 인터페이스를 반영한 런북이다. 이 문서의 AWS/Kubernetes 명령은 이번 작업에서
 > 실행하지 않았다. 로컬 synth·렌더링·fixture 통과와 실제 배포 성공은 다르다.
-> 정책의 기준은 [ADR-0028](../adr/0028-dev-eks-auto-mode-transition.md)이다.
+> PROJ-206~212 기준은 [ADR-0028](../adr/0028-dev-eks-auto-mode-transition.md), dashboard 확장은
+> [ADR-0029](../adr/0029-dev-dashboard-api-ecs-and-eks-deployment.md)와 §10을 따른다.
+> 사용자 JWT 키 공급은 [허브 ADR-0022](../../../docs/adr/0022-user-jwt-key-provisioning.md)·
+> [infra ADR-0030](../adr/0030-dev-user-jwt-keys-from-secrets-manager.md)와 §11의 후속 절차다.
+> PROJ-222의 공통 Secret 정의·수동 준비는 [준비 런북](dev-dashboard-prerequisites.md)과
+> [ADR-0031](../adr/0031-manage-dev-dashboard-and-jwt-secrets-with-cdk.md)을 따른다.
+> 기존 Secret 3개·configtree 검증 기록은 JWT writer·키 mount 구현·배포 증거를 포함하지 않는다.
 
 ## 1. 실행 범위와 사전 조건
+
+**실행 checkout 조건:** 현재 PROJ-226·222 기준 브랜치에는 EKS CDK·Helm·values 생성기 코드가 없다.
+§2~9를 실행하려면 PROJ-207~211의 누적 구현을 포함한 checkout을 먼저 준비한다.
+dashboard를 포함하려면 PROJ-222의 공통 준비에 이어 PROJ-230·231의 runtime 연결,
+PROJ-221·223·224의 ECS·Helm·검증 Edge 구현도 있어야 한다.
+PROJ-212에서 가져온 문서와 과거 로컬 검증 기록만으로 실행 전제가 충족됐다고 보지 않는다.
+기존 generator의 두 앱 입력에 존재하지 않는 dashboard 옵션을 덧붙이지 않는다.
 
 운영자가 별도로 배포를 승인받은 뒤 이 순서를 실행한다. 기존 ECS 경로·prod·cicd는 유지한다.
 PROJ-213~215의 실제 병행 운영·데이터 이관·Canary·ECS 제거는 이 문서의 초기 설치와 별도 실행이다.
@@ -188,7 +201,7 @@ CSI를 다시 설치하지 않도록 `secrets-store-csi-driver.install=false`를
 동기화 Kubernetes Secret과 자동 회전은 끈다. UID 10001의 initContainer가 필수 파일을 출력 없이
 검사한다. 실제 mount 권한과 Pod Identity 성공은 이 단계와 앱 시작에서 확인하며 로컬 fixture로 대체하지 않는다.
 
-## 4. ClickHouse → enrollment → ingest 순서
+## 4. 기존 ClickHouse → enrollment → ingest 순서
 
 ```bash
 helm upgrade --install clickhouse helm/dev/workloads/clickhouse --namespace pulsemetry-dev \
@@ -210,7 +223,8 @@ kubectl -n pulsemetry-dev get pods,services,targetgroupbindings -o wide
 ClickHouse PVC가 `pulsemetry-dev-gp3`·50Gi·Retain·첫 AZ를 쓰는지 확인한다.
 각 Pod의 nodepool/architecture, 앱 1Gi request·2Gi limit, Recreate 배포와 실제 시작 시간을 기록한다.
 앱의 필수 Secret 파일 검사가 실패하면 원문을 읽지 않고 association·권한·SPC alias·CSI 이벤트를 점검한다.
-Secret을 바꾼 뒤에는 enrollment부터 명시적으로 재시작하고 ready를 확인한 다음 ingest를 재시작한다.
+기존 DB·HMAC Secret 변경은 enrollment부터 명시적으로 재시작하고 ready를 확인한 다음 ingest를 재시작한다.
+JWT 변경에는 이 순서를 적용하지 않고 §11의 모든 verifier → signer 전환을 따른다.
 
 ## 5. 검증 ALB와 실제 데이터 확인
 
@@ -297,6 +311,7 @@ PROJ-213~215에서 실행한다. 먼저 기존 ECS ClickHouse를 양쪽 ingest�
 | 실패 | 복구 | 복구하지 않는 것 |
 |---|---|---|
 | Helm 앱 설정·이미지 | 기록된 마지막 검증 revision으로 해당 release rollback, rollout/health 확인 | DB migration·PVC 내용 |
+| JWT 키 참조 | §11의 공개키 버전·맵 선행 적용 후 개인키 VersionId·active-kid 복구 | 이미지·Helm rollback만으로 키 버전·label 보존 복구 |
 | LBC·CSI·ASCP | controller 로그/이벤트·association·버전을 확인하고 호환 release 복구 | CRD 자동 다운그레이드·CRD 삭제 |
 | 검증 경로 장애 | 검증 트래픽 중단, 기존 ECS healthy 확인 후 원인 분석 | 기존 ALB를 검증 TG로 임의 변경 |
 | Canary 지표 초과 | 기록한 ALB 가중치를 ECS 쪽으로 복구 | 이미 저장된 데이터의 자동 복구 |
@@ -327,7 +342,7 @@ node scripts/eks-values-check-runtime.mjs --packages-dir "$RUN_DIR/charts"
 python3 scripts/test-configtree.py --fetch-ref 4d6ccf2e2809344eac9feb1873f2d527eee2f212
 ```
 
-configtree harness의 source·캐시 준비와 정확한 명령은 [runtime README](../../helm/dev/runtime/README.md)를
+configtree harness의 source·캐시 준비와 정확한 명령은 [PROJ-212 기준 runtime README](https://github.com/soma-376/infra/blob/f36ccc844431daed2c89096f0696db69efb8415f/helm/dev/runtime/README.md)를
 따른다. 형제 checkout이 과거 버전이면 무조건 최신 계약 검증이라고 부르지 않는다. 검증 source SHA와
 YAML·DTO hash를 기록한다. NodeClass/NodePool의 로컬 구조 검사와 Kubernetes API server 승인도 구별한다.
 `--fetch-ref`는 지정한 backend commit의 소스 5개를 `gh`로 읽는다. 준비한 snapshot이 있으면
@@ -347,8 +362,204 @@ YAML·DTO hash를 기록한다. NodeClass/NodePool의 로컬 구조 검사와 Ku
 | cluster/NodeClass/NodePool 상태·AZ·노드 | |
 | Helm 버전·release/revision·values hash | |
 | Pod Identity·CSI 파일 검사 결과(원문 제외) | |
+| JWT 개인키·공개키 VersionId·active-kid·파일 맵, 제한된 배포 입력의 ARN 참조 | |
+| JWT 전체 verifier 적용·마지막 구 발급 시각·330초 대기·제거/롤백 결과 | |
 | 신규/기존 TG ARN·등록 대상·healthy | |
 | event ID·S3 prefix·CH 정합성 | |
 | WAF·로그 보호·로그 전달·관찰 메모리 | |
 | 실패/중단/복구 시각·데이터 복구점 | |
 | 미실행·다음 단계 진입 승인 | |
+
+## 10. dashboard 추가 설치·기능·복구 검증
+
+이 절은 PROJ-220에서 채택한 후속 절차다. PROJ-221·223·224·230·231의 구현과 PROJ-222의 계정·설정 준비,
+PROJ-226의 최초 이미지 공급 증거가 없으면 실행하지 않는다. 경로·method·OPTIONS와 전체 설정 식별자는
+[허브 dashboard 계약](../../../docs/contracts/dashboard-api.md), backend 기동 조건은
+[dashboard 운영 명세](../../../pulsemetry-backend/docs/dashboard-server-spec.md)를 따른다.
+
+### 10-1. 최초 이미지와 ECS 준비
+
+1. `soma-376/dashboard-api`의 ARM64 manifest, commit 태그·`dev` 태그·digest와 pull 접근을 확인한다.
+   최초 공급은 아직 없는 서비스의 ACTIVE 검사에 종속시키지 않는다.
+2. RDS/ClickHouse source·cache 네 계정·권한, 캐시 DB·스키마와 원천 migration을 준비한다.
+   Secret과 동일한 계정의 수동 생성·최소 권한 확인은 [공통 준비 런북](dev-dashboard-prerequisites.md)을 따른다.
+   enrollment가 먼저 원천 Flyway를 적용하고 dashboard는 자기 캐시 DDL만 기동 시 적용한다.
+   RDS cache와 source는 같은 논리 DB, ClickHouse cache와 source는 원천 분석 테이블을 함께 볼 수 있는 서버여야 한다.
+3. §11의 별도 Secrets Manager 원본·VersionId·파일 공급·보존 label을 준비하고 공개키 파일·실제 kid 맵·issuer·audience·허용 origin, 현재 사용자·세션·tenant 조회 권한을 확인한다.
+   dashboard에 HMAC·관리자 token·개인 서명키·raw S3 권한을 전달하지 않는다.
+4. PROJ-221에서 준비한 CDK TaskDefinition·Service·ECS 전용 TG·method/OPTIONS 라우팅·IAM diff를 검토하고
+   수동 배포한다. ECS stable과 target healthy 뒤 실제 인증·조회·snapshot·기존 앱 회귀를 따로 확인한다.
+5. 초기 서비스 생성 뒤 기존 ECS CD는 세 ECR·서비스를 모두 preflight하고 enrollment → ingest → dashboard
+   순서로 각 승격·배포·stable을 확인한다. 앞 단계 실패 시 후속을 중단한다.
+
+앱 ASG의 세 Spring 앱 소프트 예약 합계는 3072 MiB이며 JWT writer 예약·peak 사용량은 포함하지 않는다. 실제 placement·host 여유·메모리·OOM·교체 시간을
+PROJ-221에서 확인한다. 이 숫자나 기본 health check만으로 안정성을 수락하지 않는다.
+
+### 10-2. EKS 입력과 설치
+
+dashboard 전용 runtime 참조·ServiceAccount·Pod Identity·SecretProviderClass와 검증 TG output을 준비한다.
+CDK는 AWS·SG·TG, Helm은 workload·Service·TGB를 소유한다. ECS TG를 TGB에 전달하지 않는다.
+`workload: dashboard-api`, 컨테이너 8081, replica 1·Recreate·UID 10001과 필수 설정 파일 검사가
+PROJ-223 구현의 schema/helpers/template에 실제로 지원되는지 먼저 lint/render로 확인한다.
+
+**NodePort 숫자는 미정이다.** PROJ-223의 확정값과 PROJ-224의 TG 포트·Network SG·CDK output·Helm Service를
+대조하고 실제 할당 충돌이 없음을 확인한 뒤 기록한다. 임의의 다음 번호를 빈 포트로 간주하지 않는다.
+기존 앱의 requests 250m/1Gi·limits 1 CPU/2Gi 기준과 apps NodePool의 실제 배치·여유를 확인한다.
+
+`DASHBOARD_VALUES`는 PROJ-223 구현에 맞춰 검토한 절대 경로이며, workload·컨테이너/NodePort·probe·배치·전용
+TG/ServiceAccount/runtime 참조와 immutable image를 포함한다. 파일명이 존재한다는 것만으로 준비를 수락하지 않는다.
+공개키 원본·objectVersion·jmesPath alias·별도 키 파일 mount는 §11을 따른다. 기존 configtree에는 경로만 전달하며 PEM JSON 원문을 공개키 파일 경로로 설정하지 않는다.
+공개키 map의 키는 enrollment 서명의 kid와 같아야 한다. `PULSEMETRY_USER_AUTH_PUBLIC_KEY_FILE`은 기본 `local`
+맵의 파일 경로만 바꾸므로 임의 kid에는 명시적 map 설정을 함께 제공한다.
+
+```bash
+set -euo pipefail
+: "${RUN_DIR:?기존 실행 증거 디렉터리}"
+: "${DASHBOARD_VALUES:?PROJ-223 구현에 맞춘 검토된 values 파일 절대 경로}"
+: "${DASHBOARD_IMAGE:?ECS와 같은 registry/repository@sha256:digest}"
+test -r "$DASHBOARD_VALUES"
+helm lint helm/dev/workloads/spring-app --strict --values "$DASHBOARD_VALUES"
+helm template dashboard-api helm/dev/workloads/spring-app --namespace pulsemetry-dev \
+  --values "$DASHBOARD_VALUES" > "$RUN_DIR/dashboard-rendered.yaml"
+```
+
+출력에서 이미지가 `DASHBOARD_IMAGE`와 같고 port·NodePort·TG·필수 파일·UID·배치가 준비 결과와 일치하는지
+확인한다. values·rendered manifest에는 Secret 원문이 없어야 한다. 위 변수는 기존 generator에 새 옵션을
+추가한다는 뜻이 아니다. 생성기를 확장했다면 구현된 입력과 output을 확인하고 위 파일을 준비한다.
+
+ClickHouse·enrollment·ingest의 이전 설치·준비 확인 뒤 dashboard를 설치한다. enrollment의 원천 migration이
+준비되지 않았거나 앞 앱이 실패했으면 후속 설치를 멈춘다.
+
+```bash
+helm upgrade --install dashboard-api helm/dev/workloads/spring-app --namespace pulsemetry-dev \
+  --values "$DASHBOARD_VALUES" --wait --timeout 10m
+kubectl -n pulsemetry-dev rollout status deployment/dashboard-api --timeout=5m
+kubectl -n pulsemetry-dev get deployment/dashboard-api
+kubectl -n pulsemetry-dev get service/dashboard-api
+kubectl -n pulsemetry-dev get targetgroupbindings.elbv2.k8s.aws
+kubectl -n pulsemetry-dev get pods -l app.kubernetes.io/instance=dashboard-api \
+  -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.containerStatuses[*].imageID}{"\n"}{end}'
+```
+
+실제 Pod imageID와 ECS task imageDigest를 같은 릴리스의 ECR ARM64 manifest digest에 대조한다.
+multi-platform image index를 썼다면 index digest와 ARM64 하위 manifest digest의 관계까지 기록한다.
+Pod Ready·전용 target healthy, 로그 전달·재시작·노드 배치·파일 접근은 설치 증거이며 아래 기능 검증과 구분한다.
+
+### 10-3. 두 ALB의 method/CORS와 기능 검증표
+
+아래 표를 ECS 기존 ALB와 EKS 검증 ALB 각각에 적용한다. `{org}`·`{id}`는 전용 검증 데이터다.
+요청에는 상관관계 ID를 사용하고 target/app 확인 근거를 남긴다. 401/403 응답만으로 올바른 앱에 전달됐다고 판단하지 않는다.
+인증 요청의 토큰은 승인된 런타임 주입으로만 전달하고 명령 이력·응답 파일·로그에 원문을 남기지 않는다.
+
+| 요청 또는 상태 | 기대값과 확인할 근거 |
+|---|---|
+| `GET /api/v1/organizations/{org}/teams`·`vendors` | dashboard 조회, 유효 사용자 응답·원천/캐시 조회 증거 |
+| 동일 URI의 실제 `POST` 명령 | enrollment 명령으로 전달, dashboard로 가리지 않음 |
+| `GET /api/v1/organizations/{org}/vendors/{id}`와 `PATCH`·`DELETE` | GET은 dashboard, 쓰기는 enrollment |
+| `GET /api/v1/organizations/{org}/onboarding`·`invitations` | enrollment GET 예외 보존 |
+| `GET /api/v1/auth/me`·manifest·check-updates와 bootstrap | 기존 enrollment 계약·응답 유지 |
+| 공유 URI의 `OPTIONS` + `Access-Control-Request-Method: GET` | 해당 GET 소유 앱과 허용 origin·method·header의 응답 |
+| 같은 URI의 `OPTIONS` + 실제 쓰기 request method | enrollment preflight, dashboard GET 응답과 구분 |
+| onboarding·invitations의 `OPTIONS` + `GET` | enrollment preflight 보존 |
+| OPTIONS의 누락·미지원 request method | 다른 앱의 포괄 GET/쓰기 규칙에 잡히지 않음; 공개 규칙 밖은 404 |
+| 미정의 URI·미지원 method·외부 `/api/v1/healthz` | default 404; 내부 TG/probe에서는 health 200 |
+| 유효 JWT·폐기/만료 session·비활성 member/tenant·변경된 role | 현재 DB 상태에 따른 수락/거부; JWT만 맞다고 통과하지 않음 |
+| source/cache 권한 | 원천 SELECT·자기 캐시 DDL/RW는 성공; 원천 INSERT/DELETE·캐시 밖 쓰기는 거부 |
+| 실제 조회·snapshot | 캐시 DDL 완료, 데이터가 있는 검증 tenant의 조회·snapshot·후속 페이지 응답과 만료 계약 |
+| WAF | dashboard 앱 본문/query 검사, 등록 rate 세 조건 유지, OTLP/기존 경로와 로그 보호 회귀 |
+
+CORS 응답만 확인하는 다음 예시는 토큰을 사용하지 않는다. 성공 판단에는 위 소유 앱과 실제 요청 검증을 함께 쓴다.
+
+```bash
+: "${PUBLIC_BASE_URL:?검증할 ECS 또는 EKS ALB URL}"
+: "${ALLOWED_ORIGIN:?앱에 설정한 검증 origin}"
+: "${VERIFY_ORG_ID:?전용 검증 조직 ID}"
+for requested_method in GET POST; do
+  curl --silent --show-error --request OPTIONS \
+    --header "Origin: $ALLOWED_ORIGIN" \
+    --header "Access-Control-Request-Method: $requested_method" \
+    --header 'Access-Control-Request-Headers: authorization,content-type,x-request-id' \
+    --dump-header "$RUN_DIR/dashboard-preflight-$requested_method.headers" --output /dev/null \
+    "$PUBLIC_BASE_URL/api/v1/organizations/$VERIFY_ORG_ID/teams"
+done
+```
+
+### 10-4. 증거와 복구
+
+기존 §9 증거 양식에 dashboard 릴리스의 backend/infra commit·ECR 태그/digest·ECS task imageDigest·Pod imageID,
+실제 NodePort·전용 TG/설정 참조·Helm revision, 검사별 기대/실제 결과와 기존 앱 회귀를 추가한다.
+계정 ID·비밀 원문·인증 헤더·전체 요청/응답 본문은 공개 증거에 남기지 않는다.
+
+- Helm/이미지 실패: 호환되는 마지막 검증 dashboard revision으로 해당 release만 rollback하고 rollout·target·기능을 확인한다.
+- ECS 이미지 실패: 마지막 검증 artifact로 `dev` 태그를 되돌리고 기존 CD/운영 절차로 dashboard를 재배포한다.
+- 라우팅 실패: 새 dashboard method/OPTIONS 규칙을 해당 변경 절차로 복구하고 enrollment GET·쓰기·OTLP 회귀를 다시 확인한다.
+- 설정·권한 실패: 준비된 참조와 최소 권한을 복구한 뒤 dashboard를 명시적으로 재시작한다. 기존 앱 Secret을 공유해 우회하지 않는다.
+- DDL·데이터 실패: 앱/Helm rollback과 DB/PVC 복구를 구분한다. 호환성이 확인되지 않으면 후속 승격을 중단하고 원인부터 확인한다.
+
+복구 성공도 설치 상태와 실제 인증·조회·snapshot·method/CORS 증거를 나눠 남긴다.
+이번 문서 작업은 위 명령이나 live 검증을 실행하지 않았다.
+
+## 11. 사용자 JWT 키 최초 공급·교체·복구
+
+이 절은 [ADR-0030](../adr/0030-dev-user-jwt-keys-from-secrets-manager.md)의 **후속 구현·운영 수락 절차**다.
+현재 checkout은 빈 JWT 원본 두 개와 DB 계정 Secret 네 개의 CDK 정의만 제공한다.
+키 초기화는 [공통 준비 런북](dev-dashboard-prerequisites.md)의 수동 절차로 수행하며
+ECS writer·JWT SPC/mount·values 입력은 구현돼 있지 않다.
+§2~4의 기존 generator와 chart에 존재하지 않는 JWT 옵션을 추가해 실행하지 않는다.
+기존 Secret 3개 및 [과거 로컬 검증 기록](dev-eks-local-validation.md)은 이 절의 완료 증거가 아니다.
+
+### 11-1. 최초 원본과 배포 참조 준비
+
+1. [공통 준비 런북](dev-dashboard-prerequisites.md)에 따라 CDK 원본의 존재를 확인한 뒤,
+   명시적인 초기화 작업에서 RSA 2048bit 이상 키쌍과 `kid`를 생성한다. 앱 시작·일반 재배포는 생성하지 않는다.
+2. 개인키 PKCS8 PEM과 `kid → X.509 PEM` 공개키 JSON 키링을 별도 Secrets Manager 원본 두 개에 등록한다.
+   암호화는 AWS 관리형 `aws/secretsmanager`다. dev ECS/EKS는 같은 고정 ARN 원본을 사용한다.
+3. 두 등록 버전의 규격·시험 서명/검증·활성 kid 정합을 원문 출력 없이 확인한다. 한쪽 등록 실패 시
+   배포 참조 확정을 중단하고 준비한 같은 키쌍으로 복구한다. 재시도로 새 키쌍을 만들지 않는다.
+4. 개인키·공개키 VersionId, enrollment active-kid, 공개키 파일 맵과 issuer·audience를 하나의 배포 입력으로
+   확정한다. 원본 ARN은 승인된 접근 제한 입력에서 관리하고 저장소 예시·공개 증거의 계정은 placeholder로 적는다.
+   원문·인증 토큰을 문서·명령 이력·출력·증거 파일에 남기지 않는다.
+5. 활성·교체·롤백 버전에 staging label을 유지한다. VersionId 기록만으로 보존을 보장하지 않는다.
+   원본 삭제·동일명 재생성은 ARN을 바꾸므로 앱 배포·stack 삭제와 원본 보존 책임을 분리한다.
+
+승인된 운영자 환경의 수동 초기화·검증 절차 안에서 값을 다루며 원문을 에이전트 문맥으로 가져오는 조회 명령을 사용하지 않는다.
+아래 검사는 준비된 참조·exit code·버전·키 식별자·성공/실패만 기록한다.
+
+### 11-2. ECS writer와 EKS 키 mount 수락
+
+| 확인 대상 | 실행 전에 갖출 구현과 실제 수락 증거 |
+|---|---|
+| ECS 조회·게시 | ARM64 일회성 SDK writer의 지정 ARN·VersionId 조회, PEM/맵 검증, 파일 완성·권한 검사 후 exit 0 |
+| ECS 시작 제어 | writer `essential: false`, 앱 `SUCCESS` 의존성; 조회·부분 쓰기·권한 실패 시 앱이 시작하지 않음 |
+| ECS 역할 | enrollment task role 두 JWT ARN, dashboard 공개키 ARN만, ingest JWT 추가 없음; writer와 앱의 role 공유를 검토 |
+| ECS 파일·메모리 | task별 공유 volume·앱 읽기 전용 mount, UID 10001 읽기·directory 접근, host 잔존/정리와 writer peak·OOM·placement 검증 |
+| EKS 권한 | enrollment와 dashboard 전용 Pod Identity 역할·SPC, dashboard 개인키 접근 불가·ingest JWT 참조 없음 |
+| EKS 버전·추출 | 각각 `objectVersion=VersionId`, 공개키 JSON의 kid별 jmesPath 인용·alias·파일 맵 일치; 이동 label과 버전 selector를 섞지 않음 |
+| EKS mount | 기존 configtree 설정과 별도 키 파일 mount, 경로 설정만 전달, UID 10001로 전체 필수 파일을 원문 출력 없이 검사 |
+| 앱 기동 | 파일 누락·빈 내용·읽기 불가·PEM 오류·RSA 규격 거부; enrollment의 활성 kid·modulus 검사와 공급자의 시험 서명/검증을 구별 |
+| 실제 인증 | 선택 버전에서 발급한 AT의 모든 enrollment·dashboard 인스턴스 검증, 모르는 kid·다른 키 서명 거부 |
+
+`PULSEMETRY_USER_AUTH_PRIVATE_KEY_FILE`은 enrollment의 실제 파일 경로이며 Secret ARN이나 PEM을 넣지 않는다.
+`PULSEMETRY_USER_AUTH_PUBLIC_KEY_FILE`은 `local` 맵의 경로만 바꾸므로 임의 kid와 신·구 키는
+`pulsemetry.user-auth.public-key-files`에 정확한 파일 맵으로 제공한다. 공개키 JSON 원문은 PEM 파일이 아니다.
+앱이 빈 맵 경로를 제외하는 현행 동작과 별개로 공급자는 배포 입력의 모든 기대 kid·파일을 검사한다.
+dashboard에는 개인키·HMAC·관리자 token·raw S3 권한을 제공하지 않는다.
+
+### 11-3. 전체 인스턴스 교체와 롤백
+
+1. 새 키 버전을 등록·검증하고 구·신 공개키가 함께 있는 공개키 버전과 파일 맵을 준비한다.
+2. **ECS/EKS의 모든 enrollment·dashboard verifier**를 새 공개키 버전·맵으로 재생성한다.
+   신·구 토큰 검증이 모두 성공할 때까지 signer는 구 개인키·kid를 사용한다.
+3. 모든 enrollment signer의 개인키 VersionId·active-kid를 함께 전환한다. 일부 인스턴스가 실패하면
+   후속 제거를 중단하고 구·신 공개키를 유지한다. 전체 signer 중 마지막 구 키 발급 시각을 확인한다.
+4. **마지막 구 키 발급 후 330초 이상** 대기한 뒤 구 공개키를 제거한 버전·맵으로 모든 verifier를 재생성한다.
+   AT 300초와 skew 30초가 바뀌면 대기 계약도 개정한다. 일반 ECS CD/Helm 설치 순서는 이 절차를 대체하지 않는다.
+
+Secret 값·label·mount 변경만으로 실행 중인 앱의 키가 바뀌지 않는다. 자동 회전·자동 reload는 도입하지 않는다.
+각 단계의 참조 버전·인스턴스 전파·실제 검증·마지막 발급 시각·대기·제거 결과를 별도로 남긴다.
+
+롤백은 모든 verifier에 복구 signer의 공개키를 **먼저** 적용·검증한 뒤 개인키 VersionId와 active-kid를 복구한다.
+구 공개키가 이미 제거됐다면 보존 버전으로 신·구 키를 다시 제공한다. 신 키 토큰이 발급됐으면
+마지막 신 키 발급 후 330초 이상까지 신 공개키를 유지한다. `AWSPREVIOUS`나 최신 값으로 복구 버전을 추측하지 않는다.
+이미지·ECS task definition·Helm revision만 되돌리고 Secret 참조·파일 맵·label도 복구됐다고 판단하지 않는다.
+키 누락·잘못된 PEM·키쌍/kid 불일치·등록 부분 실패·인스턴스 일부 실패·제거 후 롤백을 리허설 수락 조건에 포함한다.

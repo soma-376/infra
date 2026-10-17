@@ -98,13 +98,22 @@ describe('DEPLOY_TARGETS', () => {
     });
   });
 
-  test('dev backend 역할은 신규 배포 단위 둘만 대상으로 삼는다', () => {
+  test('dashboard-api 공통 ECR 이름은 ECS와 EKS가 공유할 이미지 계약이다', () => {
+    expect(ECR_REPOS.dashboardApi).toEqual('soma-376/dashboard-api');
+  });
+
+  test('dev backend 역할은 세 앱의 이미지 공급과 ECS 재배포를 허용한다', () => {
     expect(DEPLOY_TARGETS.dev[1]).toEqual({
       repo: GITHUB_REPOS.dashboard,
-      ecrRepos: [ECR_REPOS.enrollmentApi, ECR_REPOS.telemetryIngest],
+      ecrRepos: [
+        ECR_REPOS.enrollmentApi,
+        ECR_REPOS.telemetryIngest,
+        ECR_REPOS.dashboardApi,
+      ],
       services: [
         ECS_SERVICE_NAMES.enrollmentApi,
         ECS_SERVICE_NAMES.telemetryIngest,
+        ECS_SERVICE_NAMES.dashboardApi,
       ],
     });
   });

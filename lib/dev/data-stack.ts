@@ -13,16 +13,20 @@ import {
   PostgresEngineVersion,
   StorageType,
 } from 'aws-cdk-lib/aws-rds';
-import { ISecret, Secret } from 'aws-cdk-lib/aws-secretsmanager';
+import { CfnSecret, ISecret, Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { BlockPublicAccess, Bucket, IBucket } from 'aws-cdk-lib/aws-s3';
 import {
   CONTROL_DB_NAME,
   ENROLLMENT_ADMIN_API_TOKEN_SECRET_KEY,
 } from '../common/config';
 import {
+  DEV_DASHBOARD_DB_CREDENTIALS,
+  DEV_DASHBOARD_DB_PASSWORD_LENGTH,
   DEV_RAW_SIGNAL_EXPIRATION_DAYS,
   DEV_RDS_ALLOCATED_STORAGE_GIB,
   DEV_RDS_INSTANCE_TYPE,
+  DEV_USER_JWT_PRIVATE_KEY_SECRET_NAME,
+  DEV_USER_JWT_PUBLIC_KEYS_SECRET_NAME,
 } from './config';
 
 /**
@@ -48,7 +52,7 @@ export interface DevDataStackProps extends StackProps {
 }
 
 /**
- * DevDataStack: RDS PostgreSQL 단일 인스턴스(컨트롤 플레인) + Raw Signal S3 버킷.
+ * DevDataStack: RDS PostgreSQL 단일 인스턴스 + Raw Signal S3 + dev Secret 원본.
  *
  * 운영은 Aurora Serverless v2 지만 dev 는 `DatabaseInstance` 다 (ADR-0022 6번).
  * 최소 0.5 ACU 상시 과금이 개발용으로 과하고, 이 선택의 목적인
@@ -70,6 +74,14 @@ export class DevDataStack extends Stack {
   public readonly tokenHashSecret: ISecret;
   /** enrollment-api 의 정적 관리자 API 토큰. JSON `token` 필드로 저장한다. */
   public readonly adminApiTokenSecret: ISecret;
+  /** dashboard source/cache의 DB 자격 증명 원본. 실제 사용자·권한은 별도 준비한다. */
+  public readonly dashboardRdsSourceSecret: ISecret;
+  public readonly dashboardRdsCacheSecret: ISecret;
+  public readonly dashboardClickHouseSourceSecret: ISecret;
+  public readonly dashboardClickHouseCacheSecret: ISecret;
+  /** 운영자가 키 버전을 등록할 JWT 원본. PROJ-230이 IAM·파일 공급을 연결한다. */
+  public readonly userJwtPrivateKeySecret: ISecret;
+  public readonly userJwtPublicKeysSecret: ISecret;
   public readonly rawSignalBucket: IBucket;
 
   constructor(scope: Construct, id: string, props: DevDataStackProps) {
@@ -150,6 +162,48 @@ export class DevDataStack extends Stack {
       },
     );
 
+    // DB 비밀번호만 배포 시 생성한다. 이 원본 생성은 실제 DB 사용자·grant 적용이
+    // 아니며 앱 IAM·주입도 바꾸지 않는다. 값은 template/context에 남기지 않는다.
+    this.dashboardRdsSourceSecret = this.createDashboardDbCredentialSecret(
+      'DevDashboardRdsSourceSecret',
+      DEV_DASHBOARD_DB_CREDENTIALS.rdsSource,
+      'Credentials for the dev dashboard-api RDS source connection.',
+    );
+    this.dashboardRdsCacheSecret = this.createDashboardDbCredentialSecret(
+      'DevDashboardRdsCacheSecret',
+      DEV_DASHBOARD_DB_CREDENTIALS.rdsCache,
+      'Credentials for the dev dashboard-api RDS cache connection.',
+    );
+    this.dashboardClickHouseSourceSecret = this.createDashboardDbCredentialSecret(
+      'DevDashboardClickHouseSourceSecret',
+      DEV_DASHBOARD_DB_CREDENTIALS.clickHouseSource,
+      'Credentials for the dev dashboard-api ClickHouse source connection.',
+    );
+    this.dashboardClickHouseCacheSecret = this.createDashboardDbCredentialSecret(
+      'DevDashboardClickHouseCacheSecret',
+      DEV_DASHBOARD_DB_CREDENTIALS.clickHouseCache,
+      'Credentials for the dev dashboard-api ClickHouse cache connection.',
+    );
+
+    // L2 Secret은 값 미지정 시 임의 문자열을 생성하므로 JWT 원본에는 L1을 쓴다.
+    // RSA 키 생성·검증·버전 등록은 수동 절차이며 이 리소스는 값 없이 생성한다.
+    const userJwtPrivateKey = new CfnSecret(this, 'DevUserJwtPrivateKeySecret', {
+      name: DEV_USER_JWT_PRIVATE_KEY_SECRET_NAME,
+      description: 'Versioned PKCS8 private key for dev user JWT signing.',
+    });
+    const userJwtPublicKeys = new CfnSecret(this, 'DevUserJwtPublicKeysSecret', {
+      name: DEV_USER_JWT_PUBLIC_KEYS_SECRET_NAME,
+      description: 'Versioned public key ring for dev user JWT verification.',
+    });
+    userJwtPrivateKey.applyRemovalPolicy(RemovalPolicy.RETAIN);
+    userJwtPublicKeys.applyRemovalPolicy(RemovalPolicy.RETAIN);
+    this.userJwtPrivateKeySecret = Secret.fromSecretCompleteArn(
+      this, 'DevUserJwtPrivateKeyReference', userJwtPrivateKey.ref,
+    );
+    this.userJwtPublicKeysSecret = Secret.fromSecretCompleteArn(
+      this, 'DevUserJwtPublicKeysReference', userJwtPublicKeys.ref,
+    );
+
     this.rawSignalBucket = new Bucket(this, 'DevRawSignalBucket', {
       // bucketName 을 주지 않는다. CDK 가 스택명에서 이름을 유도하므로 운영 버킷과
       // 자동으로 갈린다 - S3 이름은 전역 유일이라 이 자동 분리가 방어선이다.
@@ -164,6 +218,27 @@ export class DevDataStack extends Stack {
       enforceSSL: true,
       autoDeleteObjects: true,
       removalPolicy: RemovalPolicy.DESTROY,
+    });
+  }
+
+  /** 생성 설정을 공유하되 호출부의 construct ID를 고정해 원본 연속성을 유지한다. */
+  private createDashboardDbCredentialSecret(
+    id: string,
+    credentials: { readonly secretName: string; readonly username: string },
+    description: string,
+  ): ISecret {
+    return new Secret(this, id, {
+      secretName: credentials.secretName,
+      description,
+      generateSecretString: {
+        secretStringTemplate: JSON.stringify({ username: credentials.username }),
+        generateStringKey: 'password',
+        passwordLength: DEV_DASHBOARD_DB_PASSWORD_LENGTH,
+        excludePunctuation: true,
+        excludeUppercase: false,
+        includeSpace: false,
+      },
+      removalPolicy: RemovalPolicy.RETAIN,
     });
   }
 
@@ -188,5 +263,30 @@ export class DevDataStack extends Stack {
   /** 관리자 API 토큰 Secret ARN. 값은 출력하지 않는다. */
   public get adminApiTokenSecretArn(): string {
     return this.adminApiTokenSecret.secretArn;
+  }
+
+  /** 후속 ECS/EKS 설정용 ARN만 노출하며 값·앱 권한은 이 단계에서 공급하지 않는다. */
+  public get dashboardRdsSourceSecretArn(): string {
+    return this.dashboardRdsSourceSecret.secretArn;
+  }
+
+  public get dashboardRdsCacheSecretArn(): string {
+    return this.dashboardRdsCacheSecret.secretArn;
+  }
+
+  public get dashboardClickHouseSourceSecretArn(): string {
+    return this.dashboardClickHouseSourceSecret.secretArn;
+  }
+
+  public get dashboardClickHouseCacheSecretArn(): string {
+    return this.dashboardClickHouseCacheSecret.secretArn;
+  }
+
+  public get userJwtPrivateKeySecretArn(): string {
+    return this.userJwtPrivateKeySecret.secretArn;
+  }
+
+  public get userJwtPublicKeysSecretArn(): string {
+    return this.userJwtPublicKeysSecret.secretArn;
   }
 }

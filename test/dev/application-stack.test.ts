@@ -27,7 +27,7 @@ import {
 import { buildDevApp } from '../helpers';
 
 describe('DevApplicationStack', () => {
-  const { application, edge } = buildDevApp();
+  const { application, edge, data } = buildDevApp();
   const template = Template.fromStack(application);
   const edgeTemplate = Template.fromStack(edge).toJSON();
 
@@ -81,7 +81,7 @@ describe('DevApplicationStack', () => {
 
     // 서비스 이름은 유일성 스코프가 클러스터 안이라 운영과 같은 이름을 쓴다.
     // 그래야 워크플로우가 `--cluster` 하나만 갈아끼워 환경을 바꿀 수 있다.
-    test('최종 서비스 3개의 이름이 고정되어 있다', () => {
+    test('최종 서비스 4개의 이름이 고정되어 있다', () => {
       const names = Object.values(template.findResources('AWS::ECS::Service'))
         .map((resource: any) => resource.Properties.ServiceName)
         .sort();
@@ -91,12 +91,14 @@ describe('DevApplicationStack', () => {
           ECS_SERVICE_NAMES.telemetryIngest,
           ECS_SERVICE_NAMES.enrollmentApi,
           ECS_SERVICE_NAMES.clickhouse,
+          ECS_SERVICE_NAMES.dashboardApi,
         ].sort(),
       );
 
       expect(application.telemetryIngestService).toBeDefined();
       expect(application.enrollmentApiTask).toBeDefined();
       expect(application.enrollmentApiService).toBeDefined();
+      expect(application.dashboardApiService).toBeDefined();
     });
   });
 
@@ -119,12 +121,20 @@ describe('DevApplicationStack', () => {
     return found[0];
   };
 
+  const roleStatements = (containerName: string, roleType: 'TaskRoleArn' | 'ExecutionRoleArn'): any[] => {
+    const logicalId = taskDefinitionWithContainer(containerName).Properties[roleType]['Fn::GetAtt'][0];
+    return Object.values(template.findResources('AWS::IAM::Policy')).flatMap((policy: any) =>
+      policy.Properties.Roles.some((role: any) => role.Ref === logicalId)
+        ? policy.Properties.PolicyDocument.Statement : []);
+  };
+  const list = (value: any): any[] => Array.isArray(value) ? value : [value];
+
   // ============================================================
   // 네트워크 모드 - 최종 서비스 배치 계약 (ADR-0026)
   // ============================================================
   describe('태스크 네트워크 모드', () => {
-    test('telemetry-ingest와 enrollment-api는 bridge다', () => {
-      for (const name of ['telemetry-ingest', 'enrollment-api']) {
+    test('세 Spring 앱은 bridge다', () => {
+      for (const name of ['telemetry-ingest', 'enrollment-api', 'dashboard-api']) {
         expect(taskDefinitionWithContainer(name).Properties.NetworkMode).toBe(
           'bridge',
         );
@@ -139,18 +149,129 @@ describe('DevApplicationStack', () => {
       ).toBe('awsvpc');
     });
 
-    test('최종 태스크 정의는 bridge 2개와 awsvpc 1개뿐이다', () => {
+    test('최종 태스크 정의는 bridge 3개와 awsvpc 1개뿐이다', () => {
       const tasks = Object.values(
         template.findResources('AWS::ECS::TaskDefinition'),
       ) as any[];
 
-      expect(tasks).toHaveLength(3);
+      expect(tasks).toHaveLength(4);
       expect(
         tasks.filter((task) => task.Properties.NetworkMode === 'bridge'),
-      ).toHaveLength(2);
+      ).toHaveLength(3);
       expect(
         tasks.filter((task) => task.Properties.NetworkMode === 'awsvpc'),
       ).toHaveLength(1);
+    });
+  });
+
+  describe('dashboard-api 배포와 권한 경계', () => {
+    test('8081 동적 host port·UID 10001·1024 MiB를 사용한다', () => {
+      const definition = container('dashboard-api');
+      expect(definition.PortMappings).toEqual([{ ContainerPort: 8081, HostPort: 0, Protocol: 'tcp' }]);
+      expect(definition.User).toBe('10001:10001');
+      expect(definition.MemoryReservation).toBe(1024);
+      expect(definition.Memory).toBeUndefined();
+      expect(service(ECS_SERVICE_NAMES.dashboardApi).Properties.HealthCheckGracePeriodSeconds).toBe(60);
+    });
+
+    test('기존 두 Spring 앱과 같은 앱 capacity provider를 사용한다', () => {
+      const strategy = service(ECS_SERVICE_NAMES.telemetryIngest).Properties.CapacityProviderStrategy;
+      expect(service(ECS_SERVICE_NAMES.enrollmentApi).Properties.CapacityProviderStrategy).toEqual(strategy);
+      expect(service(ECS_SERVICE_NAMES.dashboardApi).Properties.CapacityProviderStrategy).toEqual(strategy);
+    });
+
+    test('네 source/cache 연결은 각각의 DB Secret username/password만 주입한다', () => {
+      const sources = {
+        RDS_SOURCE: data.dashboardRdsSourceSecret,
+        RDS_CACHE: data.dashboardRdsCacheSecret,
+        CLICKHOUSE_SOURCE: data.dashboardClickHouseSourceSecret,
+        CLICKHOUSE_CACHE: data.dashboardClickHouseCacheSecret,
+      };
+      expect(secretNames('dashboard-api').sort()).toEqual(Object.keys(sources)
+        .flatMap((source) => ['USERNAME', 'PASSWORD'].map((field) => `PULSEMETRY_DASHBOARD_${source}_${field}`)).sort());
+      for (const [source, secret] of Object.entries(sources)) {
+        for (const field of ['username', 'password']) {
+          expect(secretEntry('dashboard-api', `PULSEMETRY_DASHBOARD_${source}_${field.toUpperCase()}`).ValueFrom)
+            .toEqual(application.resolve(`${secret.secretArn}:${field}::`));
+        }
+      }
+      expect(new Set(Object.values(sources).map((secret) => secret.secretArn)).size).toBe(4);
+    });
+
+    test('RDS와 ClickHouse의 source/cache 주소·논리 DB 계약을 유지한다', () => {
+      const env = envMap('dashboard-api');
+      expect(env.PULSEMETRY_DASHBOARD_PORT).toBe('8081');
+      expect(env.PULSEMETRY_DASHBOARD_RDS_SOURCE_URL).toEqual(env.PULSEMETRY_DASHBOARD_RDS_CACHE_URL);
+      expect(JSON.stringify(env.PULSEMETRY_DASHBOARD_RDS_SOURCE_URL)).toContain(
+        `:${PORTS.aurora}/${CONTROL_DB_NAME}?sslmode=${CONTROL_DB_SSLMODE}`);
+      expect(env.PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_URL).toBe(CLICKHOUSE_HTTP_URL);
+      expect(env.PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_URL).toBe(CLICKHOUSE_HTTP_URL);
+      expect(env.PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_DATABASE).toBe(CLICKHOUSE_DEFAULT_DB);
+      expect(env.PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_DATABASE).toBe('dashboard_cache');
+    });
+
+    test('dashboard의 task role은 공개키만 읽고 execution role은 DB 원본 네 개만 읽는다', () => {
+      const task = roleStatements('dashboard-api', 'TaskRoleArn');
+      expect(task.flatMap((statement) => list(statement.Action))).toEqual(['secretsmanager:GetSecretValue']);
+      expect(task.flatMap((statement) => list(statement.Resource))).toEqual([
+        application.resolve(data.userJwtPublicKeysSecret.secretArn),
+      ]);
+      const executionReads = roleStatements('dashboard-api', 'ExecutionRoleArn')
+        .filter((statement) => list(statement.Action).includes('secretsmanager:GetSecretValue'))
+        .flatMap((statement) => list(statement.Resource));
+      expect(executionReads).toHaveLength(4);
+      expect(executionReads).toEqual(expect.arrayContaining([
+        data.dashboardRdsSourceSecret, data.dashboardRdsCacheSecret,
+        data.dashboardClickHouseSourceSecret, data.dashboardClickHouseCacheSecret,
+      ].map((secret) => application.resolve(secret.secretArn))));
+    });
+
+    test('dashboard는 HMAC·관리자 토큰·개인 서명키·raw S3 권한을 받지 않는다', () => {
+      const env = envMap('dashboard-api');
+      for (const name of [ENROLLMENT_ENV.tokenHashSecret, ENROLLMENT_ENV.adminApiToken,
+        'PULSEMETRY_USER_AUTH_PRIVATE_KEY_FILE', 'PULSEMETRY_USER_AUTH_ACTIVE_KID']) {
+        expect(env[name]).toBeUndefined();
+        expect(secretNames('dashboard-api')).not.toContain(name);
+      }
+      const actions = roleStatements('dashboard-api', 'TaskRoleArn').flatMap((statement) => list(statement.Action));
+      expect(actions.some((action) => action.startsWith('s3:'))).toBe(false);
+      expect(JSON.stringify(container('dashboard-api'))).not.toMatch(/BEGIN (PRIVATE|PUBLIC) KEY|resolve:secretsmanager/);
+    });
+
+    test('두 앱은 같은 issuer·audience·origin·공개키 파일 맵을 사용한다', () => {
+      const enrollment = envMap('enrollment-api');
+      const dashboard = envMap('dashboard-api');
+      for (const name of ['PULSEMETRY_USER_AUTH_ENABLED', 'PULSEMETRY_USER_AUTH_ISSUER',
+        'PULSEMETRY_USER_AUTH_AUDIENCE', 'PULSEMETRY_USER_AUTH_ALLOWED_ORIGINS',
+        'PULSEMETRY_MANAGEMENT_ENABLED', 'PULSEMETRY_MAIL_ENABLED', 'SPRING_APPLICATION_JSON']) {
+        expect(dashboard[name]).toEqual(enrollment[name]);
+      }
+      expect(dashboard.PULSEMETRY_USER_AUTH_ENABLED).toBe('true');
+    });
+
+    test('두 task의 writer는 성공 의존성·task별 volume·앱 읽기 전용 mount를 사용한다', () => {
+      for (const appName of ['enrollment-api', 'dashboard-api']) {
+        const task = taskDefinitionWithContainer(appName).Properties;
+        const app = container(appName);
+        const writers = task.ContainerDefinitions.filter((definition: any) => definition.Name === 'jwt-key-writer');
+        expect(writers).toHaveLength(1);
+        expect(writers[0]).toMatchObject({ Essential: false, User: '0:0', ReadonlyRootFilesystem: true,
+          MemoryReservation: 64, Memory: 128, StartTimeout: 60 });
+        expect(task.Volumes).toEqual([{ Name: 'user-jwt' }]);
+        expect(app.DependsOn).toEqual([{ ContainerName: 'jwt-key-writer', Condition: 'SUCCESS' }]);
+        expect(app.MountPoints).toEqual([{ SourceVolume: 'user-jwt', ContainerPath: '/mnt/user-jwt', ReadOnly: true }]);
+        expect(writers[0].MountPoints).toEqual([{ SourceVolume: 'user-jwt', ContainerPath: '/mnt/user-jwt', ReadOnly: false }]);
+        expect(writers[0].LogConfiguration.Options['awslogs-group']).toEqual(app.LogConfiguration.Options['awslogs-group']);
+        expect(writers[0].Secrets).toBeUndefined();
+      }
+      const dashboardWriter = taskDefinitionWithContainer('dashboard-api').Properties.ContainerDefinitions
+        .find((definition: any) => definition.Name === 'jwt-key-writer');
+      const serialized = JSON.stringify(dashboardWriter.Environment);
+      expect(serialized).toContain('publicSecretArn');
+      expect(serialized).not.toMatch(/privateSecretArn|privateVersionId|activeKid/);
+      expect(taskDefinitionWithContainer('telemetry-ingest').Properties.ContainerDefinitions).toHaveLength(1);
+      expect(roleStatements('telemetry-ingest', 'TaskRoleArn').flatMap((statement) => list(statement.Action))
+        .some((action) => action.startsWith('secretsmanager:'))).toBe(false);
     });
   });
 
@@ -327,12 +448,12 @@ describe('DevApplicationStack', () => {
   // 신규 enrollment-api 배포 단위와 런타임 계약 (PROJ-142, ADR-0026)
   // ============================================================
   describe('신규 enrollment-api 배포 단위', () => {
-    test('독립 태스크에 enrollment-api 컨테이너 하나만 둔다', () => {
+    test('독립 태스크에 enrollment-api와 JWT writer를 둔다', () => {
       const definitions = taskDefinitionWithContainer('enrollment-api')
         .Properties.ContainerDefinitions;
 
       expect(definitions.map((definition: any) => definition.Name)).toEqual([
-        'enrollment-api',
+        'enrollment-api', 'jwt-key-writer',
       ]);
     });
 
@@ -365,7 +486,7 @@ describe('DevApplicationStack', () => {
       expect(properties.HealthCheckGracePeriodSeconds).toBe(60);
     });
 
-    test('application.yaml의 PULSEMETRY 이름 7개만 정확히 사용한다', () => {
+    test('기존 PULSEMETRY 이름 7개와 파일 기반 JWT 설정을 사용한다', () => {
       expect(Object.values(ENROLLMENT_ENV).sort()).toEqual(
         [
           'PULSEMETRY_DB_URL',
@@ -382,7 +503,7 @@ describe('DevApplicationStack', () => {
           ...Object.keys(envMap('enrollment-api')),
           ...secretNames('enrollment-api'),
         ].sort(),
-      ).toEqual(Object.values(ENROLLMENT_ENV).sort());
+      ).toEqual([...Object.values(ENROLLMENT_ENV), 'PULSEMETRY_USER_AUTH_ENABLED', 'PULSEMETRY_USER_AUTH_ISSUER', 'PULSEMETRY_USER_AUTH_AUDIENCE', 'PULSEMETRY_USER_AUTH_ALLOWED_ORIGINS', 'PULSEMETRY_USER_AUTH_ACTIVE_KID', 'PULSEMETRY_USER_AUTH_PRIVATE_KEY_FILE', 'SPRING_APPLICATION_JSON', 'PULSEMETRY_MANAGEMENT_ENABLED', 'PULSEMETRY_MAIL_ENABLED'].sort());
     });
 
     test('JDBC URL·실제 ALB base URL·바이너리 경로를 일반 env로 넣는다', () => {
@@ -485,6 +606,7 @@ describe('DevApplicationStack', () => {
       'telemetry-ingest',
       'enrollment-api',
       'clickhouse',
+      'dashboard-api',
     ];
     const removedContainerNames = [
       'otel-collector',
@@ -494,7 +616,7 @@ describe('DevApplicationStack', () => {
       'batch-processor',
     ];
 
-    test('구 컨테이너와 태스크 정의를 제거하고 최종 3개만 남긴다', () => {
+    test('앱 네 서비스와 두 JWT writer만 남긴다', () => {
       const tasks = Object.values(
         template.findResources('AWS::ECS::TaskDefinition'),
       ) as any[];
@@ -504,14 +626,14 @@ describe('DevApplicationStack', () => {
         ),
       );
 
-      expect(tasks).toHaveLength(3);
-      expect(names.sort()).toEqual([...finalContainerNames].sort());
+      expect(tasks).toHaveLength(4);
+      expect(names.sort()).toEqual([...finalContainerNames, 'jwt-key-writer', 'jwt-key-writer'].sort());
       for (const removed of removedContainerNames) {
         expect(names).not.toContain(removed);
       }
     });
 
-    test('최종 로그 그룹 3개는 /ecs/dev 접두, 14일 보존, 삭제 정책을 쓴다', () => {
+    test('네 서비스의 로그 그룹은 /ecs/dev 접두, 14일 보존, 삭제 정책을 쓴다', () => {
       const logGroups = Object.values(
         template.findResources('AWS::Logs::LogGroup'),
       ).filter(
@@ -526,6 +648,7 @@ describe('DevApplicationStack', () => {
           `${DEV_LOG_GROUP_PREFIX}/telemetry-ingest`,
           `${DEV_LOG_GROUP_PREFIX}/enrollment-api`,
           `${DEV_LOG_GROUP_PREFIX}/clickhouse`,
+          `${DEV_LOG_GROUP_PREFIX}/dashboard-api`,
         ].sort(),
       );
       for (const resource of logGroups) {
@@ -573,6 +696,7 @@ describe('DevApplicationStack', () => {
     const ownBuilt: ReadonlyArray<readonly [string, string]> = [
       ['telemetry-ingest', ECR_REPOS.telemetryIngest],
       ['enrollment-api', ECR_REPOS.enrollmentApi],
+      ['dashboard-api', ECR_REPOS.dashboardApi],
     ];
 
     const imageLiterals = (containerName: string): string =>
@@ -580,7 +704,7 @@ describe('DevApplicationStack', () => {
         .filter((part): part is string => typeof part === 'string')
         .join('');
 
-    test('최종 두 앱 이미지는 soma-376 ECR 레포와 :dev 태그를 쓴다', () => {
+    test('세 Spring 앱 이미지는 soma-376 ECR 레포와 :dev 태그를 쓴다', () => {
       for (const [containerName, repositoryName] of ownBuilt) {
         const image = imageLiterals(containerName);
         expect(repositoryName.startsWith(`${ECR_NAMESPACE}/`)).toBe(true);
@@ -591,7 +715,7 @@ describe('DevApplicationStack', () => {
     });
   });
 
-  test('devImageTag를 주면 최종 두 앱 이미지에만 그 태그가 붙는다', () => {
+  test('devImageTag는 세 Spring 앱에만 적용하고 두 writer digest는 유지한다', () => {
     const tagged = Template.fromStack(
       buildDevApp({ devImageTag: 'pr-42' }).application,
     );
@@ -610,8 +734,14 @@ describe('DevApplicationStack', () => {
           .join(''),
       );
 
-    expect(ecrImages).toHaveLength(2);
-    for (const image of ecrImages) {
+    expect(ecrImages).toHaveLength(5);
+    const writerImages = ecrImages.filter((image) => image.includes('jwt-key-writer'));
+    expect(writerImages).toHaveLength(2);
+    for (const image of writerImages) {
+      expect(image).toMatch(/@sha256:[a-f0-9]{64}$/);
+      expect(image).not.toContain(':pr-42');
+    }
+    for (const image of ecrImages.filter(image => !image.includes('jwt-key-writer'))) {
       expect(image).toContain(':pr-42');
       expect(image).not.toContain(':latest');
     }
@@ -624,8 +754,8 @@ describe('DevApplicationStack', () => {
     const services = (): any[] =>
       Object.values(template.findResources('AWS::ECS::Service'));
 
-    test('최종 세 서비스는 교체 배포(0/100, desired 1)로 고정한다', () => {
-      expect(services()).toHaveLength(3);
+    test('최종 네 서비스는 교체 배포(0/100, desired 1)로 고정한다', () => {
+      expect(services()).toHaveLength(4);
       for (const resource of services()) {
         expect(resource.Properties.DesiredCount).toBe(1);
         expect(resource.Properties.DeploymentConfiguration).toMatchObject({
@@ -635,7 +765,7 @@ describe('DevApplicationStack', () => {
       }
     });
 
-    test('신규 두 앱과 ClickHouse의 ALB binding을 유지한다', () => {
+    test('세 Spring 앱과 ClickHouse의 ALB binding을 연결한다', () => {
       for (const [serviceName, containerName, containerPort] of [
         [
           ECS_SERVICE_NAMES.telemetryIngest,
@@ -648,6 +778,7 @@ describe('DevApplicationStack', () => {
           PORTS.enrollmentApi,
         ],
         [ECS_SERVICE_NAMES.clickhouse, 'clickhouse', PORTS.clickhouseHttp],
+        [ECS_SERVICE_NAMES.dashboardApi, 'dashboard-api', PORTS.dashboardApi],
       ] as const) {
         const loadBalancers = service(serviceName).Properties.LoadBalancers;
 
@@ -680,12 +811,15 @@ describe('DevApplicationStack', () => {
       }
     });
 
-    test('앱 호스트 소프트 예약 합은 2048 MiB다', () => {
-      const reservations = ['telemetry-ingest', 'enrollment-api'].map(
+    test('세 Spring 앱 예약 3072 MiB와 두 writer 예약 128 MiB를 구분한다', () => {
+      const reservations = ['telemetry-ingest', 'enrollment-api', 'dashboard-api'].map(
         (name) => container(name).MemoryReservation as number,
       );
 
-      expect(reservations.reduce((sum, value) => sum + value, 0)).toBe(2048);
+      expect(reservations.reduce((sum, value) => sum + value, 0)).toBe(3072);
+      const writers = ['enrollment-api', 'dashboard-api'].map((name) =>
+        taskDefinitionWithContainer(name).Properties.ContainerDefinitions.find((definition: any) => definition.Name === 'jwt-key-writer'));
+      expect(writers.reduce((sum, writer) => sum + writer.MemoryReservation, 0)).toBe(128);
     });
   });
 

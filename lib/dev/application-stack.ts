@@ -1,3 +1,4 @@
+import { DashboardDatabaseSecrets, dashboardEcsSettings, attachUserJwtKeyWriter } from './ecs-dashboard-runtime';
 import { RemovalPolicy, Stack, StackProps } from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
 import {
@@ -73,6 +74,7 @@ const MEMORY_RESERVATION_MIB = {
   // Spring heap·off-heap을 합친 실사용 충분성은 배포 뒤 별도로 관측한다. (ADR-0026)
   telemetryIngest: 1024,
   enrollmentApi: 1024,
+  dashboardApi: 1024,
 } as const;
 
 /**
@@ -102,6 +104,9 @@ export interface DevApplicationStackProps extends StackProps {
   readonly adminApiTokenSecret: ISecret;
   /** 신규 두 Spring 앱이 공유하는 토큰 해시 Secret. (ADR-0026) */
   readonly tokenHashSecret: ISecret;
+  readonly userJwtPrivateKeySecret: ISecret;
+  readonly userJwtPublicKeysSecret: ISecret;
+  readonly dashboardDatabaseSecrets: DashboardDatabaseSecrets;
   readonly rawSignalBucket: IBucket;
   /** EC2 호스트 2대 공용 SG. ASG 에 붙는다. */
   readonly appHostSecurityGroup: ISecurityGroup;
@@ -117,7 +122,7 @@ interface EnrollmentApiResources {
 
 /**
  * DevApplicationStack: ECS 클러스터(단일), Cloud Map `obs.local`,
- * ASG 2개 + 캐패시티 프로바이더 2개, 최종 Ec2Service 3개.
+ * ASG 2개 + 캐패시티 프로바이더 2개, 최종 Ec2Service 4개.
  *
  * 운영과의 기본 차이는 **launch type 과 네트워크 모드**다. dev는 backend의
  * telemetry-ingest와 enrollment-api를 독립 bridge 서비스로 실행하며, ClickHouse만
@@ -136,6 +141,7 @@ export class DevApplicationStack extends Stack {
   /** enrollment-api 태스크와 서비스. enrollment·bootstrap 경로를 받는다. */
   public readonly enrollmentApiTask: Ec2TaskDefinition;
   public readonly enrollmentApiService: Ec2Service;
+  public readonly dashboardApiService: Ec2Service;
 
   private readonly enrollmentApiContainer: ContainerDefinition;
 
@@ -181,6 +187,7 @@ export class DevApplicationStack extends Stack {
     this.enrollmentApiTask = enrollmentApi.task;
     this.enrollmentApiContainer = enrollmentApi.container;
     this.enrollmentApiService = enrollmentApi.service;
+    this.dashboardApiService = this.buildDashboardApiService(props, appCapacityProvider);
     this.clickhouseService = this.buildClickhouseService(
       props,
       clickhouseCapacityProvider,
@@ -419,13 +426,15 @@ export class DevApplicationStack extends Stack {
     capacityProvider: AsgCapacityProvider,
   ): EnrollmentApiResources {
     const task = new Ec2TaskDefinition(this, 'DevEnrollmentApiTask', {
-      // 단일 Spring 컨테이너이고 Cloud Map 등록 대상이 아니므로 bridge를 쓴다.
+      // Spring 앱과 일회성 writer는 Cloud Map 등록 대상이 아니므로 bridge를 쓴다.
       // 기존 앱 호스트의 egress와 ENI를 재사용하고 host port는 동적으로 받는다.
       // (ADR-0022 4번, ADR-0026)
       networkMode: NetworkMode.BRIDGE,
     });
 
+    const logGroup = this.makeLogGroup('DevEnrollmentApiLog', 'enrollment-api');
     const container = task.addContainer('enrollment-api', {
+      user: '10001:10001',
       image: ContainerImage.fromEcrRepository(
         Repository.fromRepositoryName(
           this,
@@ -466,12 +475,13 @@ export class DevApplicationStack extends Stack {
       memoryReservationMiB: MEMORY_RESERVATION_MIB.enrollmentApi,
       logging: LogDriver.awsLogs({
         streamPrefix: 'enrollment-api',
-        logGroup: this.makeLogGroup(
-          'DevEnrollmentApiLog',
-          'enrollment-api',
-        ),
+        logGroup,
       }),
     });
+
+    attachUserJwtKeyWriter(task, container, props.devConfig.dashboardRuntime,
+      props.userJwtPublicKeysSecret, props.userJwtPrivateKeySecret,
+      LogDriver.awsLogs({ streamPrefix: 'jwt-key-writer', logGroup }));
 
     const service = new Ec2Service(this, 'DevEnrollmentApiService', {
       cluster: this.cluster,
@@ -487,6 +497,28 @@ export class DevApplicationStack extends Stack {
     });
 
     return { task, container, service };
+  }
+
+  /** 네 연결과 공개키 전용 runtime을 기존 apps capacity provider에 배치한다. */
+  private buildDashboardApiService(props: DevApplicationStackProps, capacityProvider: AsgCapacityProvider): Ec2Service {
+    const task = new Ec2TaskDefinition(this, 'DevDashboardApiTask', { networkMode: NetworkMode.BRIDGE });
+    const logGroup = this.makeLogGroup('DevDashboardApiLog', 'dashboard-api');
+    const container = task.addContainer('dashboard-api', {
+      image: ContainerImage.fromEcrRepository(Repository.fromRepositoryName(this, 'DevDashboardApiRepo', ECR_REPOS.dashboardApi), props.devConfig.imageTag),
+      user: '10001:10001',
+      portMappings: [{ containerPort: PORTS.dashboardApi }],
+      memoryReservationMiB: MEMORY_RESERVATION_MIB.dashboardApi,
+      ...dashboardEcsSettings(props.devConfig.dashboardRuntime, props.dbEndpoint, CLICKHOUSE_HTTP_URL, props.dashboardDatabaseSecrets),
+      logging: LogDriver.awsLogs({ streamPrefix: 'dashboard-api', logGroup }),
+    });
+    attachUserJwtKeyWriter(task, container, props.devConfig.dashboardRuntime,
+      props.userJwtPublicKeysSecret, undefined, LogDriver.awsLogs({ streamPrefix: 'jwt-key-writer', logGroup }));
+    return new Ec2Service(this, 'DevDashboardApiService', {
+      cluster: this.cluster, taskDefinition: task, serviceName: ECS_SERVICE_NAMES.dashboardApi,
+      desiredCount: 1,
+      capacityProviderStrategies: [{ capacityProvider: capacityProvider.capacityProviderName, weight: 1 }],
+      propagateTags: PropagatedTagSource.SERVICE, ...REPLACEMENT_DEPLOYMENT,
+    });
   }
 
   // ============================================================

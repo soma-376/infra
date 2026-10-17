@@ -2,9 +2,11 @@
 
 ## Status
 
-Accepted (구현·로컬 검증 대상, AWS 배포 증거 대기)
+Accepted (구현·로컬 검증 대상, AWS 배포 증거 대기; JWT Secret 참조 목록은 [ADR-0030](0030-dev-user-jwt-keys-from-secrets-manager.md)이 부분 대체)
 
 ADR-0001·0002·0003·0005·0006·0009·0016·0021·0022·0026의 dev ECS 전용 실행·접속·스토리지·스택 수 가정을 **EKS 활성화 경로에 한해** 부분 대체한다. 기존 ECS와 prod 결정은 계속 유효하다. ADR-0019의 ClickHouse 이미지·사용자 설정, ADR-0024의 기존 CI 권한, ADR-0027의 WAF 정책은 유지한다. ADR-0020 예약 범위인 기존 ECS 로그 정책은 이 결정으로 대체하지 않는다.
+
+[ADR-0029](0029-dev-dashboard-api-ecs-and-eks-deployment.md)이 dashboard 포함 네 workload와 전용 검증 TG·runtime·수동 Helm 배포를 추가한다. 아래 세 workload·두 앱 설정 목록은 PROJ-206~212 기준이며 추가 구현은 PROJ-221~224다. 기존 CDK/Helm 경계, ECS TG 재사용 금지와 데이터 전환 결정은 유효하다.
 
 ## Context
 
@@ -36,8 +38,9 @@ ADR-0001·0002·0003·0005·0006·0009·0016·0021·0022·0026의 dev ECS 전용
 
 ### 3. 런타임 주입과 로그
 
-- 기존 Secret 3개의 ARN만 참조한다. Pod Identity·ASCP·CSI mount와 `SPRING_CONFIG_IMPORT=configtree:/mnt/secrets-store/`로 backend 수정 없이 주입한다. DB JSON username/password와 HMAC 전체 SecretString은 두 앱, 관리자 JSON token은 enrollment만 읽는다.
-- 파일명은 기존 PULSEMETRY 설정 이름이다. Secret 환경변수 중복, Kubernetes Secret 복제, 자동 회전은 사용하지 않는다. UID 10001의 읽기 권한과 필수 파일 존재·읽기 가능·비어 있지 않음을 검사하는 initContainer를 구성한다. Secret 변경은 명시적 재시작으로 적용한다. 원문을 조회·합성·출력하지 않는다.
+- PROJ-206~212의 기존 구현은 Secret 3개의 ARN만 참조한다. Pod Identity·ASCP·CSI mount와 `SPRING_CONFIG_IMPORT=configtree:/mnt/secrets-store/`로 backend 수정 없이 주입한다. DB JSON username/password와 HMAC 전체 SecretString은 두 앱, 관리자 JSON token은 enrollment만 읽는다.
+- 사용자 JWT 추가분은 [ADR-0030](0030-dev-user-jwt-keys-from-secrets-manager.md)에 따라 개인키·공개키 별도 ARN·VersionId를 참조하고 별도 키 파일 mount로 전달한다. enrollment는 두 원본, dashboard는 공개키 원본만 읽으며 ingest에는 JWT 권한을 추가하지 않는다. 기존 3개와 과거 검증 기록을 변경하지 않으며 JWT 역할·SPC·mount·파일 맵은 후속 구현이다.
+- 기존 configtree 파일명은 PULSEMETRY 설정 이름이다. JWT PEM은 configtree 설정값이 아니라 별도 키 파일이며, 설정에는 파일 경로·명시적 `kid` 맵만 전달한다. Secret 환경변수 중복, Kubernetes Secret 복제, 자동 회전은 사용하지 않는다. UID 10001의 읽기 권한과 필수 파일 존재·읽기 가능·비어 있지 않음을 검사하는 initContainer를 구성한다. Secret 변경은 명시적 재시작으로 적용한다. JWT 교체는 일반 재시작 순서와 구별해 ADR-0030의 전체 verifier → signer → 330초 이상 대기 → 구 공개키 제거 절차를 따른다. 원문을 조회·합성·출력하지 않는다.
 - 앱별 Secret 권한을 분리한다. ingest는 검증 단계에 `eks_validation/*`의 PutObject만 허용한다. `PULSEMETRY_ARCHIVE_PREFIX=eks_validation`이며 검증 완료 후 병행 운영에서 `eks`와 `eks/*`로 values와 IAM을 함께 변경한다. 기존 객체는 이동하지 않고 버킷의 7일 expiration과 ECS 권한을 유지한다. 조회·정리는 운영자 권한이다.
 - prefix는 객체의 논리적 구분이다. 공유 RDS·ClickHouse 또는 양방향 보안 격리로 표현하지 않는다.
 - 독립 Fluent Bit release로 앱 namespace의 stdout/stderr만 `/eks/dev/application`에 보내고 14일 보존한다. AWS 통합 CloudWatch observability 패키지는 메트릭/트레이싱 범위가 불필요하고, OTel Collector는 기존 앱 수집 파이프라인과 역할이 혼동되며, Vector는 별도 AWS 연동 운영 학습이 필요하다. 이번에는 로그 전달만 필요한 Fluent Bit을 선택한다. 로그 그룹은 CDK, 수집 설정은 Helm이 소유하며 자동 그룹 생성은 끈다.

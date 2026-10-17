@@ -1,4 +1,5 @@
 import { DevEksConfig, loadDevEksConfig } from './eks-config';
+import { DashboardRuntimeConfig, loadDashboardRuntimeConfig } from './dashboard-runtime-config';
 import { Annotations, App, Duration } from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
 import { InstanceClass, InstanceSize, InstanceType } from 'aws-cdk-lib/aws-ec2';
@@ -184,6 +185,36 @@ export const DEV_CLICKHOUSE_DATA_VOLUME_GIB = 50;
 export const DEV_RDS_ALLOCATED_STORAGE_GIB = 20;
 
 /**
+ * dashboard source/cache 접속용 자격 증명 원본. 실제 DB 사용자·권한은 런북으로
+ * 별도 준비하고, 기존 enrollment·ingest의 master credential은 바꾸지 않는다. (ADR-0031)
+ */
+export const DEV_DASHBOARD_DB_CREDENTIALS = {
+  rdsSource: {
+    secretName: 'soma-376/dev/dashboard/rds-source',
+    username: 'dashboard_rds_source',
+  },
+  rdsCache: {
+    secretName: 'soma-376/dev/dashboard/rds-cache',
+    username: 'dashboard_rds_cache',
+  },
+  clickHouseSource: {
+    secretName: 'soma-376/dev/dashboard/clickhouse-source',
+    username: 'dashboard_ch_source',
+  },
+  clickHouseCache: {
+    secretName: 'soma-376/dev/dashboard/clickhouse-cache',
+    username: 'dashboard_ch_cache',
+  },
+} as const;
+
+/** DB 사용자와 동기화해 수동 등록할 영숫자 비밀번호 길이. (ADR-0031) */
+export const DEV_DASHBOARD_DB_PASSWORD_LENGTH = 32;
+
+/** JWT 키 값은 별도 초기화하며 두 원본은 같은 ARN으로 보존한다. (ADR-0030·0031) */
+export const DEV_USER_JWT_PRIVATE_KEY_SECRET_NAME = 'soma-376/dev/user-jwt/private-key';
+export const DEV_USER_JWT_PUBLIC_KEYS_SECRET_NAME = 'soma-376/dev/user-jwt/public-keys';
+
+/**
  * RDS 인스턴스 타입 (ADR-0022 6번). Aurora Serverless v2 는 최소 0.5 ACU 가
  * 상시 과금되어 개발용으로 과하므로 `DatabaseInstance` + db.t4g.micro 를 쓴다.
  */
@@ -237,7 +268,7 @@ const DEV_DEFAULT_APP_ASG_MAX_CAPACITY = 1;
 const DEV_DEFAULT_IMAGE_TAG = 'dev';
 
 /**
- * dev 배포별 가변값. context 키 3개에서만 온다.
+ * dev 배포별 가변값. context 키 4개에서만 온다.
  */
 export interface DevConfig {
   readonly eks: DevEksConfig;
@@ -247,11 +278,12 @@ export interface DevConfig {
   readonly appAsgMaxCapacity: number;
   /** ECR 이미지 태그. */
   readonly imageTag: string;
+  readonly dashboardRuntime: DashboardRuntimeConfig;
 }
 
 /**
  * CDK context 에서 dev 설정을 로드한다.
- * context 키: devAllowedCidr, devAppAsgMaxCapacity, devImageTag.
+ * context 키: devAllowedCidr, devAppAsgMaxCapacity, devImageTag, devDashboardRuntimeFile.
  *
  * `devAllowedCidr` 은 쉼표로 여러 개를 줄 수 있다.
  *   npx cdk deploy --all -c env=dev -c devAllowedCidr=203.0.113.10/32,198.51.100.0/24
@@ -259,6 +291,7 @@ export interface DevConfig {
 export function loadDevConfig(app: App): DevConfig {
   return {
     eks: loadDevEksConfig(app),
+    dashboardRuntime: loadDashboardRuntimeConfig(app),
     allowedCidrs: parseAllowedCidrs(
       app.node.tryGetContext('devAllowedCidr') as string | undefined,
     ),

@@ -339,6 +339,7 @@ describe('DeployStack', () => {
           ECR_REPOS.batchProcessor,
           ECR_REPOS.enrollmentApi,
           ECR_REPOS.telemetryIngest,
+          ECR_REPOS.dashboardApi,
         ],
       ],
       [
@@ -348,6 +349,7 @@ describe('DeployStack', () => {
           ECR_REPOS.batchProcessor,
           ECR_REPOS.enrollmentApi,
           ECR_REPOS.telemetryIngest,
+          ECR_REPOS.dashboardApi,
         ],
       ],
       [DASHBOARD_DEV, [ECR_REPOS.postProcessor, RETIRED_AUTH_PROXY_REPO]],
@@ -368,14 +370,22 @@ describe('DeployStack', () => {
       ]);
     });
 
-    test('backend dev 역할은 신규 배포 단위 둘만 허용한다', () => {
+    test('backend dev 역할은 dashboard-api를 포함한 이미지 공급 대상 셋만 허용한다', () => {
       expect(ecrRepositoriesFor(DASHBOARD_DEV)).toEqual(
-        [ECR_REPOS.enrollmentApi, ECR_REPOS.telemetryIngest].sort(),
+        [
+          ECR_REPOS.enrollmentApi,
+          ECR_REPOS.telemetryIngest,
+          ECR_REPOS.dashboardApi,
+        ].sort(),
       );
+    });
+
+    test('backend dev 역할의 ECS 재배포 대상은 dashboard를 포함한 세 앱이다', () => {
       expect(ecsServicesFor(DASHBOARD_DEV)).toEqual(
         [
           `${ECS_CLUSTER_NAMES.dev}/${ECS_SERVICE_NAMES.enrollmentApi}`,
           `${ECS_CLUSTER_NAMES.dev}/${ECS_SERVICE_NAMES.telemetryIngest}`,
+          `${ECS_CLUSTER_NAMES.dev}/${ECS_SERVICE_NAMES.dashboardApi}`,
         ].sort(),
       );
     });
@@ -387,6 +397,29 @@ describe('DeployStack', () => {
       expect(ecsServicesFor(DASHBOARD_PROD)).toEqual([
         `${ECS_CLUSTER_NAMES.prod}/${ECS_SERVICE_NAMES.dashboard}`,
       ]);
+    });
+
+    test('dashboard-api ECR 공급 권한은 backend dev 역할에만 있다', () => {
+      for (const role of [PIPELINE_DEV, PIPELINE_PROD, DASHBOARD_PROD]) {
+        expect(resourceTextFor(role)).not.toContain(
+          `:repository/${ECR_REPOS.dashboardApi}`,
+        );
+      }
+    });
+
+    test('dashboard-api 재배포 권한은 backend dev 역할에만 있고 JWT·writer 공급 권한은 없다', () => {
+      for (const role of ALL_ROLES) {
+        const actions = actionsFor(role);
+        expect(actions.some((action) => action.startsWith('secretsmanager:'))).toBe(false);
+        expect(resourceTextFor(role)).not.toContain(':repository/soma-376/jwt-key-writer');
+        if (role !== DASHBOARD_DEV) {
+          expect(resourceTextFor(role)).not.toContain(`/${ECS_SERVICE_NAMES.dashboardApi}`);
+        }
+      }
+    });
+
+    test('ECR 레포는 선생성 대상으로 CDK 리소스를 만들지 않는다', () => {
+      template.resourceCountIs('AWS::ECR::Repository', 0);
     });
 
     // 운영에는 auth-proxy 서비스가 아예 없다 (ADR-0023). 없는 서비스의 ARN 을 넣으면

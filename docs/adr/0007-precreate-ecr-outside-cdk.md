@@ -8,6 +8,8 @@ Accepted — 부분 대체: [ADR 0021](0021-dev-prod-environment-separation.md)�
 끝낸다. prod의 기존 이미지 목록과 선생성·`fromRepositoryName` 참조·`soma-376/` 네임스페이스 결정은
 그대로 유효하다.
 
+[ADR-0029](0029-dev-dashboard-api-ecs-and-eks-deployment.md)이 dashboard-api를 dev ECS/EKS의 공통 이미지 소비 대상으로 추가한다. 아래 PROJ-226 공급 준비 기록과 ECR 선생성·참조 원칙은 보존하며 실제 이미지 게시·pull은 별도 증거다.
+
 ## Context
 
 CDK 스택이 ECR 레포지토리를 함께 생성하도록 구성하면, 스택의 첫 배포 시점에는 아직 이미지가 push되지 않은 상태다. 이 상태에서 ECS 서비스가 이미지를 가져오지 못해 기동에 실패하고, 결과적으로 스택 전체가 롤백되는 닭-달걀 문제가 발생한다.
@@ -22,6 +24,9 @@ ECR 레포지토리는 CLI 또는 콘솔로 먼저 생성하고 이미지를 pus
 
 자체 빌드 이미지의 ECR 레포는 전부 `soma-376/` 네임스페이스 아래에 둔다. 네임스페이스 값은 `COMMON_TAGS.Org`와 일치시킨다. 태그 기반 비용 배분의 축과 레지스트리 경로가 같은 식별자로 정렬되어, 계정에 다른 워크로드가 들어와도 레지스트리 목록에서 소유 주체가 드러난다.
 
+아래는 ADR-0026의 dev 전환 전 이미지 목록이다. prod의 기존 목록은 그대로 유효하며,
+기존 dev 배포 서비스의 이미지 대상은 `soma-376/enrollment-api`와 `soma-376/telemetry-ingest`다.
+
 | 서비스 | 레포지토리 이름 |
 |---|---|
 | Collector & Processor | `soma-376/post-processor` |
@@ -32,6 +37,19 @@ ECR 레포지토리는 CLI 또는 콘솔로 먼저 생성하고 이미지를 pus
 환경(`dev`/`stg`/`prod`)은 네임스페이스에 포함하지 않는다. **환경 구분은 네임스페이스가 아니라 이미지 태그가 담당한다** — dev/prod 가 같은 ECR 레포를 공유하고 dev 는 `dev`, prod 는 `prod` 태그를 읽는다([ADR 0021](0021-dev-prod-environment-separation.md) 5번, [ADR 0024](0024-github-actions-oidc-deploy-roles.md) 7번). 결정 당시의 "이 레포에는 환경 분리 메커니즘이 없다" 는 전제는 ADR-0021 로 해소됐다.
 
 이름의 단일 출처는 `lib/common/config.ts`의 `ECR_NAMESPACE` / `ECR_REPOS`다. 스택 코드에 레포 이름 리터럴을 직접 박지 않는다.
+
+### dashboard-api 이미지 공급 준비 (PROJ-226)
+
+`soma-376/dashboard-api`를 `ECR_REPOS.dashboardApi`로 추가하고 backend-dev 역할의 이미지 공급
+대상에 포함한다. 기존과 같이 레포지토리는 CDK 밖에서 선생성하고 참조만 한다. 이 추가는 이미지
+이름과 push 권한 준비이며, ECS 서비스나 EKS 워크로드를 생성하지 않는다.
+
+공급할 이미지는 `linux/arm64`이며 commit SHA 태그와 `dev` 태그가 같은 manifest digest를 가리켜야
+한다. ECS와 EKS에서 사용할 dashboard-api는 같은 레포지토리의 동일한 산출물을 소비하는 것이
+목표다. 전체 배포 계약과 ADR 채택은 PROJ-220, 서비스 정의는 PROJ-221에서 처리한다.
+
+상수·권한의 로컬 구현과 합성 검증은 실제 레포지토리 생성·이미지 게시·ARM64 manifest 확인·태그별
+digest 일치·런타임 pull 성공을 증명하지 않는다. 실제 이미지 공급 단계에서 각각 확인해야 한다.
 
 ## Alternatives Considered
 

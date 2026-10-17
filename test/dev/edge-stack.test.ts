@@ -1,3 +1,4 @@
+import { DEV_APP_ROUTES } from '../../lib/dev/app-routing';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { PORTS } from '../../lib/common/config';
 import { buildDevApp } from '../helpers';
@@ -72,73 +73,45 @@ describe('DevEdgeStack', () => {
     });
   });
 
-  test('우선순위 1·3·4·5가 정확한 경로와 앱별 타깃 그룹을 가리킨다', () => {
-    expect(listenerRules()).toHaveLength(4);
-
-    const telemetryIngestTg = targetGroupByPrefix('DevTelemetryIngestTg');
-    const enrollmentApiTg = targetGroupByPrefix('DevEnrollmentApiTg');
-    const expected = [
-      {
-        priority: 1,
-        paths: ['/v1/traces', '/v1/metrics', '/v1/logs'],
-        targetGroupLogicalId: telemetryIngestTg[0],
-      },
-      {
-        priority: 3,
-        paths: [
-          '/api/v1/enroll',
-          '/api/v1/installations/*',
-          '/api/v1/invitations*',
-          '/api/v1/auth/*',
-          '/api/v1/manifest',
-        ],
-        targetGroupLogicalId: enrollmentApiTg[0],
-      },
-      {
-        priority: 4,
-        paths: ['/windows', '/unix', '/bin/*'],
-        targetGroupLogicalId: enrollmentApiTg[0],
-      },
-      {
-        priority: 5,
-        paths: ['/api/v1/organizations/*', '/api/v1/inquiries', '/api/v1/check-updates'],
-        targetGroupLogicalId: enrollmentApiTg[0],
-      },
-    ];
-
-    for (const { priority, paths, targetGroupLogicalId } of expected) {
-      const rule = ruleByPriority(priority);
-      expect(rule.Properties.Conditions).toEqual([
-        {
-          Field: 'path-pattern',
-          PathPatternConfig: { Values: paths },
-        },
-      ]);
-      expect(rule.Properties.Actions).toEqual([
-        {
-          Type: 'forward',
-          TargetGroupArn: { Ref: targetGroupLogicalId },
-        },
-      ]);
+  test('공통 path/method/preflight가 실제 앱 전용 TG에 연결된다', () => {
+    const targets = {
+      enrollment: targetGroupByPrefix('DevEnrollmentApiTg')[0],
+      dashboard: targetGroupByPrefix('DevDashboardApiTg')[0],
+    };
+    const resolve = (path: string, method: string, requested?: string) => listenerRules()
+      .sort((a: any, b: any) => a.Properties.Priority - b.Properties.Priority)
+      .find((rule: any) => rule.Properties.Conditions.every((condition: any) => {
+        if (condition.Field === 'path-pattern') return condition.PathPatternConfig.RegexValues
+          ? condition.PathPatternConfig.RegexValues.some((r: string) => new RegExp(r).test(path))
+          : condition.PathPatternConfig.Values.includes(path);
+        if (condition.Field === 'http-request-method') return condition.HttpRequestMethodConfig.Values.includes(method);
+        if (condition.Field === 'http-header') return condition.HttpHeaderConfig.Values.includes(requested);
+        throw new Error('미지원 조건');
+      }))?.Properties.Actions[0].TargetGroupArn;
+    for (const route of DEV_APP_ROUTES) {
+      const path = route.pathTemplate.replace(/\{[^}]+\}/g, 'fixture');
+      for (const method of route.methods) expect(resolve(path, method)).toEqual({ Ref: targets[route.owner] });
+      for (const method of route.corsMethods) expect(resolve(path, 'OPTIONS', method)).toEqual({ Ref: targets[route.owner] });
+      expect(resolve(path, 'HEAD')).toBeUndefined();
+      expect(resolve(path, 'OPTIONS')).toBeUndefined();
+      expect(resolve(path + '/extra/unexpected/segment/path', 'GET')).toBeUndefined();
     }
-
-    const publicPaths = listenerRules().flatMap(
-      (rule: any) => rule.Properties.Conditions[0].PathPatternConfig.Values,
-    );
-    expect(publicPaths).not.toContain('/v1/*');
-    expect(publicPaths.some((path: string) => path.startsWith('/v1/') && !['/v1/traces', '/v1/metrics', '/v1/logs'].includes(path))).toBe(false);
-    expect(publicPaths).not.toContain('/v1/healthz');
-    expect(publicPaths).not.toContain('/api/*');
+    for (const path of ['/api/v1/healthz', '/v1/healthz', '/api/v1/unknown', '/api/v1/auth/login']) {
+      expect(resolve(path, 'GET')).toBeUndefined();
+    }
+    expect(ruleByPriority(1).Properties.Conditions).toEqual([{ Field: 'path-pattern', PathPatternConfig: { Values: ['/v1/traces', '/v1/metrics', '/v1/logs'] } }]);
+    expect(listenerRules().length).toBeLessThanOrEqual(100);
   });
 
   // bridge 앱 태스크는 동적 host port를 인스턴스 타깃으로 등록하고,
   // ClickHouse만 태스크 ENI IP를 타깃으로 등록한다.
-  test('최종 세 타깃 그룹의 타입과 포트가 네트워크 모드에 맞는다', () => {
-    expect(Object.keys(targetGroups())).toHaveLength(3);
+  test('최종 네 타깃 그룹의 타입과 포트가 네트워크 모드에 맞는다', () => {
+    expect(Object.keys(targetGroups())).toHaveLength(4);
 
     for (const [prefix, targetType, port] of [
       ['DevTelemetryIngestTg', 'instance', PORTS.telemetryIngest],
       ['DevEnrollmentApiTg', 'instance', PORTS.enrollmentApi],
+      ['DevDashboardApiTg', 'instance', PORTS.dashboardApi],
       ['DevClickhouseTg', 'ip', PORTS.clickhouseHttp],
     ] as const) {
       expect(targetGroupByPrefix(prefix)[1].Properties).toMatchObject({
@@ -148,10 +121,11 @@ describe('DevEdgeStack', () => {
     }
   });
 
-  test('신규 두 앱만 deregistration delay를 60초로 둔다', () => {
+  test('세 앱만 deregistration delay를 60초로 둔다', () => {
     for (const prefix of [
       'DevTelemetryIngestTg',
       'DevEnrollmentApiTg',
+      'DevDashboardApiTg',
     ]) {
       expect(
         targetGroupByPrefix(prefix)[1].Properties.TargetGroupAttributes,
@@ -166,10 +140,11 @@ describe('DevEdgeStack', () => {
     }
   });
 
-  test('신규 두 앱은 /api/v1/healthz의 200만 healthy로 판정한다', () => {
+  test('세 앱은 /api/v1/healthz의 200만 healthy로 판정한다', () => {
     for (const prefix of [
       'DevTelemetryIngestTg',
       'DevEnrollmentApiTg',
+      'DevDashboardApiTg',
     ]) {
       expect(targetGroupByPrefix(prefix)[1].Properties).toMatchObject({
         TargetType: 'instance',

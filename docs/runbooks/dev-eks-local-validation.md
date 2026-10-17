@@ -58,3 +58,12 @@ CDK의 기존 RDS 공개 접근·암호화·ECS 배포 설정 경고와 테스�
 - HTTPS 전체 CLI E2E, 데이터 이관·Canary·ECS 제거 및 RPO/RTO 리허설
 
 배포·push·PR 생성·Jira 조회/변경은 이번 구현 작업에서 수행하지 않았다. 로컬 구현 완료는 Jira의 live 완료조건 충족을 뜻하지 않는다.
+
+## PROJ-220에서의 문서 인계
+
+이 파일은 PROJ-212 브랜치의 기존 검증 기록을 가져온 것이다. 위 20 suites·404 tests와 configtree/Helm 검사는
+당시 enrollment·ingest·ClickHouse 구현의 기록이며 dashboard와 PROJ-226 기준 코드의 현재 재검증 결과가 아니다.
+PROJ-220은 [ADR-0029](../adr/0029-dev-dashboard-api-ecs-and-eks-deployment.md)와 수동 런북 §10을 추가한다.
+실제 dashboard CDK·Helm·설정·권한 구현과 기능 검증은 PROJ-221~225에서 따로 기록한다.
+NodePort 숫자는 PROJ-223에서 확정하고 SG·TG·output·Service와 대조한다.
+이번 문서 채택을 실제 이미지 공급·서비스 생성·AWS 배포·기능 성공으로 표시하지 않는다.

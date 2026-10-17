@@ -106,6 +106,10 @@ const PATH_CASES: readonly (readonly [path: string, kind: PathKind])[] = [
   ['/api/v1/organizations/', 'application'],
   ['/api/v1/organizations/id/teams', 'application'],
   ['/api/v1/inquiries', 'application'],
+  ['/api/v1/vendor-catalog', 'application'],
+  ['/api/v1/vendor-catalog/vendor/plans', 'application'],
+  ['/api/v1/vendor-catalog/vendor/plans/extra', 'other'],
+  ['/api/v1/vendor-catalog//plans', 'other'],
   ['/api/v1/check-updates', 'application'],
   ['/windows', 'bootstrap'],
   ['/unix', 'bootstrap'],
@@ -206,6 +210,12 @@ function matchesCustomStatement(
     expect(statement.LabelMatchStatement.Scope).toBe('LABEL');
     return labels.includes(statement.LabelMatchStatement.Key);
   }
+  if (statement.RegexMatchStatement) {
+    const match = statement.RegexMatchStatement;
+    expect(match.FieldToMatch).toEqual({ UriPath: {} });
+    expect(match.TextTransformations).toEqual([{ Priority: 0, Type: 'NONE' }]);
+    return new RegExp(match.RegexString).test(uriPath);
+  }
   if (statement.ByteMatchStatement) {
     const match = statement.ByteMatchStatement;
     expect(match.FieldToMatch).toEqual({ UriPath: {} });
@@ -300,19 +310,11 @@ describe('dev ALB WAF 정책 합성', () => {
     });
   });
 
-  test('PR #18의 ALB 공개 경로와 WAF 앱 분류가 canonical·prefix 경계에서 일치한다', () => {
-    const publicPaths: string[] = Object.values(template.findResources(
-      'AWS::ElasticLoadBalancingV2::ListenerRule',
-    )).flatMap((value: any) => value.Properties.Conditions
-      .flatMap((condition: any) => condition.PathPatternConfig?.Values ?? []));
+  test('WAF는 기존 넓은 검사 범위를 보존하고 vendor catalog 조회만 추가한다', () => {
     for (const [path, kind] of PATH_CASES) {
-      const forwarded = publicPaths.some((pattern) => pattern.endsWith('*')
-        ? path.startsWith(pattern.slice(0, -1))
-        : path === pattern);
-      expect(forwarded).toBe(kind !== 'other');
       expect(matchesCustomStatement(
         rule('AppQueryLabelBlock').Statement, path, [QUERY_RULES[0][1]],
-      )).toBe(forwarded);
+      )).toBe(kind !== 'other');
     }
   });
 
@@ -339,6 +341,11 @@ describe('dev ALB WAF 정책 합성', () => {
     for (const value of rules()) {
       expect(value.Action?.Allow).toBeUndefined();
       visitStatements(value.Statement, (statement) => {
+        if (statement.RegexMatchStatement) {
+          const match = statement.RegexMatchStatement;
+          expect(match.FieldToMatch).toEqual({ UriPath: {} });
+          expect(match.TextTransformations).toEqual([{ Priority: 0, Type: 'NONE' }]);
+        }
         if (statement.ByteMatchStatement) {
           expect(statement.ByteMatchStatement.FieldToMatch).toEqual({ UriPath: {} });
           expect(statement.ByteMatchStatement.TextTransformations).toEqual([
