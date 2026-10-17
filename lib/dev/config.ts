@@ -1,3 +1,4 @@
+import { DashboardRuntimeConfig, loadDashboardRuntimeConfig } from './dashboard-runtime-config';
 import { Annotations, App, Duration } from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
 import { InstanceClass, InstanceSize, InstanceType } from 'aws-cdk-lib/aws-ec2';
@@ -266,7 +267,7 @@ const DEV_DEFAULT_APP_ASG_MAX_CAPACITY = 1;
 const DEV_DEFAULT_IMAGE_TAG = 'dev';
 
 /**
- * dev 배포별 가변값. context 키 3개에서만 온다.
+ * dev 배포별 가변값. context 키 4개에서만 온다.
  */
 export interface DevConfig {
   /** ALB(80/8123)와 RDS(5432)의 인바운드 허용 소스. 항상 1개 이상이다. */
@@ -275,17 +276,19 @@ export interface DevConfig {
   readonly appAsgMaxCapacity: number;
   /** ECR 이미지 태그. */
   readonly imageTag: string;
+  readonly dashboardRuntime: DashboardRuntimeConfig;
 }
 
 /**
  * CDK context 에서 dev 설정을 로드한다.
- * context 키: devAllowedCidr, devAppAsgMaxCapacity, devImageTag.
+ * context 키: devAllowedCidr, devAppAsgMaxCapacity, devImageTag, devDashboardRuntimeFile.
  *
  * `devAllowedCidr` 은 쉼표로 여러 개를 줄 수 있다.
  *   npx cdk deploy --all -c env=dev -c devAllowedCidr=203.0.113.10/32,198.51.100.0/24
  */
 export function loadDevConfig(app: App): DevConfig {
   return {
+    dashboardRuntime: loadDashboardRuntimeConfig(app),
     allowedCidrs: parseAllowedCidrs(
       app.node.tryGetContext('devAllowedCidr') as string | undefined,
     ),

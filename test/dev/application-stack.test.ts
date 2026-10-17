@@ -327,12 +327,12 @@ describe('DevApplicationStack', () => {
   // 신규 enrollment-api 배포 단위와 런타임 계약 (PROJ-142, ADR-0026)
   // ============================================================
   describe('신규 enrollment-api 배포 단위', () => {
-    test('독립 태스크에 enrollment-api 컨테이너 하나만 둔다', () => {
+    test('독립 태스크에 enrollment-api와 JWT writer를 둔다', () => {
       const definitions = taskDefinitionWithContainer('enrollment-api')
         .Properties.ContainerDefinitions;
 
       expect(definitions.map((definition: any) => definition.Name)).toEqual([
-        'enrollment-api',
+        'enrollment-api', 'jwt-key-writer',
       ]);
     });
 
@@ -365,7 +365,7 @@ describe('DevApplicationStack', () => {
       expect(properties.HealthCheckGracePeriodSeconds).toBe(60);
     });
 
-    test('application.yaml의 PULSEMETRY 이름 7개만 정확히 사용한다', () => {
+    test('기존 PULSEMETRY 이름 7개와 파일 기반 JWT 설정을 사용한다', () => {
       expect(Object.values(ENROLLMENT_ENV).sort()).toEqual(
         [
           'PULSEMETRY_DB_URL',
@@ -382,7 +382,7 @@ describe('DevApplicationStack', () => {
           ...Object.keys(envMap('enrollment-api')),
           ...secretNames('enrollment-api'),
         ].sort(),
-      ).toEqual(Object.values(ENROLLMENT_ENV).sort());
+      ).toEqual([...Object.values(ENROLLMENT_ENV), 'PULSEMETRY_USER_AUTH_ENABLED', 'PULSEMETRY_USER_AUTH_ISSUER', 'PULSEMETRY_USER_AUTH_AUDIENCE', 'PULSEMETRY_USER_AUTH_ALLOWED_ORIGINS', 'PULSEMETRY_USER_AUTH_ACTIVE_KID', 'PULSEMETRY_USER_AUTH_PRIVATE_KEY_FILE', 'SPRING_APPLICATION_JSON', 'PULSEMETRY_MANAGEMENT_ENABLED', 'PULSEMETRY_MAIL_ENABLED'].sort());
     });
 
     test('JDBC URL·실제 ALB base URL·바이너리 경로를 일반 env로 넣는다', () => {
@@ -505,7 +505,7 @@ describe('DevApplicationStack', () => {
       );
 
       expect(tasks).toHaveLength(3);
-      expect(names.sort()).toEqual([...finalContainerNames].sort());
+      expect(names.sort()).toEqual([...finalContainerNames, 'jwt-key-writer'].sort());
       for (const removed of removedContainerNames) {
         expect(names).not.toContain(removed);
       }
@@ -610,8 +610,8 @@ describe('DevApplicationStack', () => {
           .join(''),
       );
 
-    expect(ecrImages).toHaveLength(2);
-    for (const image of ecrImages) {
+    expect(ecrImages).toHaveLength(3);
+    for (const image of ecrImages.filter(image => !image.includes('jwt-key-writer'))) {
       expect(image).toContain(':pr-42');
       expect(image).not.toContain(':latest');
     }

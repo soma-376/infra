@@ -79,7 +79,7 @@ export interface BuiltDevApp {
 export function buildDevApp(
   context: Record<string, unknown> = {},
 ): BuiltDevApp {
-  const app = new App({ context: { ...loadCdkContext(), ...context } });
+  const app = new App({ context: { ...loadCdkContext(), devDashboardRuntimeFile: path.join(__dirname, 'fixtures/dashboard-runtime.json'), ...context } });
   const stacks = synthDev(app, {
     env: TEST_ENV,
     config: loadDevConfig(app),
