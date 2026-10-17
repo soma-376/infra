@@ -4,7 +4,8 @@
   "additionalProperties": false,
   "required": ["workload", "replicaCount", "image", "resources", "env", "runtime", "targetGroupBindings", "vpcId"],
   "properties": {
-    "workload": {"enum": ["telemetry-ingest", "enrollment-api"]},
+    "workload": {"enum": ["telemetry-ingest", "enrollment-api", "dashboard-api"]},
+    "nodePort": {"const": 30081},
     "replicaCount": {"const": 1},
     "image": {
       "type": "object", "additionalProperties": false, "required": ["repository", "digest"],
@@ -37,7 +38,11 @@
         "secretProviderClass": {"type": "string", "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"},
         "requiredFiles": {
           "type": "array", "uniqueItems": true,
-          "items": {"enum": ["PULSEMETRY_DB_USERNAME", "PULSEMETRY_DB_PASSWORD", "PULSEMETRY_TOKEN_HASH_SECRET", "PULSEMETRY_ADMIN_API_TOKEN"]}
+          "items": {"enum": ["PULSEMETRY_DB_USERNAME", "PULSEMETRY_DB_PASSWORD", "PULSEMETRY_TOKEN_HASH_SECRET", "PULSEMETRY_ADMIN_API_TOKEN",
+            "PULSEMETRY_DASHBOARD_RDS_SOURCE_USERNAME", "PULSEMETRY_DASHBOARD_RDS_SOURCE_PASSWORD",
+            "PULSEMETRY_DASHBOARD_RDS_CACHE_USERNAME", "PULSEMETRY_DASHBOARD_RDS_CACHE_PASSWORD",
+            "PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_USERNAME", "PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_PASSWORD",
+            "PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_USERNAME", "PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_PASSWORD"]}
         }
       }
     },
@@ -54,5 +59,10 @@
       }
     },
     "vpcId": {"type": "string", "pattern": "^(vpc-[a-f0-9]{8}([a-f0-9]{9})?)?$"}
-  }
+  },
+  "allOf": [{
+    "if": {"properties": {"workload": {"const": "dashboard-api"}}},
+    "then": {"required": ["nodePort"]},
+    "else": {"not": {"required": ["nodePort"]}}
+  }]
 }

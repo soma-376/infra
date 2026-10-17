@@ -26,7 +26,7 @@ try {
   const versions = JSON.parse(readFileSync(join(root, 'helm/dev/runtime/versions.json'), 'utf8'));
   const source = JSON.parse(readFileSync(join(root, 'test/scripts/fixtures/eks-outputs.json'), 'utf8'));
   const digest = 'sha256:' + 'a'.repeat(64);
-  const values = generateValues(source, 'registry.example.test/soma-376/enrollment-api@' + digest, 'registry.example.test/soma-376/telemetry-ingest@' + digest);
+  const values = generateValues(source, 'registry.example.test/soma-376/enrollment-api@' + digest, 'registry.example.test/soma-376/telemetry-ingest@' + digest, 'registry.example.test/soma-376/dashboard-api@' + digest);
   for (const [file, value] of Object.entries(values)) writeFileSync(join(temp, file), dump(value, { noRefs: true }));
   const render = (name, chart, namespace, files) => {
     const args = [name, chart, '--namespace', namespace, '--kube-version', '1.36.0', ...files.flatMap(file => ['-f', file])];
