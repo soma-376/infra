@@ -43,12 +43,16 @@ PROJ-207~211 누적 EKS 코드와 PROJ-221·223·224·230·231 dashboard 구현�
 
 ---
 
-## PROJ-230 로컬 구현 보충
+## PROJ-230·221 로컬 구현 보충
 
-이 브랜치는 enrollment의 일회성 JWT writer와 dashboard 네 DB 연결 helper를 구현한다.
-dev 합성은 비밀 없는 `devDashboardRuntimeFile` JSON을 필수로 받는다. 실제 dashboard 서비스는
-PROJ-221에서 연결한다. 입력·권한·검증 경계는 [ECS runtime 런북](docs/runbooks/dev-dashboard-ecs-runtime.md)을 따른다.
+이 브랜치는 enrollment와 dashboard의 일회성 JWT writer, dashboard 네 DB 연결과 ECS 서비스를 구현한다.
+dev 합성은 비밀 없는 `devDashboardRuntimeFile` JSON을 필수로 받는다. dashboard는8081·bridge·동적hostport,
+기존 apps capacity provider·0/100 교체 정책을 사용한다. 앱 예약3072 MiB와 writer 예약128 MiB의 합은3200 MiB다.
+`lib/dev/app-routing.ts`가 허브 path/method/OPTIONS 계약을 설치하고, WAF 기존 범위와 등록rate세조건을 보존한다.
+입력·권한·검증 경계는 [ECS runtime 런북](docs/runbooks/dev-dashboard-ecs-runtime.md)을 따른다.
+관리 응답·메일의 추가 Secret 공급은 포함하지 않아 두 enabled flag는false만 허용한다.
 키 등록·이미지 공급·AWS 배포는 수행하지 않았고 기존 원본의 보존 정책은 유지한다.
+위의 과거 세 서비스 기록과 후속 작업 설명은 이 보충의 로컬 구현·미배포 상태와 구분한다.
 
 ---
 

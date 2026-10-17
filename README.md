@@ -27,3 +27,10 @@ npm test -- --runInBand
 
 CDK 합성·배포와 환경별 옵션은 AGENTS.md의 명령어 및 실행할 런북을 따른다.
 실제 배포 전에 이미지·설정·기능·복구의 각 완료조건을 별도로 확인한다.
+
+### PROJ-230·221 로컬 구현
+
+dev dashboard ECS 서비스와 파일 기반 JWT 공급을 구현했다. dev synth는
+`-c devDashboardRuntimeFile=<비밀 없는 JSON 경로>`를 필수로 받는다.
+입력 구조·서비스·라우팅·검증 경계는 [ECS runtime 런북](docs/runbooks/dev-dashboard-ecs-runtime.md)을 따른다.
+실제 DB 준비·키 등록·이미지 공급·AWS 배포는 이 구현에 포함하지 않는다.
