@@ -17,6 +17,12 @@ function synth(prefix: 'eks_validation' | 'eks' = 'eks_validation') {
   new DevEksRuntime(stack, 'Runtime', {
     clusterName: 'runtime-test', dbSecret: secret('db'),
     tokenHashSecret: secret('hmac'), adminApiTokenSecret: secret('admin'),
+    dashboardRdsSourceSecret: secret('dashboardRdsSourceSecret'),
+    dashboardRdsCacheSecret: secret('dashboardRdsCacheSecret'),
+    dashboardClickHouseSourceSecret: secret('dashboardClickHouseSourceSecret'),
+    dashboardClickHouseCacheSecret: secret('dashboardClickHouseCacheSecret'),
+    userJwtPrivateKeySecret: secret('userJwtPrivateKeySecret'),
+    userJwtPublicKeysSecret: secret('userJwtPublicKeysSecret'),
     rawSignalBucket: Bucket.fromBucketName(stack, 'RawBucket', 'runtime-test-raw'),
     archivePrefix: prefix,
   });
@@ -29,8 +35,8 @@ describe('EKS runtime 소비자 경계', () => {
     template.resourceCountIs('AWS::SecretsManager::Secret', 0);
     const json = template.toJSON();
     expect(Object.keys(json.Outputs).sort()).toEqual([
-      'ApplicationLogGroupName', 'ArchivePrefix', 'RuntimeEnrollmentRoleArn',
-      'RuntimeFluentBitRoleArn', 'RuntimeTelemetryIngestRoleArn',
+      'ApplicationLogGroupName', 'ArchivePrefix', 'RuntimeDashboardRoleArn',
+      'RuntimeEnrollmentRoleArn', 'RuntimeFluentBitRoleArn', 'RuntimeTelemetryIngestRoleArn',
     ]);
     expect(JSON.stringify(json)).not.toContain('{{resolve:secretsmanager:');
   });
@@ -38,6 +44,7 @@ describe('EKS runtime 소비자 경계', () => {
   test.each([
     ['enrollment-api', 'pulsemetry-dev'],
     ['telemetry-ingest', 'pulsemetry-dev'],
+    ['dashboard-api', 'pulsemetry-dev'],
     ['fluent-bit', 'pulsemetry-dev-logs'],
   ])('%s만 지정 namespace·cluster로 역할을 사용할 수 있다', (sa, namespace) => {
     const template = synth();
@@ -68,8 +75,8 @@ describe('EKS runtime 소비자 경계', () => {
     const enrollmentRead = enrollment.Properties.PolicyDocument.Statement[0];
     expect(enrollmentRead.Action).toEqual(actions);
     expect(enrollmentRead.Condition).toEqual({ Bool: { 'aws:SecureTransport': 'true' } });
-    expect(enrollmentRead.Resource).toHaveLength(3);
-    for (const name of ['db', 'hmac', 'admin']) {
+    expect(enrollmentRead.Resource).toHaveLength(5);
+    for (const name of ['db', 'hmac', 'admin', 'userJwtPrivateKeySecret', 'userJwtPublicKeysSecret']) {
       expect(JSON.stringify(enrollmentRead.Resource)).toContain(`:secret:${name}-abc123`);
     }
     const read = ingest.Properties.PolicyDocument.Statement.find((s: any) => Array.isArray(s.Action));
@@ -77,6 +84,17 @@ describe('EKS runtime 소비자 경계', () => {
     expect(read.Resource).toHaveLength(2);
     for (const name of ['db', 'hmac']) expect(JSON.stringify(read.Resource)).toContain(`:secret:${name}-abc123`);
     expect(JSON.stringify(ingest)).not.toContain(':secret:admin-');
+    expect(JSON.stringify(ingest)).not.toContain('userJwt');
+  });
+
+  test('dashboard는 네 DB 원본과 공개키만 읽고 쓰기·개인키·기존 인증 원본은 받지 않는다', () => {
+    const policy = Object.entries(synth().findResources('AWS::IAM::Policy')).find(([id]) => id.includes('Dashboard'))![1];
+    const statements = policy.Properties.PolicyDocument.Statement;
+    expect(statements).toHaveLength(1);
+    expect(statements[0].Action).toEqual(['secretsmanager:DescribeSecret', 'secretsmanager:GetSecretValue']);
+    expect(statements[0].Resource).toHaveLength(5);
+    for (const name of ['dashboardRdsSourceSecret', 'dashboardRdsCacheSecret', 'dashboardClickHouseSourceSecret', 'dashboardClickHouseCacheSecret', 'userJwtPublicKeysSecret']) expect(JSON.stringify(policy)).toContain(`:secret:${name}-abc123`);
+    for (const name of ['userJwtPrivateKeySecret', ':secret:db-', ':secret:hmac-', ':secret:admin-', 's3:']) expect(JSON.stringify(policy)).not.toContain(name);
   });
 
   test.each(['eks_validation', 'eks'] as const)('%s prefix와 PutObject 범위가 일치한다', prefix => {

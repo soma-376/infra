@@ -14,6 +14,12 @@ export interface DevEksStackProps extends StackProps {
   readonly dbSecret: ISecret;
   readonly tokenHashSecret: ISecret;
   readonly adminApiTokenSecret: ISecret;
+  readonly dashboardRdsSourceSecret: ISecret;
+  readonly dashboardRdsCacheSecret: ISecret;
+  readonly dashboardClickHouseSourceSecret: ISecret;
+  readonly dashboardClickHouseCacheSecret: ISecret;
+  readonly userJwtPrivateKeySecret: ISecret;
+  readonly userJwtPublicKeysSecret: ISecret;
   readonly rawSignalBucket: IBucket;
   readonly vpc: IVpc;
   readonly controlPlaneSecurityGroup: ISecurityGroup;
@@ -84,6 +90,12 @@ export class DevEksStack extends Stack {
     new DevEksRuntime(this, 'Runtime', {
       clusterName: this.cluster.ref, dbSecret: props.dbSecret,
       tokenHashSecret: props.tokenHashSecret, adminApiTokenSecret: props.adminApiTokenSecret,
+      dashboardRdsSourceSecret: props.dashboardRdsSourceSecret,
+      dashboardRdsCacheSecret: props.dashboardRdsCacheSecret,
+      dashboardClickHouseSourceSecret: props.dashboardClickHouseSourceSecret,
+      dashboardClickHouseCacheSecret: props.dashboardClickHouseCacheSecret,
+      userJwtPrivateKeySecret: props.userJwtPrivateKeySecret,
+      userJwtPublicKeysSecret: props.userJwtPublicKeysSecret,
       rawSignalBucket: props.rawSignalBucket, archivePrefix: props.config.archivePrefix,
     });
 
@@ -91,6 +103,12 @@ export class DevEksStack extends Stack {
       DbEndpoint: props.dbEndpoint, DbSecretArn: props.dbSecret.secretArn,
       TokenHashSecretArn: props.tokenHashSecret.secretArn,
       AdminApiTokenSecretArn: props.adminApiTokenSecret.secretArn,
+      DashboardRdsSourceSecretArn: props.dashboardRdsSourceSecret.secretArn,
+      DashboardRdsCacheSecretArn: props.dashboardRdsCacheSecret.secretArn,
+      DashboardClickHouseSourceSecretArn: props.dashboardClickHouseSourceSecret.secretArn,
+      DashboardClickHouseCacheSecretArn: props.dashboardClickHouseCacheSecret.secretArn,
+      UserJwtPrivateKeySecretArn: props.userJwtPrivateKeySecret.secretArn,
+      UserJwtPublicKeysSecretArn: props.userJwtPublicKeysSecret.secretArn,
       RawSignalBucketName: props.rawSignalBucket.bucketName,
       EksClusterName: this.cluster.ref, EksClusterEndpoint: this.cluster.attrEndpoint,
       EksRegion: this.region, EksVpcId: props.vpc.vpcId,

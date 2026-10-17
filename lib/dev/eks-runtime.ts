@@ -11,6 +11,12 @@ export interface DevEksRuntimeProps {
   readonly dbSecret: ISecret;
   readonly tokenHashSecret: ISecret;
   readonly adminApiTokenSecret: ISecret;
+  readonly dashboardRdsSourceSecret: ISecret;
+  readonly dashboardRdsCacheSecret: ISecret;
+  readonly dashboardClickHouseSourceSecret: ISecret;
+  readonly dashboardClickHouseCacheSecret: ISecret;
+  readonly userJwtPrivateKeySecret: ISecret;
+  readonly userJwtPublicKeysSecret: ISecret;
   readonly rawSignalBucket: IBucket;
   readonly archivePrefix: 'eks_validation' | 'eks';
 }
@@ -19,6 +25,7 @@ export interface DevEksRuntimeProps {
 export class DevEksRuntime extends Construct {
   public readonly enrollmentRole: Role;
   public readonly telemetryIngestRole: Role;
+  public readonly dashboardRole: Role;
   public readonly fluentBitRole: Role;
   public readonly applicationLogGroup: LogGroup;
 
@@ -37,8 +44,18 @@ export class DevEksRuntime extends Construct {
     );
     this.grantSecretRead(this.enrollmentRole, [
       props.dbSecret, props.tokenHashSecret, props.adminApiTokenSecret,
+      props.userJwtPrivateKeySecret, props.userJwtPublicKeysSecret,
     ]);
     this.grantSecretRead(this.telemetryIngestRole, [props.dbSecret, props.tokenHashSecret]);
+
+    this.dashboardRole = this.podRole(
+      'Dashboard', props.clusterName, 'pulsemetry-dev', 'dashboard-api',
+    );
+    this.grantSecretRead(this.dashboardRole, [
+      props.dashboardRdsSourceSecret, props.dashboardRdsCacheSecret,
+      props.dashboardClickHouseSourceSecret, props.dashboardClickHouseCacheSecret,
+      props.userJwtPublicKeysSecret,
+    ]);
 
     // grantWrite()는 multipart/삭제 등 불필요한 동작까지 넓히므로 PutObject만 선언한다.
     this.telemetryIngestRole.addToPolicy(new PolicyStatement({
@@ -64,6 +81,7 @@ export class DevEksRuntime extends Construct {
     for (const [name, value] of Object.entries({
       RuntimeEnrollmentRoleArn: this.enrollmentRole.roleArn,
       RuntimeTelemetryIngestRoleArn: this.telemetryIngestRole.roleArn,
+      RuntimeDashboardRoleArn: this.dashboardRole.roleArn,
       RuntimeFluentBitRoleArn: this.fluentBitRole.roleArn,
       ApplicationLogGroupName: this.applicationLogGroup.logGroupName,
       ArchivePrefix: props.archivePrefix,
