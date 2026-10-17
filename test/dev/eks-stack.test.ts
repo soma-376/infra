@@ -25,6 +25,7 @@ test('Auto Mode 5스택과 명시적인 operator/node 접근만 구성한다', (
     StorageConfig: { BlockStorage: { Enabled: true } },
     KubernetesNetworkConfig: { IpFamily: 'ipv4', ElasticLoadBalancing: { Enabled: true } },
   });
+  template.hasOutput('EksDashboardApiNodePort', { Value: '30081' });
   template.resourceCountIs('AWS::EKS::AccessEntry', 2);
   template.hasResourceProperties('AWS::EKS::AccessEntry', {
     Type: 'EC2', AccessPolicies: [{ AccessScope: { Type: 'cluster' }, PolicyArn: 'arn:aws:eks::aws:cluster-access-policy/AmazonEKSAutoNodePolicy' }],

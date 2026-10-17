@@ -7,7 +7,7 @@ import { IVpc, ISecurityGroup } from 'aws-cdk-lib/aws-ec2';
 import { CfnAccessEntry, CfnCluster } from 'aws-cdk-lib/aws-eks';
 import { AccountPrincipal, ManagedPolicy, PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
-import { DEV_EKS_CLUSTER_NAME, DEV_EKS_OPERATOR_ROLE_NAME, DEV_EKS_VERSION, DevEksConfig } from './eks-config';
+import { DEV_EKS_CLUSTER_NAME, DEV_EKS_NODE_PORTS, DEV_EKS_OPERATOR_ROLE_NAME, DEV_EKS_VERSION, DevEksConfig } from './eks-config';
 
 export interface DevEksStackProps extends StackProps {
   readonly dbEndpoint: string;
@@ -94,6 +94,7 @@ export class DevEksStack extends Stack {
       RawSignalBucketName: props.rawSignalBucket.bucketName,
       EksClusterName: this.cluster.ref, EksClusterEndpoint: this.cluster.attrEndpoint,
       EksRegion: this.region, EksVpcId: props.vpc.vpcId,
+      EksDashboardApiNodePort: String(DEV_EKS_NODE_PORTS.dashboard),
       EksSubnetIds: props.vpc.publicSubnets.map(subnet => subnet.subnetId).join(','),
       EksClickhouseAvailabilityZone: props.vpc.publicSubnets[0].availabilityZone,
       EksAppNodeSecurityGroupId: props.appNodeSecurityGroup.securityGroupId,
