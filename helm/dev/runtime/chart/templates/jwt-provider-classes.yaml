@@ -1,0 +1,48 @@
+{{- $kids := dict -}}
+{{- $aliases := dict -}}
+{{- range .Values.userAuth.publicKeys -}}
+{{- if or (hasKey $kids .kid) (hasKey $aliases .alias) (eq .alias "private.pem") -}}
+{{- fail "JWT kid·alias는 중복하거나 개인키 파일과 충돌할 수 없다" -}}
+{{- end -}}
+{{- $_ := set $kids .kid true -}}
+{{- $_ := set $aliases .alias true -}}
+{{- end -}}
+{{- if not (hasKey $kids .Values.userAuth.activeKid) -}}
+{{- fail "active-kid가 공개키 파일 맵에 없다" -}}
+{{- end -}}
+{{- range $app := list "enrollment-api" "dashboard-api" }}
+---
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: {{ $app }}-jwt
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $app }}
+    app.kubernetes.io/part-of: pulsemetry
+spec:
+  provider: aws
+  parameters:
+    region: {{ $.Values.region | quote }}
+    usePodIdentity: "true"
+    preferredAddressType: ipv4
+    objects: |
+{{- if eq $app "enrollment-api" }}
+      - objectName: {{ $.Values.secrets.userJwtPrivateKeyArn | quote }}
+        objectType: secretsmanager
+        objectVersion: {{ $.Values.userAuth.privateVersionId | quote }}
+        objectAlias: private.pem
+        filePermission: "0444"
+{{- end }}
+      - objectName: {{ $.Values.secrets.userJwtPublicKeysArn | quote }}
+        objectType: secretsmanager
+        objectVersion: {{ $.Values.userAuth.publicVersionId | quote }}
+        objectAlias: _source_public_keys_json
+        filePermission: "0400"
+        jmesPath:
+{{- range $.Values.userAuth.publicKeys }}
+          - path: {{ .kid | toJson | quote }}
+            objectAlias: {{ .alias | quote }}
+            filePermission: "0444"
+{{- end }}
+{{- end }}

@@ -2,67 +2,335 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "additionalProperties": false,
-  "required": ["workload", "replicaCount", "image", "resources", "env", "runtime", "targetGroupBindings", "vpcId"],
+  "required": [
+    "workload",
+    "replicaCount",
+    "image",
+    "resources",
+    "env",
+    "runtime",
+    "targetGroupBindings",
+    "vpcId"
+  ],
   "properties": {
-    "workload": {"enum": ["telemetry-ingest", "enrollment-api", "dashboard-api"]},
-    "nodePort": {"const": 30081},
-    "replicaCount": {"const": 1},
+    "workload": {
+      "enum": [
+        "telemetry-ingest",
+        "enrollment-api",
+        "dashboard-api"
+      ]
+    },
+    "nodePort": {
+      "const": 30081
+    },
+    "replicaCount": {
+      "const": 1
+    },
     "image": {
-      "type": "object", "additionalProperties": false, "required": ["repository", "digest"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "digest"
+      ],
       "properties": {
-        "repository": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.-]+/[a-z0-9/_-]+$"},
-        "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+        "repository": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9.-]+/[a-z0-9/_-]+$"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
       }
     },
     "resources": {
-      "type": "object", "additionalProperties": false, "required": ["requests", "limits"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requests",
+        "limits"
+      ],
       "properties": {
         "requests": {
-          "type": "object", "additionalProperties": false, "required": ["cpu", "memory"],
-          "properties": {"cpu": {"const": "250m"}, "memory": {"const": "1Gi"}}
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "cpu",
+            "memory"
+          ],
+          "properties": {
+            "cpu": {
+              "const": "250m"
+            },
+            "memory": {
+              "const": "1Gi"
+            }
+          }
         },
         "limits": {
-          "type": "object", "additionalProperties": false, "required": ["cpu", "memory"],
-          "properties": {"cpu": {"const": "1"}, "memory": {"const": "2Gi"}}
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "cpu",
+            "memory"
+          ],
+          "properties": {
+            "cpu": {
+              "const": "1"
+            },
+            "memory": {
+              "const": "2Gi"
+            }
+          }
         }
       }
     },
     "env": {
-      "type": "object", "propertyNames": {"pattern": "^[A-Z][A-Z0-9_]*$"},
-      "additionalProperties": {"type": "string"}
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Z][A-Z0-9_]*$"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
     },
     "runtime": {
-      "type": "object", "additionalProperties": false, "required": ["enabled", "secretProviderClass", "requiredFiles"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "secretProviderClass",
+        "requiredFiles"
+      ],
       "properties": {
-        "enabled": {"type": "boolean"},
-        "secretProviderClass": {"type": "string", "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"},
+        "enabled": {
+          "type": "boolean"
+        },
+        "secretProviderClass": {
+          "type": "string",
+          "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
+        },
         "requiredFiles": {
-          "type": "array", "uniqueItems": true,
-          "items": {"enum": ["PULSEMETRY_DB_USERNAME", "PULSEMETRY_DB_PASSWORD", "PULSEMETRY_TOKEN_HASH_SECRET", "PULSEMETRY_ADMIN_API_TOKEN",
-            "PULSEMETRY_DASHBOARD_RDS_SOURCE_USERNAME", "PULSEMETRY_DASHBOARD_RDS_SOURCE_PASSWORD",
-            "PULSEMETRY_DASHBOARD_RDS_CACHE_USERNAME", "PULSEMETRY_DASHBOARD_RDS_CACHE_PASSWORD",
-            "PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_USERNAME", "PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_PASSWORD",
-            "PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_USERNAME", "PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_PASSWORD"]}
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "PULSEMETRY_DB_USERNAME",
+              "PULSEMETRY_DB_PASSWORD",
+              "PULSEMETRY_TOKEN_HASH_SECRET",
+              "PULSEMETRY_ADMIN_API_TOKEN",
+              "PULSEMETRY_DASHBOARD_RDS_SOURCE_USERNAME",
+              "PULSEMETRY_DASHBOARD_RDS_SOURCE_PASSWORD",
+              "PULSEMETRY_DASHBOARD_RDS_CACHE_USERNAME",
+              "PULSEMETRY_DASHBOARD_RDS_CACHE_PASSWORD",
+              "PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_USERNAME",
+              "PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_PASSWORD",
+              "PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_USERNAME",
+              "PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_PASSWORD"
+            ]
+          }
         }
       }
     },
     "targetGroupBindings": {
-      "type": "array", "maxItems": 2,
+      "type": "array",
+      "maxItems": 2,
       "items": {
-        "type": "object", "additionalProperties": false,
-        "required": ["stage", "targetGroupARN", "confirmExclusiveOwnership"],
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "stage",
+          "targetGroupARN",
+          "confirmExclusiveOwnership"
+        ],
         "properties": {
-          "stage": {"enum": ["validation", "canary"]},
-          "targetGroupARN": {"type": "string", "pattern": "^arn:aws:elasticloadbalancing:ap-northeast-2:[0-9]{12}:targetgroup/soma-376-dev-eks-[a-z0-9-]+/[a-f0-9]{16}$"},
-          "confirmExclusiveOwnership": {"const": true}
+          "stage": {
+            "enum": [
+              "validation",
+              "canary"
+            ]
+          },
+          "targetGroupARN": {
+            "type": "string",
+            "pattern": "^arn:aws:elasticloadbalancing:ap-northeast-2:[0-9]{12}:targetgroup/soma-376-dev-eks-[a-z0-9-]+/[a-f0-9]{16}$"
+          },
+          "confirmExclusiveOwnership": {
+            "const": true
+          }
         }
       }
     },
-    "vpcId": {"type": "string", "pattern": "^(vpc-[a-f0-9]{8}([a-f0-9]{9})?)?$"}
+    "vpcId": {
+      "type": "string",
+      "pattern": "^(vpc-[a-f0-9]{8}([a-f0-9]{9})?)?$"
+    },
+    "jwt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "secretProviderClass": {
+          "type": "string",
+          "enum": [
+            "enrollment-api-jwt",
+            "dashboard-api-jwt"
+          ]
+        },
+        "publicVersionId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9-]{32,64}$"
+        },
+        "privateVersionId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9-]{32,64}$"
+        },
+        "activeKid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\[\\]\\x00-\\x1f\\x7f]+$"
+        },
+        "publicKeys": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kid",
+              "alias"
+            ],
+            "properties": {
+              "kid": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\\[\\]\\x00-\\x1f\\x7f]+$"
+              },
+              "alias": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*\\.pem$"
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "secretProviderClass",
+              "publicVersionId",
+              "publicKeys"
+            ]
+          }
+        }
+      ]
+    },
+    "userAuth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "issuer",
+        "audience",
+        "allowedOrigins"
+      ],
+      "properties": {
+        "issuer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "audience": {
+          "type": "string",
+          "minLength": 1
+        },
+        "allowedOrigins": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^https?://[^/]+$"
+          }
+        }
+      }
+    }
   },
-  "allOf": [{
-    "if": {"properties": {"workload": {"const": "dashboard-api"}}},
-    "then": {"required": ["nodePort"]},
-    "else": {"not": {"required": ["nodePort"]}}
-  }]
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "workload": {
+            "const": "dashboard-api"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "nodePort"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "nodePort"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "jwt": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          }
+        },
+        "required": [
+          "jwt"
+        ]
+      },
+      "then": {
+        "required": [
+          "userAuth"
+        ],
+        "properties": {
+          "runtime": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            }
+          },
+          "workload": {
+            "enum": [
+              "enrollment-api",
+              "dashboard-api"
+            ]
+          }
+        }
+      }
+    }
+  ]
 }

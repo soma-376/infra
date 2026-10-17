@@ -15,7 +15,13 @@
     "RawSignalBucketName": "fixture-raw-signals",
     "ApplicationLogGroupName": "/eks/dev/application",
     "ArchivePrefix": "eks_validation",
-    "EksDashboardApiNodePort": "30081"
+    "EksDashboardApiNodePort": "30081",
+    "DashboardRdsSourceSecretArn": "arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:dashboard-rds-source-abc123",
+    "DashboardRdsCacheSecretArn": "arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:dashboard-rds-cache-abc123",
+    "DashboardClickHouseSourceSecretArn": "arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:dashboard-ch-source-abc123",
+    "DashboardClickHouseCacheSecretArn": "arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:dashboard-ch-cache-abc123",
+    "UserJwtPrivateKeySecretArn": "arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:jwt-private-abc123",
+    "UserJwtPublicKeysSecretArn": "arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:jwt-public-abc123"
   },
   "DevEdgeStack": {
     "ValidationPublicBaseUrl": "http://validation-alb.example.test",

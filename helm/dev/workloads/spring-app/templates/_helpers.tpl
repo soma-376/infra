@@ -18,7 +18,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- fail "namespace는 pulsemetry-dev여야 한다" -}}
 {{- end -}}
 {{- range $name, $value := .Values.env -}}
-{{- if or (regexMatch "^PULSEMETRY_DASHBOARD_(RDS|CLICKHOUSE)_(SOURCE|CACHE)_(USERNAME|PASSWORD)$" $name) (has $name (list "PULSEMETRY_DB_USERNAME" "PULSEMETRY_DB_PASSWORD" "PULSEMETRY_TOKEN_HASH_SECRET" "PULSEMETRY_ADMIN_API_TOKEN" "SPRING_CONFIG_IMPORT" "SPRING_DATASOURCE_USERNAME" "SPRING_DATASOURCE_PASSWORD" "SPRING_APPLICATION_JSON" "SERVER_PORT")) -}}
+{{- if or (regexMatch "^PULSEMETRY_DASHBOARD_(RDS|CLICKHOUSE)_(SOURCE|CACHE)_(USERNAME|PASSWORD)$" $name) (has $name (list "PULSEMETRY_DB_USERNAME" "PULSEMETRY_DB_PASSWORD" "PULSEMETRY_TOKEN_HASH_SECRET" "PULSEMETRY_ADMIN_API_TOKEN" "SPRING_CONFIG_IMPORT" "SPRING_DATASOURCE_USERNAME" "SPRING_DATASOURCE_PASSWORD" "SPRING_APPLICATION_JSON" "SERVER_PORT" "PULSEMETRY_USER_AUTH_ENABLED" "PULSEMETRY_USER_AUTH_ISSUER" "PULSEMETRY_USER_AUTH_AUDIENCE" "PULSEMETRY_USER_AUTH_ALLOWED_ORIGINS" "PULSEMETRY_USER_AUTH_ACTIVE_KID" "PULSEMETRY_USER_AUTH_PRIVATE_KEY_FILE" "PULSEMETRY_USER_AUTH_PUBLIC_KEY_FILE")) -}}
 {{- fail (printf "%s는 env가 아닌 runtime configtree로 공급해야 한다" $name) -}}
 {{- end -}}
 {{- end -}}
@@ -45,6 +45,25 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- fail (printf "필수 configtree 파일 누락: %s" $file) -}}
 {{- end -}}
 {{- end -}}
+{{- end -}}
+{{- if .Values.jwt.enabled -}}
+{{- if eq .Values.workload "telemetry-ingest" -}}{{- fail "ingest에는 JWT mount를 공급하지 않는다" -}}{{- end -}}
+{{- if ne .Values.jwt.secretProviderClass (printf "%s-jwt" .Values.workload) -}}{{- fail "JWT SPC는 workload 전용이어야 한다" -}}{{- end -}}
+{{- $kids := dict -}}
+{{- $aliases := dict -}}
+{{- range .Values.jwt.publicKeys -}}
+{{- if or (hasKey $kids .kid) (hasKey $aliases .alias) (eq .alias "private.pem") -}}{{- fail "JWT kid·alias가 중복하거나 개인키 파일과 충돌한다" -}}{{- end -}}
+{{- $_ := set $kids .kid true -}}
+{{- $_ := set $aliases .alias true -}}
+{{- end -}}
+{{- if eq .Values.workload "enrollment-api" -}}
+{{- $_ := required "enrollment private VersionId가 필요하다" .Values.jwt.privateVersionId -}}
+{{- $_ := required "enrollment active-kid가 필요하다" .Values.jwt.activeKid -}}
+{{- if not (hasKey $kids .Values.jwt.activeKid) -}}{{- fail "active-kid가 공개키 파일 맵에 없다" -}}{{- end -}}
+{{- else if or (hasKey .Values.jwt "privateVersionId") (hasKey .Values.jwt "activeKid") -}}
+{{- fail "dashboard에는 개인키 참조·signer 설정을 공급하지 않는다" -}}
+{{- end -}}
+{{- else if .Values.userAuth -}}{{- fail "userAuth는 JWT mount와 함께 공급해야 한다" -}}
 {{- end -}}
 {{- $stages := dict -}}
 {{- $arns := dict -}}

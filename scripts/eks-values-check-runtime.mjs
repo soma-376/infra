@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { load, loadAll, dump } from 'js-yaml';
-import { generateValues } from './eks-values.mjs';
+import { generateValues, parseRuntimeValues } from './eks-values.mjs';
 
 // 공개 package의 고정 checksum과 실제 render를 검증한다. AWS 접속은 없다.
 const root = resolve(import.meta.dirname, '..');
@@ -26,7 +26,7 @@ try {
   const versions = JSON.parse(readFileSync(join(root, 'helm/dev/runtime/versions.json'), 'utf8'));
   const source = JSON.parse(readFileSync(join(root, 'test/scripts/fixtures/eks-outputs.json'), 'utf8'));
   const digest = 'sha256:' + 'a'.repeat(64);
-  const values = generateValues(source, 'registry.example.test/soma-376/enrollment-api@' + digest, 'registry.example.test/soma-376/telemetry-ingest@' + digest, 'registry.example.test/soma-376/dashboard-api@' + digest);
+  const values = generateValues(source, 'registry.example.test/soma-376/enrollment-api@' + digest, 'registry.example.test/soma-376/telemetry-ingest@' + digest, 'registry.example.test/soma-376/dashboard-api@' + digest, parseRuntimeValues(readFileSync(join(root, 'test/fixtures/eks-runtime.yaml'), 'utf8')));
   for (const [file, value] of Object.entries(values)) writeFileSync(join(temp, file), dump(value, { noRefs: true }));
   const render = (name, chart, namespace, files) => {
     const args = [name, chart, '--namespace', namespace, '--kube-version', '1.36.0', ...files.flatMap(file => ['-f', file])];
@@ -37,8 +37,9 @@ try {
   const runtimeText = render('runtime-config', 'helm/dev/runtime/chart', 'pulsemetry-dev', [join(temp, 'runtime.yaml')]);
   console.log('runtime-config ' + run(kubeconform, kubeArgs, runtimeText).trim());
   const spcs = loadAll(runtimeText).filter(Boolean);
-  check(spcs.length === 2, 'SPC는 2개여야 한다');
-  for (const spc of spcs) {
+  check(spcs.length === 5, 'SPC는 configtree 3개·JWT 2개여야 한다');
+  for (const spc of spcs) { check(!spc.spec.secretObjects, 'Kubernetes Secret sync는 금지한다'); check(spc.spec.parameters.usePodIdentity === 'true', 'SPC는 Pod Identity를 사용한다'); }
+  for (const spc of spcs.filter(item => ['enrollment-api-runtime', 'telemetry-ingest-runtime'].includes(item.metadata.name))) {
     const objects = load(spc.spec.parameters.objects);
     check(spc.spec.parameters.usePodIdentity === 'true', 'SPC는 Pod Identity를 사용한다');
     check(!spc.spec.secretObjects, 'Kubernetes Secret sync는 금지한다');
@@ -46,6 +47,18 @@ try {
     check(objects[0].filePermission === '0400', '원본 JSON은 root 전용이다');
     check(objects[0].jmesPath.every(field => field.filePermission === '0444'), '추출 field는 UID 10001이 읽는다');
     check(objects[1].objectAlias === 'PULSEMETRY_TOKEN_HASH_SECRET' && !objects[1].jmesPath, 'HMAC은 전체 SecretString이다');
+  }
+  const dashboard = spcs.find(item => item.metadata.name === 'dashboard-api-runtime');
+  const dashboardObjects = load(dashboard.spec.parameters.objects);
+  check(dashboardObjects.length === 4, 'dashboard는 네 전용 DB 계정만 받는다');
+  check(dashboardObjects.every(item => item.filePermission === '0400' && item.jmesPath.length === 2 && item.jmesPath.every(field => field.filePermission === '0444')), 'dashboard credential 권한이 다르다');
+  for (const app of ['enrollment-api', 'dashboard-api']) {
+    const objects = load(spcs.find(item => item.metadata.name === `${app}-jwt`).spec.parameters.objects);
+    check(objects.length === (app === 'enrollment-api' ? 2 : 1), 'JWT 원본 소비자 경계가 다르다');
+    check(objects.every(item => item.objectVersion && !item.objectVersionLabel), 'JWT는 VersionId만 지정한다');
+    const publicObject = objects.at(-1);
+    check(publicObject.filePermission === '0400' && publicObject.jmesPath.every(item => item.filePermission === '0444'), 'JWT JSON/PEM 권한이 다르다');
+    check(publicObject.jmesPath.every((item, index) => item.path === JSON.stringify(values['runtime.yaml'].userAuth.publicKeys[index].kid)), 'kid의 JMESPath quoted identifier를 보존한다');
   }
   const releaseData = [
     ['csiDriver', 'secrets-store-csi-driver', 'secrets-store-csi-driver', 'kube-system', ['csi-driver-values.yaml']],

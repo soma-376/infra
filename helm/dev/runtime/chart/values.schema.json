@@ -2,16 +2,118 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "additionalProperties": false,
-  "required": ["region", "secrets"],
+  "required": [
+    "region",
+    "secrets",
+    "userAuth"
+  ],
   "properties": {
-    "region": { "const": "ap-northeast-2" },
+    "region": {
+      "const": "ap-northeast-2"
+    },
     "secrets": {
-      "type": "object", "additionalProperties": false,
-      "required": ["dbArn", "tokenHashArn", "adminApiTokenArn"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dbArn",
+        "tokenHashArn",
+        "adminApiTokenArn",
+        "dashboardRdsSourceArn",
+        "dashboardRdsCacheArn",
+        "dashboardClickHouseSourceArn",
+        "dashboardClickHouseCacheArn",
+        "userJwtPrivateKeyArn",
+        "userJwtPublicKeysArn"
+      ],
       "properties": {
-        "dbArn": { "type": "string", "pattern": "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:.+$" },
-        "tokenHashArn": { "type": "string", "pattern": "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:.+$" },
-        "adminApiTokenArn": { "type": "string", "pattern": "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:.+$" }
+        "dbArn": {
+          "type": "string",
+          "pattern": "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:.+$"
+        },
+        "tokenHashArn": {
+          "type": "string",
+          "pattern": "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:.+$"
+        },
+        "adminApiTokenArn": {
+          "type": "string",
+          "pattern": "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:.+$"
+        },
+        "dashboardRdsSourceArn": {
+          "type": "string",
+          "pattern": "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:.+$"
+        },
+        "dashboardRdsCacheArn": {
+          "type": "string",
+          "pattern": "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:.+$"
+        },
+        "dashboardClickHouseSourceArn": {
+          "type": "string",
+          "pattern": "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:.+$"
+        },
+        "dashboardClickHouseCacheArn": {
+          "type": "string",
+          "pattern": "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:.+$"
+        },
+        "userJwtPrivateKeyArn": {
+          "type": "string",
+          "pattern": "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:.+$"
+        },
+        "userJwtPublicKeysArn": {
+          "type": "string",
+          "pattern": "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:.+$"
+        }
+      }
+    },
+    "userAuth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "privateVersionId",
+        "publicVersionId",
+        "activeKid",
+        "publicKeys"
+      ],
+      "properties": {
+        "privateVersionId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9-]{32,64}$"
+        },
+        "publicVersionId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9-]{32,64}$"
+        },
+        "activeKid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\[\\]\\x00-\\x1f\\x7f]+$"
+        },
+        "publicKeys": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kid",
+              "alias"
+            ],
+            "properties": {
+              "kid": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\\[\\]\\x00-\\x1f\\x7f]+$"
+              },
+              "alias": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*\\.pem$"
+              }
+            }
+          }
+        }
       }
     }
   }

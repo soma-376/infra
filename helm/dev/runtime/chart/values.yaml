@@ -4,3 +4,14 @@ secrets:
   dbArn: ""
   tokenHashArn: ""
   adminApiTokenArn: ""
+  dashboardRdsSourceArn: ""
+  dashboardRdsCacheArn: ""
+  dashboardClickHouseSourceArn: ""
+  dashboardClickHouseCacheArn: ""
+  userJwtPrivateKeyArn: ""
+  userJwtPublicKeysArn: ""
+userAuth:
+  privateVersionId: ""
+  publicVersionId: ""
+  activeKid: ""
+  publicKeys: []

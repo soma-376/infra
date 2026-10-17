@@ -15,6 +15,10 @@ spec:
       {{- include "pulsemetry.app.selector" . | nindent 6 }}
   template:
     metadata:
+      {{- if .Values.jwt.enabled }}
+      annotations:
+        pulsemetry.io/jwt-revision: {{ .Values.jwt | toJson | sha256sum | quote }}
+      {{- end }}
       labels:
         {{- include "pulsemetry.app.selector" . | nindent 8 }}
     spec:
@@ -36,11 +40,22 @@ spec:
           command: ["/bin/sh", "-ec"]
           args:
             - |
+              test -x /mnt/secrets-store
               for file in {{ join " " .Values.runtime.requiredFiles }}; do
                 test -f "/mnt/secrets-store/$file"
                 test -r "/mnt/secrets-store/$file"
                 test -s "/mnt/secrets-store/$file"
+                head -c 1 "/mnt/secrets-store/$file" > /dev/null
               done
+              {{- if .Values.jwt.enabled }}
+              test -x /mnt/user-jwt/keys
+              for file in {{ range .Values.jwt.publicKeys }}{{ .alias }} {{ end }}{{ if eq .Values.workload "enrollment-api" }}private.pem{{ end }}; do
+                test -f "/mnt/user-jwt/keys/$file"
+                test -r "/mnt/user-jwt/keys/$file"
+                test -s "/mnt/user-jwt/keys/$file"
+                head -c 1 "/mnt/user-jwt/keys/$file" > /dev/null
+              done
+              {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -56,6 +71,11 @@ spec:
             - name: secrets-store
               mountPath: /mnt/secrets-store
               readOnly: true
+            {{- if .Values.jwt.enabled }}
+            - name: user-jwt
+              mountPath: /mnt/user-jwt/keys
+              readOnly: true
+            {{- end }}
       {{- end }}
       containers:
         - name: {{ .Values.workload }}
@@ -74,6 +94,28 @@ spec:
             {{- if .Values.runtime.enabled }}
             - name: SPRING_CONFIG_IMPORT
               value: "configtree:/mnt/secrets-store/"
+            {{- end }}
+            {{- if .Values.jwt.enabled }}
+            - name: PULSEMETRY_USER_AUTH_ENABLED
+              value: "true"
+            - name: PULSEMETRY_USER_AUTH_ISSUER
+              value: {{ .Values.userAuth.issuer | quote }}
+            - name: PULSEMETRY_USER_AUTH_AUDIENCE
+              value: {{ .Values.userAuth.audience | quote }}
+            - name: PULSEMETRY_USER_AUTH_ALLOWED_ORIGINS
+              value: {{ join "," .Values.userAuth.allowedOrigins | quote }}
+            {{- $files := dict }}
+            {{- range .Values.jwt.publicKeys }}
+            {{- $_ := set $files (printf "[%s]" .kid) (printf "/mnt/user-jwt/keys/%s" .alias) }}
+            {{- end }}
+            - name: SPRING_APPLICATION_JSON
+              value: {{ dict "pulsemetry" (dict "user-auth" (dict "public-key-files" $files)) | toJson | quote }}
+            {{- if eq .Values.workload "enrollment-api" }}
+            - name: PULSEMETRY_USER_AUTH_ACTIVE_KID
+              value: {{ .Values.jwt.activeKid | quote }}
+            - name: PULSEMETRY_USER_AUTH_PRIVATE_KEY_FILE
+              value: /mnt/user-jwt/keys/private.pem
+            {{- end }}
             {{- end }}
             {{- range $name, $value := .Values.env }}
             - name: {{ $name }}
@@ -110,6 +152,11 @@ spec:
             - name: secrets-store
               mountPath: /mnt/secrets-store
               readOnly: true
+            {{- if .Values.jwt.enabled }}
+            - name: user-jwt
+              mountPath: /mnt/user-jwt/keys
+              readOnly: true
+            {{- end }}
           {{- end }}
       {{- if .Values.runtime.enabled }}
       volumes:
@@ -119,4 +166,12 @@ spec:
             readOnly: true
             volumeAttributes:
               secretProviderClass: {{ .Values.runtime.secretProviderClass | quote }}
+        {{- if .Values.jwt.enabled }}
+        - name: user-jwt
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: {{ .Values.jwt.secretProviderClass | quote }}
+        {{- end }}
       {{- end }}

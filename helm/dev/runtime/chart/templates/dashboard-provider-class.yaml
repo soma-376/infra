@@ -1,0 +1,31 @@
+{{- if ne .Release.Namespace "pulsemetry-dev" -}}
+{{- fail "runtime release namespace는 pulsemetry-dev여야 한다" -}}
+{{- end }}
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: dashboard-api-runtime
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: dashboard-api
+    app.kubernetes.io/part-of: pulsemetry
+spec:
+  provider: aws
+  parameters:
+    region: {{ .Values.region | quote }}
+    usePodIdentity: "true"
+    preferredAddressType: ipv4
+    objects: |
+{{- range $entry := list (dict "arn" .Values.secrets.dashboardRdsSourceArn "name" "RDS_SOURCE") (dict "arn" .Values.secrets.dashboardRdsCacheArn "name" "RDS_CACHE") (dict "arn" .Values.secrets.dashboardClickHouseSourceArn "name" "CLICKHOUSE_SOURCE") (dict "arn" .Values.secrets.dashboardClickHouseCacheArn "name" "CLICKHOUSE_CACHE") }}
+      - objectName: {{ $entry.arn | quote }}
+        objectType: secretsmanager
+        objectAlias: {{ printf "_source_dashboard_%s_json" (lower $entry.name) }}
+        filePermission: "0400"
+        jmesPath:
+          - path: username
+            objectAlias: PULSEMETRY_DASHBOARD_{{ $entry.name }}_USERNAME
+            filePermission: "0444"
+          - path: password
+            objectAlias: PULSEMETRY_DASHBOARD_{{ $entry.name }}_PASSWORD
+            filePermission: "0444"
+{{- end }}

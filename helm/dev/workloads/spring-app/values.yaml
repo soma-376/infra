@@ -20,3 +20,6 @@ runtime:
 # validation/canary 전용 TG만 전달한다. 기존 ECS TG는 사용하지 않는다.
 targetGroupBindings: []
 vpcId: ""
+# JWT는 configtree와 다른 CSI volume에 고정 버전의 PEM으로 공급한다.
+jwt:
+  enabled: false
