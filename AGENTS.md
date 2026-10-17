@@ -43,6 +43,15 @@ PROJ-207~211 누적 EKS 코드와 PROJ-221·223·224·230·231 dashboard 구현�
 
 ---
 
+## PROJ-230 로컬 구현 보충
+
+이 브랜치는 enrollment의 일회성 JWT writer와 dashboard 네 DB 연결 helper를 구현한다.
+dev 합성은 비밀 없는 `devDashboardRuntimeFile` JSON을 필수로 받는다. 실제 dashboard 서비스는
+PROJ-221에서 연결한다. 입력·권한·검증 경계는 [ECS runtime 런북](docs/runbooks/dev-dashboard-ecs-runtime.md)을 따른다.
+키 등록·이미지 공급·AWS 배포는 수행하지 않았고 기존 원본의 보존 정책은 유지한다.
+
+---
+
 ## 0. 중앙 허브와 공통 규칙
 
 Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 조직 → 팀 → 구성원 축으로 모아 보여주는
