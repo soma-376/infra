@@ -5,7 +5,7 @@
 > PROJ-206~212 기준은 [ADR-0028](../adr/0028-dev-eks-auto-mode-transition.md), dashboard 확장은
 > [ADR-0029](../adr/0029-dev-dashboard-api-ecs-and-eks-deployment.md)와 §10을 따른다.
 > 사용자 JWT 키 공급은 [허브 ADR-0022](../../../docs/adr/0022-user-jwt-key-provisioning.md)·
-> [infra ADR-0030](../adr/0030-dev-user-jwt-keys-from-secrets-manager.md)와 §11의 후속 절차다.
+> [infra ADR-0030](../adr/0030-dev-user-jwt-keys-from-secrets-manager.md)와 §11의 별도 운영 절차다.
 > PROJ-222의 공통 Secret 정의·수동 준비는 [준비 런북](dev-dashboard-prerequisites.md)과
 > [ADR-0031](../adr/0031-manage-dev-dashboard-and-jwt-secrets-with-cdk.md)을 따른다.
 > 기존 Secret 3개·configtree 검증 기록은 JWT writer·키 mount 구현·배포 증거를 포함하지 않는다.
@@ -14,10 +14,11 @@
 
 **실행 checkout 조건:** PROJ-223은 기존 EKS 누적 tip `f36ccc8`과 PROJ-221을 merge해 양쪽 구현을 보존한다.
 실제 실행에는 아래 후속 runtime·검증 Edge 구현과 별도의 배포 승인이 필요하다.
-dashboard를 포함하려면 PROJ-222의 공통 준비에 이어 PROJ-230·231의 runtime 연결,
-PROJ-221·223·224의 ECS·Helm·검증 Edge 구현도 있어야 한다.
+PROJ-230·221·223·231은 ECS·Helm·runtime을 연결했다. dashboard 검증 트래픽에는 PROJ-224도 필요하다.
+실제 DB·키·이미지 준비는 PROJ-222 런북의 운영 관문이며 아직 실행한 것으로 보지 않는다.
 PROJ-212에서 가져온 문서와 과거 로컬 검증 기록만으로 실행 전제가 충족됐다고 보지 않는다.
-PROJ-223 생성기는 `--dashboard-image`를 포함한 세 앱 digest를 받는다. runtime·JWT 연결은 PROJ-231, 전용 검증 TG 연결은 PROJ-224다.
+생성기는 `--dashboard-image`를 포함한 세 앱 digest와 `--runtime-values` YAML을 받는다.
+입력 YAML은 생성기에만 전달하며 Helm에는 정적 workload YAML 다음 generated 앱 YAML을 사용한다.
 
 운영자가 별도로 배포를 승인받은 뒤 이 순서를 실행한다. 기존 ECS 경로·prod·cicd는 유지한다.
 PROJ-213~215의 실제 병행 운영·데이터 이관·Canary·ECS 제거는 이 문서의 초기 설치와 별도 실행이다.
@@ -74,12 +75,16 @@ export AWS_REGION=ap-northeast-2
 : "${DEV_ALLOWED_CIDRS:?ALB와 RDS에 접근할 IPv4 CIDR 목록}"
 : "${ENROLLMENT_IMAGE:?registry/repository@sha256:digest}"
 : "${INGEST_IMAGE:?registry/repository@sha256:digest}"
+: "${DASHBOARD_IMAGE:?ECS와 같은 registry/repository@sha256:digest}"
+: "${ECS_RUNTIME_JSON:?devDashboardRuntimeFile 입력 절대 경로}"
+: "${RUNTIME_VALUES:?비밀 없는 runtime 설정 YAML 절대 경로}"
 : "${RUN_DIR:?실행 증거 디렉터리 절대 경로}"
 mkdir -p "$RUN_DIR/generated" "$RUN_DIR/charts"
 chmod 700 "$RUN_DIR"
 EKS_CONTEXT=(-c env=dev -c devEksEnabled=true
   -c "devEksApiAllowedCidrs=$EKS_API_ALLOWED_CIDRS"
   -c "devAllowedCidr=$DEV_ALLOWED_CIDRS"
+  -c "devDashboardRuntimeFile=$ECS_RUNTIME_JSON"
   -c devEksArchivePrefix=eks_validation)
 printf '%s\n' "${EKS_CONTEXT[@]}" > "$RUN_DIR/cdk-context-args.txt"
 git rev-parse HEAD > "$RUN_DIR/infra-commit.txt"
@@ -105,7 +110,8 @@ jq -s '{Stacks: [.[].Stacks[]]}' "$RUN_DIR/DevEksStack.json" "$RUN_DIR/DevEdgeSt
   > "$RUN_DIR/deployed-outputs.json"
 node scripts/eks-values.mjs --outputs "$RUN_DIR/deployed-outputs.json" \
   --output-dir "$RUN_DIR/generated" \
-  --enrollment-image "$ENROLLMENT_IMAGE" --ingest-image "$INGEST_IMAGE"
+  --enrollment-image "$ENROLLMENT_IMAGE" --ingest-image "$INGEST_IMAGE" \
+  --dashboard-image "$DASHBOARD_IMAGE" --runtime-values "$RUNTIME_VALUES"
 EKS_CLUSTER_NAME=$(jq -er '.Stacks[].Outputs[] | select(.OutputKey=="EksClusterName") | .OutputValue' \
   "$RUN_DIR/deployed-outputs.json")
 EKS_OPERATOR_ROLE_ARN=$(jq -er '.Stacks[].Outputs[] | select(.OutputKey=="EksOperatorRoleArn") | .OutputValue' \
@@ -135,8 +141,9 @@ kubectl auth can-i create secretproviderclasses.secrets-store.csi.x-k8s.io --nam
 | EksOperatorRoleArn, EksOperatorRoleName | 계정 IAM의 AssumeRole 권한 지정과 kubeconfig 인증 |
 | DbEndpoint, DbSecretArn, TokenHashSecretArn, AdminApiTokenSecretArn, RawSignalBucketName, ArchivePrefix | runtime/앱 values |
 | ValidationPublicBaseUrl, ValidationTelemetryIngestTargetGroupArn, ValidationEnrollmentApiTargetGroupArn, ValidationClickhouseTargetGroupArn | 검증 앱/TGB |
+| EksDashboardApiNodePort, DashboardRdsSourceSecretArn, DashboardRdsCacheSecretArn, DashboardClickHouseSourceSecretArn, DashboardClickHouseCacheSecretArn, UserJwtPrivateKeySecretArn, UserJwtPublicKeysSecretArn | dashboard 및 JWT runtime YAML |
 | ApplicationLogGroupName | Fluent Bit |
-| EksLbcRoleArn, RuntimeEnrollmentRoleArn, RuntimeTelemetryIngestRoleArn, RuntimeFluentBitRoleArn | CDK Pod Identity 검증 증거 |
+| EksLbcRoleArn, RuntimeEnrollmentRoleArn, RuntimeTelemetryIngestRoleArn, RuntimeDashboardRoleArn, RuntimeFluentBitRoleArn | CDK Pod Identity 검증 증거 |
 
 NodeClass의 `role`에는 **role 이름**을 쓴다. ARN은 AccessEntry와 Pod Identity에 쓴다.
 
@@ -279,7 +286,8 @@ kubectl -n pulsemetry-dev scale deployment/telemetry-ingest --replicas=0
 # EKS_CONTEXT의 기존 prefix 인자를 변경한다. 서로 다른 prefix 인자를 중복 전달하지 않는다.
 EKS_CONTEXT=(-c env=dev -c devEksEnabled=true
   -c "devEksApiAllowedCidrs=$EKS_API_ALLOWED_CIDRS"
-  -c "devAllowedCidr=$DEV_ALLOWED_CIDRS" -c devEksArchivePrefix=eks)
+  -c "devAllowedCidr=$DEV_ALLOWED_CIDRS"
+  -c "devDashboardRuntimeFile=$ECS_RUNTIME_JSON" -c devEksArchivePrefix=eks)
 printf '%s\n' "${EKS_CONTEXT[@]}" > "$RUN_DIR/cdk-context-args.txt"
 npx cdk diff DevEksStack "${EKS_CONTEXT[@]}"
 npx cdk deploy DevEksStack "${EKS_CONTEXT[@]}" --outputs-file "$RUN_DIR/cdk-outputs.json"
@@ -392,8 +400,8 @@ PROJ-226의 최초 이미지 공급 증거가 없으면 실행하지 않는다. 
 5. 초기 서비스 생성 뒤 기존 ECS CD는 세 ECR·서비스를 모두 preflight하고 enrollment → ingest → dashboard
    순서로 각 승격·배포·stable을 확인한다. 앞 단계 실패 시 후속을 중단한다.
 
-앱 ASG의 세 Spring 앱 소프트 예약 합계는 3072 MiB이며 JWT writer 예약·peak 사용량은 포함하지 않는다. 실제 placement·host 여유·메모리·OOM·교체 시간을
-PROJ-221에서 확인한다. 이 숫자나 기본 health check만으로 안정성을 수락하지 않는다.
+앱 ASG의 세 Spring 앱 소프트 예약 합계는 3072 MiB이며 writer 두 개의 128 MiB를 더하면 3200 MiB다.
+실제 placement·host 여유·메모리·OOM·교체 시간은 후속 배포에서 확인한다. 이 숫자나 기본 health check만으로 안정성을 수락하지 않는다.
 
 ### 10-2. EKS 입력과 설치
 
@@ -406,33 +414,43 @@ PROJ-223 구현의 schema/helpers/template에 실제로 지원되는지 먼저 l
 대조하고 실제 할당 충돌이 없음을 확인한 뒤 기록한다. 임의의 다음 번호를 빈 포트로 간주하지 않는다.
 기존 앱의 requests 250m/1Gi·limits 1 CPU/2Gi 기준과 apps NodePool의 실제 배치·여유를 확인한다.
 
-`DASHBOARD_VALUES`는 PROJ-223 구현에 맞춰 검토한 절대 경로이며, workload·컨테이너/NodePort·probe·배치·전용
-TG/ServiceAccount/runtime 참조와 immutable image를 포함한다. 파일명이 존재한다는 것만으로 준비를 수락하지 않는다.
-공개키 원본·objectVersion·jmesPath alias·별도 키 파일 mount는 §11을 따른다. 기존 configtree에는 경로만 전달하며 PEM JSON 원문을 공개키 파일 경로로 설정하지 않는다.
-공개키 map의 키는 enrollment 서명의 kid와 같아야 한다. `PULSEMETRY_USER_AUTH_PUBLIC_KEY_FILE`은 기본 `local`
-맵의 파일 경로만 바꾸므로 임의 kid에는 명시적 map 설정을 함께 제공한다.
+ECS JSON과 같은 릴리스의 `userAuth`·`dashboard`를 runtime YAML에 작성한다.
+`test/fixtures/eks-runtime.yaml`은 가짜 버전과 수치를 가진 검증 전용 예시다. writerImage는 EKS YAML에
+넣지 않는다. ARN·endpoint·TG·NodePort는 CDK output만 소유하며 입력 YAML의 덮어쓰기·원문·중복key·
+미지의 필드는 실패한다. managementEnabled/mailEnabled는 추가 Secret 공급이 없어 false만 허용한다.
+생성기는 한 번 읽은 버전·kid/alias 맵으로 runtime과 세 앱 YAML을 함께 생성한다.
+
+```text
+CDK outputs JSON + 세 앱 digest + runtime 설정 YAML
+  -> scripts/eks-values.mjs
+  -> generated/runtime.yaml + enrollment-api.yaml + telemetry-ingest.yaml + dashboard-api.yaml
+  -> Helm --values
+```
+
+runtime release는 `generated/runtime.yaml`을 사용한다. 입력 runtime YAML을 Helm에 직접 중첩하거나
+`--set-json`으로 맵을 추가하지 않는다. 공개키 맵은 chart가 `SPRING_APPLICATION_JSON`으로 생성한다.
+SPC는 VersionId를 고정하고 enrollment만 개인키를 mount한다. UID10001 initContainer가 configtree와
+별도 JWT 디렉터리의 필수 파일을 출력 없이 읽는다. ingress·Kubernetes Secret 복제·자동 회전은 없다.
 
 ```bash
 set -euo pipefail
 : "${RUN_DIR:?기존 실행 증거 디렉터리}"
-: "${DASHBOARD_VALUES:?PROJ-223 구현에 맞춘 검토된 values 파일 절대 경로}"
-: "${DASHBOARD_IMAGE:?ECS와 같은 registry/repository@sha256:digest}"
-test -r "$DASHBOARD_VALUES"
-helm lint helm/dev/workloads/spring-app --strict --values "$DASHBOARD_VALUES"
-helm template dashboard-api helm/dev/workloads/spring-app --namespace pulsemetry-dev \
-  --values "$DASHBOARD_VALUES" > "$RUN_DIR/dashboard-rendered.yaml"
+helm lint helm/dev/workloads/spring-app --strict --namespace pulsemetry-dev --kube-version 1.36.0 \
+  --values helm/dev/workloads/dashboard-api.yaml --values "$RUN_DIR/generated/dashboard-api.yaml"
+helm template dashboard-api helm/dev/workloads/spring-app --namespace pulsemetry-dev --kube-version 1.36.0 \
+  --values helm/dev/workloads/dashboard-api.yaml --values "$RUN_DIR/generated/dashboard-api.yaml" \
+  > "$RUN_DIR/dashboard-rendered.yaml"
 ```
 
-출력에서 이미지가 `DASHBOARD_IMAGE`와 같고 port·NodePort·TG·필수 파일·UID·배치가 준비 결과와 일치하는지
-확인한다. values·rendered manifest에는 Secret 원문이 없어야 한다. 위 변수는 기존 generator에 새 옵션을
-추가한다는 뜻이 아니다. 생성기를 확장했다면 구현된 입력과 output을 확인하고 위 파일을 준비한다.
+출력에서 image·8081/30081·전용 TG·필수 파일·UID·배치를 확인한다. ARN과 VersionId는 참조이며
+Secret 원문은 어느 values에도 들어가지 않는다. 기존 사용자 generated 디렉터리는 보존하고 새 RUN_DIR를 사용한다.
 
 ClickHouse·enrollment·ingest의 이전 설치·준비 확인 뒤 dashboard를 설치한다. enrollment의 원천 migration이
 준비되지 않았거나 앞 앱이 실패했으면 후속 설치를 멈춘다.
 
 ```bash
 helm upgrade --install dashboard-api helm/dev/workloads/spring-app --namespace pulsemetry-dev \
-  --values "$DASHBOARD_VALUES" --wait --timeout 10m
+  --values helm/dev/workloads/dashboard-api.yaml --values "$RUN_DIR/generated/dashboard-api.yaml" --wait --timeout 10m
 kubectl -n pulsemetry-dev rollout status deployment/dashboard-api --timeout=5m
 kubectl -n pulsemetry-dev get deployment/dashboard-api
 kubectl -n pulsemetry-dev get service/dashboard-api
@@ -501,11 +519,10 @@ done
 
 ## 11. 사용자 JWT 키 최초 공급·교체·복구
 
-이 절은 [ADR-0030](../adr/0030-dev-user-jwt-keys-from-secrets-manager.md)의 **후속 구현·운영 수락 절차**다.
-현재 checkout은 빈 JWT 원본 두 개와 DB 계정 Secret 네 개의 CDK 정의만 제공한다.
-키 초기화는 [공통 준비 런북](dev-dashboard-prerequisites.md)의 수동 절차로 수행하며
-ECS writer·JWT SPC/mount·values 입력은 구현돼 있지 않다.
-§2~4의 기존 generator와 chart에 존재하지 않는 JWT 옵션을 추가해 실행하지 않는다.
+이 절은 [ADR-0030](../adr/0030-dev-user-jwt-keys-from-secrets-manager.md)의 **구현 이후 운영 수락 절차**다.
+PROJ-230·231은 ECS writer와 EKS JWT SPC/mount·YAML 생성 입력을 구현한다.
+키 초기화는 [공통 준비 런북](dev-dashboard-prerequisites.md)의 수동 절차이며 이 작업에서 실행하지 않았다.
+ECS 입력은 [runtime 런북](dev-dashboard-ecs-runtime.md), EKS 입력은 [runtime README](../../helm/dev/runtime/README.md)를 따른다.
 기존 Secret 3개 및 [과거 로컬 검증 기록](dev-eks-local-validation.md)은 이 절의 완료 증거가 아니다.
 
 ### 11-1. 최초 원본과 배포 참조 준비

@@ -56,6 +56,17 @@ dev 합성은 비밀 없는 `devDashboardRuntimeFile` JSON을 필수로 받는�
 
 ---
 
+## PROJ-223·231 EKS 로컬 구현 보충
+
+기존 EKS 누적 tip `f36ccc8`과 PROJ-221을 merge해 두 계보를 보존했다. Helm은 기존 generated YAML 방식을 따른다.
+`scripts/eks-values.mjs`는 CDK output·세 앱 digest·`--runtime-values` YAML을 받아 runtime과 앱별 YAML을 함께 만든다.
+Helm 입력 순서는 정적 workload YAML → generated 앱 YAML이다. ARN/endpoint/TG/NodePort를 runtime 입력에서 덮어쓸 수 없다.
+dashboard NodePort는30081이며 실제 점유는 미검증이다. 231은 dashboard Pod Identity·설정 SPC와 앱별 JWT SPC를 추가한다.
+JWT 버전은 고정하고 별도 RO 디렉터리에 mount하며 정확한 kid 맵은 chart가 생성한다. ingest의 기존 권한·mount는 보존한다.
+실제 배포·CSI 접근·인증·snapshot·복구는 미실행이다. 상세절차는 [EKS 수동 런북](docs/runbooks/dev-eks-manual-deployment.md)을 따른다.
+
+---
+
 ## 0. 중앙 허브와 공통 규칙
 
 Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 조직 → 팀 → 구성원 축으로 모아 보여주는
