@@ -50,6 +50,7 @@ export const CLICKHOUSE_HOST = `${CLICKHOUSE_SERVICE_NAME}.${CLOUD_MAP_NAMESPACE
  * 컨테이너 포트.
  */
 export const PORTS = {
+  dashboardApi: 8081,
   otlp: 4318,
   // Collector 가 같은 태스크의 post-processor 로 OTLP/HTTP 를 밀어넣는 포트.
   // apiServer 와 값은 같지만 다른 태스크의 다른 계약이므로 따로 둔다. (ADR-0017)
