@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (공급 결정 채택, 초기화 도구·CDK·Helm 구현과 AWS 배포·기능 검증은 후속 작업)
+Accepted (공급 결정 채택, 키 준비·전달 구현과 AWS 배포·기능 검증은 후속 작업; 원본 생성·보존 소유 경계는 [ADR-0031](0031-manage-dev-dashboard-and-jwt-secrets-with-cdk.md)이 부분 대체)
 
 [ADR-0028](0028-dev-eks-auto-mode-transition.md)의 기존 Secret 3개만 참조하는 목록과
 [ADR-0029](0029-dev-dashboard-api-ecs-and-eks-deployment.md)의 공개키 이미지 포함 또는 mount 선택을
@@ -17,9 +17,10 @@ enrollment는 개인키로 RS256 JWT를 발급하고 공개키로 검증하며 d
 완전한 키쌍 검증은 초기화 단계의 시험 서명·검증으로 별도 확인한다.
 저장소 값이나 mount 파일이 바뀌어도 이미 기동한 앱이 키를 자동으로 다시 읽지는 않는다.
 
-현재 문서 브랜치의 `DevDataStack`은 기존 실제 Secret 3개만 생성하고, `DevApplicationStack`은
-JWT 키 파일 공급을 구현하지 않는다. PROJ-207~211 누적 EKS 코드의 ASCP/configtree도 기존 두 앱 설정용이다.
-문서 결정 채택을 해당 코드·Secret·배포의 존재 증거로 사용하지 않는다.
+이 ADR 채택 당시 `DevDataStack`은 기존 실제 Secret 3개만 생성하고 `DevApplicationStack`은
+JWT 키 파일 공급을 구현하지 않았다. 후속 ADR-0031은 JWT 두 개와 dashboard DB 자격 증명 네 개의
+원본 생성·보존을 CDK로 옮긴다. PROJ-207~211 누적 EKS 코드의 ASCP/configtree는 기존 두 앱 설정용이다.
+원본 정의·문서 채택을 키 값 등록·ECS/EKS 파일 공급·AWS 배포의 존재 증거로 사용하지 않는다.
 
 ## Decision
 
@@ -39,9 +40,11 @@ RSA 키로 사용하거나 앱 시작·일반 재배포·CDK synth에서 키를 
 두 Secret 쓰기는 원자적 작업이 아니다. 한쪽 등록 실패 시 준비한 같은 키쌍과 작업 식별자로 복구하며,
 새 키쌍을 자동 생성해 이미 등록한 값과 섞지 않는다.
 
-초기화·버전 등록·label 보존·삭제는 운영자가 별도 관리하고 CDK는 ARN 참조·IAM·전달 구성만 소유한다.
-앱 stack destroy나 이미지 교체가 키 원본 삭제를 유발하지 않게 한다. 같은 이름으로 Secret을 삭제·재생성해도
-ARN은 유지되지 않으므로 고정 ARN 원본을 보존한다. 향후 IaC로 원본을 관리한다면 별도 보존 결정이 선행해야 한다.
+**대체됨(ADR-0031)** - CDK가 원본을 생성하지 않고 ARN 참조·IAM·전달 구성만 소유하던 결정은
+dev JWT 두 원본의 CDK 생성과 `DeletionPolicy: Retain`·`UpdateReplacePolicy: Retain`으로 대체한다.
+키 생성·검증·버전 등록·label 보존은 운영자가 수동 절차로 수행한다. 앱 stack destroy나 이미지 교체가
+키 원본 삭제를 유발하지 않게 하며, 같은 이름으로 Secret을 삭제·재생성해도 ARN은 유지되지 않으므로
+고정 ARN 원본을 보존한다. 초기화 도구를 새로 만들거나 CDK에 키 값을 넣지 않는다.
 
 ### 2. 재현 가능한 배포 입력
 
@@ -137,8 +140,9 @@ UID 10001의 initContainer는 선택한 파일 맵 전체의 존재·비어 있�
 
 ## Constraints
 
-이번 변경은 ADR·계약·운영 문서와 로컬 커밋이다. 실제 키 생성·조회·등록, CDK·Helm·backend 코드 구현,
-AWS 배포·Kubernetes 설치·인증 기능 검증은 실행하지 않는다. 기존 실제 Secret 3개와 과거 로컬 검증 수치는 그대로다.
+이 ADR의 최초 채택은 ADR·계약·운영 문서와 로컬 커밋이었다. 실제 키 생성·조회·등록, CDK·Helm·backend 코드 구현,
+AWS 배포·Kubernetes 설치·인증 기능 검증은 수행하지 않았다. 후속 ADR-0031의 원본 CDK 정의와 구별하며
+기존 실제 Secret 3개와 과거 로컬 검증 수치는 그대로다.
 공통 계약은 환경별로 적용하지만 이 ADR의 AWS 전달 구현 범위는 dev이며 prod 인프라는 변경하지 않는다.
 
 ## Alternatives Considered
@@ -165,8 +169,8 @@ ECS writer·volume·메모리 검증과 EKS CSI 권한·추출 alias 검증이 �
 
 ## Follow-up
 
-- 최초 키 초기화·두 Secret 버전 등록·검증·복구 도구와 label 보존 책임을 구현한다.
-- dev CDK ARN 참조·task 역할·writer·volume·SUCCESS 의존성과 EKS 역할·SPC·mount·values/schema를 구현한다.
+- 최초 키 생성·두 Secret 버전 등록·검증·복구와 label 보존은 운영자 수동 절차로 안내하고 실제 실행 증거를 남긴다.
+- ADR-0031의 원본 참조를 소비하는 dev task 역할·writer·volume·SUCCESS 의존성과 EKS 역할·SPC·mount·values/schema를 구현한다.
 - writer 자원·실제 UID 접근·신구 토큰 검증·교체·롤백 리허설 증거를 남긴다.
 - 공개키 신뢰 원본 또는 개인키 비반출·자동 회전 요구가 생기면 공통 ADR과 전달 결정을 재검토한다.
 
@@ -181,6 +185,7 @@ dashboard/ingest 개인키 권한 부재를 검사한다. ECS/EKS 전체 verifie
 
 ## References
 
+- [ADR-0031 dev dashboard·JWT 원본 생성·보존](0031-manage-dev-dashboard-and-jwt-secrets-with-cdk.md)
 - [허브 JWT 키 공급 ADR](../../../docs/adr/0022-user-jwt-key-provisioning.md), [dashboard 계약](../../../docs/contracts/dashboard-api.md)
 - [backend 사용자 인증 운영](../../../pulsemetry-backend/docs/user-auth-operations.md), `UserJwt`·`UserAuthConfig.userJwt()`·`SecurityConfig.dashboardAuthenticator()`
 - [ECS 공유 volume 전달](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/specifying-sensitive-data.html), [container dependency](https://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_ContainerDependency.html)

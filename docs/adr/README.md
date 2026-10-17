@@ -33,9 +33,10 @@
 
 | 0028 | [dev에 EKS Auto Mode를 병행 추가하고 수동 Helm으로 단계 전환](0028-dev-eks-auto-mode-transition.md) | Accepted (구현·검증 기록은 PROJ-206~212; dashboard 범위 부분 대체: ADR 0029; JWT 참조 목록 부분 대체: ADR 0030) |
 | 0029 | [dev dashboard-api는 공통 ARM64 이미지로 ECS와 EKS에 각각 배포](0029-dev-dashboard-api-ecs-and-eks-deployment.md) | Accepted (후속 구현·AWS 배포 증거 대기; JWT 공개키 공급 부분 대체: ADR 0030) |
-| 0030 | [dev 사용자 JWT 키는 별도 Secrets Manager 원본에서 버전을 지정해 파일로 공급](0030-dev-user-jwt-keys-from-secrets-manager.md) | Accepted (초기화·CDK·Helm 구현·AWS 배포 증거 대기) |
+| 0030 | [dev 사용자 JWT 키는 별도 Secrets Manager 원본에서 버전을 지정해 파일로 공급](0030-dev-user-jwt-keys-from-secrets-manager.md) | Accepted (키 준비·전달 구현·AWS 배포 증거 대기; 원본 생성·보존 소유 경계 부분 대체: ADR 0031) |
+| 0031 | [dev dashboard DB 자격 증명과 사용자 JWT Secret 원본은 CDK로 생성하고 보존](0031-manage-dev-dashboard-and-jwt-secrets-with-cdk.md) | Accepted (dev 원본 정의·운영 절차; AWS 배포·값 등록·DB 적용 증거 대기) |
 
-새 ADR을 작성할 때는 다음 미사용 번호(`0031-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 로그 그룹 정책 ADR용으로 예약되어 있다(`AGENTS.md` 섹션 5 (F)).
+새 ADR을 작성할 때는 다음 미사용 번호(`0032-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 로그 그룹 정책 ADR용으로 예약되어 있다(`AGENTS.md` 섹션 5 (F)).
 
 섹션 순서는 다음과 같다. 괄호로 표시한 것은 내용이 있을 때만 둔다.
 
