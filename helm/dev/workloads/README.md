@@ -18,7 +18,8 @@ ClickHouse의 `availabilityZone`은 CDK output의 첫 번째 AZ를 사용한다.
 
 PROJ-223은 dashboard NodePort를 30081로 정하고 CDK의 `DEV_EKS_NODE_PORTS.dashboard`와
 `EksDashboardApiNodePort` output, chart schema/helpers를 일치시킨다. 실제 클러스터에 이미 쓰는
-Service가 없는지는 배포 전 확인한다. PROJ-224가 SG·검증 TG에 같은 값을 연결하기 전에는 설치하지 않는다.
+Service가 없는지는 배포 전 확인한다. PROJ-224의 Network SG·전용 instance TG·CDK output이 같은 값을 사용한다.
+실제 target health는 배포 후 검증한다.
 
 `eks-values.mjs`는 세 앱의 `--enrollment-image`, `--ingest-image`, `--dashboard-image`와
 `--runtime-values <yaml>`을 필수로 받아 CDK output에서 `generated/*.yaml`을 만든다. 정적 workload values 뒤 생성 YAML을 전달한다.
@@ -26,14 +27,14 @@ Service가 없는지는 배포 전 확인한다. PROJ-224가 SG·검증 TG에 �
 
 ```bash
 helm template dashboard-api helm/dev/workloads/spring-app \
-  --namespace pulsemetry-dev \
+  --namespace pulsemetry-dev --kube-version 1.36.0 \
   --values helm/dev/workloads/dashboard-api.yaml \
   --values generated/dashboard-api.yaml
 ```
 
 PROJ-231의 `generated/dashboard-api.yaml`은 네 연결 설정·전용 configtree·JWT 공개키 mount를
-공급한다. TGB는 PROJ-224의 전용 검증 TG 연결 전까지 비어 있으므로 그 전에는 배포 입력으로
-사용하지 않는다. 사용자 기존 `generated/`는 로컬 검증에서 덮어쓰지 않는다.
+공급한다. PROJ-224의 `ValidationDashboardApiTargetGroupArn` output을 전용 TGB로 연결한다.
+생성기는 검증 TG 네 개의 ARN이 모두 다르고 필요한 output이 존재하는지 확인한다. 사용자 기존 `generated/`는 로컬 검증에서 덮어쓰지 않는다.
 
 앱 `runtime.enabled=true`는 별도 runtime-config release의 `secretProviderClass`를 참조한다.
 기존 두 앱의 필수 파일은 `PULSEMETRY_DB_USERNAME`, `PULSEMETRY_DB_PASSWORD`,
@@ -74,7 +75,7 @@ NodeClass/NodePool은 AWS가 제공하는 실제 CRD 설치 전의 구조 검사
 근거: [Kubernetes startup/readiness/liveness probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/),
 [StatefulSet PVC 보존](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/#persistentvolumeclaim-retention),
 [OSS TargetGroupBinding](https://kubernetes-sigs.github.io/aws-load-balancer-controller/latest/guide/targetgroupbinding/targetgroupbinding/).
-health 경로·이미지 UID는 backend develop `4d6ccf2e2809344eac9feb1873f2d527eee2f212`의
+기존 PROJ-212의 health 경로·이미지 UID 확인은 backend develop `4d6ccf2e2809344eac9feb1873f2d527eee2f212`의
 `SecurityConfig.HEALTH_PATH`, `HealthController`, `Dockerfile`을 읽기 확인했다.
 
 JWT는 별도 읽기 전용 CSI mount와 정확한 kid → PEM 경로 맵을 사용한다. 버전·키 맵 변경은 Pod

@@ -51,17 +51,19 @@ dev 합성은 비밀 없는 `devDashboardRuntimeFile` JSON을 필수로 받는�
 `lib/dev/app-routing.ts`가 허브 path/method/OPTIONS 계약을 설치하고, WAF 기존 범위와 등록rate세조건을 보존한다.
 입력·권한·검증 경계는 [ECS runtime 런북](docs/runbooks/dev-dashboard-ecs-runtime.md)을 따른다.
 관리 응답·메일의 추가 Secret 공급은 포함하지 않아 두 enabled flag는false만 허용한다.
+prod 리소스·권한과 OIDC trust는 보존하며 cicd 변경은 PROJ-221의 backend-dev dashboard ECS 재배포 대상 추가다.
 키 등록·이미지 공급·AWS 배포는 수행하지 않았고 기존 원본의 보존 정책은 유지한다.
 위의 과거 세 서비스 기록과 후속 작업 설명은 이 보충의 로컬 구현·미배포 상태와 구분한다.
 
 ---
 
-## PROJ-223·231 EKS 로컬 구현 보충
+## PROJ-223·231·224 EKS 로컬 구현 보충
 
 기존 EKS 누적 tip `f36ccc8`과 PROJ-221을 merge해 두 계보를 보존했다. Helm은 기존 generated YAML 방식을 따른다.
 `scripts/eks-values.mjs`는 CDK output·세 앱 digest·`--runtime-values` YAML을 받아 runtime과 앱별 YAML을 함께 만든다.
-Helm 입력 순서는 정적 workload YAML → generated 앱 YAML이다. ARN/endpoint/TG/NodePort를 runtime 입력에서 덮어쓸 수 없다.
-dashboard NodePort는30081이며 실제 점유는 미검증이다. 231은 dashboard Pod Identity·설정 SPC와 앱별 JWT SPC를 추가한다.
+Helm 입력 순서는 정적 workload YAML → generated 앱 YAML이다. runtime 입력 YAML은 생성기에만 전달하고
+runtime release에는 generated/runtime.yaml을 사용한다. ARN/endpoint/TG/NodePort를 runtime 입력에서 덮어쓸 수 없다.
+dashboard NodePort는 30081이며 Network SG·전용 TG·CDK output·generated YAML·Helm Service/TGB를 연결한다. 실제 점유는 미검증이다. 231은 dashboard Pod Identity·설정 SPC와 앱별 JWT SPC를 추가한다.
 JWT 버전은 고정하고 별도 RO 디렉터리에 mount하며 정확한 kid 맵은 chart가 생성한다. ingest의 기존 권한·mount는 보존한다.
 실제 배포·CSI 접근·인증·snapshot·복구는 미실행이다. 상세절차는 [EKS 수동 런북](docs/runbooks/dev-eks-manual-deployment.md)을 따른다.
 

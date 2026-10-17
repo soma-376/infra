@@ -13,14 +13,15 @@
 ## 1. 실행 범위와 사전 조건
 
 **실행 checkout 조건:** PROJ-223은 기존 EKS 누적 tip `f36ccc8`과 PROJ-221을 merge해 양쪽 구현을 보존한다.
-실제 실행에는 아래 후속 runtime·검증 Edge 구현과 별도의 배포 승인이 필요하다.
-PROJ-230·221·223·231은 ECS·Helm·runtime을 연결했다. dashboard 검증 트래픽에는 PROJ-224도 필요하다.
+실제 실행에는 아래 운영 사전 조건과 별도의 배포 승인이 필요하다.
+실행 checkout은 PROJ-230·221·223·231의 ECS·Helm·runtime과 PROJ-224의 dashboard 검증 경로를 모두 포함해야 한다.
 실제 DB·키·이미지 준비는 PROJ-222 런북의 운영 관문이며 아직 실행한 것으로 보지 않는다.
 PROJ-212에서 가져온 문서와 과거 로컬 검증 기록만으로 실행 전제가 충족됐다고 보지 않는다.
 생성기는 `--dashboard-image`를 포함한 세 앱 digest와 `--runtime-values` YAML을 받는다.
 입력 YAML은 생성기에만 전달하며 Helm에는 정적 workload YAML 다음 generated 앱 YAML을 사용한다.
 
-운영자가 별도로 배포를 승인받은 뒤 이 순서를 실행한다. 기존 ECS 경로·prod·cicd는 유지한다.
+운영자가 별도로 배포를 승인받은 뒤 이 순서를 실행한다. 기존 ECS 경로와 prod 리소스·권한, OIDC trust는 보존한다.
+PROJ-221이 backend-dev 역할에 dashboard ECS 재배포 대상을 추가한 것은 cicd의 명시적 예외다.
 PROJ-213~215의 실제 병행 운영·데이터 이관·Canary·ECS 제거는 이 문서의 초기 설치와 별도 실행이다.
 
 - 원래 배포 주체에 infra 배포와 CloudFormation output 조회 권한이 있어야 한다. CDK가 생성하는
@@ -32,8 +33,8 @@ PROJ-213~215의 실제 병행 운영·데이터 이관·Canary·ECS 제거는 �
 - AWS 계정은 환경 `CDK_DEFAULT_ACCOUNT`로만 전달한다. region은 `ap-northeast-2`다.
 - Kubernetes 1.36과 ARM64 t4g.medium의 리전 가용성·할당량, 2개 public subnet의 여유 IP,
   public IPv4 egress를 확인한다. Auto Mode 노드는 SSH/SSM 직접 접속하지 않는다.
-- backend와 호환되는 Flyway migration, immutable ARM64 이미지 digest 2개,
-  `/api/v1/healthz`의 200 응답, `/bin/sh`, UID 10001 및 바이너리 공급을 확인한다.
+- backend와 호환되는 Flyway migration, immutable ARM64 앱 이미지 digest 3개,
+  `/api/v1/healthz`의 200 응답, init 검사용 `/bin/sh`·`head -c`, UID 10001 및 바이너리 공급을 확인한다.
 - 별도 검증 tenant/token과 검증 event ID 집합을 준비한다. 공유 RDS에는 기존 ECS와 호환되지 않는
   DDL·이미지를 사용하지 않는다. 검증 prefix는 `eks_validation`이고 기존 객체 7일 expiration을 유지한다.
 - Secret ARN만 다룬다. Secret 원문 조회·출력, `kubectl get secret`으로 값 열람,
@@ -56,6 +57,7 @@ PROJ-213~215의 실제 병행 운영·데이터 이관·Canary·ECS 제거는 �
 | ClickHouse | 24.8-alpine | pulsemetry-dev / clickhouse | generated/clickhouse.yaml |
 | enrollment | immutable digest | pulsemetry-dev / enrollment-api | workloads/enrollment-api.yaml + generated/enrollment-api.yaml |
 | ingest | immutable digest | pulsemetry-dev / telemetry-ingest | workloads/telemetry-ingest.yaml + generated/telemetry-ingest.yaml |
+| dashboard | immutable digest | pulsemetry-dev / dashboard-api | workloads/dashboard-api.yaml + generated/dashboard-api.yaml |
 
 Helm 3.22.0·kubectl 1.36 계열을 사용한다. 로컬 schema 검증은 kubeconform 0.8.0이다.
 LBC archive/CRD/checksum은 레포에 있으며 runtime upstream archive URL·checksum은
@@ -140,7 +142,7 @@ kubectl auth can-i create secretproviderclasses.secrets-store.csi.x-k8s.io --nam
 | EksClusterName, EksRegion, EksVpcId | LBC 및 앱 TGB |
 | EksOperatorRoleArn, EksOperatorRoleName | 계정 IAM의 AssumeRole 권한 지정과 kubeconfig 인증 |
 | DbEndpoint, DbSecretArn, TokenHashSecretArn, AdminApiTokenSecretArn, RawSignalBucketName, ArchivePrefix | runtime/앱 values |
-| ValidationPublicBaseUrl, ValidationTelemetryIngestTargetGroupArn, ValidationEnrollmentApiTargetGroupArn, ValidationClickhouseTargetGroupArn | 검증 앱/TGB |
+| ValidationPublicBaseUrl, ValidationTelemetryIngestTargetGroupArn, ValidationEnrollmentApiTargetGroupArn, ValidationClickhouseTargetGroupArn, ValidationDashboardApiTargetGroupArn | 검증 앱/TGB |
 | EksDashboardApiNodePort, DashboardRdsSourceSecretArn, DashboardRdsCacheSecretArn, DashboardClickHouseSourceSecretArn, DashboardClickHouseCacheSecretArn, UserJwtPrivateKeySecretArn, UserJwtPublicKeysSecretArn | dashboard 및 JWT runtime YAML |
 | ApplicationLogGroupName | Fluent Bit |
 | EksLbcRoleArn, RuntimeEnrollmentRoleArn, RuntimeTelemetryIngestRoleArn, RuntimeDashboardRoleArn, RuntimeFluentBitRoleArn | CDK Pod Identity 검증 증거 |
@@ -358,7 +360,9 @@ YAML·DTO hash를 기록한다. NodeClass/NodePool의 로컬 구조 검사와 Ku
 사용한다. schema를 미리 내려받은 환경은 workload 검사에 `KUBERNETES_SCHEMA_LOCATION`, runtime 검사에
 `KUBERNETES_SCHEMA_DIR`를 지정할 수 있다. 기본값은 공개 Kubernetes 1.36 schema다.
 
-이번 구현의 로컬 검증 결과와 미검증 경계는 [로컬 검증 기록](dev-eks-local-validation.md)에 남겼다.
+PROJ-206~212 당시의 로컬 검증 결과와 미검증 경계는 [역사적 로컬 검증 기록](dev-eks-local-validation.md)에 남겼다.
+그 기록의 앱 두 개·SPC 두 개·values 여덟 개 수치는 현재 dashboard/JWT 확장의 검증 수치가 아니다.
+현재 checkout의 build·Jest·Helm/schema 결과는 실행한 commit과 함께 별도 기록한다.
 
 각 실제 실행은 다음 표를 복사해 별도 증거 파일로 남긴다. 이번 로컬 작업은 아래 live 결과를 채우지 않는다.
 

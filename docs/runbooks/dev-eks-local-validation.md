@@ -67,3 +67,9 @@ PROJ-220은 [ADR-0029](../adr/0029-dev-dashboard-api-ecs-and-eks-deployment.md)�
 실제 dashboard CDK·Helm·설정·권한 구현과 기능 검증은 PROJ-221~225에서 따로 기록한다.
 NodePort 숫자는 PROJ-223에서 확정하고 SG·TG·output·Service와 대조한다.
 이번 문서 채택을 실제 이미지 공급·서비스 생성·AWS 배포·기능 성공으로 표시하지 않는다.
+
+## PROJ-218 후속 구현의 새 로컬 검증
+
+PROJ-230·221·223·231·224의 2026-10-17 검증은
+[별도 기록](proj218-local-implementation-validation.md)에 정리했다. 위 PROJ-206~212 수치와
+구분하며, 새 기록도 AWS 배포·실제 Secret·CSI·인증·snapshot·복구 성공을 증명하지 않는다.
