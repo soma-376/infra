@@ -106,19 +106,18 @@ export function generateValues(document, enrollmentImage, ingestImage, dashboard
       env: { PULSEMETRY_DB_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_ARCHIVE_TYPE: 's3', PULSEMETRY_ARCHIVE_BUCKET: bucket, PULSEMETRY_ARCHIVE_PREFIX: prefix, AWS_REGION: region, PULSEMETRY_CLICKHOUSE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_CLICKHOUSE_DATABASE: 'default' },
       targetGroupBindings: binding('ValidationTelemetryIngestTargetGroupArn'),
     },
-    // PROJ-224의 검증 TG 연결 전에는 설치용 values가 아니다.
     'dashboard-api.yaml': {
       image: image(dashboardImage, 'dashboard image'), vpcId, nodePort: Number(dashboardNodePort),
       runtime: { enabled: true, secretProviderClass: 'dashboard-api-runtime', requiredFiles: dashboardFiles },
       jwt: jwt(false), userAuth: authSettings,
-      env: { ...runtime.dashboard.settings, PULSEMETRY_DASHBOARD_PORT: '8081', PULSEMETRY_MANAGEMENT_ENABLED: String(runtime.dashboard.managementEnabled), PULSEMETRY_MAIL_ENABLED: String(runtime.dashboard.mailEnabled), PULSEMETRY_DASHBOARD_RDS_SOURCE_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_DASHBOARD_RDS_CACHE_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_DATABASE: 'default', PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_DATABASE: 'dashboard_cache' }, targetGroupBindings: [],
+      env: { ...runtime.dashboard.settings, PULSEMETRY_DASHBOARD_PORT: '8081', PULSEMETRY_MANAGEMENT_ENABLED: String(runtime.dashboard.managementEnabled), PULSEMETRY_MAIL_ENABLED: String(runtime.dashboard.mailEnabled), PULSEMETRY_DASHBOARD_RDS_SOURCE_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_DASHBOARD_RDS_CACHE_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_DATABASE: 'default', PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_DATABASE: 'dashboard_cache' }, targetGroupBindings: binding('ValidationDashboardApiTargetGroupArn'),
     },
     'clickhouse.yaml': { vpcId, availabilityZone: zone, targetGroupBindings: binding('ValidationClickhouseTargetGroupArn') },
     'fluent-bit.yaml': { env: [{ name: 'AWS_REGION', value: region }, { name: 'APPLICATION_LOG_GROUP', value: required('ApplicationLogGroupName') }] },
     'ascp.yaml': { awsRegion: region },
   };
-  const groups = ['ValidationEnrollmentApiTargetGroupArn', 'ValidationTelemetryIngestTargetGroupArn', 'ValidationClickhouseTargetGroupArn'].map(required);
-  if (new Set(groups).size !== groups.length) throw new Error('세 검증 TG ARN은 서로 달라야 한다');
+  const groups = ['ValidationEnrollmentApiTargetGroupArn', 'ValidationTelemetryIngestTargetGroupArn', 'ValidationClickhouseTargetGroupArn', 'ValidationDashboardApiTargetGroupArn'].map(required);
+  if (new Set(groups).size !== groups.length) throw new Error('네 검증 TG ARN은 서로 달라야 한다');
   if (required('ApplicationLogGroupName') !== '/eks/dev/application') throw new Error('ApplicationLogGroupName이 런타임 계약과 다르다');
   return values;
 }

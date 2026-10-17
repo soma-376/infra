@@ -33,6 +33,7 @@ function outputs(prefix = 'eks_validation') {
       ValidationEnrollmentApiTargetGroupArn: tg('enroll-v'),
       ValidationTelemetryIngestTargetGroupArn: tg('ingest-v'),
       ValidationClickhouseTargetGroupArn: tg('ch-v'),
+      ValidationDashboardApiTargetGroupArn: tg('dashboard-v'),
     },
   };
 }
@@ -78,7 +79,7 @@ describe('배포 output→values 변환', () => {
     expect(dashboard.jwt.activeKid).toBeUndefined();
     expect(dashboard.runtime.enabled).toBe(true);
     expect(dashboard.runtime.requiredFiles).toHaveLength(8);
-    expect(dashboard.targetGroupBindings).toEqual([]);
+    expect(dashboard.targetGroupBindings).toEqual([{ stage: 'validation', targetGroupARN: tg('dashboard-v'), confirmExclusiveOwnership: true }]);
     expect(ingest.env.PULSEMETRY_ARCHIVE_PREFIX).toBe(prefix);
     expect(ingest.env.PULSEMETRY_DB_URL).toBe('jdbc:postgresql://database.example.test:5432/controlplane');
     expect(ingest.image).toEqual({ repository: repository + 'telemetry-ingest', digest });
@@ -119,6 +120,8 @@ describe('배포 output→values 변환', () => {
       (source: any) => { delete source.DevEksStack.DbSecretArn; },
       (source: any) => { delete source.DevEksStack.EksDashboardApiNodePort; },
       (source: any) => { delete source.DevEksStack.UserJwtPublicKeysSecretArn; },
+      (source: any) => { delete source.DevEdgeStack.ValidationDashboardApiTargetGroupArn; },
+      (source: any) => { source.DevEdgeStack.ValidationDashboardApiTargetGroupArn = source.DevEdgeStack.ValidationEnrollmentApiTargetGroupArn; },
       (source: any) => { source.DevEksStack.UserJwtPublicKeysSecretArn = source.DevEksStack.UserJwtPrivateKeySecretArn; },
       (source: any) => { source.DevEksStack.EksDashboardApiNodePort = '30080'; },
       (source: any) => { source.DevEksStack.DbEndpoint = '${Token[TOKEN.42]}'; },
@@ -161,7 +164,7 @@ describe('배포 output→values 변환', () => {
     const dashboard = render('dashboard-api', 'helm/dev/workloads/spring-app', ['helm/dev/workloads/dashboard-api.yaml', join(output.dir, 'dashboard-api.yaml')]);
     expect(dashboard).toContain('containerPort: 8081');
     expect(dashboard).toContain('nodePort: 30081');
-    expect(dashboard).not.toContain('kind: TargetGroupBinding');
+    expect(dashboard).toContain('kind: TargetGroupBinding');
     expect(dashboard).toContain('dashboard-api-jwt');
     expect(dashboard).not.toContain('private.pem');
     expect(dashboard).not.toContain('PULSEMETRY_TOKEN_HASH_SECRET');
