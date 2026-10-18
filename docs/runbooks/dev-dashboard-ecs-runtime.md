@@ -4,6 +4,8 @@ PROJ-230은 네 DB 연결 helper와 enrollment JWT writer를 제공한다. PROJ-
 서비스·공개키 writer·전용 TG·backend dev 재배포 권한을 연결한다. 원본은 `DevDataStack`의 기존 `ISecret`이며 실제 키 생성·등록·DB 계정 준비는
 [공통 준비 런북](dev-dashboard-prerequisites.md)과 ADR-0030·0031의 수동 절차를 따른다.
 이 구현과 fixture 검증은 실제 원본·이미지·AWS 배포의 존재를 증명하지 않는다.
+기존 Cognito 연결은 [OIDC 준비·배포 런북](dev-oidc-prerequisites.md)과
+[ADR-0032](../adr/0032-dev-oidc-client-secret-runtime-supply.md)을 따른다.
 
 ## 명시적 입력
 
@@ -15,15 +17,21 @@ dev 합성에는 `-c devDashboardRuntimeFile=/접근제한/배포/runtime.json`�
 - `writerImage`: 외부 공급한 `soma-376/jwt-key-writer@sha256:...` ARM64 이미지의 ECR URI.
 - `userAuth`: 개인키·공개키 `VersionId`, `activeKid`, 전체 `publicKeys`의 `kid`/안전한 `.pem` alias,
   `issuer`, `audience`, 정확한 `allowedOrigins` 목록. 공개키 버전의 kid 집합과 맵이 같아야 한다.
+- `oidc`: 생략은 비활성이다. `enabled:false`와 `clients:[{key:...}]`로 빈 원본만 선언할 수 있다.
+  활성화에는 HTTP/HTTPS `callbackBaseUrl`, 각 client의 고정 `versionId`, `userAuth.allowedRedirectUris`가 필요하다.
+  `callbackRegistrationId` 기본값은 `oidc`이며 선택적 `failureRedirectUri`는 허용 복귀 주소여야 한다.
+  이 JSON의 모든 client key는 CDK 원본 선언이므로 EKS에서 소비하는 key도 유지한다.
 - `dashboard`: `managementEnabled`, `mailEnabled`, backend 계약의 모든 `settings`.
   두 flag는 현재 `false`만 허용한다. 관리 응답/메일 암호화키와 transport 설정 공급은 별도 작업이며,
   선행 설정 없는 활성화는 합성 단계에서 거부한다. 설정 값은 문자열이다. duration은 정수와 `ms`, `s`, `m`, `h`, `d` 단위이며 양수 제한과 ingest 시간 관계를 검사한다.
 
 ARN·DB endpoint는 CDK가 소유한다. PEM·비밀번호·token 원문, 미지의 필드는 입력할 수 없다.
-EKS 생성기의 runtime YAML은 같은 `userAuth`와 `dashboard` 구조를 사용하고 `writerImage`를 제외한다.
+EKS 생성기의 runtime YAML은 같은 `userAuth`·`dashboard`·`oidc` 구조를 사용하고 `writerImage`를 제외한다.
 같은 릴리스의 VersionId·kid 맵·issuer·audience·origin과 앱 이미지 digest를 함께 기록한다.
 ECS 앱 이미지는 기존 `devImageTag` 입력으로 선택하므로, ECS/EKS 비교 시 그 태그의 실제 digest를
 외부 릴리스 기록과 대조해야 한다. 이 로컬 검증은 ECR manifest를 조회하지 않는다.
+OIDC URL 입력은 HTTP도 허용하지만 현재 backend와 Cognito의 원격 로그인에는 HTTPS가 필요하다.
+입력·합성 통과가 HTTP 로그인 지원을 의미하지 않으며 [OIDC 런북](dev-oidc-prerequisites.md)의 인증 경계를 따른다.
 
 ## 파일 공급과 권한
 
@@ -44,9 +52,17 @@ CloudFormation에 들어가지 않는다. 기존 backend의 빈 `local` 항목�
 키 교체는 verifier 전체 → signer → 마지막 구 발급 후 330초 이상 → 구 공개키 제거 순서이며
 일반 task 시작에서 생성·등록·자동 회전을 수행하지 않는다.
 
+OIDC 활성화 시 enrollment execution role만 client별 원본 조회 권한을 받고 ECS `secrets`가
+고정 VersionId의 전체 SecretString을 내부 환경변수로 공급한다. `SPRING_APPLICATION_JSON`은
+기존 JWT 맵과 정확한 client key의 placeholder 맵을 함께 갖는다. 원문은 합성·일반 environment에 없다.
+JWT writer는 OIDC secret을 다루지 않는다. dashboard·ingest에는 OIDC 설정·권한을 추가하지 않는다.
+빈 원본 생성 → 운영자 값 등록 → 활성화 배포 순서이며 아직 없는 버전을 참조하면 task 시작이 실패한다.
+
 ## 로컬 관문과 미실행 항목
 
-`npm run build`, `npm test -- --runInBand`, writer 디렉터리의 `npm test`를 실행한다.
+`npm run build`, `npm test -- --runInBand`, writer 디렉터리의 `npm test`,
+`python3 scripts/test-oidc-config.py`를 실행한다. OIDC JVM fixture는 실제 backend 설정 DTO와 Spring Boot에서
+ECS 환경변수·EKS configtree의 synthetic 값 및 JWT 맵 보존을 검사하며 AWS·Cognito를 호출하지 않는다.
 fixture account와 AZ context를 사용해 lookup 없는 synth를 수행한다. writer는 AWS mock과
 매번 생성하는 시험 키로 버전·맵·RSA·키쌍·경로·권한·deadline·비밀 없는 오류를 검사한다.
 

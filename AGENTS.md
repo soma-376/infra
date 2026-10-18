@@ -69,6 +69,22 @@ JWT 버전은 고정하고 별도 RO 디렉터리에 mount하며 정확한 kid �
 
 ---
 
+## PROJ-237 OIDC client secret 로컬 구현 보충
+
+[ADR-0032](docs/adr/0032-dev-oidc-client-secret-runtime-supply.md)는 기존 Cognito의 client secret을
+enrollment ECS/EKS에 공급한다. ECS runtime JSON의 client key마다 `DevDataStack`이 초기 버전 없는
+빈 Retain 원본을 만들며 `OidcClientSecretArns`로 key→ARN을 출력한다. 기존 기본 9개에 선언 key 수만큼 추가된다.
+OIDC 입력 생략은 비활성이고 비활성 key 선언만으로 bootstrap할 수 있다. 값은 운영자가 수동 등록한다.
+ECS execution role의 `secrets`와 EKS enrollment Pod Identity·SPC는 활성 입력의 VersionId를 고정하며
+JWT writer는 바꾸지 않는다. EKS 생성기는 DataStack output까지 모아 ARN을 채운다. runtime 입력의 ARN·원문
+override는 허용하지 않는다. dashboard·ingest에는 OIDC 권한·설정을 주지 않는다.
+OIDC values는 HTTP/HTTPS callback·복귀 URL을 받지만 backend·Cognito의 원격 HTTP 로그인 제한은 유지한다.
+입력·렌더링 성공을 실제 HTTP 로그인 지원으로 보지 않는다. 조직 DB·사전 등록 회원과 실제 HTTPS 로그인·
+적용/복구 절차는 [OIDC 런북](docs/runbooks/dev-oidc-prerequisites.md)을 따른다.
+Cognito 생성·HTTPS 구축·AWS 배포·DB 변경·실제 로그인은 이 로컬 구현의 완료 증거가 아니다.
+
+---
+
 ## 0. 중앙 허브와 공통 규칙
 
 Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 조직 → 팀 → 구성원 축으로 모아 보여주는
@@ -84,7 +100,7 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 
 **ADR 우선 원칙은 이 레포의 기존 규칙과 같다** — 1장의 "코드와 ADR이 어긋나면 ADR이 기준이다"가
 전 레포 공통 규칙이며, 크로스레포 결정만 `../docs/adr/`가 소유한다. 스코프 판정은 `adr-new` 스킬이 안내한다.
-단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0032`부터이고 **`0020`은 예약**이다(5장 (F)).
+단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0033`부터이고 **`0020`은 예약**이다(5장 (F)).
 
 **ADR 본문에서 타 레포 소스를 인용할 때는 행 번호 대신 함수·상수 이름으로 앵커한다**
 (예: `sink_clickhouse.py` 의 `execute()`). 행 번호 정합은 검증할 방법이 없어 반드시 낡는다 —
@@ -504,7 +520,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0032`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유로 이미 쓰였고, `0020`은 위 (F)의 로그 그룹 정책용으로 여전히 예약되어 있다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0033`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급으로 이미 쓰였고, `0020`은 위 (F)의 로그 그룹 정책용으로 여전히 예약되어 있다.
    형식은 `docs/adr/0000-adr-template.md`를 따른다.
 3. 상수는 **"이 값이 dev에서 달라야 할 이유가 있는가"**로 위치를 정한다 — 없으면 `lib/common/config.ts`, 운영 전용이면 `lib/prod/config.ts`, dev 전용이면 `lib/dev/config.ts`. 스택에서는 import만 한다 (4장).
 4. `test/prod/*.test.ts` / `test/dev/*.test.ts` / `test/cicd/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`(prod), `buildDevApp()`(dev), `buildCicdApp()`(cicd)를 재사용한다.

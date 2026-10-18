@@ -4,6 +4,8 @@
 > 이번 작업에서 실행하지 않았다. Secret 정의·로컬 합성과 실제 리소스 생성·계정 준비·인증 성공은 다르다.
 > 원본 소유·보존은 [ADR-0031](../adr/0031-manage-dev-dashboard-and-jwt-secrets-with-cdk.md),
 > JWT 파일 공급은 [ADR-0030](../adr/0030-dev-user-jwt-keys-from-secrets-manager.md)을 따른다.
+> 기존 Cognito client secret 원본·수동 등록·ECS/EKS 연결은 [OIDC 준비 런북](dev-oidc-prerequisites.md)과
+> [ADR-0032](../adr/0032-dev-oidc-client-secret-runtime-supply.md)의 추가 범위다.
 
 ## 1. 실행 범위와 사전 조건
 
@@ -26,7 +28,8 @@ prod·기존 enrollment/ingest의 자격증명은 변경하지 않는다.
 
 ## 2. CDK 원본과 후속 연결
 
-`DevDataStack`은 기존 Secret 3개를 보존하고 아래 6개를 추가한다. 총 Secret 정의는 9개다.
+`DevDataStack`은 기존 Secret 3개를 보존하고 아래 6개를 추가한다. 이 표의 기본 Secret 정의는 9개이며,
+OIDC client를 선언하면 [OIDC 런북](dev-oidc-prerequisites.md)에 따라 key마다 빈 원본이 추가된다.
 신규 원본은 `aws/secretsmanager` 기본 암호화와 삭제·교체 시 `Retain`을 사용한다.
 자동 회전은 없으며 기존 3개의 생성 속성·삭제 정책은 바꾸지 않는다.
 
@@ -267,6 +270,7 @@ dashboard에는 개인키 참조를 전달하지 않는다. 아래 표에 원문
 | JWT 두 원본 | ARN·독립적인 두 VersionId, 작업·검증 결과, 보존 label |
 | signer·verifier | enrollment active-kid, 정확한 `kid → 파일 경로`, issuer·audience |
 | Web 설정 | `PULSEMETRY_USER_AUTH_ENABLED=true`, 명시적 allowed origins, management/mail capability 정합 |
+| 선택적 OIDC | client key→ARN·VersionId, HTTP/HTTPS callback·허용 복귀 URL 입력, 조직 issuer/client/config 참조와 사전 등록 회원. 실제 원격 로그인은 HTTPS 필요. 원문은 기록하지 않음 |
 | 운영 설정 | timeout·query 상한·snapshot/cleanup/alerts 등의 필수값, 결정 근거와 미확인 항목 |
 
 설정명 전체와 값의 제약은 [공통 계약 §4](../../../docs/contracts/dashboard-api.md#4-runtime-설정-인터페이스)를 참조한다.
@@ -299,7 +303,7 @@ VersionId 기록만으로 버전이 보존되지는 않는다. 활성·교체·�
 
 | 검사 | 이번 변경의 완료 범위와 후속 증거 |
 |---|---|
-| CDK 정의 | Secret 9개, 기존 3개 연속성, 신규 6개의 Retain, DB 생성 설정, JWT 값 없음을 로컬 test/synth로 확인 |
+| CDK 정의 | 기본 Secret 9개, 기존 3개 연속성, 신규 6개의 Retain, DB 생성 설정, JWT 값 없음을 로컬 test/synth로 확인. 선언한 OIDC key마다 별도 빈 Retain 원본 추가 |
 | DB 준비 | 운영자가 Secret과 같은 계정을 만들고 owner·grant·허용 SELECT·쓰기 금지를 확인. 이번에는 미실행 |
 | cache DDL | RDS→CH 성공, alerts grant, snapshot 복사·재사용·삭제. PROJ-221·225에서 실행 |
 | JWT 초기화 | 선택한 두 버전의 형식·kid·서명/검증, 부분 등록 복구·보존 label. 이번에는 미실행 |

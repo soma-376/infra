@@ -36,9 +36,9 @@ PROJ-231은 runtime-config release에 SPC 다섯 개를 만든다. 기존 두 co
 공개키 ARN만 읽고 HMAC·관리자 token·개인키·raw S3 권한을 받지 않는다. enrollment만 JWT 두
 원본을 읽으며 ingest의 기존 원본·권한·configtree는 유지한다.
 
-추가 운영 입력은 `--runtime-values <yaml>`로 생성기에 전달한다. `userAuth`와 `dashboard` 구조는
+추가 운영 입력은 `--runtime-values <yaml>`로 생성기에 전달한다. `userAuth`·`dashboard`·선택적 `oidc` 구조는
 공통 `lib/dev/runtime-input.cjs` 검증기를 사용하며 ECS JSON 입력과 같다. `writerImage`는 ECS 전용이므로
-이 YAML에 넣지 않는다. 중복 YAML key·알 수 없는 필드·주소/ARN/비밀번호 재정의는 거부한다.
+이 YAML에 넣지 않는다. 중복 YAML key·알 수 없는 필드·DB endpoint/ARN/비밀번호 재정의는 거부한다.
 관리 기능과 메일의 추가 Secret·transport 공급은 이 릴리스 범위 밖이므로 두 enabled 값은 false만 허용한다.
 `test/fixtures/eks-runtime.yaml`은 구조 검증용 예시이며 그 운영 수치는 실제 배포 기본값이 아니다.
 운영자는 issuer·audience·origin·버전·kid 맵·운영 한도를 검토한 제한된 입력 파일을 준비한다.
@@ -79,3 +79,28 @@ Pod가 새 파일을 다시 읽으며 SPC만 바꿔서는 완료되지 않는다
 대기한 뒤 구 공개키를 제거한다. 실패 시 겹치는 공개키 상태를 유지하고 중단하며, 제거 후 롤백도
 모든 verifier 복구가 signer 복구보다 앞선다. Secret label 보존·실제 UID 접근·인증 조회·캐시 DDL·
 교체/롤백은 PROJ-225의 실제 배포 증거로 남긴다.
+
+## 기존 Cognito의 OIDC client secret 공급
+
+[ADR-0032](../../../docs/adr/0032-dev-oidc-client-secret-runtime-supply.md)와
+[OIDC 준비 런북](../../../docs/runbooks/dev-oidc-prerequisites.md)을 따른다. ECS JSON에서 선언한 client key마다
+CDK가 빈 원본을 만들고 DataStack의 `OidcClientSecretArns` JSON output을 제공한다. EKS 생성기는
+`DevEksStack`·`DevEdgeStack`과 **`DevDataStack`** output을 함께 받아야 한다.
+
+`oidc` 생략 또는 `enabled:false`는 값 mount·필수 파일 검사를 추가하지 않는다. 활성화하려면 운영자가
+Cognito client secret 문자열을 원본에 등록한 뒤 runtime YAML의 `clients[].key/versionId`, HTTP/HTTPS callback 입력,
+`userAuth.allowedRedirectUris`를 지정한다. key는 선언된 원본의 부분집합이며 ARN·원문 override는 거부한다.
+CDK enrollment Pod Identity의 원본 권한은 ECS의 활성화 여부와 독립적이다.
+
+기존 `enrollment-api-runtime` SPC가 전체 문자열을 고정 `objectVersion`으로 mount한다. 정렬된 key별
+`PULSEMETRY_OIDC_CLIENT_SECRET_<index>` alias를 기존 configtree에 추가하고 앱/init의 필수 파일로 검사한다.
+chart는 정확한 client key와 placeholder를 기존 JWT `SPRING_APPLICATION_JSON` 맵에 합친다.
+dashboard·ingest에는 OIDC object·설정·권한을 추가하지 않는다.
+
+key·ARN·VersionId 변경은 Pod annotation에 반영된다. generated runtime → enrollment values 순서로 적용하고,
+복구 때도 동일한 배포 기록의 두 파일을 같은 순서로 적용한다. SPC 단독 갱신이나 앱 release만 rollback하면
+공급 버전이 일치하지 않을 수 있다. HTTP values의 생성·렌더링 허용과 실제 로그인 검증은 별도다.
+현재 backend는 원격 HTTP callback/복귀를 거부하고 Cognito의 HTTP 웹 callback 예외는 localhost 테스트용이다.
+실제 원격 로그인에는 HTTPS가 필요하며 local 프로필을 자동 적용하지 않는다.
+`python3 scripts/test-oidc-config.py`는 실제 backend DTO·Spring Boot로 ECS/EKS synthetic secret의 map binding과
+JWT 맵 보존을 검증한다. 로컬 fixture가 실제 CSI mount 또는 Cognito 연결을 대신하지 않는다.
