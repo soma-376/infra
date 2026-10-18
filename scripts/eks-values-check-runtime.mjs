@@ -33,7 +33,7 @@ try {
     run(helm, ['lint', chart, '--namespace', namespace, '--strict', '--kube-version', '1.36.0', ...files.flatMap(file => ['-f', file])]);
     return run(helm, ['template', ...args]);
   };
-  const kubeArgs = ['-strict', '-summary', '-kubernetes-version', '1.36.0', '-schema-location', schema ? join(resolve(schema), '{{.ResourceKind}}{{.KindSuffix}}.json') : 'default', '-schema-location', join(root, 'helm/dev/runtime/schemas/{{.ResourceKind}}_{{.Group}}_{{.ResourceAPIVersion}}.json')];
+  const kubeArgs = ['-strict', '-summary', '-kubernetes-version', '1.36.0', '-schema-location', join(root, 'helm/dev/runtime/schemas/{{.ResourceKind}}_{{.Group}}_{{.ResourceAPIVersion}}.json'), '-schema-location', schema ? join(resolve(schema), '{{.ResourceKind}}{{.KindSuffix}}.json') : 'default'];
   const runtimeText = render('runtime-config', 'helm/dev/runtime/chart', 'pulsemetry-dev', [join(temp, 'runtime.yaml')]);
   console.log('runtime-config ' + run(kubeconform, kubeArgs, runtimeText).trim());
   const spcs = loadAll(runtimeText).filter(Boolean);
