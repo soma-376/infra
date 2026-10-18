@@ -6,6 +6,8 @@ PROJ-230은 네 DB 연결 helper와 enrollment JWT writer를 제공한다. PROJ-
 이 구현과 fixture 검증은 실제 원본·이미지·AWS 배포의 존재를 증명하지 않는다.
 기존 Cognito 연결은 [OIDC 준비·배포 런북](dev-oidc-prerequisites.md)과
 [ADR-0032](../adr/0032-dev-oidc-client-secret-runtime-supply.md)을 따른다.
+외부 ACM 인증서를 연결하는 선택적 HTTPS와 두 단계 적용·복구는
+[dev ALB HTTPS 런북](dev-alb-https.md)을 따른다. 인증서 연결은 기존 공개 URL·endpoint output을 바꾸지 않는다.
 
 ## 명시적 입력
 

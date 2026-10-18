@@ -9,6 +9,10 @@ Accepted — 부분 대체: [ADR 0026](0026-dev-backend-deployment-units-and-sta
 
 EKS 활성화 dev 경로의 실행·접속·스토리지·스택 경계는 [ADR 0028](0028-dev-eks-auto-mode-transition.md)이 부분 대체한다. 기존 ECS와 prod 경로는 계속 유효하다.
 
+[ADR-0033](0033-dev-alb-https-with-external-acm.md)이 인증서 context가 있는 dev ALB의 HTTP 전용
+listener를 HTTPS와 선택적 HTTP redirect로 부분 대체한다. 인증서가 없는 기본 HTTP 경로와
+`DevNetworkStack`의 SG 소유권은 유지한다.
+
 ## Context
 
 PROJ-37 티켓이 dev 인프라에 **두 가지 제약을 명시**했다.
@@ -239,6 +243,9 @@ import로는 검증할 수 없다.** 운영과 같은 방식으로 **`test/dev/d
 
 ### 8. 엣지 - internet-facing ALB, 인증 없음
 
+아래 표는 당시 전환 전 구성이다. 앱 라우팅은 ADR-0026·0029가, 인증서 입력이 있는 ALB의
+`443/HTTPS`와 `80` redirect는 [ADR-0033](0033-dev-alb-https-with-external-acm.md)이 정한다.
+
 리스너는 둘이다.
 
 | 리스너 | 규칙 | 타깃 그룹 |
@@ -267,7 +274,7 @@ Constraints에서 "Cognito 도메인 prefix 충돌"이 애초에 발생하지 �
 ### 9. 접근 통제는 `devAllowedCidr` 컨텍스트 하나에 모은다
 
 ALB(80, 8123), RDS(5432)의 인바운드 소스를 **컨텍스트 키 하나**로 통제한다. 쉼표로 구분해
-여러 CIDR을 줄 수 있다.
+여러 CIDR을 줄 수 있다. ADR-0033의 인증서 입력이 있는 ALB는 같은 CIDR로 443 ingress를 추가한다.
 
 ```bash
 npx cdk deploy -c env=dev -c devAllowedCidr=203.0.113.10/32,198.51.100.0/24

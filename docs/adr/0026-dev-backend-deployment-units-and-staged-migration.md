@@ -4,6 +4,9 @@
 
 Accepted — 애플리케이션 API 경로와 health check는 [허브 ADR 0016](../../../docs/adr/0016-use-api-v1-for-application-http-routes.md)이 부분 대체한다. OTLP 경로와 서비스 토폴로지는 유효하다.
 
+[ADR-0033](0033-dev-alb-https-with-external-acm.md)이 인증서 context가 있는 dev ALB의 HTTP 전용
+listener를 HTTPS와 선택적 HTTP redirect로 부분 대체한다. 라우팅·앱 인증·공개 URL 계약은 유지한다.
+
 이 ADR은 dev 환경에 한해 다음 결정을 대체한다.
 
 - [ADR 0004](0004-task-level-colocation.md)의 Collector/Post Processor 및 API Server/Batch Processor co-location
@@ -243,13 +246,15 @@ ECR 선생성과 최초 이미지 준비는 향후 운영자가 별도로 수행
 정상 backend workflow는 enrollment-api를 먼저 안정화하고 telemetry-ingest를 이어서 배포한 뒤,
 두 ECS 서비스가 모두 stable일 때만 성공으로 끝낸다.
 
-현재 dev ALB는 HTTP `:80`만 제공한다. backend `ManifestPayload.hasAllowedEndpoint()`와
+이 전환 당시 dev ALB는 HTTP `:80`만 제공한다. backend `ManifestPayload.hasAllowedEndpoint()`와
 `EnrollmentService.readManifest()`, telemetryctl의 `validOTLPEndpoint()` 및 manifest JSON Schema는
 원격 OTLP endpoint에 HTTPS를 요구하고 `http://localhost`만 HTTP 예외로 허용한다. 따라서
 `PULSEMETRY_PUBLIC_BASE_URL=http://<ALB DNS>`로 bootstrap URL을 만드는 작업과 manifest의 OTLP
 endpoint 계약은 서로 다르다. HTTP ALB 경계의 인증·수집 curl 검증은 이 전환에서 수행하지만,
 CLI enrollment → manifest → OTLP forward E2E는 별도 HTTPS 선행 과제가 준비되기 전에는 완료할 수 없다.
-이 ADR은 HTTP 허용으로 앱·CLI 계약을 약화하지 않고 dev TLS listener·certificate도 추가하지 않는다.
+이 ADR은 HTTP 허용으로 앱·CLI 계약을 약화하지 않는다. TLS listener와 외부 인증서 참조는 후속
+[ADR-0033](0033-dev-alb-https-with-external-acm.md)이 추가하지만 도메인·공개 URL·manifest 정합과
+실제 TLS·CLI E2E 성공은 별도 관문으로 남는다.
 
 ## Alternatives Considered
 
@@ -315,8 +320,8 @@ NAT 없는 awsvpc 태스크의 인터넷 egress 제약까지 가져오므로 기
 - PROJ-145는 전환이 실제로 끝난 뒤 허브 계약의 B3/B4, 인증 주체, 실행 경로와 레포 소유권을
   현행화한다. 목표 상태를 미리 현재 계약으로 쓰지 않는다.
 - 바이너리 공급 경로가 준비되면 `/windows`, `/unix`, `/bin/*` 설치 E2E를 별도로 완료한다.
-- dev TLS listener·certificate와 manifest HTTPS endpoint를 별도 선행 과제로 설계하고, 그 뒤에
-  CLI enrollment → manifest → OTLP forward E2E를 수행한다. HTTP 원격 endpoint를 허용하도록 backend,
+- **부분 완료(ADR-0033)**: dev TLS listener·외부 certificate 참조를 로컬 구현한다. 실제 인증서·도메인과
+  manifest HTTPS endpoint를 준비한 뒤 CLI enrollment → manifest → OTLP forward E2E를 수행한다. HTTP 원격 endpoint를 허용하도록 backend,
   telemetryctl 또는 JSON Schema 계약을 완화하지 않는다.
 - prod의 Collector·post-processor·api-server·batch-processor, Cognito/TLS와 배포 단위 전환은 별도
   ADR과 작업으로 다룬다.

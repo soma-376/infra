@@ -12,6 +12,9 @@
 > 기존 Cognito 연결·빈 client Secret·VersionId 준비는 [OIDC 런북](dev-oidc-prerequisites.md)과
 > [ADR-0032](../adr/0032-dev-oidc-client-secret-runtime-supply.md)을 따른다. OIDC 비활성 bootstrap은
 > 해당 런북의 `DevDataStack` 단독 배포를 먼저 수행하며, 이 문서의 전체 배포보다 앞선다.
+> 외부 ACM 기반 HTTPS는 [dev ALB HTTPS 런북](dev-alb-https.md)을 따른다. 기존 HTTPS 배포에 아래 명령을
+> 적용할 때는 `EKS_CONTEXT`에 기존 `devCertificateArn`·`devEksCertificateArn`과
+> `devHttpRedirectEnabled`를 유지한다. 인증서 연결은 기존 endpoint output·Helm 생성값을 바꾸지 않는다.
 
 ## 1. 실행 범위와 사전 조건
 
