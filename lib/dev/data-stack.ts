@@ -1,4 +1,5 @@
 import {
+  CfnOutput,
   Duration,
   RemovalPolicy,
   Stack,
@@ -49,6 +50,7 @@ const ADMIN_API_TOKEN_LENGTH = 64;
 export interface DevDataStackProps extends StackProps {
   readonly vpc: IVpc;
   readonly rdsSecurityGroup: ISecurityGroup;
+  readonly oidcClientKeys?: readonly string[];
 }
 
 /**
@@ -60,8 +62,8 @@ export interface DevDataStackProps extends StackProps {
  * **앱이 보는 계약(PostgreSQL 16, `controlplane`, `sslmode=require`)은 운영과
  * 같으므로 잃는 것이 없다.**
  *
- * `CfnOutput` 은 여기서 만들지 않는다. 출력은 `DevEdgeStack` 한 곳에 모으고
- * 이 스택은 endpoint/secret ARN 을 public getter 로만 노출한다.
+ * 기존 endpoint/secret 출력은 Edge가 소유한다. OIDC 원본 ARN 맵만 DataStack 단독
+ * bootstrap에 필요하므로 여기서 출력한다(ADR-0032).
  */
 export class DevDataStack extends Stack {
   public readonly database: DatabaseInstance;
@@ -82,6 +84,7 @@ export class DevDataStack extends Stack {
   /** 운영자가 키 버전을 등록할 JWT 원본. PROJ-230이 IAM·파일 공급을 연결한다. */
   public readonly userJwtPrivateKeySecret: ISecret;
   public readonly userJwtPublicKeysSecret: ISecret;
+  public readonly oidcClientSecrets: Readonly<Record<string, ISecret>>;
   public readonly rawSignalBucket: IBucket;
 
   constructor(scope: Construct, id: string, props: DevDataStackProps) {
@@ -203,6 +206,21 @@ export class DevDataStack extends Stack {
     this.userJwtPublicKeysSecret = Secret.fromSecretCompleteArn(
       this, 'DevUserJwtPublicKeysReference', userJwtPublicKeys.ref,
     );
+
+    // key에 고정한 원본이므로 목록 재정렬·다른 client 추가가 기존 Secret을 교체하지 않는다.
+    this.oidcClientSecrets = Object.fromEntries([...(props.oidcClientKeys ?? [])].sort().map(key => {
+      const resource = new CfnSecret(this, `DevOidcClientSecret-${key}`, {
+        name: `soma-376/dev/oidc/clients/${key}`,
+        description: 'Versioned client secret for dev enrollment OIDC.',
+      });
+      resource.applyRemovalPolicy(RemovalPolicy.RETAIN);
+      return [key, Secret.fromSecretCompleteArn(this, `DevOidcClientReference-${key}`, resource.ref)];
+    }));
+    if (Object.keys(this.oidcClientSecrets).length) {
+      new CfnOutput(this, 'OidcClientSecretArns', {
+        value: this.toJsonString(Object.fromEntries(Object.entries(this.oidcClientSecrets).map(([key, secret]) => [key, secret.secretArn]))),
+      }).overrideLogicalId('OidcClientSecretArns');
+    }
 
     this.rawSignalBucket = new Bucket(this, 'DevRawSignalBucket', {
       // bucketName 을 주지 않는다. CDK 가 스택명에서 이름을 유도하므로 운영 버킷과

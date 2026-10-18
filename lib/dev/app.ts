@@ -57,6 +57,7 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     env,
     vpc: network.vpc,
     rdsSecurityGroup: network.rdsSecurityGroup,
+    oidcClientKeys: config.dashboardRuntime.oidc?.clients.map(client => client.key),
   });
 
   const application = new DevApplicationStack(app, 'DevApplicationStack', {
@@ -69,6 +70,7 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     tokenHashSecret: data.tokenHashSecret,
     userJwtPrivateKeySecret: data.userJwtPrivateKeySecret,
     userJwtPublicKeysSecret: data.userJwtPublicKeysSecret,
+    oidcClientSecrets: data.oidcClientSecrets,
     dashboardDatabaseSecrets: { rdsSource: data.dashboardRdsSourceSecret, rdsCache: data.dashboardRdsCacheSecret,
       clickhouseSource: data.dashboardClickHouseSourceSecret, clickhouseCache: data.dashboardClickHouseCacheSecret },
     rawSignalBucket: data.rawSignalBucket,
@@ -105,6 +107,7 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     dashboardClickHouseCacheSecret: data.dashboardClickHouseCacheSecret,
     userJwtPrivateKeySecret: data.userJwtPrivateKeySecret,
     userJwtPublicKeysSecret: data.userJwtPublicKeysSecret,
+    oidcClientSecrets: data.oidcClientSecrets,
     rawSignalBucket: data.rawSignalBucket,
     controlPlaneSecurityGroup: network.eksControlPlaneSecurityGroup!,
     appNodeSecurityGroup: network.eksAppNodeSecurityGroup!,

@@ -20,6 +20,7 @@ export interface DevEksStackProps extends StackProps {
   readonly dashboardClickHouseCacheSecret: ISecret;
   readonly userJwtPrivateKeySecret: ISecret;
   readonly userJwtPublicKeysSecret: ISecret;
+  readonly oidcClientSecrets?: Readonly<Record<string, ISecret>>;
   readonly rawSignalBucket: IBucket;
   readonly vpc: IVpc;
   readonly controlPlaneSecurityGroup: ISecurityGroup;
@@ -96,6 +97,7 @@ export class DevEksStack extends Stack {
       dashboardClickHouseCacheSecret: props.dashboardClickHouseCacheSecret,
       userJwtPrivateKeySecret: props.userJwtPrivateKeySecret,
       userJwtPublicKeysSecret: props.userJwtPublicKeysSecret,
+      oidcClientSecrets: props.oidcClientSecrets,
       rawSignalBucket: props.rawSignalBucket, archivePrefix: props.config.archivePrefix,
     });
 
