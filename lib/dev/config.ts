@@ -1,4 +1,5 @@
 import { DevEksConfig, loadDevEksConfig } from './eks-config';
+import { DevEdgeConfig, loadDevEdgeConfig } from './edge-config';
 import { DashboardRuntimeConfig, loadDashboardRuntimeConfig } from './dashboard-runtime-config';
 import { Annotations, App, Duration } from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
@@ -268,11 +269,12 @@ const DEV_DEFAULT_APP_ASG_MAX_CAPACITY = 1;
 const DEV_DEFAULT_IMAGE_TAG = 'dev';
 
 /**
- * dev 배포별 가변값. context 키 4개에서만 온다.
+ * dev 배포별 가변값. 앱 runtime, EKS, ALB 입력을 같은 context에서 읽는다.
  */
 export interface DevConfig {
   readonly eks: DevEksConfig;
-  /** ALB(80/8123)와 RDS(5432)의 인바운드 허용 소스. 항상 1개 이상이다. */
+  readonly edge: DevEdgeConfig;
+  /** ALB(80/선택적 443/8123)와 RDS(5432)의 인바운드 허용 소스. 항상 1개 이상이다. */
   readonly allowedCidrs: readonly string[];
   /** 앱 호스트 ASG 의 최대 용량. 부하 테스트 확장 손잡이다 (ADR-0022 11번). */
   readonly appAsgMaxCapacity: number;
@@ -284,13 +286,16 @@ export interface DevConfig {
 /**
  * CDK context 에서 dev 설정을 로드한다.
  * context 키: devAllowedCidr, devAppAsgMaxCapacity, devImageTag, devDashboardRuntimeFile.
+ * ALB: devCertificateArn, devEksCertificateArn, devHttpRedirectEnabled. (ADR-0033)
  *
  * `devAllowedCidr` 은 쉼표로 여러 개를 줄 수 있다.
  *   npx cdk deploy --all -c env=dev -c devAllowedCidr=203.0.113.10/32,198.51.100.0/24
  */
 export function loadDevConfig(app: App): DevConfig {
+  const eks = loadDevEksConfig(app);
   return {
-    eks: loadDevEksConfig(app),
+    eks,
+    edge: loadDevEdgeConfig(app, eks.enabled),
     dashboardRuntime: loadDashboardRuntimeConfig(app),
     allowedCidrs: parseAllowedCidrs(
       app.node.tryGetContext('devAllowedCidr') as string | undefined,
@@ -365,11 +370,11 @@ export function warnOnOpenIngress(
 
   Annotations.of(scope).addWarningV2(
     'infra:dev-open-ingress',
-    `devAllowedCidr 미지정(또는 ${DEV_OPEN_CIDR} 명시): ALB(80/8123)와 RDS(5432)의 ` +
+    `devAllowedCidr 미지정(또는 ${DEV_OPEN_CIDR} 명시): ALB(80/선택적 443/8123)와 RDS(5432)의 ` +
       '인바운드가 인터넷에 전면 공개된다. ClickHouse 의 default 유저는 비밀번호가 없고 ' +
       'access_management=1 을 가지므로(ADR-0019) 8123 에 닿을 수 있는 주체는 사실상 ' +
       '관리자이며, RDS 는 마스터 자격증명 무차별 대입에 노출된다. ' +
-      '80의 telemetry-ingest·enrollment-api 경로도 같은 CIDR에 공개된다. ' +
+      '앱 listener의 telemetry-ingest·enrollment-api·dashboard-api 경로도 같은 CIDR에 공개된다. ' +
       '`-c devAllowedCidr=<내 IP>/32` 로 좁혀서 배포한다 (ADR-0022 9번).',
   );
 }

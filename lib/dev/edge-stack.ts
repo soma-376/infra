@@ -16,8 +16,11 @@ import {
 } from './config';
 import { DevWaf } from './waf';
 import { DevEksValidationEdge } from './eks-validation-edge';
+import { DevEdgeConfig } from './edge-config';
+import { addDevAppListener } from './app-listener';
 
 export interface DevEdgeStackProps extends StackProps {
+  readonly edge?: DevEdgeConfig;
   readonly vpc: IVpc;
   readonly albSecurityGroup: ISecurityGroup;
   /** EKS 활성화 때만 별도 검증 ALB를 만든다. SG 소유자는 Network다. */
@@ -39,7 +42,7 @@ export interface DevEdgeStackProps extends StackProps {
 }
 
 /**
- * DevEdgeStack: internet-facing ALB(리스너 2개) + dev WAF + CfnOutput.
+ * DevEdgeStack: internet-facing ALB + 선택적 HTTPS(ADR-0033) + dev WAF + CfnOutput.
  *
  * **Cognito / CloudFront / 프론트엔드 S3 를 만들지 않는다. 의도적 생략이다.**
  * dev 프론트엔드는 로컬에서 띄워 이 ALB 를 향하게 한다 - 프론트 개발 중에는
@@ -47,7 +50,7 @@ export interface DevEdgeStackProps extends StackProps {
  * 루프를 느리게 만든다. Cognito 를 만들지 않는 덕에 ADR-0021 Constraints 의
  * "Cognito 도메인 prefix 충돌"이 애초에 발생하지 않는다. (ADR-0022 8번)
  *
- * `:80`은 정확한 OTLP 세 경로를 telemetry-ingest로, `/api/v1`의 등록·인증·관리와
+ * 앱 listener(기본 `:80`, 인증서 입력 시 `:443`)는 정확한 OTLP 세 경로를 telemetry-ingest로, `/api/v1`의 등록·인증·관리와
  * bootstrap 경로를 enrollment-api로 전달한다. 인증을 우회하던 `:4318`과 기존
  * `/api/*` 리스너 규칙은 제거했다. (ADR-0026)
  */
@@ -69,13 +72,15 @@ export class DevEdgeStack extends Stack {
     this.buildAppListener(props, alb);
     this.buildClickhouseListener(props, alb);
 
-    // association은 두 리스너 전체에 적용하며 기존 listener·target group·SG는 바꾸지 않는다.
+    // WAF association은 HTTPS와 redirect를 포함한 ALB의 모든 listener에 적용한다.
     const waf = new DevWaf(this, 'DevWaf', { loadBalancerArn: alb.loadBalancerArn });
     if (props.eksValidationAlbSecurityGroup) {
       new DevEksValidationEdge(this, 'EksValidation', {
         vpc: props.vpc,
         securityGroup: props.eksValidationAlbSecurityGroup,
         webAclArn: waf.webAcl.attrArn,
+        certificateArn: props.edge?.eksCertificateArn,
+        httpRedirectEnabled: props.edge?.httpRedirectEnabled,
       });
     }
 
@@ -100,7 +105,7 @@ export class DevEdgeStack extends Stack {
   }
 
   /**
-   * :80 리스너 - 정확한 앱 경로만 각 배포 단위로 전달한다.
+   * 기본 :80, 인증서 입력 시 :443 - 정확한 앱 경로만 각 배포 단위로 전달한다.
    *
    * 기본 액션은 fixed-response 404 다(운영 모드 B 와 같은 형태). 명시 규칙에
    * 걸리지 않은 요청이 어느 백엔드로도 새지 않게 한다. (ADR-0026)
@@ -109,20 +114,9 @@ export class DevEdgeStack extends Stack {
     props: DevEdgeStackProps,
     alb: ApplicationLoadBalancer,
   ): void {
-    const listener = alb.addListener('DevHttpListener', {
-      port: PORTS.http,
-      protocol: ApplicationProtocol.HTTP,
-      // **`open: false` 를 빼면 `devAllowedCidr` 이 무의미해진다.** CDK 의
-      // `addListener` 기본값(`open: true`)은 리스너 포트를 `0.0.0.0/0` 에 여는
-      // 인그레스를 ALB SG 에 자동으로 추가한다. 운영에서는 `NetworkStack` 이 이미
-      // anyIpv4 룰을 갖고 있어 dedup 되지만, dev 는 CIDR 을 좁히는 것이 목적이라
-      // 그 자동 룰이 좁힌 룰 옆에 그대로 남아 전면 공개로 되돌린다.
-      // 인바운드는 전부 `DevNetworkStack` 이 정한다. (ADR-0022 2번/9번)
-      open: false,
-      defaultAction: ListenerAction.fixedResponse(404, {
-        contentType: 'text/plain',
-        messageBody: 'Not Found',
-      }),
+    const listener = addDevAppListener(alb, 'DevHttpListener', {
+      certificateArn: props.edge?.certificateArn,
+      httpRedirectEnabled: props.edge?.httpRedirectEnabled,
     });
 
     // 신규 두 Spring 태스크는 bridge + 동적 host port를 쓰므로 ALB에
