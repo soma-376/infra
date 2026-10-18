@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dump, load, JSON_SCHEMA } from 'js-yaml';
 import runtimeInputs from '../lib/dev/runtime-input.cjs';
-const { parseRuntimeInputs } = runtimeInputs;
+const { parseRuntimeInputs, oidcClientBindings } = runtimeInputs;
 
 export function parseRuntimeValues(text) {
   let value;
@@ -39,6 +39,33 @@ function image(value, label) {
   if (!match) throw new Error(`${label}: repository@sha256:<64자리 lowercase hex> 이미지가 필요하다`);
   if (!match[1].includes('/') || match[1].includes('://')) throw new Error(`${label}: registry/repository가 필요하다`);
   return { repository: match[1], digest: match[2] };
+}
+
+// 원본은 CDK가 만든 key→ARN output뿐이다. 별도 ARN 입력으로 IAM 경계를 넓히지 않는다.
+function oidcValues(oidc, outputs, existingSecrets) {
+  if (!oidc?.enabled) return { enabled: false };
+  const source = outputs.OidcClientSecretArns;
+  let declared;
+  try {
+    declared = JSON.parse(source);
+    load(source, { schema: JSON_SCHEMA }); // JSON.parse가 허용하는 중복 키도 거부한다.
+  } catch { throw new Error('OidcClientSecretArns: 중복 키 없는 CDK JSON output이 필요하다'); }
+  if (!declared || typeof declared !== 'object' || Array.isArray(declared)) throw new Error('OidcClientSecretArns: key→ARN 맵이 필요하다');
+  const account = /^arn:aws:secretsmanager:ap-northeast-2:([0-9]{12}):secret:.+$/.exec(outputs.DbSecretArn)?.[1];
+  if (!account) throw new Error('OidcClientSecretArns: 기존 dev Secret과 계정·리전을 확인할 수 없다');
+  const arns = new Set(existingSecrets);
+  for (const [key, value] of Object.entries(declared)) {
+    if (!/^[A-Za-z0-9_-]+$/.test(key) || typeof value !== 'string' ||
+        !new RegExp(`^arn:aws:secretsmanager:ap-northeast-2:${account}:secret:soma-376/dev/oidc/clients/${key}-[A-Za-z0-9]{6}$`).test(value) || arns.has(value)) {
+      throw new Error('OidcClientSecretArns: CDK 소유의 독립된 dev client Secret ARN이 필요하다');
+    }
+    arns.add(value);
+  }
+  const clients = oidcClientBindings(oidc).map(client => {
+    if (!Object.hasOwn(declared, client.key)) throw new Error('OidcClientSecretArns: 선택한 client key의 배포 output이 없다');
+    return { ...client, secretArn: declared[client.key] };
+  });
+  return { ...oidc, clients };
 }
 
 export function generateValues(document, enrollmentImage, ingestImage, dashboardImage, runtimeInput) {
@@ -85,6 +112,7 @@ export function generateValues(document, enrollmentImage, ingestImage, dashboard
   const dashboardSecrets = { dashboardRdsSourceArn: arn('DashboardRdsSourceSecretArn', 'secretsmanager'), dashboardRdsCacheArn: arn('DashboardRdsCacheSecretArn', 'secretsmanager'), dashboardClickHouseSourceArn: arn('DashboardClickHouseSourceSecretArn', 'secretsmanager'), dashboardClickHouseCacheArn: arn('DashboardClickHouseCacheSecretArn', 'secretsmanager'), userJwtPrivateKeyArn: arn('UserJwtPrivateKeySecretArn', 'secretsmanager'), userJwtPublicKeysArn: arn('UserJwtPublicKeysSecretArn', 'secretsmanager') };
   const allSecrets = [...Object.values(dashboardSecrets), ...['DbSecretArn', 'TokenHashSecretArn', 'AdminApiTokenSecretArn'].map(required)];
   if (new Set(allSecrets).size !== allSecrets.length) throw new Error('DB 계정·JWT·기존 인증 Secret 원본은 서로 달라야 한다');
+  const oidc = oidcValues(runtime.oidc, outputs, allSecrets);
   const commonFiles = ['PULSEMETRY_DB_USERNAME', 'PULSEMETRY_DB_PASSWORD', 'PULSEMETRY_TOKEN_HASH_SECRET'];
   const binding = key => [{ stage: 'validation', targetGroupARN: arn(key, 'elasticloadbalancing'), confirmExclusiveOwnership: true }];
   const values = {
@@ -93,10 +121,11 @@ export function generateValues(document, enrollmentImage, ingestImage, dashboard
     'runtime.yaml': {
       region, secrets: { dbArn: arn('DbSecretArn', 'secretsmanager'), tokenHashArn: arn('TokenHashSecretArn', 'secretsmanager'), adminApiTokenArn: arn('AdminApiTokenSecretArn', 'secretsmanager'), ...dashboardSecrets },
       userAuth: { privateVersionId: auth.privateVersionId, publicVersionId: auth.publicVersionId, activeKid: auth.activeKid, publicKeys: auth.publicKeys },
+      oidc,
     },
     'enrollment-api.yaml': {
-      image: image(enrollmentImage, 'enrollment image'), vpcId, jwt: jwt(true), userAuth: authSettings,
-      runtime: { enabled: true, secretProviderClass: 'enrollment-api-runtime', requiredFiles: [...commonFiles, 'PULSEMETRY_ADMIN_API_TOKEN'] },
+      image: image(enrollmentImage, 'enrollment image'), vpcId, jwt: jwt(true), userAuth: { ...authSettings, ...(auth.allowedRedirectUris ? { allowedRedirectUris: auth.allowedRedirectUris } : {}) }, oidc,
+      runtime: { enabled: true, secretProviderClass: 'enrollment-api-runtime', requiredFiles: [...commonFiles, 'PULSEMETRY_ADMIN_API_TOKEN', ...(oidc.enabled ? oidc.clients.map(client => client.alias) : [])] },
       env: { PULSEMETRY_DB_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_PUBLIC_BASE_URL: publicBaseUrl, PULSEMETRY_BINARIES_DIR: '/app/binaries', PULSEMETRY_MANAGEMENT_ENABLED: String(runtime.dashboard.managementEnabled), PULSEMETRY_MAIL_ENABLED: String(runtime.dashboard.mailEnabled) },
       targetGroupBindings: binding('ValidationEnrollmentApiTargetGroupArn'),
     },

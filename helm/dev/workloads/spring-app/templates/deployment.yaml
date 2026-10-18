@@ -1,4 +1,5 @@
 {{- include "pulsemetry.app.validate" . -}}
+{{- $oidc := .Values.oidc | default (dict "enabled" false) -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,6 +19,9 @@ spec:
       {{- if .Values.jwt.enabled }}
       annotations:
         pulsemetry.io/jwt-revision: {{ .Values.jwt | toJson | sha256sum | quote }}
+        {{- if $oidc.enabled }}
+        pulsemetry.io/oidc-revision: {{ $oidc | toJson | sha256sum | quote }}
+        {{- end }}
       {{- end }}
       labels:
         {{- include "pulsemetry.app.selector" . | nindent 8 }}
@@ -104,17 +108,41 @@ spec:
               value: {{ .Values.userAuth.audience | quote }}
             - name: PULSEMETRY_USER_AUTH_ALLOWED_ORIGINS
               value: {{ join "," .Values.userAuth.allowedOrigins | quote }}
+            {{- if and (eq .Values.workload "enrollment-api") .Values.userAuth.allowedRedirectUris }}
+            - name: PULSEMETRY_USER_AUTH_ALLOWED_REDIRECT_URIS
+              value: {{ join "," .Values.userAuth.allowedRedirectUris | quote }}
+            {{- end }}
             {{- $files := dict }}
             {{- range .Values.jwt.publicKeys }}
             {{- $_ := set $files (printf "[%s]" .kid) (printf "/mnt/user-jwt/keys/%s" .alias) }}
             {{- end }}
+            {{- $pulsemetry := dict "user-auth" (dict "public-key-files" $files) }}
+            {{- if $oidc.enabled }}
+            {{- $clients := dict }}
+            {{- range $oidc.clients }}
+            {{- $_ := set $clients (printf "[%s]" .key) (printf "${%s}" .alias) }}
+            {{- end }}
+            {{- $_ := set $pulsemetry "oidc" (dict "callback-registration-id" $oidc.callbackRegistrationId "client-secrets" $clients) }}
+            {{- end }}
             - name: SPRING_APPLICATION_JSON
-              value: {{ dict "pulsemetry" (dict "user-auth" (dict "public-key-files" $files)) | toJson | quote }}
+              value: {{ dict "pulsemetry" $pulsemetry | toJson | quote }}
             {{- if eq .Values.workload "enrollment-api" }}
             - name: PULSEMETRY_USER_AUTH_ACTIVE_KID
               value: {{ .Values.jwt.activeKid | quote }}
             - name: PULSEMETRY_USER_AUTH_PRIVATE_KEY_FILE
               value: /mnt/user-jwt/keys/private.pem
+            {{- end }}
+            {{- end }}
+            {{- if hasKey .Values "oidc" }}
+            - name: PULSEMETRY_OIDC_ENABLED
+              value: {{ $oidc.enabled | toString | quote }}
+            {{- if $oidc.enabled }}
+            - name: PULSEMETRY_OIDC_CALLBACK_BASE_URL
+              value: {{ $oidc.callbackBaseUrl | quote }}
+            {{- if $oidc.failureRedirectUri }}
+            - name: PULSEMETRY_OIDC_FAILURE_REDIRECT_URI
+              value: {{ $oidc.failureRedirectUri | quote }}
+            {{- end }}
             {{- end }}
             {{- end }}
             {{- range $name, $value := .Values.env }}
