@@ -39,6 +39,10 @@ variables {
 }
 run "dev_https_and_single_process" {
   assert {
+    condition     = aws_lb_target_group.frontend.health_check[0].path == "/login" && aws_lb_target_group.frontend.health_check[0].matcher == "200"
+    error_message = "루트의 로그인 리다이렉트 대신 실제 로그인 페이지의 200 응답으로 상태를 검사해야 합니다."
+  }
+  assert {
     condition     = aws_ecs_task_definition.frontend.skip_destroy
     error_message = "태스크 정의 revision을 보관하여 CI에 계정 전체 등록 해제 권한을 주지 않아야 합니다."
   }
