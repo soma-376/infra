@@ -12,7 +12,7 @@
 | 0006 | [ClickHouse 데이터 내구성 - MVP에서는 로컬 EBS 수용](0006-accept-local-ebs-durability-for-mvp.md) | Accepted |
 | 0007 | [ECR 레포지토리는 CDK 관리 밖에서 선(先)생성](0007-precreate-ecr-outside-cdk.md) | Accepted (dev 이미지 목록 부분 대체: ADR 0026) |
 | 0008 | [인증 이원화 - 대시보드는 ALB authenticate-cognito, OTLP는 ALB jwt-validation](0008-dual-auth-alb-cognito-and-otlp-token.md) | Superseded by 허브 ADR 0001 |
-| 0009 | [CDK 스택 경계 - 인프라 레포 단일 관리 + 앱 레포는 이미지 배포만](0009-single-infra-repo-stack-boundary.md) | Accepted — 프론트엔드 범위는 [0027](0027-isolate-frontend-terraform-network.md)로 대체 |
+| 0009 | [CDK 스택 경계 - 인프라 레포 단일 관리 + 앱 레포는 이미지 배포만](0009-single-infra-repo-stack-boundary.md) | Accepted — 프론트엔드 범위는 [0030](0030-isolate-frontend-terraform-network.md)로 대체 |
 | 0010 | [고정 IP(EIP) 미채택](0010-no-static-eip.md) | Accepted |
 | 0011 | [최소 AZ 구성 - 서브넷은 2 AZ, 이중화는 미적용](0011-single-az-topology.md) | Accepted |
 | 0012 | [컨트롤 플레인 DB 엔진으로 PostgreSQL 검토](0012-aurora-postgresql-for-control-plane.md) | Proposed |
@@ -30,11 +30,12 @@
 | 0024 | [GitHub Actions 배포 - 레포×환경 4개 OIDC 역할과 ECS 물리 이름 고정](0024-github-actions-oidc-deploy-roles.md) | Accepted (dev 대상 부분 대체: ADR 0026) |
 | 0025 | [개발 MVP의 비-ClickHouse ALB 타깃에 60초 deregistration delay 적용](0025-use-60-second-dev-deregistration-delay.md) | Accepted (dev 대상 부분 대체: ADR 0026) |
 | 0026 | [dev 백엔드를 telemetry-ingest·enrollment-api·ClickHouse 세 서비스로 전환](0026-dev-backend-deployment-units-and-staged-migration.md) | Accepted (API 경로·health check는 허브 ADR 0016이 부분 대체) |
-| 0027 | [프론트엔드 기반 인프라는 독립 Terraform 상태로 관리한다](0027-isolate-frontend-terraform-network.md) | Accepted |
+| 0027 | [dev ALB에 경로별 Count 예외를 가진 WAF를 적용](0027-dev-alb-waf-policy.md) | Accepted (배포 증거 대기) |
 | 0028 | [프론트엔드 HTTPS와 단일 컨테이너 실행 환경을 Terraform으로 관리한다](0028-frontend-alb-and-container-runtime.md) | Accepted (DNS·ACM은 0029로 부분 대체) |
 | 0029 | [프론트 DNS는 외부에서 관리하고 발급된 ACM 인증서를 참조한다](0029-use-external-dns-and-existing-frontend-certificate.md) | Accepted |
+| 0030 | [프론트엔드 기반 인프라는 독립 Terraform 상태로 관리한다](0030-isolate-frontend-terraform-network.md) | Accepted |
 
-새 ADR을 작성할 때는 다음 미사용 번호(`0030-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했으며 기존 CDK 정책 검토 범위는 `AGENTS.md` 섹션 5 (F)를 따른다.
+새 ADR을 작성할 때는 다음 미사용 번호(`0031-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했으며 기존 CDK 정책 검토 범위는 `AGENTS.md` 섹션 5 (F)를 따른다.
 
 섹션 순서는 다음과 같다. 괄호로 표시한 것은 내용이 있을 때만 둔다.
 
