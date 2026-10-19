@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — [PROJ-216](https://team376.atlassian.net/browse/PROJ-216). ADR 0027의 기반 인프라에 실행 환경을 추가한다. 실제 AWS 적용은 별도 운영 단계다.
+Accepted — 부분 대체: [ADR 0029](0029-use-external-dns-and-existing-frontend-certificate.md)가 Route 53·ACM 생성 결정을 대체한다. 나머지 결정은 유효하다. [PROJ-216](https://team376.atlassian.net/browse/PROJ-216). ADR 0027의 기반 인프라에 실행 환경을 추가한다. 실제 AWS 적용은 별도 운영 단계다.
 
 ## Context
 

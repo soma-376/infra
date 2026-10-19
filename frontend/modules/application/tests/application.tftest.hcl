@@ -1,8 +1,5 @@
 mock_provider "aws" {
   override_during = plan
-  mock_data "aws_route53_zone" {
-    defaults = { name = "example.com.", zone_id = "ZEXAMPLE", private_zone = false }
-  }
   mock_data "aws_secretsmanager_secret" {
     defaults = { arn = "arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:mock-bff-123456" }
   }
@@ -11,15 +8,6 @@ mock_provider "aws" {
   }
   mock_resource "aws_security_group" {
     defaults = { id = "sg-0123456789abcdef0" }
-  }
-  mock_resource "aws_acm_certificate" {
-    defaults = {
-      arn                       = "arn:aws:acm:ap-northeast-2:111111111111:certificate/00000000-0000-0000-0000-000000000001"
-      domain_validation_options = [{ domain_name = "frontend.example.com", resource_record_name = "_token.frontend.example.com", resource_record_type = "CNAME", resource_record_value = "_value.acm-validations.aws." }]
-    }
-  }
-  mock_resource "aws_acm_certificate_validation" {
-    defaults = { certificate_arn = "arn:aws:acm:ap-northeast-2:111111111111:certificate/00000000-0000-0000-0000-000000000001" }
   }
   mock_resource "aws_lb" {
     defaults = { arn = "arn:aws:elasticloadbalancing:ap-northeast-2:111111111111:loadbalancer/app/mock/1234567890123456", dns_name = "mock.ap-northeast-2.elb.amazonaws.com", zone_id = "ZALB" }
@@ -34,10 +22,6 @@ mock_provider "aws" {
     defaults = { arn = "arn:aws:ecs:ap-northeast-2:111111111111:task-definition/mock:1" }
   }
 }
-override_data {
-  target = data.aws_route53_zone.frontend
-  values = { name = "example.com.", zone_id = "ZEXAMPLE", private_zone = false }
-}
 variables {
   aws_account_id     = "111111111111"
   environment        = "dev"
@@ -46,7 +30,7 @@ variables {
   private_subnet_ids = ["subnet-00000000000000003", "subnet-00000000000000004"]
   runtime = {
     domain_name        = "frontend.example.com"
-    route53_zone_id    = "ZEXAMPLE"
+    certificate_arn    = "arn:aws:acm:ap-northeast-2:111111111111:certificate/00000000-0000-0000-0000-000000000001"
     image_digest       = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     enrollment_api_url = "https://enrollment.example.com"
     dashboard_api_url  = "https://dashboard.example.com"
@@ -56,8 +40,12 @@ variables {
 run "dev_https_and_single_process" {
   command = plan
   assert {
-    condition     = aws_lb_listener.http.default_action[0].redirect[0].protocol == "HTTPS" && aws_lb_listener.https.protocol == "HTTPS" && aws_acm_certificate.frontend.validation_method == "DNS"
-    error_message = "HTTP는 인증된 HTTPS로만 전환해야 합니다."
+    condition     = aws_lb_listener.http.default_action[0].redirect[0].protocol == "HTTPS" && aws_lb_listener.https.protocol == "HTTPS" && aws_lb_listener.https.certificate_arn == var.runtime.certificate_arn && output.certificate_arn == var.runtime.certificate_arn
+    error_message = "HTTP는 입력한 기존 인증서가 연결된 HTTPS로 전환해야 합니다."
+  }
+  assert {
+    condition     = output.alb_dns_name == "mock.ap-northeast-2.elb.amazonaws.com" && output.endpoint == "https://frontend.example.com"
+    error_message = "외부 DNS 연결용 ALB 주소와 사용자 HTTPS 주소를 출력해야 합니다."
   }
   assert {
     condition     = aws_vpc_security_group_ingress_rule.app.referenced_security_group_id == aws_security_group.alb.id && aws_vpc_security_group_ingress_rule.app.cidr_ipv4 == null && aws_vpc_security_group_ingress_rule.app.from_port == 3000 && aws_vpc_security_group_egress_rule.app_https.to_port == 443
@@ -93,7 +81,7 @@ run "reject_mutable_image_tag" {
   variables {
     runtime = {
       domain_name        = "frontend.example.com"
-      route53_zone_id    = "ZEXAMPLE"
+      certificate_arn    = "arn:aws:acm:ap-northeast-2:111111111111:certificate/00000000-0000-0000-0000-000000000001"
       image_digest       = "latest"
       enrollment_api_url = "https://enrollment.example.com"
       dashboard_api_url  = "https://dashboard.example.com"
@@ -107,9 +95,39 @@ run "reject_plain_http_backend" {
   variables {
     runtime = {
       domain_name        = "frontend.example.com"
-      route53_zone_id    = "ZEXAMPLE"
+      certificate_arn    = "arn:aws:acm:ap-northeast-2:111111111111:certificate/00000000-0000-0000-0000-000000000001"
       image_digest       = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       enrollment_api_url = "http://enrollment.example.com"
+      dashboard_api_url  = "https://dashboard.example.com"
+      dev_ami_id         = "ami-0123456789abcdef0"
+    }
+  }
+  expect_failures = [var.runtime]
+}
+
+run "reject_certificate_other_account" {
+  command = plan
+  variables {
+    runtime = {
+      domain_name        = "frontend.example.com"
+      certificate_arn    = "arn:aws:acm:ap-northeast-2:222222222222:certificate/00000000-0000-0000-0000-000000000001"
+      image_digest       = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      enrollment_api_url = "https://enrollment.example.com"
+      dashboard_api_url  = "https://dashboard.example.com"
+      dev_ami_id         = "ami-0123456789abcdef0"
+    }
+  }
+  expect_failures = [var.runtime]
+}
+
+run "reject_certificate_other_region" {
+  command = plan
+  variables {
+    runtime = {
+      domain_name        = "frontend.example.com"
+      certificate_arn    = "arn:aws:acm:us-east-1:111111111111:certificate/00000000-0000-0000-0000-000000000001"
+      image_digest       = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      enrollment_api_url = "https://enrollment.example.com"
       dashboard_api_url  = "https://dashboard.example.com"
       dev_ami_id         = "ami-0123456789abcdef0"
     }

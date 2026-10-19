@@ -10,18 +10,22 @@ variable "vpc_id" { type = string }
 variable "public_subnet_ids" { type = list(string) }
 variable "private_subnet_ids" { type = list(string) }
 variable "runtime" {
-  description = "비밀 값을 포함하지 않는 실행 설정. 도메인과 zone은 bootstrap DNS 권한 설정과 같아야 한다."
+  description = "비밀 값을 포함하지 않는 실행 설정. 인증서는 같은 계정·서울 리전에서 발급하고 DNS는 외부에서 관리한다."
   type = object({
     domain_name        = string
-    route53_zone_id    = string
+    certificate_arn    = string
     image_digest       = string
     enrollment_api_url = string
     dashboard_api_url  = string
     dev_ami_id         = optional(string)
   })
   validation {
-    condition     = can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$", var.runtime.domain_name)) && can(regex("^Z[A-Z0-9]+$", var.runtime.route53_zone_id))
-    error_message = "소문자 FQDN(와일드카드·끝 마침표 제외)과 Route 53 zone ID를 입력하세요."
+    condition     = can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$", var.runtime.domain_name))
+    error_message = "소문자 FQDN(와일드카드·끝 마침표 제외)을 입력하세요."
+  }
+  validation {
+    condition     = can(regex("^arn:aws:acm:ap-northeast-2:${var.aws_account_id}:certificate/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", var.runtime.certificate_arn))
+    error_message = "같은 AWS 계정의 서울 리전 ACM 인증서 ARN을 입력하세요."
   }
   validation {
     condition     = can(regex("^sha256:[0-9a-f]{64}$", var.runtime.image_digest))

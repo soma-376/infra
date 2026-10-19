@@ -1,9 +1,10 @@
 # 프론트엔드 Terraform 기반 인프라
 
 기존 `lib/`의 CDK 리소스와 별개로 관리한다. [PROJ-216](https://team376.atlassian.net/browse/PROJ-216)의
-범위는 부트스트랩·네트워크·ALB·ACM·개발 EC2·운영 Fargate와 Terraform CI다.
+범위는 부트스트랩·네트워크·ALB·기존 ACM 인증서 연결·개발 EC2·운영 Fargate와 Terraform CI다.
 근거는 [ADR 0027](../docs/adr/0027-isolate-frontend-terraform-network.md),
-[ADR 0028](../docs/adr/0028-frontend-alb-and-container-runtime.md)이다.
+[ADR 0028](../docs/adr/0028-frontend-alb-and-container-runtime.md),
+[ADR 0029](../docs/adr/0029-use-external-dns-and-existing-frontend-certificate.md)이다.
 **코드와 mock 검증이며 AWS에 적용한 결과가 아니다.**
 
 ## 네트워크
@@ -28,7 +29,7 @@
 frontend/
   bootstrap/           상태용 S3 3개, ECR·CI 역할·실행 역할·BFF secret 메타데이터
   modules/network/     환경별 네트워크 공통 코드
-  modules/application/ ALB·ACM·DNS·SG·로그·ECS·개발 EC2
+  modules/application/ ALB·기존 인증서 연결·SG·로그·ECS·개발 EC2
   environments/dev/    개발 root / 독립 backend
   environments/prod/   운영 root / 독립 backend
   scripts/check.sh     AWS 자격증명 없는 검증
@@ -45,9 +46,8 @@ apply 역할은 네트워크/SG의 소유권 태그와 환경별 리소스 이�
 EC2 실행 권한은 dev에만 주고, IAM 수정 권한은 주지 않는다. 고정 execution/instance 역할에 대한
 서비스별 PassRole만 허용한다. plan은 메타데이터·자기 환경 상태 읽기와 잠금만 가능하다.
 CI는 secret 값을 읽지 않는다. 실행 역할은 자기 환경 ECR·로그·BFF secret만 사용한다.
-ACM 태그 포함 생성은 AddTags 권한도 요구하므로 소유권 태그가 없는 인증서에 초기 태그를
-붙이는 권한이 있다. IAM은 이것이 방금 생성한 인증서인지 구분하지 못하므로, 같은 계정의 기존
-인증서에도 소유권 태그를 유지하고 이 CI 역할을 검토된 workflow에서만 사용한다.
+DNS와 ACM 인증서 발급·검증은 외부에서 관리한다. CI 역할에 Route 53 및 ACM 조회·변경
+권한을 주지 않으며, ALB 리스너에 이미 발급된 인증서 ARN만 연결한다.
 실제 IAM 평가는 SCP·permission boundary·서비스 조건에 영향을 받으므로 mock 결과와 구분한다.
 
 ## 로컬 및 PR 검증
@@ -143,13 +143,13 @@ apply는 환경별 직렬화, S3 잠금, 실행 직전 branch HEAD 검사를 사
 
 ## 실행 환경 활성화
 
-초기 `runtime = null`은 네트워크만 생성한다. ALB·인증서·서버를 활성화하려면 다음을 순서대로 준비한다.
+초기 `runtime = null`은 네트워크만 생성한다. ALB·서버를 활성화하려면 다음을 순서대로 준비한다.
 
-1. 실제 개발/운영 도메인과 같은 계정의 **public Route 53 zone**을 정한다. zone 자체와 도메인 구매/NS 위임은 이 코드가 관리하지 않는다. 개발과 운영 도메인은 달라야 한다.
-2. bootstrap의 `frontend_dns`에 환경별 `domain_name`, `zone_id`를 입력하고 관리자 plan/apply로 해당 DNS 권한을 먼저 반영한다. 기존에 bootstrap을 적용했어도 새 execution/instance 역할과 빈 BFF secret을 반영해야 한다.
+1. 서로 다른 실제 개발/운영 도메인을 정하고, 같은 AWS 계정의 **서울 리전 ACM**에서 도메인을 포함하는 public 인증서를 발급한다. 외부 도메인 관리 화면에 ACM 검증용 CNAME을 등록하고 **발급됨(ISSUED)** 및 도메인 일치를 확인한다. 검증 CNAME은 자동 갱신을 위해 유지한다. Route 53 hosted zone이나 NS 변경은 필요 없다.
+2. bootstrap 관리자 plan/apply로 execution/instance 역할과 빈 BFF secret을 준비한다. CI는 DNS·인증서를 관리하지 않는다. 이전 버전에서 생성한 인증서·DNS가 있다면 아래 기존 배포 전환 절차를 먼저 따른다.
 3. 계정에 `AWSServiceRoleForECS`, `AWSServiceRoleForElasticLoadBalancing`이 있는지 관리자가 확인한다. 기존 CDK/AWS 소유 공용 역할이며 이 코드에서 생성/import하지 않는다. 없으면 관리자가 서비스 연결 역할을 먼저 만든다. CI에는 IAM 생성 권한이 없다.
 4. `bff_secret_arns` 출력의 각 환경 secret에 서로 다른 BFF 키를 **관리자 콘솔에서 값으로 저장**한다. 값은 프론트 `BFF_SESSION_KEYS` 형식(32-byte hex 키, 회전 시 쉼표로 최대 3개)이다. Terraform으로 secret version을 만들지 않는다. 빈 secret 상태로는 태스크가 시작되지 않는다.
-5. 실제 Next.js **linux/arm64** 이미지를 환경별 ECR에 올리고 digest를 확인한다. 이미지 빌드·push와 앱 CI 역할은 후속 앱 작업이다. 컨테이너는 `0.0.0.0:3000`에서 Next.js 프로세스 하나를 실행하고 `/`에 HTTP 200을 응답해야 한다. 빌드 시 `NEXT_PUBLIC_ENROLLMENT_API_URL`에 해당 환경의 공개 HTTPS enrollment origin을 넣는다. 이 값은 이미지 빌드 후 런타임 환경 변수로 바뀌지 않는다.
+5. 실제 Next.js **linux/arm64** 이미지를 환경별 ECR에 올리고 digest를 확인한다. 이미지 빌드·push는 프론트 앱 저장소의 workflow와 bootstrap의 환경별 image-push 역할로 수행한다. 컨테이너는 `0.0.0.0:3000`에서 Next.js 프로세스 하나를 실행하고 `/`에 HTTP 200을 응답해야 한다. 빌드 시 `NEXT_PUBLIC_ENROLLMENT_API_URL`에 해당 환경의 공개 HTTPS enrollment origin을 넣는다. 이 값은 이미지 빌드 후 런타임 환경 변수로 바뀌지 않는다.
 6. 개발 AMI는 서울 리전 ECS optimized AL2023 ARM64 AMI의 실제 ID를 조회해 고정한다. 아래 명령은 조회만 한다.
 
 ```bash
@@ -158,9 +158,10 @@ aws ssm get-parameter --region ap-northeast-2 \
   --query 'Parameter.Value' --output text
 ```
 
-7. 각 환경의 `runtime.auto.tfvars.json.example`을 `runtime.auto.tfvars.json`으로 복사하고 실제 도메인·zone·digest·AMI·백엔드 HTTPS origin을 입력한다. **이 파일만 비밀 없는 릴리스 설정으로 Git에 커밋한다.** PR plan과 머지 후 apply가 같은 입력을 사용한다. bootstrap DNS 권한과 도메인/zone 값이 같아야 한다. example placeholder는 그대로 적용할 수 없다.
+7. 각 환경의 `runtime.auto.tfvars.json.example`을 `runtime.auto.tfvars.json`으로 복사하고 실제 도메인·인증서 ARN·digest·AMI·백엔드 HTTPS origin을 입력한다. **이 파일만 비밀 없는 릴리스 설정으로 Git에 커밋한다.** PR plan과 머지 후 apply가 같은 입력을 사용한다. `certificate_arn`에는 같은 계정·서울 리전의 프론트 도메인 인증서를 입력한다. ARN 형식 검증만으로 발급 상태나 도메인 일치는 보장하지 않는다. example placeholder는 그대로 적용할 수 없다.
 8. 백엔드가 실제 HTTPS로 응답하고 프론트 `https://<domain>/auth/callback`과 허용 origin이 등록됐는지 확인한다. 현재 백엔드가 HTTP만 지원한다면 이 선행 작업을 먼저 끝낸다. VPC peering은 없으며 BFF는 공개 HTTPS 백엔드로 연결한다.
 9. runtime 설정 PR을 검토한 뒤 develop 또는 main에 머지하고 해당 Environment 승인 후 적용한다. image digest도 이후 이 파일의 PR로 변경한다.
+10. 해당 환경의 `terraform output -json application`에서 `alb_dns_name`을 확인하고, 외부 DNS에 **프론트 도메인 → ALB DNS 이름** CNAME을 등록한다. 대상에는 `https://`나 경로를 넣지 않는다. 앞의 ACM 검증 CNAME과 별개이며 두 레코드를 유지한다. DNS가 반영되면 실제 HTTPS 접속과 로그인을 확인한다.
 
 ALB는 public subnet 두 개, 앱 ingress는 ALB SG의 TCP 3000만 허용한다. 개발 EC2는
 ECS EC2/bridge 모드이며 public IP는 외부 통신에 사용한다. SSH는 열지 않고 SSM으로 관리한다.
@@ -175,7 +176,20 @@ autoscaling·복제본·blue/green은 사용하지 않는다. 이 제약을 풀�
 개발 EC2도 AMI/user data 변경 시 기존 인스턴스를 제거하고 교체한다.
 
 상태 S3 key는 호환성을 위해 계속 `network/terraform.tfstate`다. **이름에 network가 있어도
-ALB·인증서·실행 환경까지 같은 dev/prod 상태에 저장된다.** 새 key로 임의 변경하면 안 된다.
+ALB·실행 환경까지 같은 dev/prod 상태에 저장된다. 인증서 자체와 DNS는 외부 관리다.** 새 key로 임의 변경하면 안 된다.
+
+## 기존 Route 53·ACM 배포 전환
+
+이전 버전을 이미 적용했다면 `route53_zone_id` 대신 **기존 인증서의 ARN**을 `certificate_arn`에
+입력하고 runtime은 활성 상태로 유지한다. `external-dns-migration.tf`의 `removed` 블록은 기존
+인증서·검증 대기 리소스·DNS 레코드를 `destroy = false`로 관리 대상에서만 제외한다.
+계획에서 해당 항목이 삭제 없이 관리 제외로 표시되는지 검토한 뒤 환경에 적용한다. 전환 도중
+runtime을 null로 바꾸거나 모듈을 통째로 삭제하지 않는다. 이후 bootstrap에서 불필요해진
+DNS·ACM 권한을 제거한다. 관리자 tfvars에 이전 `frontend_dns`가 남아 있다면 그 입력도 제거한다.
+
+기존 DNS·인증서가 AWS에서 삭제되는 것은 아니며, 이후 갱신과 레코드 유지는 관리자가 담당한다.
+기존 상태가 없는 첫 배포에는 이 관리 제외 절차가 필요 없다. 실제 AWS state의 존재 여부와
+전환 계획은 배포 전에 확인한다.
 
 ## 배포 확인과 롤백
 
@@ -183,8 +197,8 @@ ALB·인증서·실행 환경까지 같은 dev/prod 상태에 저장된다.** �
 - ECS circuit breaker가 실패를 감지하고 이전 완료 배포가 있으면 롤백한다. **최초 배포에는 이전 정상 버전이 없다.** secret/이미지/네트워크를 수정한 뒤 재배포한다.
 - 수동 롤백은 runtime 파일의 image digest를 이전 정상 digest로 되돌리는 PR을 머지한다. 설정/키도 이전 이미지와 호환되어야 한다. Terraform이 새 task definition으로 배포하고 안정화를 확인한다.
 - 키 회전 후 태스크를 재시작해야 새 secret 값이 주입된다. 키 값만 바꾸면 실행 중인 프로세스는 자동 갱신되지 않는다.
-- 활성화 후 runtime을 null로 지우면 ALB·인증서·실행 환경 삭제 계획이 나온다. 운영 ALB는 삭제 보호가 켜져 있어 해제 변경을 먼저 검토해야 한다. S3/ECR/secret은 bootstrap의 삭제 보호를 유지한다.
-- 앱 CI의 이미지 빌드/push 역할과 workflow는 아직 추가하지 않았다. 현재 Terraform 역할에는 ECR push 권한이 없다.
+- 활성화 후 runtime을 null로 지우면 ALB·실행 환경 삭제 계획이 나온다. 운영 ALB는 삭제 보호가 켜져 있어 해제 변경을 먼저 검토해야 한다. S3/ECR/secret은 bootstrap의 삭제 보호를 유지한다.
+- 앱 CI의 이미지 빌드/push 역할은 bootstrap에 정의한다. Terraform plan/apply 역할에는 ECR push 권한이 없다.
 
 ## 참고
 
@@ -192,3 +206,20 @@ ALB·인증서·실행 환경까지 같은 dev/prod 상태에 저장된다.** �
 - [Terraform provider mocking](https://developer.hashicorp.com/terraform/language/tests/mocking)
 - [GitHub OIDC와 AWS](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws)
 - [EC2 IAM 지원 범위](https://docs.aws.amazon.com/service-authorization/latest/reference/list_ec2.html)
+
+## 프론트 앱 ECR push 역할
+
+bootstrap의 `frontend_github_subject_prefix`에 **프론트 저장소**의 실제 OIDC subject prefix를
+입력하면 `soma-376-frontend-dev-image-push`, `soma-376-frontend-prod-image-push` 역할을 만든다.
+기존 `github_subject_prefix`는 infra 저장소용이므로 재사용하지 않는다. 기본값 null은 역할을
+생성하지 않는다. 활성화 후 null로 되돌리면 역할 삭제 계획이 나오므로 유지한다.
+
+각 역할은 `dev` / `prod` GitHub Environment만 신뢰하고,
+자기 환경 ECR의 이미지 업로드·manifest·digest 조회와 registry 로그인만 허용한다.
+ECS 배포, Terraform state, secret 값, IAM 변경 권한은 없다. GitHub Environment의
+배포 브랜치 제한을 dev=`develop`, prod=`main`으로 설정하고 prod에는 승인자를 지정한다.
+Environment subject는 브랜치를 포함하지 않으므로 이 제한을 GitHub에서 적용해야 한다.
+
+관리자가 기존 bootstrap state/backend와 실제 tfvars를 사용해 plan을 검토하고 적용한 뒤
+`terraform output frontend_image_push_roles`의 해당 환경 ARN을 프론트 GitHub Environment의
+`AWS_ECR_PUSH_ROLE_ARN` 변수에 등록한다. 코드 추가만으로 AWS 역할이 생성되지는 않는다.

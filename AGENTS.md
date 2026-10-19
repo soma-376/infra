@@ -9,15 +9,15 @@
 
 ---
 
-## 프론트엔드 Terraform 추가 범위 (ADR 0027·0028)
+## 프론트엔드 Terraform 추가 범위 (ADR 0027·0028·0029)
 
-`frontend/`는 기존 CDK와 독립된 프론트엔드 인프라다. 부트스트랩·개발/운영 네트워크와 ALB·ACM,
-개발 EC2(ECS bridge)·운영 Fargate를 구현한다. runtime 입력이 없으면 네트워크만 생성한다. [운영 안내](frontend/README.md)와 [ADR 0027](docs/adr/0027-isolate-frontend-terraform-network.md), [ADR 0028](docs/adr/0028-frontend-alb-and-container-runtime.md)을 따른다.
+`frontend/`는 기존 CDK와 독립된 프론트엔드 인프라다. 부트스트랩·개발/운영 네트워크와 ALB·기존 ACM 인증서 연결,
+개발 EC2(ECS bridge)·운영 Fargate를 구현한다. runtime 입력이 없으면 네트워크만 생성한다. [운영 안내](frontend/README.md)와 [ADR 0027](docs/adr/0027-isolate-frontend-terraform-network.md), [ADR 0028](docs/adr/0028-frontend-alb-and-container-runtime.md), [ADR 0029](docs/adr/0029-use-external-dns-and-existing-frontend-certificate.md)을 따른다. DNS와 인증서 발급은 외부에서 관리한다.
 BFF 단일 프로세스에 맞춰 서비스 desired=1/min=0/max=100이며 앱 이미지 빌드·push는 별도다.
 기존 CDK 전용 테스트 규칙은 그대로 유지하고, 새 Terraform은 fmt·validate·mock test로 검증한다.
 기존 CDK 리소스를 Terraform에 import하거나 같은 리소스를 두 도구가 수정하지 않는다.
 실제 apply는 리뷰·머지 후 보호된 CI에서 수행한다. 최초 bootstrap과 이후 bootstrap 변경은 관리자 작업이다.
-다음 미사용 ADR은 **0029**다.
+다음 미사용 ADR은 **0030**다.
 
 ## 0. 중앙 허브와 공통 규칙
 
@@ -430,7 +430,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0029`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환으로 이미 쓰였고, `0020`은 프론트엔드 로그 정책, `0027`·`0028`은 프론트엔드 Terraform 기반·실행 환경으로 사용했다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0030`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환으로 이미 쓰였고, `0020`은 프론트엔드 로그 정책, `0027`·`0028`은 프론트엔드 Terraform 기반·실행 환경, `0029`는 외부 DNS와 기존 인증서 참조로 사용했다.
    형식은 `docs/adr/0000-adr-template.md`를 따른다.
 3. 상수는 **"이 값이 dev에서 달라야 할 이유가 있는가"**로 위치를 정한다 — 없으면 `lib/common/config.ts`, 운영 전용이면 `lib/prod/config.ts`, dev 전용이면 `lib/dev/config.ts`. 스택에서는 import만 한다 (4장).
 4. `test/prod/*.test.ts` / `test/dev/*.test.ts` / `test/cicd/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`(prod), `buildDevApp()`(dev), `buildCicdApp()`(cicd)를 재사용한다.

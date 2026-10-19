@@ -2,7 +2,7 @@ variable "runtime" {
   description = "null이면 기반 네트워크만 생성. 준비된 실제 설정은 runtime.auto.tfvars.json으로 커밋하여 PR에서 검토한다. 비밀 값을 넣지 않는다."
   type = object({
     domain_name        = string
-    route53_zone_id    = string
+    certificate_arn    = string
     image_digest       = string
     enrollment_api_url = string
     dashboard_api_url  = string

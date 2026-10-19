@@ -11,17 +11,6 @@ data "aws_secretsmanager_secret" "bff" {
   name = "${local.name}/bff-session-keys"
 }
 
-data "aws_route53_zone" "frontend" {
-  zone_id      = var.runtime.route53_zone_id
-  private_zone = false
-  lifecycle {
-    postcondition {
-      condition     = !self.private_zone && (var.runtime.domain_name == trimsuffix(self.name, ".") || endswith(var.runtime.domain_name, ".${trimsuffix(self.name, ".")}"))
-      error_message = "도메인을 관리하는 public zone을 지정하세요."
-    }
-  }
-}
-
 resource "aws_security_group" "alb" {
   name        = "${local.name}-alb"
   description = "Public frontend HTTPS load balancer"
@@ -75,27 +64,6 @@ resource "aws_vpc_security_group_egress_rule" "app_https" {
   tags              = local.tags
 }
 
-resource "aws_acm_certificate" "frontend" {
-  domain_name       = var.runtime.domain_name
-  validation_method = "DNS"
-  tags              = local.tags
-  lifecycle { create_before_destroy = true }
-}
-resource "aws_route53_record" "validation" {
-  for_each = {
-    for dvo in aws_acm_certificate.frontend.domain_validation_options : dvo.domain_name => dvo
-  }
-  zone_id = data.aws_route53_zone.frontend.zone_id
-  name    = each.value.resource_record_name
-  type    = each.value.resource_record_type
-  records = [each.value.resource_record_value]
-  ttl     = 60
-}
-resource "aws_acm_certificate_validation" "frontend" {
-  certificate_arn         = aws_acm_certificate.frontend.arn
-  validation_record_fqdns = [for record in aws_route53_record.validation : record.fqdn]
-  timeouts { create = "30m" }
-}
 resource "aws_lb" "frontend" {
   name                       = local.name
   internal                   = false
@@ -129,7 +97,7 @@ resource "aws_lb_listener" "https" {
   port              = 443
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
-  certificate_arn   = aws_acm_certificate_validation.frontend.certificate_arn
+  certificate_arn   = var.runtime.certificate_arn
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.frontend.arn
@@ -150,17 +118,6 @@ resource "aws_lb_listener" "http" {
   }
   tags = local.tags
 }
-resource "aws_route53_record" "frontend" {
-  zone_id = data.aws_route53_zone.frontend.zone_id
-  name    = var.runtime.domain_name
-  type    = "A"
-  alias {
-    name                   = aws_lb.frontend.dns_name
-    zone_id                = aws_lb.frontend.zone_id
-    evaluate_target_health = true
-  }
-}
-
 resource "aws_cloudwatch_log_group" "frontend" {
   skip_destroy      = true
   name              = "/ecs/${local.name}"

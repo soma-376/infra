@@ -24,16 +24,12 @@ variable "state_bucket_prefix" {
   }
 }
 
-variable "frontend_dns" {
-  description = "환경별 public DNS 권한 범위. runtime 활성화 전에 domain_name/zone_id를 지정해 bootstrap을 적용한다."
-  type        = map(object({ domain_name = string, zone_id = string }))
-  default     = {}
+variable "frontend_github_subject_prefix" {
+  type        = string
+  default     = null
+  description = "프론트 저장소의 실제 OIDC sub에서 :environment: 앞부분. null이면 게시 역할을 만들지 않는다."
   validation {
-    condition     = alltrue([for env, dns in var.frontend_dns : contains(["dev", "prod"], env) && can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$", dns.domain_name)) && can(regex("^Z[A-Z0-9]+$", dns.zone_id))])
-    error_message = "dev/prod별 소문자 FQDN과 public Route 53 zone ID를 입력하세요."
-  }
-  validation {
-    condition     = length(distinct([for dns in values(var.frontend_dns) : dns.domain_name])) == length(var.frontend_dns)
-    error_message = "개발과 운영 도메인은 서로 달라야 합니다."
+    condition     = var.frontend_github_subject_prefix == null ? true : can(regex("^repo:soma-376(@[0-9]+)?/pulsemetry-frontend(@[0-9]+)?$", var.frontend_github_subject_prefix))
+    error_message = "soma-376/pulsemetry-frontend의 실제 OIDC subject prefix를 입력하세요. wildcard는 허용하지 않습니다."
   }
 }

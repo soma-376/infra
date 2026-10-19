@@ -17,7 +17,6 @@ mock_provider "aws" {
 variables {
   aws_account_id        = "111111111111"
   github_subject_prefix = "repo:soma-376/infra"
-  frontend_dns          = { dev = { domain_name = "dev.frontend.example.com", zone_id = "ZEXAMPLE" }, prod = { domain_name = "frontend.example.com", zone_id = "ZEXAMPLE" } }
 }
 
 override_resource {
@@ -69,7 +68,7 @@ run "runtime_privileges_and_policy_quotas" {
     error_message = "실행 환경 쓰기는 apply 역할만 가지며 EC2 실행 권한은 dev에만 부여해야 합니다."
   }
   assert {
-    condition     = alltrue([for env in ["dev", "prod"] : length(aws_iam_role_policy.state["${env}-apply"].policy) + length(aws_iam_role_policy.network_read["${env}-apply"].policy) + length(aws_iam_role_policy.network_write[env].policy) + length(aws_iam_role_policy.runtime_read["${env}-apply"].policy) <= 10240]) && alltrue([for p in concat(values(aws_iam_policy.runtime_write), values(aws_iam_policy.dns_write), values(aws_iam_policy.security_groups), [aws_iam_policy.dev_compute]) : length(p.policy) <= 6144])
+    condition     = alltrue([for env in ["dev", "prod"] : length(aws_iam_role_policy.state["${env}-apply"].policy) + length(aws_iam_role_policy.network_read["${env}-apply"].policy) + length(aws_iam_role_policy.network_write[env].policy) + length(aws_iam_role_policy.runtime_read["${env}-apply"].policy) <= 10240]) && alltrue([for p in concat(values(aws_iam_policy.runtime_write), values(aws_iam_policy.security_groups), [aws_iam_policy.dev_compute]) : length(p.policy) <= 6144])
     error_message = "IAM inline 합계 10240자와 managed policy 6144자 한도를 넘으면 bootstrap을 적용할 수 없습니다."
   }
   assert {
@@ -77,7 +76,7 @@ run "runtime_privileges_and_policy_quotas" {
     error_message = "CI는 IAM을 변경하거나 secret 값을 직접 읽을 수 없습니다."
   }
   assert {
-    condition     = jsondecode(aws_iam_policy.dns_write["dev"].policy).Statement[0].Resource == "arn:aws:route53:::hostedzone/ZEXAMPLE" && jsondecode(aws_iam_policy.dns_write["dev"].policy).Statement[0].Condition["ForAllValues:StringLike"]["route53:ChangeResourceRecordSetsNormalizedRecordNames"][0] == "dev.frontend.example.com"
-    error_message = "DNS 수정 권한은 지정된 zone과 환경 도메인에 한정해야 합니다."
+    condition     = alltrue([for p in concat(values(aws_iam_role_policy.runtime_read), values(aws_iam_policy.runtime_write)) : !strcontains(p.policy, "route53:") && !strcontains(p.policy, "acm:")])
+    error_message = "CI는 외부 관리 DNS와 인증서를 조회하거나 변경하는 권한을 갖지 않습니다."
   }
 }
