@@ -122,7 +122,7 @@ spec:
             {{- range $oidc.clients }}
             {{- $_ := set $clients (printf "[%s]" .key) (printf "${%s}" .alias) }}
             {{- end }}
-            {{- $_ := set $pulsemetry "oidc" (dict "callback-registration-id" $oidc.callbackRegistrationId "client-secrets" $clients) }}
+            {{- $_ := set $pulsemetry "oidc" (dict "callback-registration-id" $oidc.callbackRegistrationId "allow-insecure-localhost" ($oidc.allowInsecureLocalhost | default false) "client-secrets" $clients) }}
             {{- end }}
             - name: SPRING_APPLICATION_JSON
               value: {{ dict "pulsemetry" $pulsemetry | toJson | quote }}

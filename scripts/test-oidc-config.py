@@ -29,17 +29,22 @@ const { parseDashboardRuntimeConfig, userAuthEnvironment } = require('./lib/dev/
 (async () => {
   const { generateValues } = await import('./scripts/eks-values.mjs');
   const input = JSON.parse(fs.readFileSync('test/fixtures/dashboard-runtime.json', 'utf8'));
-  input.userAuth.allowedRedirectUris = ['https://dashboard.example.invalid/auth/callback'];
+  const scenario = process.argv[2];
+  const local = scenario === 'true';
+  const callbackBaseUrl = local ? 'http://localhost:8080' : 'https://auth.example.invalid';
+  const failureRedirectUri = local ? 'http://localhost:3000/auth/callback' : 'https://dashboard.example.invalid/auth/callback';
+  input.userAuth.allowedRedirectUris = [failureRedirectUri];
   input.oidc = {
     enabled: true,
-    callbackBaseUrl: 'https://auth.example.invalid',
-    failureRedirectUri: 'https://dashboard.example.invalid/auth/callback',
+    callbackBaseUrl,
+    failureRedirectUri,
     callbackRegistrationId: 'fixture-oidc',
     clients: [
       { key: 'cognito-a', versionId: '33333333-3333-4333-8333-333333333333' },
       { key: 'Cognito_B', versionId: '44444444-4444-4444-8444-444444444444' },
     ],
   };
+  if (scenario !== 'omitted') input.oidc.allowInsecureLocalhost = local;
   const ecs = userAuthEnvironment(parseDashboardRuntimeConfig(input), true);
   delete input.writerImage;
   const secret = name => `arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:${name}-abc123`;
@@ -117,13 +122,15 @@ def compile_backend_dtos(args, temp):
     return classpath
 
 
-def validate(args):
-    with tempfile.TemporaryDirectory(prefix="pulsemetry-oidc-config-") as directory:
+def validate_case(args, classpath, scenario):
+    with tempfile.TemporaryDirectory(prefix="pulsemetry-oidc-config-" + scenario + "-") as directory:
         temp = Path(directory)
-        classpath = compile_backend_dtos(args, temp)
         generated = temp / "generated"
         generated.mkdir()
-        emitted = json.loads(run([args.node, "--import", "tsx", "-e", GENERATE, str(generated)], cwd=ROOT))
+        emitted = json.loads(run([args.node, "--import", "tsx", "-e", GENERATE, str(generated), scenario], cwd=ROOT))
+        local = scenario == "true"
+        callback = "http://localhost:8080" if local else "https://auth.example.invalid"
+        failure_redirect = "http://localhost:3000/auth/callback" if local else "https://dashboard.example.invalid/auth/callback"
 
         def render(release, chart, files):
             return load_yaml_documents(args.node, run([args.helm, "template", release, chart, "--namespace", "pulsemetry-dev", "--kube-version", "1.36.0", *[part for file in files for part in ("-f", str(file))]], cwd=ROOT))
@@ -138,6 +145,8 @@ def validate(args):
             spring = json.loads(environment["SPRING_APPLICATION_JSON"])["pulsemetry"]
             if spring["oidc"]["client-secrets"] != expected_map:
                 raise RuntimeError(kind + "의 실제 출력에 OIDC map key/alias가 일치하지 않는다")
+            if spring["oidc"].get("allow-insecure-localhost") is not local:
+                raise RuntimeError(kind + "/" + scenario + "의 localhost 예외 boolean이 일치하지 않는다")
             if any(value in json.dumps(environment) for value in SYNTHETIC.values()):
                 raise RuntimeError(kind + " 설정에 synthetic Secret 원문이 포함됐다")
 
@@ -184,22 +193,35 @@ def validate(args):
                     target.chmod(0o600)
                 target.write_bytes(saved)
                 target.chmod(0o444)
-        print("EKS: 실제 Helm init command OIDC " + "/".join(modes) + " 거부 PASS")
+        print("EKS/" + scenario + ": 실제 Helm init command OIDC " + "/".join(modes) + " 거부 PASS")
         if os.geteuid() == 0:
             print("EKS: root 실행이므로 unreadable 파일 검증 생략")
 
         yaml = args.backend.resolve() / "apps/enrollment-api/src/main/resources/application.yaml"
         print(str(yaml.relative_to(args.backend.resolve())) + " sha256=" + hashlib.sha256(yaml.read_bytes()).hexdigest())
         base = {key: value for key, value in os.environ.items() if not key.startswith(("PULSEMETRY_", "SPRING_", "FIXTURE_"))}
-        base.update({"FIXTURE_EXPECT_COGNITO_A": SYNTHETIC["cognito-a"], "FIXTURE_EXPECT_COGNITO_B": SYNTHETIC["Cognito_B"]})
+        base.update({
+            "FIXTURE_EXPECT_COGNITO_A": SYNTHETIC["cognito-a"],
+            "FIXTURE_EXPECT_COGNITO_B": SYNTHETIC["Cognito_B"],
+            "FIXTURE_EXPECT_ALLOW_INSECURE_LOCALHOST": str(local).lower(),
+            "FIXTURE_EXPECT_CALLBACK": callback,
+            "FIXTURE_EXPECT_FAILURE_REDIRECT": failure_redirect,
+        })
         for kind, actual in (("ECS", emitted["ecs"]), ("EKS", eks_environment)):
             environment = {**base, **actual}
             if kind == "ECS":
                 environment.update({alias: SYNTHETIC[key] for key, alias in aliases.items()})
             else:
                 environment["SPRING_CONFIG_IMPORT"] = "configtree:" + str(mount) + "/"
-            print(run(["java", "-cp", classpath, "OidcConfigFixture", str(yaml), kind], env=environment))
-    print("PASS: 실제 ECS 설정 함수·EKS 생성기/Helm 출력·Spring Boot " + BOOT + "·backend DTO 로컬 검증. 실제 Secret/CSI/UID 10001/Cognito 로그인은 검증하지 않았다.")
+            print(run(["java", "-cp", classpath, "OidcConfigFixture", str(yaml), kind + "/" + scenario], env=environment))
+
+
+def validate(args):
+    with tempfile.TemporaryDirectory(prefix="pulsemetry-oidc-dtos-") as directory:
+        classpath = compile_backend_dtos(args, Path(directory))
+        for scenario in ("omitted", "false", "true"):
+            validate_case(args, classpath, scenario)
+    print("PASS: localhost 예외 생략/false/true의 실제 ECS 설정 함수·EKS 생성기/Helm 출력·Spring Boot " + BOOT + "·backend DTO 로컬 검증. 실제 Secret/CSI/UID 10001/Cognito 로그인은 검증하지 않았다.")
 
 
 def main():

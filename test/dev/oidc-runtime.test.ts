@@ -38,10 +38,11 @@ describe('OIDC 입력과 Spring 설정 맵', () => {
     expect(parseDashboardRuntimeConfig(fixture()).oidc).toBeUndefined();
     const parsed = parseDashboardRuntimeConfig(active());
     expect(parsed.oidc?.callbackRegistrationId).toBe('oidc');
+    expect(parsed.oidc?.allowInsecureLocalhost).toBe(false);
     expect(parsed.oidc?.clients.map(c => c.key)).toEqual(['cognito-a', 'cognito-b']);
     const env = userAuthEnvironment(parsed, true);
     const json = JSON.parse(env.SPRING_APPLICATION_JSON).pulsemetry;
-    expect(json.oidc).toEqual({ 'callback-registration-id': 'oidc', 'client-secrets': {
+    expect(json.oidc).toEqual({ 'callback-registration-id': 'oidc', 'allow-insecure-localhost': false, 'client-secrets': {
       '[cognito-a]': '${PULSEMETRY_OIDC_CLIENT_SECRET_0}', '[cognito-b]': '${PULSEMETRY_OIDC_CLIENT_SECRET_1}',
     } });
     expect(json['user-auth']['public-key-files']).toEqual(JSON.parse(userAuthEnvironment(parseDashboardRuntimeConfig(fixture()), true).SPRING_APPLICATION_JSON).pulsemetry['user-auth']['public-key-files']);
@@ -59,7 +60,40 @@ describe('OIDC 입력과 Spring 설정 맵', () => {
     expect(env.PULSEMETRY_OIDC_CALLBACK_BASE_URL).toBe(value.oidc.callbackBaseUrl);
     expect(env.PULSEMETRY_OIDC_FAILURE_REDIRECT_URI).toBe(value.oidc.failureRedirectUri);
     expect(env.PULSEMETRY_USER_AUTH_ALLOWED_REDIRECT_URIS).toBe(value.oidc.failureRedirectUri);
-    expect(JSON.stringify(env)).not.toMatch(/allow-insecure|ALLOW_INSECURE/);
+    expect(JSON.parse(env.SPRING_APPLICATION_JSON).pulsemetry.oidc['allow-insecure-localhost']).toBe(false);
+  });
+  test.each([undefined, false, true])('localhost 허용 입력 %j를 enrollment ECS task에 boolean으로 전달한다', flag => {
+    const value = active();
+    value.oidc.callbackBaseUrl = 'http://localhost:8080';
+    value.oidc.failureRedirectUri = 'http://localhost:3000/auth/callback';
+    value.userAuth.allowedRedirectUris = [value.oidc.failureRedirectUri];
+    if (flag !== undefined) value.oidc.allowInsecureLocalhost = flag;
+    const parsed = parseDashboardRuntimeConfig(value);
+    expect(parsed.oidc?.allowInsecureLocalhost).toBe(flag ?? false);
+    const template = Template.fromStack(build(value).application).toJSON();
+    const task = appTask(template, 'enrollment-api');
+    const app = task.ContainerDefinitions.find((c: any) => c.Name === 'enrollment-api');
+    const env = Object.fromEntries(app.Environment.map((entry: any) => [entry.Name, entry.Value]));
+    const properties = JSON.parse(env.SPRING_APPLICATION_JSON).pulsemetry;
+    expect(properties.oidc['allow-insecure-localhost']).toBe(flag ?? false);
+    expect(properties.oidc['client-secrets']['[cognito-a]']).toBe('${PULSEMETRY_OIDC_CLIENT_SECRET_0}');
+    expect(properties['user-auth']['public-key-files']).toEqual(
+      JSON.parse(userAuthEnvironment(parsed, true).SPRING_APPLICATION_JSON).pulsemetry['user-auth']['public-key-files'],
+    );
+    expect(env.PULSEMETRY_OIDC_CALLBACK_BASE_URL).toBe(value.oidc.callbackBaseUrl);
+    expect(env.PULSEMETRY_OIDC_FAILURE_REDIRECT_URI).toBe(value.oidc.failureRedirectUri);
+    expect(env.PULSEMETRY_USER_AUTH_ALLOWED_REDIRECT_URIS).toBe(value.oidc.failureRedirectUri);
+    for (const name of ['dashboard-api', 'telemetry-ingest']) {
+      expect(JSON.stringify(appTask(template, name))).not.toMatch(/allow-insecure-localhost|ALLOW_INSECURE_LOCALHOST/);
+    }
+  });
+  test.each(['true', 'false', 0, 1, null, [], {}])('localhost 허용 입력의 잘못된 타입 %j를 활성·비활성 모두 거부한다', flag => {
+    for (const enabled of [true, false]) {
+      const value = active();
+      value.oidc.enabled = enabled;
+      value.oidc.allowInsecureLocalhost = flag;
+      expect(() => parseDashboardRuntimeConfig(value)).toThrow('oidc.allowInsecureLocalhost');
+    }
   });
   test.each([
     (v: any) => { v.oidc.enabled = 'true'; },
@@ -164,7 +198,7 @@ describe('빈 원본 bootstrap과 소비자 권한', () => {
     }
   });
   test('disabled key 목록은 빈 원본만 준비하고 ECS 조회 없이 EKS 독립 활성화를 허용한다', () => {
-    const value = fixture(); value.oidc = { enabled: false, clients: [{ key: 'cognito-a' }] };
+    const value = fixture(); value.oidc = { enabled: false, allowInsecureLocalhost: true, clients: [{ key: 'cognito-a' }] };
     const stacks = build(value);
     const off = Template.fromStack(stacks.application).toJSON();
     const baseline = Template.fromStack(buildDevApp().application).toJSON();
