@@ -64,6 +64,24 @@ run "separate_state_and_ci_privileges" {
 run "runtime_privileges_and_policy_quotas" {
   command = plan
   assert {
+    condition = alltrue([for key, p in aws_iam_role_policy.runtime_read : anytrue([
+      for s in jsondecode(p.policy).Statement : contains(s.Action, "secretsmanager:GetResourcePolicy") && s.Resource == aws_secretsmanager_secret.bff[split("-", key)[0]].arn
+    ])])
+    error_message = "Terraform의 secret 메타데이터 조회는 자기 환경 secret의 리소스 정책까지 읽어야 합니다."
+  }
+  assert {
+    condition = alltrue([for env, p in aws_iam_policy.security_groups : anytrue([
+      for s in jsondecode(p.policy).Statement : try(
+        contains(s.Action, "ec2:AuthorizeSecurityGroupIngress") && contains(s.Action, "ec2:AuthorizeSecurityGroupEgress") &&
+        s.Resource == "arn:aws:ec2:ap-northeast-2:111111111111:security-group-rule/*" &&
+        s.Condition.StringEquals["aws:RequestTag/Project"] == "pulsemetry-frontend" &&
+        s.Condition.StringEquals["aws:RequestTag/Env"] == env &&
+        s.Condition.StringEquals["aws:RequestTag/ManagedBy"] == "terraform", false
+      )
+    ])])
+    error_message = "새 SG 규칙은 아직 없는 ResourceTag 대신 환경별 RequestTag로 생성 권한을 검증해야 합니다."
+  }
+  assert {
     condition     = length(aws_iam_role_policy_attachment.runtime_write) == 2 && aws_iam_role_policy_attachment.dev_compute.role == aws_iam_role.terraform["dev-apply"].name && alltrue([for env, p in aws_iam_role_policy_attachment.runtime_write : p.role == aws_iam_role.terraform["${env}-apply"].name])
     error_message = "실행 환경 쓰기는 apply 역할만 가지며 EC2 실행 권한은 dev에만 부여해야 합니다."
   }

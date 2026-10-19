@@ -230,12 +230,13 @@ resource "aws_instance" "dev" {
     http_tokens                 = "required"
     http_put_response_hop_limit = 2
   }
+  # root_block_device.tags는 생성 후 적용된다. IAM의 생성 시 태그 조건을 만족시킨다.
+  volume_tags = local.tags
   root_block_device {
     volume_type           = "gp3"
     volume_size           = 30
     encrypted             = true
     delete_on_termination = true
-    tags                  = local.tags
   }
   credit_specification { cpu_credits = "standard" }
   tags = merge(local.tags, { Name = local.name })

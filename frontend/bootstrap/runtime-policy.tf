@@ -22,7 +22,7 @@ resource "aws_iam_role_policy" "runtime_read" {
         Action   = ["ecs:DescribeClusters", "ecs:DescribeServices", "ecs:DescribeTaskDefinition", "ecs:ListTagsForResource", "ecs:ListServiceDeployments", "ecs:DescribeServiceDeployments"]
         Resource = ["arn:aws:ecs:ap-northeast-2:${var.aws_account_id}:cluster/${local.runtime_names[each.value.env]}", "arn:aws:ecs:ap-northeast-2:${var.aws_account_id}:service/${local.runtime_names[each.value.env]}/*", "arn:aws:ecs:ap-northeast-2:${var.aws_account_id}:task-definition/${local.runtime_names[each.value.env]}:*", "arn:aws:ecs:ap-northeast-2:${var.aws_account_id}:service-deployment/${local.runtime_names[each.value.env]}/${local.runtime_names[each.value.env]}/*"]
       },
-      { Effect = "Allow", Action = ["secretsmanager:DescribeSecret"], Resource = aws_secretsmanager_secret.bff[each.value.env].arn },
+      { Effect = "Allow", Action = ["secretsmanager:DescribeSecret", "secretsmanager:GetResourcePolicy"], Resource = aws_secretsmanager_secret.bff[each.value.env].arn },
       { Effect = "Allow", Action = ["logs:ListTagsForResource", "logs:ListTagsLogGroup"], Resource = ["arn:aws:logs:ap-northeast-2:${var.aws_account_id}:log-group:/ecs/${local.runtime_names[each.value.env]}", "arn:aws:logs:ap-northeast-2:${var.aws_account_id}:log-group:/ecs/${local.runtime_names[each.value.env]}:*"] }
     ]
   })
