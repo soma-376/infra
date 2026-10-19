@@ -22,6 +22,10 @@ ADR-0028·0031의 Secret 공급·보존 범위를 enrollment OIDC client secret�
   `userAuth.allowedRedirectUris`는 정확한 HTTP/HTTPS 복귀 주소 목록이다.
   dev 입력과 Helm schema는 인증서 준비 전 HTTP 값도 받는다. 다른 scheme, userinfo,
   query·fragment·잘못된 URI 및 허용 목록 불일치 검사는 유지한다.
+- 선택 boolean `oidc.allowInsecureLocalhost`는 생략 시 `false`다. 활성 OIDC의 ECS·EKS
+  `SPRING_APPLICATION_JSON.pulsemetry.oidc.allow-insecure-localhost`에 boolean으로 전달한다.
+  명시적인 `true`만 backend의 HTTP loopback 예외를 켜며 문자열·숫자·null은 거부한다.
+  OIDC 비활성 상태에는 주입하지 않고 EKS generated values는 기존 `{enabled: false}`를 유지한다.
 - CDK는 ECS 입력에 선언한 각 key마다 `soma-376/dev/oidc/clients/<key>`를 생성한다.
   `CfnSecret`의 `SecretString`·`GenerateSecretString`은 모두 생략한다. 빈 문자열이나
   임의 비밀번호 버전을 생성하지 않는다. 값은 운영자가 기존 Cognito client secret 문자열로 등록한다.
@@ -40,7 +44,7 @@ ADR-0028·0031의 Secret 공급·보존 범위를 enrollment OIDC client secret�
   `SPRING_APPLICATION_JSON`에는 정확한 bracket map key와 `${...}` placeholder만 넣고 기존
   JWT 공개키 파일 맵과 합친다. 비밀 원문은 values·CloudFormation·Helm manifest에 포함하지 않는다.
   dashboard·ingest에는 OIDC 설정이나 권한을 공급하지 않는다.
-- EKS의 key·ARN·VersionId 변경은 앱 annotation을 바꿔 Pod 교체를 유발한다. runtime SPC와 앱
+- EKS의 key·ARN·VersionId·`allowInsecureLocalhost` 변경은 앱 annotation을 바꿔 Pod 교체를 유발한다. runtime SPC와 앱
   values는 같은 생성 결과로 적용·복구한다. Kubernetes Secret 복제·자동 reload는 추가하지 않는다.
 - 비활성 상태에서는 key만으로 빈 원본을 생성할 수 있다. ECS 주입·EKS OIDC object·필수 파일은
   생략한다. EKS 역할의 선언된 ARN 권한은 남지만 값 조회는 수행하지 않는다.
@@ -53,7 +57,9 @@ values의 HTTP 허용은 backend·Cognito의 인증 정책 변경이 아니다. 
 외부 HTTP callback·실패 복귀 주소를 거부하고 `UserAuthService.validateRedirect`도 원격 HTTP 복귀를
 거부한다. Cognito 웹 callback의 HTTP 예외는 localhost 테스트용이다. 실제 원격 Cognito 로그인에는
 여전히 HTTPS 진입점과 IdP callback 등록이 필요하며, HTTP 입력의 synth·render 성공을 로그인 성공으로
-간주하지 않는다. local 프로필·localhost 예외를 자동 활성화하지 않는다. 실제 AWS 배포와 DB 변경은 별도 실행이다.
+간주하지 않는다. local 프로필·localhost 예외를 자동 활성화하지 않는다. `allowInsecureLocalhost=true`는
+backend가 지원하는 `localhost`·`127.0.0.1`·`[::1]`의 HTTP 예외만 켜고 원격 HTTP는 허용하지 않는다.
+실제 AWS 배포와 DB 변경은 별도 실행이다.
 
 ## Alternatives Considered
 

@@ -14,6 +14,7 @@
 | 설정 | 소유·입력 위치 | 조건 |
 |---|---|---|
 | `oidc.enabled` | ECS JSON / EKS runtime YAML | `oidc` 생략은 비활성. 활성화는 `true` |
+| `oidc.allowInsecureLocalhost` | 각 runtime 입력, 선택 | boolean만 허용, 기본값 `false`. 명시적 `true`는 backend의 HTTP loopback 예외 활성화 |
 | `oidc.clients[].key` | ECS JSON이 원본 선언, EKS YAML이 소비할 key 선택 | `[A-Za-z0-9_-]{1,64}`, 최대 32개, 조직 DB의 `config:<key>`와 정확히 일치, 중복 금지 |
 | `oidc.clients[].versionId` | 각 runtime 입력 | 활성화 시 `[A-Za-z0-9-]{32,64}`인 실제 VersionId 필수. 이동 label을 넣지 않음 |
 | `oidc.callbackBaseUrl` | 각 runtime 입력 | HTTP/HTTPS enrollment origin. 선택적 끝 `/` 외 path·query·fragment·userinfo 금지 |
@@ -31,7 +32,7 @@ EKS는 선언된 client key의 부분집합을 선택할 수 있다. 입력 파�
 임의로 추가하지 않는다. Cognito issuer는 조직 DB, Pulsemetry 자체 JWT issuer는 `userAuth.issuer`다.
 배포 코드는 `PULSEMETRY_OIDC_ENABLED`·`PULSEMETRY_OIDC_CALLBACK_BASE_URL`·선택적
 `PULSEMETRY_OIDC_FAILURE_REDIRECT_URI`·`PULSEMETRY_USER_AUTH_ALLOWED_REDIRECT_URIS`를 구성한다.
-registration ID와 client secret 맵은 `SPRING_APPLICATION_JSON`에 병합하므로 별도 env를 수동 추가하지 않는다.
+registration ID·client secret 맵·`allow-insecure-localhost`는 `SPRING_APPLICATION_JSON`에 병합하므로 별도 env를 수동 추가하지 않는다.
 URL의 빈 `?`·`#`, 원시 공백·backslash·잘못된 percent escape도 거부한다. 입력 URL을 자동 정규화하지
 않으므로 Cognito·frontend·runtime의 문자열을 정확히 맞춘다.
 
@@ -39,6 +40,25 @@ dev 입력·Helm schema는 인증서 준비 전 HTTP 값도 받는다. 이는 �
 뜻이 아니다. 현재 backend `requireOidcUrl`은 외부 HTTP callback·실패 복귀 주소를 거부하고,
 `UserAuthService.validateRedirect`는 원격 HTTP 프론트 복귀를 거부한다. local 프로필이나 localhost
 예외를 자동 활성화하지 않는다. HTTP 값도 runtime 입력 파일에서 변경한 뒤 재생성하며 generated YAML은 직접 수정하지 않는다.
+
+localhost callback 테스트에서는 **기존 `oidc` 객체에** `allowInsecureLocalhost: true`를 추가한다.
+ECS JSON은 `"allowInsecureLocalhost": true`, EKS YAML은 아래처럼 지정하며 기존 client key·VersionId를 유지한다.
+
+```yaml
+# 기존 EKS runtime 입력의 oidc 객체에 반영할 항목이다. clients와 나머지 설정은 유지한다.
+oidc:
+  enabled: true
+  allowInsecureLocalhost: true
+  callbackBaseUrl: http://localhost:8080
+  failureRedirectUri: http://localhost:3000/auth/callback
+```
+
+`userAuth.allowedRedirectUris`에는 `http://localhost:3000/auth/callback`을 정확히 포함한다.
+위 예시의 Cognito callback은 `http://localhost:8080/api/v1/auth/oidc/callback/oidc`이며 IdP에도 등록한다.
+브라우저의 localhost:8080 요청이 해당 enrollment runtime에 도달하도록 로컬 실행 또는 포워딩을 준비한다.
+이 옵션은 `pulsemetry.oidc.allow-insecure-localhost`에 전달되며 backend의 `localhost`·`127.0.0.1`·`[::1]`
+HTTP 예외만 켠다. 원격 HTTP 주소는 계속 거부하며 local Spring 프로필을 활성화하지 않는다.
+테스트 후 `false`로 되돌리거나 입력을 생략한다. OIDC 비활성 상태에는 이 옵션을 앱에 주입하지 않는다.
 
 운영자는 다음을 먼저 확인한다.
 
@@ -291,7 +311,8 @@ Secrets Manager에 구 버전이 남아 있어도 Cognito가 구 값을 폐기�
 로컬 검증은 `npm run build`, `npm test -- --runInBand`, 기존 Helm/schema 검사와
 `python3 scripts/test-oidc-config.py`를 수행한다. 마지막 fixture는 실제 backend `OidcProperties`·
 `UserAuthProperties`와 Spring Boot에서 ECS 환경변수·EKS configtree의 synthetic 값 및 기존 JWT 맵을
-검사한다. backend 위치는 `--backend`, Helm 경로는 `HELM_BIN`으로 지정할 수 있다.
+검사하며 `allowInsecureLocalhost`의 생략·false·true 바인딩도 확인한다.
+backend 위치는 `--backend`, Helm 경로는 `HELM_BIN`으로 지정할 수 있다.
 이 결과는 실제 Secrets Manager 조회·Cognito 인증 성공과 구분한다.
 
 ## 참조
