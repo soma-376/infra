@@ -2,7 +2,7 @@
 
 기존 `lib/`의 CDK 리소스와 별개로 관리한다. [PROJ-216](https://team376.atlassian.net/browse/PROJ-216)의
 범위는 부트스트랩·네트워크·ALB·기존 ACM 인증서 연결·개발 EC2·운영 Fargate와 Terraform CI다.
-근거는 [ADR 0027](../docs/adr/0027-isolate-frontend-terraform-network.md),
+근거는 [ADR 0030](../docs/adr/0030-isolate-frontend-terraform-network.md),
 [ADR 0028](../docs/adr/0028-frontend-alb-and-container-runtime.md),
 [ADR 0029](../docs/adr/0029-use-external-dns-and-existing-frontend-certificate.md)이다.
 **코드와 mock 검증이며 AWS에 적용한 결과가 아니다.**

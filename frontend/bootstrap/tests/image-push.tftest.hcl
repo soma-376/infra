@@ -23,6 +23,9 @@ override_resource {
 
 run "disabled_without_subject" {
   command = plan
+  variables {
+    frontend_github_subject_prefix = null
+  }
   assert {
     condition     = length(aws_iam_role.frontend_image_push) == 0
     error_message = "subject를 지정하지 않은 기존 bootstrap에는 게시 역할을 만들지 않아야 합니다."
