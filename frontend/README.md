@@ -46,6 +46,9 @@ apply 역할은 네트워크/SG의 소유권 태그와 환경별 리소스 이�
 EC2 실행 권한은 dev에만 주고, IAM 수정 권한은 주지 않는다. 고정 execution/instance 역할에 대한
 서비스별 PassRole만 허용한다. plan은 메타데이터·자기 환경 상태 읽기와 잠금만 가능하다.
 CI는 secret 값을 읽지 않는다. 실행 역할은 자기 환경 ECR·로그·BFF secret만 사용한다.
+`DescribeTaskDefinition`은 리소스 단위 권한을 지원하지 않아 서울 리전 조회로 제한한다.
+태스크 정의는 `skip_destroy = true`로 이전 revision을 보관한다. `DeregisterTaskDefinition`도
+ARN 제한을 지원하지 않으므로 CI에 부여하지 않으며, 미사용 revision 정리는 관리자 작업이다.
 DNS와 ACM 인증서 발급·검증은 외부에서 관리한다. CI 역할에 Route 53 및 ACM 조회·변경
 권한을 주지 않으며, ALB 리스너에 이미 발급된 인증서 ARN만 연결한다.
 실제 IAM 평가는 SCP·permission boundary·서비스 조건에 영향을 받으므로 mock 결과와 구분한다.

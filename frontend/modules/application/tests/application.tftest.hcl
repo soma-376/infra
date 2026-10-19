@@ -38,6 +38,10 @@ variables {
   }
 }
 run "dev_https_and_single_process" {
+  assert {
+    condition     = aws_ecs_task_definition.frontend.skip_destroy
+    error_message = "태스크 정의 revision을 보관하여 CI에 계정 전체 등록 해제 권한을 주지 않아야 합니다."
+  }
   command = plan
   assert {
     condition     = aws_lb_listener.http.default_action[0].redirect[0].protocol == "HTTPS" && aws_lb_listener.https.protocol == "HTTPS" && aws_lb_listener.https.certificate_arn == var.runtime.certificate_arn && output.certificate_arn == var.runtime.certificate_arn

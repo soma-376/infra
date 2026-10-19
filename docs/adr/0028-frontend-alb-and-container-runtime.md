@@ -18,6 +18,7 @@ Accepted — 부분 대체: [ADR 0029](0029-use-external-dns-and-existing-fronte
 - 운영은 private subnet의 ARM64 Fargate 태스크 한 개다. 외부 HTTPS 통신과 이미지 pull은 기존 NAT를 통한다.
 - 두 ECS 서비스 모두 desired=1, minimumHealthyPercent=0, maximumPercent=100이다. 이전 태스크를 중지한 뒤 다음 태스크를 실행하며 배포 중 중단을 허용한다. 자동 확장은 두지 않는다.
 - 이미지 빌드·push는 앱 저장소의 후속 작업이다. 인프라는 환경별 ECR의 immutable digest를 입력받아 task definition을 소유한다. 앱 CI에 task definition 등록이나 PassRole 권한을 주지 않는다.
+- 태스크 정의의 이전 revision은 `skip_destroy = true`로 보관한다. 등록 해제 API는 리소스 단위 IAM 제한을 지원하지 않으므로 CI에 계정 전체 등록 해제 권한을 주지 않는다. 미사용 revision 정리는 관리자가 수행한다.
 - IAM 실행/인스턴스 역할과 BFF 키용 Secrets Manager 빈 secret은 bootstrap이 소유한다. 실제 키 값은 관리자가 별도로 입력하며 Terraform state에 저장하지 않는다. CI는 비밀 값을 읽지 않고 고정된 실행 역할만 서비스에 전달한다.
 - `runtime = null`인 초기 상태는 네트워크만 만든다. 도메인·DNS 권한·ARM64 이미지·키 값·백엔드 HTTPS 주소가 준비된 후 환경별 runtime 입력을 추가한다. 한번 활성화한 runtime을 null로 되돌리면 실행 환경을 삭제하는 계획이 되므로 명시적으로 검토한다.
 - dev/prod state의 기존 `network/terraform.tfstate` key를 유지해 상태가 분리되거나 리소스가 중복 생성되는 것을 방지한다.

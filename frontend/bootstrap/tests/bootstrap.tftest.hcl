@@ -64,6 +64,10 @@ run "separate_state_and_ci_privileges" {
 run "runtime_privileges_and_policy_quotas" {
   command = plan
   assert {
+    condition     = alltrue([for p in aws_iam_policy.runtime_write : !strcontains(p.policy, "DeregisterTaskDefinition")])
+    error_message = "환경별 ARN 제한을 지원하지 않는 태스크 정의 등록 해제 권한은 CI에 부여하지 않습니다."
+  }
+  assert {
     condition = alltrue([for p in aws_iam_role_policy.runtime_read : anytrue([
       for s in jsondecode(p.policy).Statement : try(contains(s.Action, "ecs:DescribeTaskDefinition") && s.Resource == "*" && s.Condition.StringEquals["aws:RequestedRegion"] == "ap-northeast-2", false)
     ])])
