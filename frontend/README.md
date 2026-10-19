@@ -46,6 +46,9 @@ apply 역할은 네트워크/SG의 소유권 태그와 환경별 리소스 이�
 EC2 실행 권한은 dev에만 주고, IAM 수정 권한은 주지 않는다. 고정 execution/instance 역할에 대한
 서비스별 PassRole만 허용한다. plan은 메타데이터·자기 환경 상태 읽기와 잠금만 가능하다.
 CI는 secret 값을 읽지 않는다. 실행 역할은 자기 환경 ECR·로그·BFF secret만 사용한다.
+`DescribeTaskDefinition`은 리소스 단위 권한을 지원하지 않아 서울 리전 조회로 제한한다.
+태스크 정의는 `skip_destroy = true`로 이전 revision을 보관한다. `DeregisterTaskDefinition`도
+ARN 제한을 지원하지 않으므로 CI에 부여하지 않으며, 미사용 revision 정리는 관리자 작업이다.
 DNS와 ACM 인증서 발급·검증은 외부에서 관리한다. CI 역할에 Route 53 및 ACM 조회·변경
 권한을 주지 않으며, ALB 리스너에 이미 발급된 인증서 ARN만 연결한다.
 실제 IAM 평가는 SCP·permission boundary·서비스 조건에 영향을 받으므로 mock 결과와 구분한다.
@@ -168,7 +171,7 @@ ECS EC2/bridge 모드이며 public IP는 외부 통신에 사용한다. SSH는 �
 운영은 private subnet Fargate, public IP 없음, NAT를 통한 HTTPS egress다.
 로그는 [ADR 0020](../docs/adr/0020-frontend-log-retention-policy.md)에 따라 dev 14일/prod 30일 보존하고
 실행 환경 삭제 시 로그 그룹을 남긴다. 다시 생성하려면 기존 로그 그룹을 해당 환경 상태로 import한다.
-루트 URL의 ALB health check는 HTTP 서버 생존 확인이며 로그인·백엔드 연결 성공을 증명하지 않는다.
+ALB health check는 `/login`의 200 응답으로 HTTP 서버 생존을 확인하며 로그인·백엔드 연결 성공을 증명하지 않는다. 루트(`/`)는 미인증 사용자를 307로 리다이렉트하므로 검사 경로로 사용하지 않는다.
 
 두 환경의 태스크 수는 **1개**, 배포 비율은 min 0% / max 100%다. 기존 태스크를 중지한 뒤 새 태스크를
 실행하므로 배포 중 잠시 응답할 서버가 없다. 허브 ADR 0009의 단일 BFF 프로세스 제약 때문에

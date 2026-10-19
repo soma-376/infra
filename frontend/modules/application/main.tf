@@ -83,7 +83,7 @@ resource "aws_lb_target_group" "frontend" {
   protocol             = "HTTP"
   deregistration_delay = 30
   health_check {
-    path                = "/"
+    path                = "/login"
     matcher             = "200"
     interval            = 30
     timeout             = 5
@@ -129,6 +129,8 @@ resource "aws_ecs_cluster" "frontend" {
   tags = local.tags
 }
 resource "aws_ecs_task_definition" "frontend" {
+  # 이전 revision을 보관하여 롤백을 지원하고 계정 전체 등록 해제 권한을 피한다.
+  skip_destroy             = true
   family                   = local.name
   requires_compatibilities = [local.is_dev ? "EC2" : "FARGATE"]
   network_mode             = local.is_dev ? "bridge" : "awsvpc"

@@ -45,7 +45,7 @@ resource "aws_iam_policy" "runtime_write" {
       },
       {
         Effect   = "Allow"
-        Action   = ["ecs:CreateCluster", "ecs:DeleteCluster", "ecs:UpdateCluster", "ecs:UpdateClusterSettings", "ecs:DeleteService", "ecs:DeregisterTaskDefinition", "ecs:TagResource", "ecs:UntagResource"]
+        Action   = ["ecs:CreateCluster", "ecs:DeleteCluster", "ecs:UpdateCluster", "ecs:UpdateClusterSettings", "ecs:DeleteService", "ecs:TagResource", "ecs:UntagResource"]
         Resource = ["arn:aws:ecs:ap-northeast-2:${var.aws_account_id}:cluster/${local.runtime_names[each.key]}", "arn:aws:ecs:ap-northeast-2:${var.aws_account_id}:service/${local.runtime_names[each.key]}/${local.runtime_names[each.key]}", "arn:aws:ecs:ap-northeast-2:${var.aws_account_id}:task-definition/${local.runtime_names[each.key]}:*"]
       },
       {
