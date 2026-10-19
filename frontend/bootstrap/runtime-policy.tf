@@ -13,13 +13,14 @@ resource "aws_iam_role_policy" "runtime_read" {
       {
         Effect = "Allow"
         Action = ["ec2:DescribeInstances", "ec2:DescribeInstanceAttribute", "ec2:DescribeInstanceCreditSpecifications", "ec2:DescribeVolumes", "ec2:DescribeImages", "ec2:DescribeSecurityGroupRules", "ec2:DescribeIamInstanceProfileAssociations", "ec2:DescribeInstanceTypes",
-        "elasticloadbalancing:DescribeLoadBalancers", "elasticloadbalancing:DescribeLoadBalancerAttributes", "elasticloadbalancing:DescribeTargetGroups", "elasticloadbalancing:DescribeTargetGroupAttributes", "elasticloadbalancing:DescribeListeners", "elasticloadbalancing:DescribeListenerAttributes", "elasticloadbalancing:DescribeTags", "logs:DescribeLogGroups"]
+        "elasticloadbalancing:DescribeLoadBalancers", "elasticloadbalancing:DescribeLoadBalancerAttributes", "elasticloadbalancing:DescribeTargetGroups", "elasticloadbalancing:DescribeTargetGroupAttributes", "elasticloadbalancing:DescribeListeners", "elasticloadbalancing:DescribeListenerAttributes", "elasticloadbalancing:DescribeTags", "logs:DescribeLogGroups", "ecs:DescribeTaskDefinition"]
+        # DescribeTaskDefinition은 리소스 단위 권한을 지원하지 않아 리전으로 제한한다.
         Resource  = "*"
         Condition = { StringEquals = { "aws:RequestedRegion" = "ap-northeast-2" } }
       },
       {
         Effect   = "Allow"
-        Action   = ["ecs:DescribeClusters", "ecs:DescribeServices", "ecs:DescribeTaskDefinition", "ecs:ListTagsForResource", "ecs:ListServiceDeployments", "ecs:DescribeServiceDeployments"]
+        Action   = ["ecs:DescribeClusters", "ecs:DescribeServices", "ecs:ListTagsForResource", "ecs:ListServiceDeployments", "ecs:DescribeServiceDeployments"]
         Resource = ["arn:aws:ecs:ap-northeast-2:${var.aws_account_id}:cluster/${local.runtime_names[each.value.env]}", "arn:aws:ecs:ap-northeast-2:${var.aws_account_id}:service/${local.runtime_names[each.value.env]}/*", "arn:aws:ecs:ap-northeast-2:${var.aws_account_id}:task-definition/${local.runtime_names[each.value.env]}:*", "arn:aws:ecs:ap-northeast-2:${var.aws_account_id}:service-deployment/${local.runtime_names[each.value.env]}/${local.runtime_names[each.value.env]}/*"]
       },
       { Effect = "Allow", Action = ["secretsmanager:DescribeSecret", "secretsmanager:GetResourcePolicy"], Resource = aws_secretsmanager_secret.bff[each.value.env].arn },
