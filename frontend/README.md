@@ -152,7 +152,7 @@ apply는 환경별 직렬화, S3 잠금, 실행 직전 branch HEAD 검사를 사
 2. bootstrap 관리자 plan/apply로 execution/instance 역할과 빈 BFF secret을 준비한다. CI는 DNS·인증서를 관리하지 않는다. 이전 버전에서 생성한 인증서·DNS가 있다면 아래 기존 배포 전환 절차를 먼저 따른다.
 3. 계정에 `AWSServiceRoleForECS`, `AWSServiceRoleForElasticLoadBalancing`이 있는지 관리자가 확인한다. 기존 CDK/AWS 소유 공용 역할이며 이 코드에서 생성/import하지 않는다. 없으면 관리자가 서비스 연결 역할을 먼저 만든다. CI에는 IAM 생성 권한이 없다.
 4. `bff_secret_arns` 출력의 각 환경 secret에 서로 다른 BFF 키를 **관리자 콘솔에서 값으로 저장**한다. 값은 프론트 `BFF_SESSION_KEYS` 형식(32-byte hex 키, 회전 시 쉼표로 최대 3개)이다. Terraform으로 secret version을 만들지 않는다. 빈 secret 상태로는 태스크가 시작되지 않는다.
-5. 실제 Next.js **linux/arm64** 이미지를 환경별 ECR에 올리고 digest를 확인한다. 이미지 빌드·push는 프론트 앱 저장소의 workflow와 bootstrap의 환경별 image-push 역할로 수행한다. 컨테이너는 `0.0.0.0:3000`에서 Next.js 프로세스 하나를 실행하고 `/`에 HTTP 200을 응답해야 한다. 빌드 시 `NEXT_PUBLIC_ENROLLMENT_API_URL`에 해당 환경의 공개 HTTPS enrollment origin을 넣는다. 이 값은 이미지 빌드 후 런타임 환경 변수로 바뀌지 않는다.
+5. 실제 Next.js **linux/arm64** 이미지를 환경별 ECR에 올리고 digest를 확인한다. 이미지 빌드·push는 프론트 앱 저장소의 workflow와 bootstrap의 환경별 image-push 역할로 수행한다. 컨테이너는 `0.0.0.0:3000`에서 Next.js 프로세스 하나를 실행하고 `/login`에 HTTP 200을 응답해야 한다. 빌드 시 `NEXT_PUBLIC_ENROLLMENT_API_URL`에 해당 환경의 공개 HTTPS enrollment origin을 넣는다. 이 값은 이미지 빌드 후 런타임 환경 변수로 바뀌지 않는다.
 6. 개발 AMI는 서울 리전 ECS optimized AL2023 ARM64 AMI의 실제 ID를 조회해 고정한다. 아래 명령은 조회만 한다.
 
 ```bash
@@ -163,7 +163,7 @@ aws ssm get-parameter --region ap-northeast-2 \
 
 7. 각 환경의 `runtime.auto.tfvars.json.example`을 `runtime.auto.tfvars.json`으로 복사하고 실제 도메인·인증서 ARN·digest·AMI·백엔드 HTTPS origin을 입력한다. **이 파일만 비밀 없는 릴리스 설정으로 Git에 커밋한다.** PR plan과 머지 후 apply가 같은 입력을 사용한다. `certificate_arn`에는 같은 계정·서울 리전의 프론트 도메인 인증서를 입력한다. ARN 형식 검증만으로 발급 상태나 도메인 일치는 보장하지 않는다. example placeholder는 그대로 적용할 수 없다.
 8. 백엔드가 실제 HTTPS로 응답하고 프론트 `https://<domain>/auth/callback`과 허용 origin이 등록됐는지 확인한다. 현재 백엔드가 HTTP만 지원한다면 이 선행 작업을 먼저 끝낸다. VPC peering은 없으며 BFF는 공개 HTTPS 백엔드로 연결한다.
-9. runtime 설정 PR을 검토한 뒤 develop 또는 main에 머지하고 해당 Environment 승인 후 적용한다. image digest도 이후 이 파일의 PR로 변경한다.
+9. runtime 설정 PR을 검토한 뒤 develop 또는 main에 머지하고 해당 Environment 승인 후 적용한다. 자동 배포 활성화 전까지 image digest도 이 파일의 PR로 변경한다. 자동 배포 전환은 아래 절차를 따른다.
 10. 해당 환경의 `terraform output -json application`에서 `alb_dns_name`을 확인하고, 외부 DNS에 **프론트 도메인 → ALB DNS 이름** CNAME을 등록한다. 대상에는 `https://`나 경로를 넣지 않는다. 앞의 ACM 검증 CNAME과 별개이며 두 레코드를 유지한다. DNS가 반영되면 실제 HTTPS 접속과 로그인을 확인한다.
 
 ALB는 public subnet 두 개, 앱 ingress는 ALB SG의 TCP 3000만 허용한다. 개발 EC2는
@@ -198,7 +198,7 @@ DNS·ACM 권한을 제거한다. 관리자 tfvars에 이전 `frontend_dns`가 �
 
 - Terraform은 ECS steady state까지 기다린다. 실제 적용 후 ECS event, ALB target health, HTTPS 응답과 로그인 callback을 별도로 확인한다. mock test로 대체할 수 없다.
 - ECS circuit breaker가 실패를 감지하고 이전 완료 배포가 있으면 롤백한다. **최초 배포에는 이전 정상 버전이 없다.** secret/이미지/네트워크를 수정한 뒤 재배포한다.
-- 수동 롤백은 runtime 파일의 image digest를 이전 정상 digest로 되돌리는 PR을 머지한다. 설정/키도 이전 이미지와 호환되어야 한다. Terraform이 새 task definition으로 배포하고 안정화를 확인한다.
+- digest 고정 모드의 수동 롤백은 runtime 파일의 image digest를 이전 정상 digest로 되돌리는 PR을 머지한다. 자동 배포 모드는 아래 복구 절차를 따른다. 설정/키도 이전 이미지와 호환되어야 한다. Terraform이 새 task definition으로 배포하고 안정화를 확인한다.
 - 키 회전 후 태스크를 재시작해야 새 secret 값이 주입된다. 키 값만 바꾸면 실행 중인 프로세스는 자동 갱신되지 않는다.
 - 활성화 후 runtime을 null로 지우면 ALB·실행 환경 삭제 계획이 나온다. 운영 ALB는 삭제 보호가 켜져 있어 해제 변경을 먼저 검토해야 한다. S3/ECR/secret은 bootstrap의 삭제 보호를 유지한다.
 - 앱 CI의 이미지 빌드/push 역할은 bootstrap에 정의한다. Terraform plan/apply 역할에는 ECR push 권한이 없다.
@@ -218,11 +218,59 @@ bootstrap의 `frontend_github_subject_prefix`에 **프론트 저장소**의 실�
 생성하지 않는다. 활성화 후 null로 되돌리면 역할 삭제 계획이 나오므로 유지한다.
 
 각 역할은 `dev` / `prod` GitHub Environment만 신뢰하고,
-자기 환경 ECR의 이미지 업로드·manifest·digest 조회와 registry 로그인만 허용한다.
-ECS 배포, Terraform state, secret 값, IAM 변경 권한은 없다. GitHub Environment의
+자기 환경 ECR의 이미지 업로드·manifest·digest 조회와 registry 로그인, 자기 ECS 서비스의
+강제 재배포·상태 조회를 허용한다. Terraform state, secret 값, IAM 변경, task definition 등록, PassRole 권한은 없다. GitHub Environment의
 배포 브랜치 제한을 dev=`develop`, prod=`main`으로 설정하고 prod에는 승인자를 지정한다.
 Environment subject는 브랜치를 포함하지 않으므로 이 제한을 GitHub에서 적용해야 한다.
 
 관리자가 기존 bootstrap state/backend와 실제 tfvars를 사용해 plan을 검토하고 적용한 뒤
 `terraform output frontend_image_push_roles`의 해당 환경 ARN을 프론트 GitHub Environment의
 `AWS_ECR_PUSH_ROLE_ARN` 변수에 등록한다. 코드 추가만으로 AWS 역할이 생성되지는 않는다.
+
+
+## 머지 후 ECS 자동 배포 전환 (PROJ-242)
+
+[허브 ADR 0022](https://github.com/soma-376/docs/blob/main/adr/0022-frontend-ecs-image-delivery.md)를 따른다.
+프론트 develop→dev EC2, main→prod Fargate다. 리소스·task definition은 Terraform이 관리하고
+앱 CI는 `deploy` 태그 승격과 `update-service --force-new-deployment`만 수행한다.
+커밋 태그는 immutable이고 정확히 `deploy` 한 태그만 mutable이다.
+
+1. 해당 GitHub Environment의 `ECS_DEPLOY_ENABLED`를 비활성화하고 진행 중 앱 배포가 끝날 때까지 기다린다.
+2. 관리자가 기존 bootstrap state와 tfvars로 plan을 검토하여 ECR 예외 태그 및 `frontend-image-deploy` 정책을 적용한다.
+   기존 image-push 역할 ARN을 유지하므로 GitHub 역할 변수는 변경하지 않는다. dev/prod 권한은 각각 자기 서비스·클러스터로 제한된다.
+3. 현재 정상 실행 이미지 digest를 확인하고 그 manifest에 `deploy` 태그를 붙인다. 첫 생성이면 정상 ARM64 이미지를 먼저 게시하고 검증한다.
+   아래 명령에서 환경·digest를 실제 조회값으로 지정한다. secret 값은 필요하지 않다.
+
+```bash
+release_env=dev
+release_digest='<현재 정상 실행 sha256 digest>'
+release_repo="soma-376/pulsemetry-frontend-$release_env"
+release_manifest=$(mktemp)
+aws ecr batch-get-image --region ap-northeast-2 --repository-name "$release_repo" \
+  --image-ids "imageDigest=$release_digest" --query 'images[0].imageManifest' --output text > "$release_manifest"
+aws ecr put-image --region ap-northeast-2 --repository-name "$release_repo" \
+  --image-tag deploy --image-manifest "file://$release_manifest" \
+  --query 'image.imageId' --output json
+rm "$release_manifest"
+```
+
+4. runtime의 `automatic_image_deployment=true`를 검토·머지하여 해당 환경 Terraform apply를 수행한다.
+   `image_digest`는 비상 고정 모드로 돌아갈 때 쓰는 값으로 유지하고 매 앱 배포마다 바꾸지 않는다.
+   dev EC2의 `ECS_IMAGE_PULL_BEHAVIOR=always` 추가는 user data 변경이므로 인스턴스를 교체한다.
+   사전 plan에서 이 교체를 확인하고 짧은 중단을 허용하는 시간에 전환한다. prod는 이 EC2 교체와 무관하다.
+5. ECS COMPLETED, 실제 실행 digest, ALB healthy, HTTPS 및 로그인 동작을 확인한다.
+6. 프론트 CI가 PROJ-242 버전인지 확인하고 해당 Environment에 `ECS_DEPLOY_ENABLED=true`를 설정한다.
+   이후 해당 브랜치 push가 검사→ECR 게시→ECS 재배포→실행 digest 검증까지 수행한다.
+
+prod runtime이 없으면 운영 배포를 켜지 않는다. 도메인·인증서·백엔드 URL·secret·이미지 준비와
+최초 Terraform 배포를 먼저 완료한다. prod example 파일은 실제 입력이 아니며 자동으로 로드되지 않는다.
+
+앱 CD와 infra apply의 GitHub concurrency는 저장소 간 공유되지 않는다. 인프라 유지보수 때는
+CD 비활성화→진행 중 실행 종료→Terraform apply→정상 확인→CD 재활성화 순서를 지킨다.
+
+실패한 앱 배포는 CI가 이전 실행 digest로 `deploy` 태그를 복구한다. 이것만으로 서비스 롤백 완료를 뜻하지 않는다.
+ECS circuit breaker/events와 실제 task digest를 확인한다. runner 소실 또는 수동 변경으로 태그와 실행 이미지가
+어긋나면 자동 배포는 다음 실행도 중단한다. CD를 끈 상태에서 위 명령으로 정상 manifest를 복원하고
+`aws ecs update-service --cluster soma-376-frontend-<env> --service soma-376-frontend-<env> --force-new-deployment`로
+배포 후 정상 상태를 검증한다. 평상시 코드 롤백은 프론트 revert PR을 해당 브랜치에 머지한다.
+고정 digest로 돌아가려면 CD 비활성 상태에서 `automatic_image_deployment=false`와 정상 `image_digest`를 PR로 적용한다.

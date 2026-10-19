@@ -2,9 +2,11 @@
 
 ## Status
 
-Accepted — 부분 대체: [ADR 0029](0029-use-external-dns-and-existing-frontend-certificate.md)가 Route 53·ACM 생성 결정을 대체한다. 나머지 결정은 유효하다. [PROJ-216](https://team376.atlassian.net/browse/PROJ-216). ADR 0030의 기반 인프라에 실행 환경을 추가한다. 실제 AWS 적용은 별도 운영 단계다.
+Accepted — 부분 대체: [ADR 0029](0029-use-external-dns-and-existing-frontend-certificate.md)가 Route 53·ACM 생성 결정을 대체한다. 이미지 릴리스 입력은 [허브 ADR 0022](https://github.com/soma-376/docs/blob/main/adr/0022-frontend-ecs-image-delivery.md)가 부분 대체한다. 나머지 결정은 유효하다. [PROJ-216](https://team376.atlassian.net/browse/PROJ-216). ADR 0030의 기반 인프라에 실행 환경을 추가한다. 실제 AWS 적용은 별도 운영 단계다.
 
 ## Context
+
+이미지 릴리스 방식은 [허브 ADR 0022](https://github.com/soma-376/docs/blob/main/adr/0022-frontend-ecs-image-delivery.md)가 부분 대체한다. 자동 배포 활성 환경은 `deploy` 태그와 실행 digest 검증을 사용하며, task definition 소유권·권한 경계와 나머지 결정은 유효하다.
 
 사용자가 독립 ALB·인증서·개발 EC2·운영 Fargate 구현과 코드 push를 요청했다.
 허브 ADR 0009의 BFF refresh 조정은 프로세스 메모리에 있으므로 복제본을 동시에 실행할 수 없다.
@@ -17,7 +19,7 @@ Accepted — 부분 대체: [ADR 0029](0029-use-external-dns-and-existing-fronte
 - 개발은 public subnet의 ARM64 EC2 한 대에서 ECS EC2 방식으로 컨테이너를 관리한다. bridge 모드와 고정 host port를 써서 EC2의 public IP로 외부에 연결한다. SSH 없이 SSM을 사용한다.
 - 운영은 private subnet의 ARM64 Fargate 태스크 한 개다. 외부 HTTPS 통신과 이미지 pull은 기존 NAT를 통한다.
 - 두 ECS 서비스 모두 desired=1, minimumHealthyPercent=0, maximumPercent=100이다. 이전 태스크를 중지한 뒤 다음 태스크를 실행하며 배포 중 중단을 허용한다. 자동 확장은 두지 않는다.
-- 이미지 빌드·push는 앱 저장소의 후속 작업이다. 인프라는 환경별 ECR의 immutable digest를 입력받아 task definition을 소유한다. 앱 CI에 task definition 등록이나 PassRole 권한을 주지 않는다.
+- **부분 대체됨(허브 ADR 0022)** — 자동 배포 활성 환경은 `deploy` 태그를 사용한다. 기존 결정: 이미지 빌드·push는 앱 저장소의 후속 작업이다. 인프라는 환경별 ECR의 immutable digest를 입력받아 task definition을 소유한다. 앱 CI에 task definition 등록이나 PassRole 권한을 주지 않는다.
 - 태스크 정의의 이전 revision은 `skip_destroy = true`로 보관한다. 등록 해제 API는 리소스 단위 IAM 제한을 지원하지 않으므로 CI에 계정 전체 등록 해제 권한을 주지 않는다. 미사용 revision 정리는 관리자가 수행한다.
 - IAM 실행/인스턴스 역할과 BFF 키용 Secrets Manager 빈 secret은 bootstrap이 소유한다. 실제 키 값은 관리자가 별도로 입력하며 Terraform state에 저장하지 않는다. CI는 비밀 값을 읽지 않고 고정된 실행 역할만 서비스에 전달한다.
 - `runtime = null`인 초기 상태는 네트워크만 만든다. 도메인·DNS 권한·ARM64 이미지·키 값·백엔드 HTTPS 주소가 준비된 후 환경별 runtime 입력을 추가한다. 한번 활성화한 runtime을 null로 되돌리면 실행 환경을 삭제하는 계획이 되므로 명시적으로 검토한다.

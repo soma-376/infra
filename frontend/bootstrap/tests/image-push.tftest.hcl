@@ -62,3 +62,25 @@ run "environment_scoped_publish" {
     error_message = "자기 환경 ECR 게시·조회 이외의 권한이나 다른 저장소 접근을 허용하면 안 됩니다."
   }
 }
+
+run "environment_scoped_service_delivery" {
+  command = plan
+  variables { frontend_github_subject_prefix = "repo:soma-376/pulsemetry-frontend" }
+  assert {
+    condition = alltrue([for env, policy in aws_iam_role_policy.frontend_image_deploy :
+      jsondecode(policy.policy).Statement[0].Resource == "arn:aws:ecs:ap-northeast-2:111111111111:service/soma-376-frontend-${env}/soma-376-frontend-${env}" &&
+      jsondecode(policy.policy).Statement[0].Condition.ArnEquals["ecs:cluster"] == "arn:aws:ecs:ap-northeast-2:111111111111:cluster/soma-376-frontend-${env}" &&
+      toset(jsondecode(policy.policy).Statement[0].Action) == toset(["ecs:DescribeServices", "ecs:UpdateService"]) &&
+      !strcontains(policy.policy, "RegisterTaskDefinition") && !strcontains(policy.policy, "PassRole") && !strcontains(policy.policy, "secretsmanager:") && !strcontains(policy.policy, "s3:")
+    ])
+    error_message = "자기 환경 서비스 갱신/조회만 허용하며 정의 등록·역할 전달·비밀·state 권한을 주면 안 됩니다."
+  }
+  assert {
+    condition = alltrue([for env, policy in aws_iam_role_policy.frontend_image_deploy :
+      jsondecode(policy.policy).Statement[1].Condition.ArnEquals["ecs:cluster"] == "arn:aws:ecs:ap-northeast-2:111111111111:cluster/soma-376-frontend-${env}" &&
+      jsondecode(policy.policy).Statement[2].Resource == "arn:aws:ecs:ap-northeast-2:111111111111:task/soma-376-frontend-${env}/*" &&
+      jsondecode(policy.policy).Statement[3].Resource == "*" && jsondecode(policy.policy).Statement[3].Condition.StringEquals["aws:RequestedRegion"] == "ap-northeast-2"
+    ])
+    error_message = "태스크 조회는 자기 클러스터에 한정하며 ARN 제한 미지원 정의 조회는 서울 리전에 한정해야 합니다."
+  }
+}

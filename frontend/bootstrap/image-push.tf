@@ -1,4 +1,4 @@
-# 앱 이미지 게시만 허용한다. Terraform 및 ECS 배포 역할과 분리한다.
+# 앱 이미지 게시와 기존 서비스 재배포만 허용한다. Terraform 역할과 분리한다.
 resource "aws_iam_role" "frontend_image_push" {
   for_each             = var.frontend_github_subject_prefix == null ? toset([]) : local.environments
   name                 = "soma-376-frontend-${each.key}-image-push"
