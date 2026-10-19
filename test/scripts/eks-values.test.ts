@@ -142,7 +142,9 @@ describe('배포 output→values 변환', () => {
   });
 
   test('비활성 OIDC는 빈 원본의 ARN output·VersionId 없이 기존 필수 파일을 유지한다', () => {
-    const output = run(outputs(), enrollmentImage, dashboardImage, dump(oidcRuntime(false)));
+    const input = oidcRuntime(false);
+    input.oidc.allowInsecureLocalhost = true;
+    const output = run(outputs(), enrollmentImage, dashboardImage, dump(input));
     expect(output.result.status).toBe(0);
     expect(output.read('runtime.yaml').oidc).toEqual({ enabled: false });
     expect(output.read('enrollment-api.yaml').oidc).toEqual({ enabled: false });
@@ -160,9 +162,32 @@ describe('배포 output→values 변환', () => {
     expect(runtime.oidc.failureRedirectUri).toBe(input.oidc.failureRedirectUri);
     expect(enrollment.oidc).toEqual(runtime.oidc);
     expect(enrollment.userAuth.allowedRedirectUris).toEqual(input.userAuth.allowedRedirectUris);
-    expect(enrollment.oidc).not.toHaveProperty('allowInsecureLocalhost');
+    expect(enrollment.oidc.allowInsecureLocalhost).toBe(false);
     expect(enrollment.env.PULSEMETRY_OIDC_ALLOW_INSECURE_LOCALHOST).toBeUndefined();
     expect(enrollment.env.SPRING_PROFILES_ACTIVE).toBeUndefined();
+  });
+
+  test.each([undefined, false, true])('localhost 예외 %j를 runtime과 enrollment에만 boolean으로 전달한다', value => {
+    const input = oidcRuntime();
+    if (value !== undefined) input.oidc.allowInsecureLocalhost = value;
+    const output = run(oidcOutputs(), enrollmentImage, dashboardImage, dump(input));
+    expect(output.result.status).toBe(0);
+    for (const app of ['runtime', 'enrollment-api']) {
+      expect(output.read(`${app}.yaml`).oidc.allowInsecureLocalhost).toBe(value ?? false);
+    }
+    for (const app of ['dashboard-api', 'telemetry-ingest']) {
+      expect(output.read(`${app}.yaml`).oidc).toBeUndefined();
+      expect(JSON.stringify(output.read(`${app}.yaml`))).not.toContain('allowInsecureLocalhost');
+    }
+  });
+
+  test.each(['true', 'false', null, 0, 1, [], {}])('localhost 예외의 boolean이 아닌 입력 %j를 파일 생성 전에 거부한다', value => {
+    const input = oidcRuntime();
+    input.oidc.allowInsecureLocalhost = value;
+    const output = run(oidcOutputs(), enrollmentImage, dashboardImage, dump(input));
+    expect(output.result.status).toBe(1);
+    expect(existsSync(output.dir)).toBe(false);
+    expect(output.result.stderr).toContain('oidc.allowInsecureLocalhost');
   });
 
   helmTest('HTTP callback·실패 복귀·허용 복귀 주소로 runtime과 enrollment를 render한다', () => {
@@ -175,7 +200,6 @@ describe('배포 output→values 변환', () => {
         app === 'runtime' ? 'helm/dev/runtime/chart' : 'helm/dev/workloads/spring-app',
         '--namespace', 'pulsemetry-dev', '--kube-version', '1.36.0', ...files.flatMap(file => ['-f', file])], { cwd: root, encoding: 'utf8' });
       expect(result.status).toBe(0);
-      expect(result.stdout).not.toContain('allow-insecure-localhost');
       expect(result.stdout).not.toContain('PULSEMETRY_OIDC_ALLOW_INSECURE_LOCALHOST');
       expect(result.stdout).not.toContain('SPRING_PROFILES_ACTIVE');
       if (app === 'enrollment-api') {
@@ -184,6 +208,7 @@ describe('배포 output→values 변환', () => {
         expect(env.PULSEMETRY_OIDC_CALLBACK_BASE_URL).toBe('http://auth.example.test');
         expect(env.PULSEMETRY_OIDC_FAILURE_REDIRECT_URI).toBe('http://dashboard.example.test/auth/callback');
         expect(env.PULSEMETRY_USER_AUTH_ALLOWED_REDIRECT_URIS).toBe('http://dashboard.example.test/auth/callback');
+        expect(JSON.parse(env.SPRING_APPLICATION_JSON as string).pulsemetry.oidc['allow-insecure-localhost']).toBe(false);
       }
     }
   });
@@ -366,15 +391,48 @@ describe('배포 output→values 변환', () => {
     expect(env.PULSEMETRY_OIDC_FAILURE_REDIRECT_URI).toBe(app.oidc.failureRedirectUri);
     expect(env.PULSEMETRY_USER_AUTH_ALLOWED_REDIRECT_URIS).toBe(app.userAuth.allowedRedirectUris.join(','));
     const properties = JSON.parse(env.SPRING_APPLICATION_JSON as string).pulsemetry;
-    expect(properties.oidc).toEqual({ 'callback-registration-id': 'oidc', 'client-secrets': {
+    expect(properties.oidc).toEqual({ 'callback-registration-id': 'oidc', 'allow-insecure-localhost': false, 'client-secrets': {
       '[cognito-a]': '${PULSEMETRY_OIDC_CLIENT_SECRET_0}', '[cognito-b]': '${PULSEMETRY_OIDC_CLIENT_SECRET_1}',
     } });
     expect(properties['user-auth']['public-key-files']).toEqual({ '[release-2026.10]': '/mnt/user-jwt/keys/release-2026-10.pem' });
     expect(pod.containers[0].env.some((item: any) => item.name.startsWith('PULSEMETRY_OIDC_CLIENT_SECRET_'))).toBe(false);
     expect(pod.volumes).toHaveLength(2);
+    for (const allowInsecureLocalhost of [undefined, false, true]) {
+      const input = oidcRuntime();
+      if (allowInsecureLocalhost !== undefined) input.oidc.allowInsecureLocalhost = allowInsecureLocalhost;
+      const generated = run(oidcOutputs(), enrollmentImage, dashboardImage, dump(input));
+      expect(generated.result.status).toBe(0);
+      expect(rendered('helm/dev/runtime/chart', generated.read('runtime.yaml')).status).toBe(0);
+      const result = rendered('helm/dev/workloads/spring-app', generated.read('enrollment-api.yaml'));
+      expect(result.status).toBe(0);
+      const next = documents(result.stdout).find((doc: any) => doc.kind === 'Deployment');
+      const json = next.spec.template.spec.containers[0].env.find((item: any) => item.name === 'SPRING_APPLICATION_JSON');
+      expect(JSON.parse(json.value).pulsemetry.oidc['allow-insecure-localhost']).toBe(allowInsecureLocalhost ?? false);
+    }
+    // 새 필드가 없는 과거 generated values도 기본 false로 계속 렌더링한다.
+    const legacyRuntime = JSON.parse(JSON.stringify(runtime));
+    const legacyApp = JSON.parse(JSON.stringify(app));
+    delete legacyRuntime.oidc.allowInsecureLocalhost;
+    delete legacyApp.oidc.allowInsecureLocalhost;
+    expect(rendered('helm/dev/runtime/chart', legacyRuntime).status).toBe(0);
+    const legacyResult = rendered('helm/dev/workloads/spring-app', legacyApp);
+    expect(legacyResult.status).toBe(0);
+    const legacyDeployment = documents(legacyResult.stdout).find((doc: any) => doc.kind === 'Deployment');
+    const legacyJson = legacyDeployment.spec.template.spec.containers[0].env.find((item: any) => item.name === 'SPRING_APPLICATION_JSON');
+    expect(JSON.parse(legacyJson.value).pulsemetry.oidc['allow-insecure-localhost']).toBe(false);
+    for (const invalid of ['true', 'false', null, 0, 1, [], {}]) {
+      for (const [chart, value] of [['helm/dev/runtime/chart', runtime], ['helm/dev/workloads/spring-app', app]] as const) {
+        const changed = JSON.parse(JSON.stringify(value));
+        changed.oidc.allowInsecureLocalhost = invalid;
+        const result = rendered(chart, changed);
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toContain('allowInsecureLocalhost');
+      }
+    }
     const revision = deployment.spec.template.metadata.annotations['pulsemetry.io/oidc-revision'];
     expect(revision).toMatch(/^[a-f0-9]{64}$/);
     for (const change of [
+      (value: any) => { value.oidc.allowInsecureLocalhost = true; },
       (value: any) => { value.oidc.clients[0].versionId = 'c'.repeat(32); },
       (value: any) => { value.oidc.clients[0].secretArn = value.oidc.clients[0].secretArn.replace('abc123', 'def456'); },
       (value: any) => { value.oidc.clients[0].key = 'cognito-A'; value.oidc.clients[0].secretArn = oidcArn('cognito-A'); },
