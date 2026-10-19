@@ -64,6 +64,12 @@ run "separate_state_and_ci_privileges" {
 run "runtime_privileges_and_policy_quotas" {
   command = plan
   assert {
+    condition = alltrue([for p in aws_iam_role_policy.runtime_read : anytrue([
+      for s in jsondecode(p.policy).Statement : try(contains(s.Action, "ecs:DescribeTaskDefinition") && s.Resource == "*" && s.Condition.StringEquals["aws:RequestedRegion"] == "ap-northeast-2", false)
+    ])])
+    error_message = "DescribeTaskDefinition은 ARN 제한을 지원하지 않으므로 서울 리전 조회로 제한해야 합니다."
+  }
+  assert {
     condition = alltrue([for key, p in aws_iam_role_policy.runtime_read : anytrue([
       for s in jsondecode(p.policy).Statement : contains(s.Action, "secretsmanager:GetResourcePolicy") && s.Resource == aws_secretsmanager_secret.bff[split("-", key)[0]].arn
     ])])
