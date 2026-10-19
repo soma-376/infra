@@ -146,3 +146,26 @@ run "reject_certificate_other_region" {
   }
   expect_failures = [var.runtime]
 }
+
+run "automatic_image_delivery" {
+  command = plan
+  variables {
+    runtime = {
+      domain_name                = "frontend.example.com"
+      certificate_arn            = "arn:aws:acm:ap-northeast-2:111111111111:certificate/00000000-0000-0000-0000-000000000001"
+      image_digest               = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      automatic_image_deployment = true
+      enrollment_api_url         = "https://enrollment.example.com"
+      dashboard_api_url          = "https://dashboard.example.com"
+      dev_ami_id                 = "ami-0123456789abcdef0"
+    }
+  }
+  assert {
+    condition     = jsondecode(aws_ecs_task_definition.frontend.container_definitions)[0].image == "111111111111.dkr.ecr.ap-northeast-2.amazonaws.com/soma-376/pulsemetry-frontend-dev:deploy" && jsondecode(aws_ecs_task_definition.frontend.container_definitions)[0].versionConsistency == "enabled"
+    error_message = "자동 배포는 환경별 deploy 태그와 ECS digest 해석을 사용해야 합니다."
+  }
+  assert {
+    condition     = strcontains(aws_instance.dev[0].user_data, "ECS_IMAGE_PULL_BEHAVIOR=always")
+    error_message = "이미지 pull 실패를 캐시 이미지로 숨기면 안 됩니다."
+  }
+}

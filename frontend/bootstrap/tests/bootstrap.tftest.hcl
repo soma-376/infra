@@ -56,8 +56,8 @@ run "separate_state_and_ci_privileges" {
     error_message = "plan 역할은 상태/네트워크를 변경하지 못하고 apply 역할만 변경할 수 있어야 합니다."
   }
   assert {
-    condition     = alltrue([for repo in aws_ecr_repository.frontend : repo.image_tag_mutability == "IMMUTABLE" && !repo.force_delete])
-    error_message = "ECR은 이미지 태그 덮어쓰기와 강제 삭제를 허용하지 않습니다."
+    condition     = alltrue([for repo in aws_ecr_repository.frontend : repo.image_tag_mutability == "IMMUTABLE_WITH_EXCLUSION" && !repo.force_delete && length(repo.image_tag_mutability_exclusion_filter) == 1 && one(repo.image_tag_mutability_exclusion_filter).filter == "deploy" && one(repo.image_tag_mutability_exclusion_filter).filter_type == "WILDCARD"])
+    error_message = "ECR은 deploy 한 태그만 변경할 수 있고 커밋 태그 덮어쓰기와 강제 삭제는 허용하지 않습니다."
   }
 }
 

@@ -65,8 +65,12 @@ resource "aws_s3_bucket_policy" "state" {
 resource "aws_ecr_repository" "frontend" {
   for_each             = local.environments
   name                 = "soma-376/pulsemetry-frontend-${each.key}"
-  image_tag_mutability = "IMMUTABLE"
-  force_delete         = false
+  image_tag_mutability = "IMMUTABLE_WITH_EXCLUSION"
+  image_tag_mutability_exclusion_filter {
+    filter_type = "WILDCARD"
+    filter      = "deploy"
+  }
+  force_delete = false
   encryption_configuration { encryption_type = "AES256" }
   image_scanning_configuration { scan_on_push = true }
   tags = merge(local.tags, { Env = each.key })

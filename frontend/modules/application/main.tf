@@ -4,7 +4,8 @@ locals {
   tags               = { Org = "soma-376", Project = "pulsemetry-frontend", Env = var.environment, ManagedBy = "terraform" }
   is_dev             = var.environment == "dev"
   execution_role_arn = "arn:aws:iam::${var.aws_account_id}:role/${local.name}-execution"
-  image              = "${var.aws_account_id}.dkr.ecr.${local.region}.amazonaws.com/soma-376/pulsemetry-frontend-${var.environment}@${var.runtime.image_digest}"
+  image_repository   = "${var.aws_account_id}.dkr.ecr.${local.region}.amazonaws.com/soma-376/pulsemetry-frontend-${var.environment}"
+  image              = var.runtime.automatic_image_deployment ? "${local.image_repository}:deploy" : "${local.image_repository}@${var.runtime.image_digest}"
 }
 
 data "aws_secretsmanager_secret" "bff" {
@@ -142,13 +143,14 @@ resource "aws_ecs_task_definition" "frontend" {
     cpu_architecture        = "ARM64"
   }
   container_definitions = jsonencode([{
-    name         = "frontend"
-    image        = local.image
-    essential    = true
-    cpu          = 512
-    memory       = 1024
-    portMappings = [{ containerPort = 3000, hostPort = 3000, protocol = "tcp" }]
-    stopTimeout  = 30
+    name               = "frontend"
+    image              = local.image
+    versionConsistency = "enabled"
+    essential          = true
+    cpu                = 512
+    memory             = 1024
+    portMappings       = [{ containerPort = 3000, hostPort = 3000, protocol = "tcp" }]
+    stopTimeout        = 30
     environment = [
       { name = "NODE_ENV", value = "production" },
       { name = "PORT", value = "3000" },
@@ -202,6 +204,7 @@ resource "aws_instance" "dev" {
     cat >> /etc/ecs/ecs.config <<'EOF'
     ECS_CLUSTER=${aws_ecs_cluster.frontend.name}
     ECS_ENABLE_AWSLOGS_EXECUTIONROLE_OVERRIDE=true
+    ECS_IMAGE_PULL_BEHAVIOR=always
     EOF
     # 앱 bridge 네트워크에서 호스트 IAM 자격증명 접근을 차단한다.
     cat > /etc/systemd/system/frontend-imds-guard.service <<'EOF'

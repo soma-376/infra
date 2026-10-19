@@ -12,12 +12,13 @@ variable "private_subnet_ids" { type = list(string) }
 variable "runtime" {
   description = "비밀 값을 포함하지 않는 실행 설정. 인증서는 같은 계정·서울 리전에서 발급하고 DNS는 외부에서 관리한다."
   type = object({
-    domain_name        = string
-    certificate_arn    = string
-    image_digest       = string
-    enrollment_api_url = string
-    dashboard_api_url  = string
-    dev_ami_id         = optional(string)
+    domain_name                = string
+    certificate_arn            = string
+    image_digest               = string
+    automatic_image_deployment = optional(bool, false)
+    enrollment_api_url         = string
+    dashboard_api_url          = string
+    dev_ami_id                 = optional(string)
   })
   validation {
     condition     = can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$", var.runtime.domain_name))
