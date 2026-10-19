@@ -19,6 +19,14 @@ resource "aws_iam_policy" "security_groups" {
         Condition = { StringEquals = { "ec2:ResourceTag/Project" = "pulsemetry-frontend", "ec2:ResourceTag/Env" = each.key, "ec2:ResourceTag/ManagedBy" = "terraform" } }
       },
       {
+        # 생성 전 규칙에는 ResourceTag가 없으므로 요청 태그로 소유권을 검증한다.
+        # 연결할 보안 그룹은 아래 ResourceTag 조건으로 별도 검증한다.
+        Effect    = "Allow"
+        Action    = ["ec2:AuthorizeSecurityGroupIngress", "ec2:AuthorizeSecurityGroupEgress"]
+        Resource  = "arn:aws:ec2:ap-northeast-2:${var.aws_account_id}:security-group-rule/*"
+        Condition = { StringEquals = { "aws:RequestTag/Project" = "pulsemetry-frontend", "aws:RequestTag/Env" = each.key, "aws:RequestTag/ManagedBy" = "terraform" } }
+      },
+      {
         Effect    = "Allow"
         Action    = ["ec2:DeleteSecurityGroup", "ec2:AuthorizeSecurityGroupIngress", "ec2:AuthorizeSecurityGroupEgress", "ec2:RevokeSecurityGroupIngress", "ec2:RevokeSecurityGroupEgress", "ec2:ModifySecurityGroupRules", "ec2:UpdateSecurityGroupRuleDescriptionsIngress", "ec2:UpdateSecurityGroupRuleDescriptionsEgress"]
         Resource  = ["arn:aws:ec2:ap-northeast-2:${var.aws_account_id}:security-group/*", "arn:aws:ec2:ap-northeast-2:${var.aws_account_id}:security-group-rule/*"]

@@ -56,6 +56,10 @@ run "dev_https_and_single_process" {
     error_message = "개발은 암호화·IMDSv2를 설정한 public EC2 한 대와 bridge 컨테이너를 사용합니다."
   }
   assert {
+    condition     = aws_instance.dev[0].volume_tags["Project"] == "pulsemetry-frontend" && aws_instance.dev[0].volume_tags["Env"] == "dev" && aws_instance.dev[0].volume_tags["ManagedBy"] == "terraform"
+    error_message = "RunInstances 권한 조건을 위해 EBS 소유권 태그를 생성 요청에 포함해야 합니다."
+  }
+  assert {
     condition     = aws_ecs_service.frontend.desired_count == 1 && aws_ecs_service.frontend.deployment_minimum_healthy_percent == 0 && aws_ecs_service.frontend.deployment_maximum_percent == 100 && length(aws_ecs_service.frontend.network_configuration) == 0
     error_message = "BFF는 EC2에서 복제 없이 기존 태스크를 중지한 뒤 교체해야 합니다."
   }
