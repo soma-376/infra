@@ -4,6 +4,10 @@
 
 Accepted (구현·로컬 검증 대상, AWS 배포 증거 대기; JWT Secret 참조 목록은 [ADR-0030](0030-dev-user-jwt-keys-from-secrets-manager.md)이 부분 대체)
 
+[ADR-0034](0034-dev-eks-private-api-via-ssm-relay.md)가 public+private API·필수 API CIDR과
+operator의 IAM을 `eks:DescribeCluster`로 한정한 결정을 부분 대체한다. 현재 접근은 private API와
+SSM 릴레이 터널이며 기존 node/operator AccessEntry와 역할 식별자는 유지한다.
+
 [ADR-0033](0033-dev-alb-https-with-external-acm.md)이 인증서 context가 있는 dev ALB의 HTTP 전용
 listener를 HTTPS와 선택적 HTTP redirect로 부분 대체한다. 검증 ALB·TG 소유권과 라우팅은 유지한다.
 
@@ -24,9 +28,9 @@ ADR-0001·0002·0003·0005·0006·0009·0016·0021·0022·0026의 dev ECS 전용
 - `devEksEnabled=false`를 기본으로 기존 Network/Data/Application/Edge 4스택을 보존한다. `true`에서만 `DevEksStack`과 검증 Edge 리소스를 추가해 5스택을 만든다.
 - CDK는 EKS 클러스터·IAM·AccessEntry·모든 사용자 정의 SG 및 cross-SG 규칙·ALB·TG·WAF·로그 그룹을 소유한다. SG와 규칙은 Network에 둔다. EKS 서비스가 자동 생성하는 cluster SG는 예외적 서비스 소유 리소스다.
 - Helm은 NodeClass/NodePool, OSS LBC, CSI/ASCP, Fluent Bit, Namespace·ServiceAccount·Deployment·StatefulSet·Service·TGB·PVC 선언을 소유한다. 노드 생성·교체, 네트워킹·EBS 제공 기능은 Auto Mode가 관리한다.
-- Kubernetes 1.36을 사용하고 private+public API endpoint, 필수 API CIDR, API 인증 모드와 명시적 AccessEntry를 구성한다. 자동 cluster creator admin은 끈다.
+- Kubernetes 1.36을 사용하고 API 인증 모드와 명시적 AccessEntry를 구성한다. 자동 cluster creator admin은 끈다. 최초 결정의 private+public API·필수 API CIDR은 ADR-0034의 private API·SSM 릴레이로 대체한다.
 - EKS 운영자 role `soma-376-dev-eks-operator`는 CDK가 생성한다. 기존 운영자 role ARN이나 별도 principal ARN을 context로 받지 않는다. 같은 계정의 `AccountPrincipal`에 AssumeRole 권한을 위임하고, 실제 운영자는 계정 IAM에서 이 role에 대한 `sts:AssumeRole` 권한을 부여해 지정한다. 계정 root ARN은 root 사용자만 뜻하지 않으며 계정의 모든 주체에게 AssumeRole 권한을 자동 부여하지도 않는다.
-- 운영자 role의 IAM policy는 해당 클러스터의 `eks:DescribeCluster`만 허용한다. Kubernetes 권한은 `STANDARD` AccessEntry와 cluster 범위 `AmazonEKSClusterAdminPolicy`로 부여하고, role ARN·이름은 `EksOperatorRoleArn`·`EksOperatorRoleName` output으로 제공한다. CloudFormation/IAM 배포 권한과 S3 조회·정리 권한은 원래 배포·운영 주체에서 관리한다.
+- 운영자 role의 IAM policy는 해당 클러스터의 `eks:DescribeCluster`와 ADR-0034의 전용 SSM 터널 권한을 허용한다. Kubernetes 권한은 `STANDARD` AccessEntry와 cluster 범위 `AmazonEKSClusterAdminPolicy`로 부여하고, role ARN·이름은 `EksOperatorRoleArn`·`EksOperatorRoleName` output으로 제공한다. CloudFormation/IAM 배포 권한과 S3 조회·정리 권한은 원래 배포·운영 주체에서 관리한다.
 - 기존 public subnet·NAT 0을 유지한다. 앱과 ClickHouse의 NodeClass/NodePool을 분리하고 ARM64·On-Demand·t4g.medium을 초기값으로 둔다. NodeClass는 public IPv4를 명시한다. ClickHouse는 전용 taint와 첫 번째 AZ에 고정한다. Auto Mode 기본 NodePool은 사용하지 않는다.
 - 공통 node role에 EC2 AccessEntry와 AmazonEKSAutoNodePolicy를 연결한다. EKS는 Network/Data만 참조하며 ECS service·ALB listener에 의존하지 않는다. Helm 입력은 CDK output 참조를 values로 전달한다.
 - 실제 배포 이후 `devEksEnabled=true`를 영속 설정으로 고정한다. false 합성 결과로 Network/Edge/EKS를 배포해 EKS 종속 리소스를 제거하는 일을 금지한다.

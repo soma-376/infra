@@ -15,6 +15,8 @@
 > 외부 ACM 기반 HTTPS는 [dev ALB HTTPS 런북](dev-alb-https.md)을 따른다. 기존 HTTPS 배포에 아래 명령을
 > 적용할 때는 `EKS_CONTEXT`에 기존 `devCertificateArn`·`devEksCertificateArn`과
 > `devHttpRedirectEnabled`를 유지한다. 인증서 연결은 기존 endpoint output·Helm 생성값을 바꾸지 않는다.
+> PROJ-244의 private API와 SSM 릴레이 접근은 [ADR-0034](../adr/0034-dev-eks-private-api-via-ssm-relay.md)와
+> §2를 따른다. 문서의 터널·TLS·권한 검증 명령도 아직 실행한 증거가 아니다.
 
 ## 1. 실행 범위와 사전 조건
 
@@ -32,13 +34,18 @@ PROJ-213~215의 실제 병행 운영·데이터 이관·Canary·ECS 제거는 �
 
 - 원래 배포 주체에 infra 배포와 CloudFormation output 조회 권한이 있어야 한다. CDK가 생성하는
   `soma-376-dev-eks-operator` role은 해당 클러스터의 `eks:DescribeCluster`와 AccessEntry 기반
-  Kubernetes 관리 권한만 가진다. CloudFormation/IAM 배포 및 S3 조회·정리는 원래 주체로 실행한다.
+  Kubernetes 관리 권한, 전용 릴레이·Session 문서에 제한한 SSM 접속 권한을 가진다.
+  CloudFormation/IAM 배포, SSM 상태 조회 및 S3 조회·정리는 원래 배포 주체로 실행한다.
 - 생성한 role은 같은 계정에 AssumeRole 권한을 위임한다. 계정 IAM에서 실제 운영자에게
   output `EksOperatorRoleArn`에 대한 `sts:AssumeRole` 권한을 부여한다. 모든 계정 주체에게
   AssumeRole 권한이 자동 부여되는 것은 아니며 별도 role/principal ARN context 입력도 없다.
 - AWS 계정은 환경 `CDK_DEFAULT_ACCOUNT`로만 전달한다. region은 `ap-northeast-2`다.
 - Kubernetes 1.36과 ARM64 t4g.medium의 리전 가용성·할당량, 2개 public subnet의 여유 IP,
   public IPv4 egress를 확인한다. Auto Mode 노드는 SSH/SSM 직접 접속하지 않는다.
+- 별도 AL2023 ARM64 `t4g.micro` 릴레이 한 대는 첫 번째 public subnet·public IPv4를 사용한다.
+  인바운드 없이 TCP 443 아웃바운드만 허용하며, SSM 전용 EC2 역할에는 EKS AccessEntry가 없다.
+  로컬 AWS CLI v2·Session Manager plugin과 릴레이 SSM Agent 3.1.1374.0 이상이 필요하다.
+  [원격 호스트 터널 요구사항](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-sessions-start.html#sessions-remote-port-forwarding)을 따른다.
 - backend와 호환되는 Flyway migration, immutable ARM64 앱 이미지 digest 3개,
   `/api/v1/healthz`의 200 응답, init 검사용 `/bin/sh`·`head -c`, UID 10001 및 바이너리 공급을 확인한다.
 - 별도 검증 tenant/token과 검증 event ID 집합을 준비한다. 공유 RDS에는 기존 ECS와 호환되지 않는
@@ -79,7 +86,8 @@ set -euo pipefail
 : "${CDK_DEFAULT_ACCOUNT:?대상 계정을 환경으로 지정한다}"
 export CDK_DEFAULT_REGION=ap-northeast-2
 export AWS_REGION=ap-northeast-2
-: "${EKS_API_ALLOWED_CIDRS:?운영자 IPv4 CIDR 목록}"
+: "${DEPLOY_PROFILE:?기존 CloudFormation 배포용 AWS 프로필}"
+export AWS_PROFILE="$DEPLOY_PROFILE"
 : "${DEV_ALLOWED_CIDRS:?ALB와 RDS에 접근할 IPv4 CIDR 목록}"
 : "${ENROLLMENT_IMAGE:?registry/repository@sha256:digest}"
 : "${INGEST_IMAGE:?registry/repository@sha256:digest}"
@@ -90,7 +98,6 @@ export AWS_REGION=ap-northeast-2
 mkdir -p "$RUN_DIR/generated" "$RUN_DIR/charts"
 chmod 700 "$RUN_DIR"
 EKS_CONTEXT=(-c env=dev -c devEksEnabled=true
-  -c "devEksApiAllowedCidrs=$EKS_API_ALLOWED_CIDRS"
   -c "devAllowedCidr=$DEV_ALLOWED_CIDRS"
   -c "devDashboardRuntimeFile=$ECS_RUNTIME_JSON"
   -c devEksArchivePrefix=eks_validation)
@@ -102,12 +109,80 @@ npx cdk synth --all "${EKS_CONTEXT[@]}" --output "$RUN_DIR/cdk.out"
 npx cdk diff --all "${EKS_CONTEXT[@]}" > "$RUN_DIR/cdk-diff.txt"
 ```
 
+`devEksApiAllowedCidrs`는 폐기됐으며 전달하면 오류다. CLI·`cdk.json`·`cdk.context.json` 등
+모든 입력 출처에서 제거한다. 이전 CIDR은 아래 복구 증거에만 보존한다. `devAllowedCidr`는
+ALB/RDS 접근 범위이므로 계속 유지하며 EKS API 접근 허용 목록으로 사용하지 않는다.
+
+합성 템플릿에는 `EndpointPrivateAccess=true`, `EndpointPublicAccess=false`,
+`PublicAccessCidrs=['0.0.0.0/0']`가 함께 있어야 한다. 마지막 속성은 기존 클러스터의 CloudFormation
+업데이트 호환성을 위한 IPv4 기본값이며, public API는 비활성 상태다. 사용자 CIDR 입력을 되살리지 않는다.
+이전 템플릿에 있던 `PublicAccessCidrs`를 새 템플릿에서 생략하면
+`The new template must include all the properties specified in the previous template` 오류로 갱신이 실패한다.
+이 오류가 났다면 CloudFormation rollback 완료를 확인하고, 세 속성을 포함하도록 수정된 코드로 다시
+합성·diff한 뒤 §2-1 순서로 재배포한다. rollback이 실패 상태라면 먼저 해당 실패 이벤트를 해결한다.
+[AWS 업데이트 제약](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-properties-eks-cluster-resourcesvpcconfig.html)을 따른다.
+
 diff에서 기존 ECS·RDS·S3·실제 Secret·ALB/TG·WAF 정책의 삭제/교체가 없고 prod/cicd가
 포함되지 않았는지 확인한다. 사용자 정의 SG·규칙은 Network에 있고 EKS↔Edge 순환 의존은 없어야 한다.
 활성화 구성은 5스택이다. **첫 배포 후 이 context 전체를 운영 배포 설정에 보존한다.**
 특히 `devEksEnabled=false` 또는 키 누락 상태로 Network/Edge를 배포하면 EKS 전용 리소스를 제거한다.
 `--outputs-file`은 마지막 배포에 포함된 stack output만 담을 수 있으므로 조회 단계에서 필요한 세 스택을 합친다.
 OIDC를 사용한다면 값 등록을 완료하고 client key/VersionId를 입력한 뒤 아래 전체 배포를 진행한다.
+
+### 2-1. 기존 EKS의 API 접근 전환과 복구 준비
+
+기존 EKS가 있다면 변경 직전 배포에 사용한 **완전한 CDK cloud assembly**와 context를 먼저 보관한다.
+아래는 기존 EKS 전환에만 실행한다. 최초 EKS 설치는 이 절의 백업·복구 대신 §2-2의 전체 배포로 진행한다.
+이전 assembly가 없거나 배포된 템플릿과 다르면 이전 commit·당시 context로 별도 checkout에서 다시 합성하고
+live 템플릿과 일치 여부를 확인하기 전에는 전환하지 않는다. 새 코드로 이전 public 구성을 재합성할 수 없다.
+
+```bash
+: "${PREVIOUS_CDK_ASSEMBLY:?현재 배포와 일치하는 이전 cdk.out 절대 경로}"
+: "${PREVIOUS_CDK_CONTEXT_FILE:?이전 배포 context 기록 파일}"
+mkdir -p "$RUN_DIR/before-access-change"
+test ! -e "$RUN_DIR/before-access-change/cdk.out"
+cp -R "$PREVIOUS_CDK_ASSEMBLY" "$RUN_DIR/before-access-change/cdk.out"
+cp "$PREVIOUS_CDK_CONTEXT_FILE" "$RUN_DIR/before-access-change/context.txt"
+for stack in DevNetworkStack DevEksStack; do
+  aws --profile "$DEPLOY_PROFILE" cloudformation get-template --stack-name "$stack" \
+    --template-stage Original --region "$AWS_REGION" \
+    > "$RUN_DIR/before-access-change/$stack-template.json"
+  aws --profile "$DEPLOY_PROFILE" cloudformation describe-stacks --stack-name "$stack" \
+    --region "$AWS_REGION" > "$RUN_DIR/before-access-change/$stack.json"
+done
+PREVIOUS_CLUSTER_NAME=$(jq -er '.Stacks[].Outputs[] | select(.OutputKey=="EksClusterName") | .OutputValue' \
+  "$RUN_DIR/before-access-change/DevEksStack.json")
+aws --profile "$DEPLOY_PROFILE" eks describe-cluster --name "$PREVIOUS_CLUSTER_NAME" \
+  --region "$AWS_REGION" --query 'cluster.resourcesVpcConfig' \
+  > "$RUN_DIR/before-access-change/eks-api-access.json"
+
+# Network를 먼저 완료한다. 이 단계에는 아직 릴레이 EC2가 없다.
+npx cdk deploy DevNetworkStack --exclusively "${EKS_CONTEXT[@]}"
+# 이 갱신에서 릴레이와 private-only endpoint를 함께 적용한다.
+npx cdk deploy DevEksStack --exclusively "${EKS_CONTEXT[@]}"
+```
+
+두 번째 배포에서 public API 직접 접근이 끊긴다. 릴레이 생성과 API 변경 순서는 CloudFormation이
+결정하므로 **SSM 준비 확인 뒤에 public API를 닫는 무중단 전환으로 표현하지 않는다.** 유지보수 시간을
+확보하고 원래 배포 프로필의 CloudFormation 접근을 유지한다. 배포 후 §2-2에서 SSM Online·Agent 버전을
+확인하고 §2-3에서 터널·TLS·Kubernetes 권한을 검증한다. 확인 전에는 Helm 작업을 시작하지 않는다.
+
+전환 실패 시 최초 CloudFormation 실패 이벤트와 endpoint/EC2/SSM 상태를 기록한다. 실패 상태에 따라
+CloudFormation rollback을 먼저 완료한 후 저장한 assembly로 아래 순서대로 복구한다. Eks를 먼저 되돌려
+릴레이 SG의 cross-stack 참조를 제거한 뒤 Network를 되돌린다. 이전 public endpoint와 CIDR을 복구하고
+원래 허용 위치에서 접속을 확인한다. `devEksEnabled=false`나 `cdk destroy`로 복구하지 않는다.
+
+```bash
+npx cdk --app "$RUN_DIR/before-access-change/cdk.out" deploy DevEksStack \
+  --exclusively --profile "$DEPLOY_PROFILE"
+npx cdk --app "$RUN_DIR/before-access-change/cdk.out" deploy DevNetworkStack \
+  --exclusively --profile "$DEPLOY_PROFILE"
+```
+
+### 2-2. 배포 output과 릴레이 상태 확인
+
+기존 EKS는 §2-1 전환을 완료한 뒤 전체 배포를 진행한다. 신규 EKS는 아래 전체 배포가 클러스터·릴레이를
+처음 생성한다. 어느 경우든 EKS API는 private 전용이며 SSM 접속 준비가 검증되기 전에는 접근을 보장하지 않는다.
 
 ```bash
 npx cdk deploy --all "${EKS_CONTEXT[@]}" --outputs-file "$RUN_DIR/cdk-outputs.json"
@@ -125,21 +200,103 @@ EKS_CLUSTER_NAME=$(jq -er '.Stacks[].Outputs[] | select(.OutputKey=="EksClusterN
   "$RUN_DIR/deployed-outputs.json")
 EKS_OPERATOR_ROLE_ARN=$(jq -er '.Stacks[].Outputs[] | select(.OutputKey=="EksOperatorRoleArn") | .OutputValue' \
   "$RUN_DIR/deployed-outputs.json")
-aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" \
-  --assume-role-arn "$EKS_OPERATOR_ROLE_ARN" \
-  --role-arn "$EKS_OPERATOR_ROLE_ARN"
-kubectl config current-context
-kubectl auth can-i create nodepools.karpenter.sh
-kubectl auth can-i create secretproviderclasses.secrets-store.csi.x-k8s.io --namespace pulsemetry-dev
+EKS_RELAY_INSTANCE_ID=$(jq -er '.Stacks[].Outputs[] | select(.OutputKey=="EksRelayInstanceId") | .OutputValue' \
+  "$RUN_DIR/deployed-outputs.json")
+EKS_RELAY_SESSION_DOCUMENT=$(jq -er '.Stacks[].Outputs[] | select(.OutputKey=="EksRelaySessionDocumentName") | .OutputValue' \
+  "$RUN_DIR/deployed-outputs.json")
+aws --profile "$DEPLOY_PROFILE" ssm describe-instance-information --region "$AWS_REGION" \
+  --filters "Key=InstanceIds,Values=$EKS_RELAY_INSTANCE_ID" \
+  --query 'InstanceInformationList[].{InstanceId:InstanceId,PingStatus:PingStatus,AgentVersion:AgentVersion}' \
+  > "$RUN_DIR/relay-ssm-status.json"
+jq -e 'length == 1 and .[0].PingStatus == "Online"' "$RUN_DIR/relay-ssm-status.json"
 ```
 
-위 명령은 원래 배포·운영 주체를 유지한 상태에서 실행한다. `--assume-role-arn`은 클러스터 정보 조회,
-`--role-arn`은 이후 kubectl·Helm 인증에 생성 role을 사용한다. 원래 주체에는 이 role의
-`sts:AssumeRole` 권한이 필요하다. 이미 생성 role의 세션을 사용하는 경우 두 role 옵션을 생략해
-자기 자신을 다시 AssumeRole하지 않는다. 반환된 context의 cluster ARN과 대상 계정·리전이 계획과
-일치하는지 확인한다. 마지막 `can-i`는 CRD 설치 전 리소스 인식 경고가 날 수
-있으며 설치 후 다시 확인한다. 생성기는 리소스 참조만 읽고 AWS·Secrets Manager를 호출하지 않는다.
-두 role 옵션의 의미는 [AWS CLI update-kubeconfig 문서](https://docs.aws.amazon.com/cli/latest/reference/eks/update-kubeconfig.html)를 따른다.
+`relay-ssm-status.json`의 AgentVersion도 3.1.1374.0 이상인지 확인한다. Online이 아니면 인스턴스 역할,
+SSM Agent 기동, public IPv4·Internet Gateway 경로, 443 아웃바운드를 점검한다. 이 조회는 operator 역할의
+권한에 포함되지 않는다. 생성기는 리소스 참조만 읽고 AWS·Secrets Manager를 호출하지 않는다.
+
+### 2-3. 로컬 operator 프로필·터널·kubeconfig
+
+로컬에 전용 operator 역할 프로필을 준비한다. 다음 명령은 역할 ARN·프로필명·세션명만 저장하며
+credential 원문을 출력하거나 복사하지 않는다. `OPERATOR_SOURCE_PROFILE`은 같은 계정에서 이 role을
+AssumeRole할 권한이 있는 기존 프로필이다. 배포 프로필의 전역 `AWS_PROFILE`은 변경하지 않는다.
+`OPERATOR_SESSION_NAME`은 사람마다 다른 식별자(영문·숫자·하이픈 권장)를 사용하고 공유하지 않는다.
+같은 role의 같은 세션명을 공유하면 호출자 세션 구분이 약해진다.
+
+```bash
+: "${EKS_OPERATOR_PROFILE:?새 전용 operator 역할 프로필 이름}"
+: "${OPERATOR_SOURCE_PROFILE:?operator role AssumeRole 권한이 있는 기존 프로필}"
+: "${OPERATOR_SESSION_NAME:?운영자별 고유한 역할 세션 이름}"
+aws configure set role_arn "$EKS_OPERATOR_ROLE_ARN" --profile "$EKS_OPERATOR_PROFILE"
+aws configure set source_profile "$OPERATOR_SOURCE_PROFILE" --profile "$EKS_OPERATOR_PROFILE"
+aws configure set role_session_name "$OPERATOR_SESSION_NAME" --profile "$EKS_OPERATOR_PROFILE"
+aws configure set region "$AWS_REGION" --profile "$EKS_OPERATOR_PROFILE"
+aws --profile "$EKS_OPERATOR_PROFILE" sts get-caller-identity --query Arn --output text
+```
+
+원래 소스 프로필의 로그인·MFA가 필요하면 기존 인증 절차를 먼저 완료한다. 프로필을 우회하는 임시
+credential 환경변수는 두 터미널에서 사용하지 않는다. 반환 ARN이 해당 operator role 세션인지 확인한다.
+터미널 1에서 아래 터널을 유지한다. 기본 로컬 포트는 8443이며 충돌하면 1024~65535의 빈 포트를 선택해
+터미널 2에도 같은 값을 지정한다. 목적지 hostname과 443은 CDK 소유 문서에 고정되므로 `host`나
+`portNumber`를 전달하지 않는다. 일반 shell·SSH·범용 port-forward 문서는 operator 권한에 포함하지 않는다.
+
+```bash
+# 터미널 1: §2-2의 output 값과 같은 operator 프로필·리전을 사용한다.
+EKS_LOCAL_PORT=${EKS_LOCAL_PORT:-8443}
+aws --profile "$EKS_OPERATOR_PROFILE" ssm start-session --region "$AWS_REGION" \
+  --target "$EKS_RELAY_INSTANCE_ID" --document-name "$EKS_RELAY_SESSION_DOCUMENT" \
+  --parameters "localPortNumber=$EKS_LOCAL_PORT"
+```
+
+`StartSession`이 `AccessDenied`이면 호출 principal·대상 인스턴스·문서 ARN과 배포된 operator 정책을
+확인한다. 인스턴스 허용문의 `ssm:SessionDocumentAccessCheck`는 `BoolIfExists: true`여야 한다.
+기존 `Bool: true`는 요청 평가에 조건 키가 없을 때도 불일치한다. `BoolIfExists`는 키 없음 또는
+`true`일 때 일치하고 `false`이면 불일치한다. 실제 오류 원인이 키 누락인지는 실패 증거 없이 단정하지
+않으며, 정책 수정 후에도 전용 문서 지정과 대상 제한을 유지한다.
+
+터미널 2에는 `RUN_DIR`, `DEPLOY_PROFILE`, `AWS_REGION`, `EKS_CLUSTER_NAME`, `EKS_OPERATOR_PROFILE`, `EKS_LOCAL_PORT`를
+같은 값으로 설정한다. 기존 `~/.kube/config`와 분리한 파일을 사용하고, kubeconfig의 AWS exec 인증에도
+operator 프로필을 고정한다. 이미 이 역할로 인증하는 프로필이므로 `--assume-role-arn`·`--role-arn`을
+덧붙여 자기 자신을 다시 AssumeRole하지 않는다.
+
+```bash
+# 터미널 2: AWS_PROFILE은 여전히 원래 배포 프로필이다.
+export AWS_PROFILE="$DEPLOY_PROFILE"
+EKS_LOCAL_PORT=${EKS_LOCAL_PORT:-8443}
+export KUBECONFIG="$RUN_DIR/kubeconfig-ssm"
+EKS_CONTEXT_NAME=pulsemetry-dev-ssm
+EKS_USER_NAME=pulsemetry-dev-operator
+aws --profile "$EKS_OPERATOR_PROFILE" eks update-kubeconfig --name "$EKS_CLUSTER_NAME" \
+  --region "$AWS_REGION" --kubeconfig "$KUBECONFIG" \
+  --alias "$EKS_CONTEXT_NAME" --user-alias "$EKS_USER_NAME"
+chmod 600 "$KUBECONFIG"
+EKS_KUBECONFIG_CLUSTER=$(kubectl config view --minify -o jsonpath='{.contexts[0].context.cluster}')
+EKS_API_ENDPOINT=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
+EKS_API_HOST=${EKS_API_ENDPOINT#https://}
+kubectl config set-cluster "$EKS_KUBECONFIG_CLUSTER" \
+  --server="https://127.0.0.1:$EKS_LOCAL_PORT" --tls-server-name="$EKS_API_HOST"
+kubectl config set-credentials "$EKS_USER_NAME" --exec-env="AWS_PROFILE=$EKS_OPERATOR_PROFILE"
+kubectl config current-context
+kubectl --request-timeout=15s get --raw=/readyz
+kubectl auth can-i '*' '*' --all-namespaces
+kubectl auth can-i create nodepools.karpenter.sh
+kubectl auth can-i create secretproviderclasses.secrets-store.csi.x-k8s.io --namespace pulsemetry-dev
+helm list --all-namespaces
+```
+
+`set-cluster`는 기존 CA 정보를 유지하면서 접속 주소만 루프백으로 바꾸고 TLS 검증 이름은 원래 EKS
+hostname으로 설정한다. `insecure-skip-tls-verify`를 사용하지 않는다. `update-kubeconfig`를 다시 실행하면
+server가 원래 endpoint로 돌아오므로 위 루프백·TLS 설정도 다시 적용한다.
+[AWS CLI kubeconfig](https://docs.aws.amazon.com/cli/latest/reference/eks/update-kubeconfig.html)와
+[kubectl set-cluster](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_config/kubectl_config_set-cluster/)의 동작을 따른다.
+context의 계정·리전과 cluster ARN을 확인한다. CRD 설치 전 `can-i`는 리소스 인식 경고가 날 수 있어
+설치 후 다시 확인한다. 이후 이 터미널의 `kubectl`·Helm은 같은 `KUBECONFIG`를 사용한다.
+
+터널 종료·로컬 포트 변경·AWS 세션 만료 시 작업을 멈추고 같은 프로필로 인증·터널을 다시 준비한다.
+릴레이 재생성 후에는 output의 새 InstanceId를 다시 읽는다. CloudFormation 완료나 SSM Online만으로
+TLS·Kubernetes 권한 성공을 기록하지 않는다. live 수락 기록에는 public endpoint 비활성, 터널을 통한
+`readyz`·Helm 조회, 다른 대상·문서 생략·일반 shell·범용 포워딩 문서의 SSM 거부,
+다른 운영자 세션의 종료·재개 거부를 포함한다.
 
 ### 주요 output 대응
 
@@ -148,6 +305,7 @@ kubectl auth can-i create secretproviderclasses.secrets-store.csi.x-k8s.io --nam
 | EksNodeRoleName, EksSubnetIds, EksAppNodeSecurityGroupId, EksClickhouseNodeSecurityGroupId, EksClickhouseAvailabilityZone | 기반 NodeClass/NodePool |
 | EksClusterName, EksRegion, EksVpcId | LBC 및 앱 TGB |
 | EksOperatorRoleArn, EksOperatorRoleName | 계정 IAM의 AssumeRole 권한 지정과 kubeconfig 인증 |
+| EksRelayInstanceId, EksRelaySessionDocumentName | operator 프로필의 SSM 터널 대상과 전용 문서 (`soma-376-dev-eks-api-tunnel`) |
 | DbEndpoint, DbSecretArn, TokenHashSecretArn, AdminApiTokenSecretArn, RawSignalBucketName, ArchivePrefix | runtime/앱 values |
 | ValidationPublicBaseUrl, ValidationTelemetryIngestTargetGroupArn, ValidationEnrollmentApiTargetGroupArn, ValidationClickhouseTargetGroupArn, ValidationDashboardApiTargetGroupArn | 검증 앱/TGB |
 | EksDashboardApiNodePort, DashboardRdsSourceSecretArn, DashboardRdsCacheSecretArn, DashboardClickHouseSourceSecretArn, DashboardClickHouseCacheSecretArn, UserJwtPrivateKeySecretArn, UserJwtPublicKeysSecretArn | dashboard 및 JWT runtime YAML |
@@ -295,7 +453,6 @@ PutObject IAM과 Helm values가 한쪽만 바뀐 상태에서 ingest가 계속 �
 kubectl -n pulsemetry-dev scale deployment/telemetry-ingest --replicas=0
 # EKS_CONTEXT의 기존 prefix 인자를 변경한다. 서로 다른 prefix 인자를 중복 전달하지 않는다.
 EKS_CONTEXT=(-c env=dev -c devEksEnabled=true
-  -c "devEksApiAllowedCidrs=$EKS_API_ALLOWED_CIDRS"
   -c "devAllowedCidr=$DEV_ALLOWED_CIDRS"
   -c "devDashboardRuntimeFile=$ECS_RUNTIME_JSON" -c devEksArchivePrefix=eks)
 printf '%s\n' "${EKS_CONTEXT[@]}" > "$RUN_DIR/cdk-context-args.txt"
@@ -328,6 +485,7 @@ PROJ-213~215에서 실행한다. 먼저 기존 ECS ClickHouse를 양쪽 ingest�
 
 | 실패 | 복구 | 복구하지 않는 것 |
 |---|---|---|
+| SSM 터널·private API 접근 | §2의 output·Online·Agent·프로필·TLS 확인, 전환 실패면 저장 assembly로 Eks → Network 복구 | EKS 비활성화·삭제, SG 인바운드 전면 개방, TLS 검증 우회 |
 | Helm 앱 설정·이미지 | 기록된 마지막 검증 revision으로 해당 release rollback, rollout/health 확인 | DB migration·PVC 내용 |
 | JWT 키 참조 | §11의 공개키 버전·맵 선행 적용 후 개인키 VersionId·active-kid 복구 | 이미지·Helm rollback만으로 키 버전·label 보존 복구 |
 | LBC·CSI·ASCP | controller 로그/이벤트·association·버전을 확인하고 호환 release 복구 | CRD 자동 다운그레이드·CRD 삭제 |
@@ -380,6 +538,7 @@ PROJ-206~212 당시의 로컬 검증 결과와 미검증 경계는 [역사적 �
 | infra SHA·context·CDK diff | |
 | backend SHA·ARM64 immutable digest 2개 | |
 | cluster/NodeClass/NodePool 상태·AZ·노드 | |
+| API private-only·릴레이 SSM Online/Agent·터널 TLS·Kubernetes 권한·SSM 거부 검증 | |
 | Helm 버전·release/revision·values hash | |
 | Pod Identity·CSI 파일 검사 결과(원문 제외) | |
 | JWT 개인키·공개키 VersionId·active-kid·파일 맵, 제한된 배포 입력의 ARN 참조 | |
