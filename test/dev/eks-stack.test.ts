@@ -3,7 +3,6 @@ import { buildDevApp, TEST_ENV } from '../helpers';
 
 export const EKS_CONTEXT = {
   devEksEnabled: true,
-  devEksApiAllowedCidrs: '203.0.113.10/32',
 };
 
 test('기본 구성은 EKS 및 EKS 전용 SG를 생성하지 않는다', () => {
@@ -13,7 +12,7 @@ test('기본 구성은 EKS 및 EKS 전용 SG를 생성하지 않는다', () => {
   expect(built.app.synth().stacks).toHaveLength(4);
 });
 
-test('Auto Mode 5스택과 명시적인 operator/node 접근만 구성한다', () => {
+test('API CIDR 입력 없이 기존 endpoint 속성을 보존하고 private Auto Mode 5스택을 구성한다', () => {
   const built = buildDevApp(EKS_CONTEXT);
   const template = Template.fromStack(built.eks!);
   template.hasResourceProperties('AWS::EKS::Cluster', {
@@ -21,7 +20,10 @@ test('Auto Mode 5스택과 명시적인 operator/node 접근만 구성한다', (
     AccessConfig: { AuthenticationMode: 'API', BootstrapClusterCreatorAdminPermissions: false },
     ComputeConfig: { Enabled: true, NodePools: [] },
     BootstrapSelfManagedAddons: false,
-    ResourcesVpcConfig: Match.objectLike({ EndpointPrivateAccess: true, EndpointPublicAccess: true, PublicAccessCidrs: ['203.0.113.10/32'] }),
+    // 기존 클러스터 업데이트는 세 속성 모두 필요하다. CIDR이 있어도 public 접근은 반드시 꺼야 한다.
+    ResourcesVpcConfig: Match.objectLike({
+      EndpointPrivateAccess: true, EndpointPublicAccess: false, PublicAccessCidrs: ['0.0.0.0/0'],
+    }),
     StorageConfig: { BlockStorage: { Enabled: true } },
     KubernetesNetworkConfig: { IpFamily: 'ipv4', ElasticLoadBalancing: { Enabled: true } },
   });
@@ -66,7 +68,7 @@ test('운영자 role을 생성하고 같은 계정 trust와 클러스터 관리 
     Roles: [{ Ref: roleId }],
     PolicyDocument: {
       Version: '2012-10-17',
-      Statement: [{ Effect: 'Allow', Action: 'eks:DescribeCluster', Resource: { 'Fn::GetAtt': [clusterId, 'Arn'] } }],
+      Statement: Match.arrayWith([{ Effect: 'Allow', Action: 'eks:DescribeCluster', Resource: { 'Fn::GetAtt': [clusterId, 'Arn'] } }]),
     },
   });
   template.hasResourceProperties('AWS::EKS::AccessEntry', {
@@ -87,7 +89,7 @@ test('추가 SG 규칙은 Network에만 생기고 기존 리소스 속성은 보
     if (key !== 'network') expect(Object.values(changed.Resources).filter((r: any) => r.Type.startsWith('AWS::EC2::SecurityGroup'))).toEqual([]);
   }
   const network = Template.fromStack(after.network);
-  network.resourceCountIs('AWS::EC2::SecurityGroup', 8);
+  network.resourceCountIs('AWS::EC2::SecurityGroup', 9);
   for (const port of [30416, 30080, 8123, 5432, 9443, 10250]) {
     network.hasResourceProperties('AWS::EC2::SecurityGroupIngress', { FromPort: port, ToPort: port, SourceSecurityGroupId: Match.anyValue() });
   }
@@ -95,11 +97,16 @@ test('추가 SG 규칙은 Network에만 생기고 기존 리소스 속성은 보
 
 test.each([
   {devEksEnabled: 'typo'},
-  {devEksEnabled: true},
-  {...EKS_CONTEXT, devEksApiAllowedCidrs: '0.0.0.0/0'},
-  {...EKS_CONTEXT, devEksApiAllowedCidrs: 'wrong/32'},
-  {...EKS_CONTEXT, devEksApiAllowedCidrs: '203.0.113.1/33'},
   {...EKS_CONTEXT, devEksArchivePrefix: 'eks_validation/'},
 ])('활성화 필수 입력과 prefix 오류를 거부한다: %j', context => {
   expect(() => buildDevApp(context)).toThrow(/devEks/);
+});
+
+test.each([
+  {devEksEnabled: true, devEksApiAllowedCidrs: '203.0.113.10/32'},
+  {devEksEnabled: false, devEksApiAllowedCidrs: '203.0.113.10/32'},
+  {devEksApiAllowedCidrs: ''},
+  {devEksEnabled: true, devEksApiAllowedCidrs: null},
+])('폐기된 API CIDR 입력은 EKS 활성 여부와 무관하게 거부한다: %j', context => {
+  expect(() => buildDevApp(context)).toThrow(/devEksApiAllowedCidrs.*(제거|삭제)/);
 });

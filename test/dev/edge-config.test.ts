@@ -5,7 +5,7 @@ import { synthDev } from '../../lib/dev/app';
 import { buildDevApp, TEST_ENV } from '../helpers';
 
 const CERTIFICATE_ARN = `arn:aws:acm:${TEST_ENV.region}:${TEST_ENV.account}:certificate/11111111-1111-4111-8111-111111111111`;
-const EKS_CONTEXT = { devEksEnabled: true, devEksApiAllowedCidrs: '203.0.113.10/32' };
+const EKS_CONTEXT = { devEksEnabled: true };
 
 // 리소스를 만들지 않는 context 파싱과 생성 전 실패만 직접 App으로 검증한다.
 function configApp(context: Record<string, unknown> = {}): App {

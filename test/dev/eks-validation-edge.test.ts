@@ -42,7 +42,7 @@ function build(eksEnabled: boolean) {
   const reference = (name: string) => Secret.fromSecretCompleteArn(services, name,
     `arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:fixture-${name}-abcdef`);
   const eks = eksEnabled ? new DevEksStack(app, 'DevEksStack', {
-    env, vpc: network.vpc, config: { enabled: true, publicAccessCidrs: ['203.0.113.10/32'], archivePrefix: 'eks_validation' },
+    env, vpc: network.vpc, config: { enabled: true, archivePrefix: 'eks_validation' },
     dbEndpoint: 'db.example.invalid', dbSecret: reference('db'), tokenHashSecret: reference('hmac'),
     dashboardRdsSourceSecret: reference('rdsSource'), dashboardRdsCacheSecret: reference('rdsCache'),
     dashboardClickHouseSourceSecret: reference('chSource'), dashboardClickHouseCacheSecret: reference('chCache'),
@@ -50,6 +50,7 @@ function build(eksEnabled: boolean) {
     adminApiTokenSecret: reference('admin'), rawSignalBucket: Bucket.fromBucketName(services, 'RawBucket', 'fixture-raw-bucket'),
     controlPlaneSecurityGroup: network.eksControlPlaneSecurityGroup!, appNodeSecurityGroup: network.eksAppNodeSecurityGroup!,
     clickhouseNodeSecurityGroup: network.eksClickhouseNodeSecurityGroup!,
+    relaySecurityGroup: network.eksRelaySecurityGroup!,
   }) : undefined;
   return { network: Template.fromStack(network), edge: Template.fromStack(edge), eks: eks ? Template.fromStack(eks) : undefined };
 }
