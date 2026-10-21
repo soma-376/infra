@@ -44,6 +44,14 @@ test('추가 metrics ingress는 관측 SG로 제한하고 관측 역할에 Kafka
   }
 });
 
+test('Grafana는 CloudWatch 지표 조회와 지정 log group 조회 권한만 받는다', () => {
+  const [, policy] = Object.entries(eks.findResources('AWS::IAM::Policy')).find(([id]) => id.startsWith('ObservabilityGrafana'))! as [string, any];
+  const actions = policy.Properties.PolicyDocument.Statement.flatMap((statement: any) => [statement.Action].flat());
+  expect(actions).toEqual(expect.arrayContaining(['cloudwatch:ListMetrics', 'cloudwatch:GetMetricData', 'logs:StartQuery', 'logs:GetQueryResults']));
+  // 경보 패널이 없으므로 alarm 조회 권한은 쓰는 곳이 없다.
+  expect(actions.filter((action: string) => /^cloudwatch:(DescribeAlarm|PutMetric|Delete|Set)/.test(action))).toEqual([]);
+});
+
 test('시스템 로그는 14일, 진단 bucket은 private·암호화·14일 만료를 보장한다', () => {
   for (const name of ['/eks/dev/observability', '/eks/dev/events']) eks.hasResource('AWS::Logs::LogGroup', {
     DeletionPolicy: 'Retain', Properties: { LogGroupName: name, RetentionInDays: 14 },

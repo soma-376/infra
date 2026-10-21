@@ -46,8 +46,9 @@ export class DevEksObservability extends Construct {
     };
     const grafana = role('Grafana', 'grafana');
     admin.grantRead(grafana);
+    // 경보 조회 패널이 없으므로 DescribeAlarms·DescribeAlarmHistory는 주지 않는다.
     grafana.addToPolicy(new PolicyStatement({
-      actions: ['cloudwatch:ListMetrics', 'cloudwatch:GetMetricData', 'cloudwatch:DescribeAlarms', 'cloudwatch:DescribeAlarmHistory'],
+      actions: ['cloudwatch:ListMetrics', 'cloudwatch:GetMetricData'],
       resources: ['*'], conditions: { StringEquals: { 'aws:RequestedRegion': stack.region } },
     }));
     const controlPlaneArn = stack.formatArn({ service: 'logs', resource: 'log-group', resourceName: `/aws/eks/${props.clusterName}/cluster:*` });
