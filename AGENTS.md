@@ -56,6 +56,7 @@ dev는 OTel Collector를 배포하지 않고 `pulsemetry-backend/apps/telemetry-
 - `devEksEnabled=false`의 기존 ECS 4스택과 prod/cicd는 유지한다. true에서 DevEksStack과 검증 ALB/TG를 추가한다.
 - 이하 ECS 전용 불변식은 기존 경로에 적용한다. EKS 활성화 경로의 예외는 [ADR-0028](docs/adr/0028-dev-eks-auto-mode-transition.md)이 우선하며 사용자 정의 SG와 cross-SG 규칙의 Network 소유는 그대로다.
 - CDK는 AWS 리소스, Helm은 Kubernetes 선언, Auto Mode는 노드 생성·교체를 소유한다. 기존 ECS TG를 TGB에 연결하지 않는다.
+- EKS 운영자 role은 CDK가 생성하고 ARN·이름을 output으로 제공한다. role/principal ARN context 입력은 없으며, 같은 계정의 운영자에게 대상 role의 `sts:AssumeRole` 권한을 부여하는 책임은 계정 IAM에 있다. 생성 role은 클러스터의 `eks:DescribeCluster`와 AccessEntry 기반 Kubernetes 관리 권한만 가진다.
 - Secret 원문·Kubernetes Secret 복제 없이 ASCP/CSI/configtree를 사용한다. 검증 S3 prefix `eks_validation`에서 병행 운영 `eks`로 바꿀 때 PutObject IAM 범위도 함께 변경한다.
 - 실제 배포 후에는 `devEksEnabled=true`를 배포 설정에 고정한다. 옵션을 끈 Network/Edge 합성 결과를 배포하지 않는다.
 - Canary 수치·RPO/RTO는 초기 가설이다. live 검증·데이터 이관·ECS 제거는 PROJ-213~215로 남긴다.
