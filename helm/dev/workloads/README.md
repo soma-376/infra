@@ -1,15 +1,18 @@
 # dev EKS 워크로드
 
-ADR-0028·0029의 dev 병행 구성을 네 release로 구분한다. `spring-app` chart를 `enrollment-api`·
-`telemetry-ingest`·`dashboard-api` release에서 각각 사용하고, ClickHouse는 `clickhouse` release를 사용한다.
+ADR-0028·0029·0036의 dev 병행 구성을 여섯 release로 구분한다. `spring-app` chart를 `enrollment-api`·
+`telemetry-ingest`·`dashboard-api`·`telemetry-gateway` release에서 각각 사용하고, ClickHouse는 `clickhouse`,
+MSK topic 관리 Job은 `telemetry-kafka-admin` release를 사용한다.
 namespace `pulsemetry-dev`, NodePool과 StorageClass는 기반 platform release가 먼저 만든다.
 
 | release | chart / 기본 values | 워크로드 / Service | 포트 |
 |---|---|---|---|
 | `clickhouse` | `clickhouse` | StatefulSet / ClusterIP | 8123, 9000 |
 | `enrollment-api` | `spring-app` / `enrollment-api.yaml` | Deployment / NodePort | 8080 / 30080 |
-| `telemetry-ingest` | `spring-app` / `telemetry-ingest.yaml` | Deployment / NodePort | 4316 / 30416 |
+| `telemetry-ingest` | `spring-app` / `telemetry-ingest.yaml` | Deployment / NodePort(`http`·`dual`) 또는 ClusterIP(`kafka`) | 4316 / 30416 |
 | `dashboard-api` | `spring-app` / `dashboard-api.yaml` | Deployment / NodePort | 8081 / 30081 |
+| `telemetry-gateway` | `spring-app` / `telemetry-gateway.yaml` | Deployment / NodePort | 8082 / 30082 |
+| `telemetry-kafka-admin` | `telemetry-kafka-admin` / generated만 | Job·ConfigMap·ServiceAccount 2개 | MSK 9098 |
 
 기본 values만으로 앱을 실행하지 않는다. 앱별 `image.repository`와 `image.digest`에 실제 ARM64
 이미지 digest를 전달하고 runtime overlay로 RDS·S3 참조와 CSI mount를 구성한다. chart는 이미지
@@ -21,8 +24,8 @@ PROJ-223은 dashboard NodePort를 30081로 정하고 CDK의 `DEV_EKS_NODE_PORTS.
 Service가 없는지는 배포 전 확인한다. PROJ-224의 Network SG·전용 instance TG·CDK output이 같은 값을 사용한다.
 실제 target health는 배포 후 검증한다.
 
-`eks-values.mjs`는 세 앱의 `--enrollment-image`, `--ingest-image`, `--dashboard-image`와
-`--runtime-values <yaml>`을 필수로 받아 CDK output에서 `generated/*.yaml`을 만든다. 정적 workload values 뒤 생성 YAML을 전달한다.
+`eks-values.mjs`는 네 앱의 `--enrollment-image`, `--ingest-image`, `--dashboard-image`, `--gateway-image`와
+`--runtime-values <yaml>`, `--msk-bootstrap <get-bootstrap-brokers JSON>`을 필수로 받아 CDK output에서 `generated/*.yaml`을 만든다. 정적 workload values 뒤 생성 YAML을 전달한다.
 예를 들어 dashboard chart의 로컬 렌더링은 다음과 같다.
 
 ```bash
@@ -81,3 +84,17 @@ NodeClass/NodePool은 AWS가 제공하는 실제 CRD 설치 전의 구조 검사
 JWT는 별도 읽기 전용 CSI mount와 정확한 kid → PEM 경로 맵을 사용한다. 버전·키 맵 변경은 Pod
 template hash를 바꾸며, 모든 공개키 파일과 enrollment 개인키의 실제 read를 init에서 검사한다.
 추가 YAML 입력과 키 교체 순서는 [runtime 안내](../runtime/README.md)를 따른다.
+
+## telemetry Gateway·Kafka 모드·관리 Job (PROJ-246)
+
+[ADR-0036](../../../docs/adr/0036-dev-telemetry-gateway-workload-and-msk-iam.md)을 따른다. Gateway는 `runtime`(DB·HMAC configtree)·사용자 JWT·OIDC를 받지 않으며
+telemetry 공개키 mount와 `kafka` values가 없으면 렌더링을 거부한다. `PULSEMETRY_DB_*`·`ARCHIVE_*`·`CLICKHOUSE_*` env도 거부한다.
+ingest는 `ingestMode`가 필수다. `dual`·`kafka`는 `kafka.consumerGroup`이 필요하고 grace가 90초이며, `kafka`는 Service ClusterIP·TGB 없음만 허용한다.
+`PULSEMETRY_KAFKA_*`·`PULSEMETRY_INGEST_MODE`·telemetry JWT 설정과 정적 AWS 자격 env는 자유 `env`로 넣을 수 없고 구조화된 values에서만 만든다.
+MSK 세션 이름은 workload별 고정값(`pulsemetry-dev-telemetry-gateway`·`-ingest`)만 허용한다. liveness는 TCP라 Kafka·RDS·S3 장애로 재시작하지 않는다.
+
+`telemetry-kafka-admin` chart는 digest 고정 `apache/kafka:3.9.2`와 release `.sha256`으로 대조한 `aws-msk-iam-auth-2.3.9-all.jar`를
+schema 상수로 고정한다. 기본 실행은 topic을 `--if-not-exists`로 만들고 partition 6·RF 3·minISR 2·72시간·13 MiB·unclean off를 대조하며
+다르면 실패한다. `offsets.enabled=true`는 group이 Empty일 때만 plan(`--dry-run`) 또는 명시적 execute를 수행한다.
+두 Job은 각각 `telemetry-kafka-admin`·`telemetry-kafka-offsets` ServiceAccount와 Pod Identity, 서로 다른 MSK 역할을 쓴다.
+`validate-helm-workloads.mjs`는 Kafka CLI를 stub으로 바꿔 Job shell의 생성·대조·거부 동작을 실행한다. 실제 MSK 접속은 검증하지 않는다.

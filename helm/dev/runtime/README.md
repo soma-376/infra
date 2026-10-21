@@ -30,7 +30,7 @@ dashboard·JWT 전체 설정이나 현재 backend 계약의 검증 완료로 확
 
 ## dashboard와 JWT의 YAML 공급
 
-PROJ-231은 runtime-config release에 SPC 다섯 개를 만든다. 기존 두 configtree SPC와
+PROJ-231은 runtime-config release에 SPC 다섯 개를 만든다(PROJ-246의 telemetry JWT SPC 세 개를 더해 현재 여덟 개). 기존 두 configtree SPC와
 `dashboard-api-runtime`, `enrollment-api-jwt`, `dashboard-api-jwt`다. dashboard configtree에는
 네 전용 계정의 username/password 여덟 파일만 공급한다. dashboard Pod Identity는 이 네 ARN과
 공개키 ARN만 읽고 HMAC·관리자 token·개인키·raw S3 권한을 받지 않는다. enrollment만 JWT 두
@@ -104,3 +104,14 @@ key·ARN·VersionId 변경은 Pod annotation에 반영된다. generated runtime 
 실제 원격 로그인에는 HTTPS가 필요하며 local 프로필을 자동 적용하지 않는다.
 `python3 scripts/test-oidc-config.py`는 실제 backend DTO·Spring Boot로 ECS/EKS synthetic secret의 map binding과
 JWT 맵 보존을 검증한다. 로컬 fixture가 실제 CSI mount 또는 Cognito 연결을 대신하지 않는다.
+
+## telemetry JWT 공급 (PROJ-246)
+
+[ADR-0036](../../../docs/adr/0036-dev-telemetry-gateway-workload-and-msk-iam.md)에 따라 runtime chart가 `enrollment-api-telemetry-jwt`,
+`telemetry-gateway-telemetry-jwt`, `telemetry-ingest-telemetry-jwt` SPC를 만든다. 원본은 `DevDataStack` output
+`TelemetryJwtPrivateKeySecretArn`·`TelemetryJwtPublicKeysSecretArn`이고 사용자 JWT 원본과 달라야 한다.
+개인키 `private.pem`은 enrollment SPC에만 있고 세 SPC 모두 공개키 JSON에서 kid별 alias를 고정 `objectVersion`으로 추출한다.
+runtime 입력 YAML의 `telemetryJwt`(`privateVersionId`·`publicVersionId`·`activeKid`·`publicKeys`·`issueEnabled`)와 `ingestMode`는
+EKS 생성기 전용이며 ECS JSON은 이 키를 거부한다. 앱 chart는 키를 `/mnt/telemetry-jwt/keys`에 configtree·사용자 JWT와 분리해 mount하고
+`SPRING_APPLICATION_JSON`의 `pulsemetry.telemetry-jwt`에 파일 맵·issuer·audience(enrollment는 active-kid·private-key-file·issue-enabled 추가)를 합친다.
+공개키 선배포 → `issueEnabled: true` 순서와 회전·폐기는 [telemetry Kafka 런북](../../../docs/runbooks/dev-telemetry-kafka.md)을 따른다.
