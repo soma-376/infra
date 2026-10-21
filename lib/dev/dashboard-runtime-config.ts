@@ -14,6 +14,7 @@ export interface UserAuthRuntime {
 
 export interface OidcRuntime {
   readonly enabled: boolean;
+  readonly allowInsecureLocalhost: boolean;
   readonly callbackBaseUrl?: string;
   readonly callbackRegistrationId: string;
   readonly failureRedirectUri?: string;
@@ -82,6 +83,7 @@ export function userAuthEnvironment(config: DashboardRuntimeConfig, signer: bool
       if (config.oidc.failureRedirectUri) environment.PULSEMETRY_OIDC_FAILURE_REDIRECT_URI = config.oidc.failureRedirectUri;
       spring.oidc = {
         'callback-registration-id': config.oidc.callbackRegistrationId,
+        'allow-insecure-localhost': config.oidc.allowInsecureLocalhost,
         'client-secrets': Object.fromEntries(oidcClientBindings(config.oidc).map(({ key, alias }) => [`[${key}]`, '${' + alias + '}'])),
       };
     }
