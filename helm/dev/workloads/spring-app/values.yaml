@@ -1,0 +1,22 @@
+# workload별 values와 immutable 이미지 digest를 함께 전달한다.
+workload: ""
+replicaCount: 1
+image:
+  repository: ""
+  digest: ""
+resources:
+  requests:
+    cpu: 250m
+    memory: 1Gi
+  limits:
+    cpu: "1"
+    memory: 2Gi
+env: {}
+# SecretProviderClass는 별도 runtime-config release가 소유한다.
+runtime:
+  enabled: false
+  secretProviderClass: ""
+  requiredFiles: []
+# validation/canary 전용 TG만 전달한다. 기존 ECS TG는 사용하지 않는다.
+targetGroupBindings: []
+vpcId: ""

@@ -19,10 +19,13 @@ import {
   DEV_OTLP_PATHS,
 } from './config';
 import { DevWaf } from './waf';
+import { DevEksValidationEdge } from './eks-validation-edge';
 
 export interface DevEdgeStackProps extends StackProps {
   readonly vpc: IVpc;
   readonly albSecurityGroup: ISecurityGroup;
+  /** EKS 활성화 때만 별도 검증 ALB를 만든다. SG 소유자는 Network다. */
+  readonly eksValidationAlbSecurityGroup?: ISecurityGroup;
   /** 정확한 OTLP 세 경로의 타깃. */
   readonly telemetryIngestService: Ec2Service;
   /** 등록·인증·관리 API와 bootstrap 경로가 공유하는 타깃. */
@@ -70,7 +73,14 @@ export class DevEdgeStack extends Stack {
     this.buildClickhouseListener(props, alb);
 
     // association은 두 리스너 전체에 적용하며 기존 listener·target group·SG는 바꾸지 않는다.
-    new DevWaf(this, 'DevWaf', { loadBalancerArn: alb.loadBalancerArn });
+    const waf = new DevWaf(this, 'DevWaf', { loadBalancerArn: alb.loadBalancerArn });
+    if (props.eksValidationAlbSecurityGroup) {
+      new DevEksValidationEdge(this, 'EksValidation', {
+        vpc: props.vpc,
+        securityGroup: props.eksValidationAlbSecurityGroup,
+        webAclArn: waf.webAcl.attrArn,
+      });
+    }
 
     new CfnOutput(this, 'AlbDnsName', { value: alb.loadBalancerDnsName });
     new CfnOutput(this, 'OtlpEndpoint', {
