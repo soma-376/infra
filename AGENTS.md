@@ -17,7 +17,7 @@ BFF 단일 프로세스에 맞춰 서비스 desired=1/min=0/max=100이다. 앱 �
 기존 CDK 전용 테스트 규칙은 그대로 유지하고, 새 Terraform은 fmt·validate·mock test로 검증한다.
 기존 CDK 리소스를 Terraform에 import하거나 같은 리소스를 두 도구가 수정하지 않는다.
 실제 apply는 리뷰·머지 후 보호된 CI에서 수행한다. 최초 bootstrap과 이후 bootstrap 변경은 관리자 작업이다.
-다음 미사용 ADR은 **0033**다.
+다음 미사용 ADR은 **0034**다.
 
 ---
 
@@ -97,6 +97,24 @@ Cognito 생성·HTTPS 구축·AWS 배포·DB 변경·실제 로그인은 이 로
 
 ---
 
+## PROJ-238 외부 ACM 인증서 기반 dev HTTPS 로컬 구현 보충
+
+[ADR-0033](docs/adr/0033-dev-alb-https-with-external-acm.md)은 `devCertificateArn`(ECS)과
+`devEksCertificateArn`(EKS 검증)의 독립적인 선택 입력으로 기존 ACM 인증서를 참조한다.
+ARN이 있는 ALB는 기존 앱 listener·규칙 ID를 유지해 `443/HTTPS`와 `SslPolicy.TLS13_RES`를 적용한다.
+`devHttpRedirectEnabled`는 공통 boolean이며 기본값 `true`다. 인증서가 있는 ALB에만 별도 80 listener를
+만들어 원래 host·path·query를 보존하는 301을 반환하며, `false`이면 그 ALB의 80 listener가 없다.
+인증서가 없는 ALB는 기존 HTTP를 유지한다. 443 ingress는 NetworkStack에서 `devAllowedCidr`로만 추가한다.
+기존 SG 설명·ALB·TG·WAF·ClickHouse 8123과 prod/cicd는 유지한다. ACM 생성·조회·DNS 관리는 하지 않는다.
+활성화는 ARN 입력 + redirect=false 적용 완료 → redirect=true, 복구는 ARN 유지 + redirect=false 적용 완료 →
+ARN 제거 순서다. 공통 flag이므로 중간 단계에서는 이미 HTTPS인 다른 ALB의 80 redirect도 사라진다.
+앱 공개 URL·endpoint output·Helm 생성기는 유지하므로 기존 `http://<ALB DNS>`는 redirect 뒤 인증서 이름이
+맞지 않을 수 있다. 실제 도메인·공개 URL·OIDC·manifest 정합은 후속 작업이다. OTLP는 HTTPS로 직접 요청한다.
+실제 AWS 배포·인증서·TLS 접속·로그인·CLI E2E 검증은 수행하지 않았다.
+[HTTPS 적용·복구 런북](docs/runbooks/dev-alb-https.md)을 따른다.
+
+---
+
 ## 0. 중앙 허브와 공통 규칙
 
 Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 조직 → 팀 → 구성원 축으로 모아 보여주는
@@ -112,7 +130,7 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 
 **ADR 우선 원칙은 이 레포의 기존 규칙과 같다** — 1장의 "코드와 ADR이 어긋나면 ADR이 기준이다"가
 전 레포 공통 규칙이며, 크로스레포 결정만 `../docs/adr/`가 소유한다. 스코프 판정은 `adr-new` 스킬이 안내한다.
-단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0033`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
+단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0034`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
 기존 병행 브랜치의 ADR `0028`·`0029`·`0030`은 번호가 겹치므로 파일명과 링크를 보존한다.
 프론트엔드 Terraform 절은 프론트엔드 ADR을, dashboard·EKS·기존 CDK 절은 해당 백엔드 ADR을 가리킨다.
 인용할 때는 번호와 함께 범위·제목 또는 파일 링크를 사용하며, 전체 목록은 [ADR 인덱스](docs/adr/README.md)를 따른다.
@@ -254,11 +272,12 @@ priority 4의 `/windows`, `/unix`, `/bin/*`, priority 5의 조직 관리·문의
 ClickHouse는 300초를 쓴다. ingest 서비스만 240초 health check grace를 사용하며 정상 healthy 판정은
 즉시 반영된다. `:4318`, 무제한 `/api/*` 규칙, 구 target group과 서비스는 최종 상태에 없다.
 
-현재 ALB는 HTTP만 제공한다. `PULSEMETRY_PUBLIC_BASE_URL=http://<ALB DNS>`는 bootstrap 주소이고,
-manifest의 OTLP endpoint와 같은 계약이 아니다. backend·telemetryctl·JSON Schema는 원격 endpoint에
-HTTPS를 요구하므로 HTTP curl 경계 검증은 가능하지만 CLI enrollment → manifest → OTLP forward E2E는
-별도 HTTPS 선행 과제가 완료되기 전에는 불가능하다. 계약을 HTTP 허용으로 완화하거나 이 작업에 TLS
-listener·certificate를 추가하지 않는다. prod의 기존 Fargate 서비스와 Collector 구성은 그대로다.
+인증서 context가 없는 ALB는 HTTP만 제공한다. ADR-0033은 선택적 HTTPS listener를 추가하지만
+`PULSEMETRY_PUBLIC_BASE_URL=http://<ALB DNS>`와 endpoint output은 유지한다. 이 bootstrap 주소는
+manifest OTLP endpoint와 같은 계약이 아니며 301 뒤 인증서 이름 검증에 실패할 수 있다.
+backend·telemetryctl·JSON Schema는 원격 HTTPS를 요구한다. 도메인·DNS·공개 URL·manifest 정합과 실제
+접속 검증 전에는 CLI enrollment → manifest → OTLP forward E2E를 완료로 기록하지 않는다.
+prod의 기존 Fargate 서비스와 Collector 구성은 그대로다.
 
 dev WAF는 ALB 전체의 REGIONAL Web ACL이며 기본 Allow다(ADR-0027). 국가 CN·RU·KP·IR, 악성 IP,
 URI·헤더 공격은 OTLP에도 Block한다. 정확한 OTLP 세 경로의 본문·rate는 Count, query는 Block이고,
@@ -324,7 +343,7 @@ URI·헤더 공격은 OTLP에도 Block한다. 정확한 OTLP 세 경로의 본�
 | **`PULSEMETRY_BINARIES_DIR=/app/binaries`를 유지한다** | `/windows`, `/unix`, `/bin/*`는 enrollment-api로 라우팅한다. 이 레포는 URL/라우팅만 제공하며 이미지 안 실제 바이너리 공급은 별도 책임이다. |
 | **dev 로그 그룹은 `/ecs/dev/` 접두를 쓴다** | prod 물리 이름과 충돌하지 않으며 최종 앱 로그는 `/ecs/dev/telemetry-ingest`, `/ecs/dev/enrollment-api`, `/ecs/dev/clickhouse`다. |
 | **dev ALB listener는 모두 `open: false`다** | CDK 기본 `open: true`가 `0.0.0.0/0` ingress를 자동 추가해 `devAllowedCidr` 제한을 무력화하는 것을 막는다. |
-| **`:80`은 명시한 경로만 전달한다** | OTLP 정확한 세 경로는 ingest, `/api/v1`의 enrollment·인증·조직 관리·문의·업데이트 경로와 bootstrap 경로는 enrollment-api로 보낸다. default는 404이고 `/api/v1/healthz` public rule, 무제한 `/api/*`, `:4318`은 없다. |
+| **앱 listener는 명시한 경로만 전달한다** | 인증서가 없으면 `:80/HTTP`, 있으면 `:443/HTTPS`에서 기존 path·method·OPTIONS와 default 404를 유지한다. 공개 health rule·무제한 `/api/*`·`:4318`은 없다. HTTPS의 별도 `:80`은 공통 `devHttpRedirectEnabled=true`일 때만 301을 반환한다. 기존 listener·규칙 ID는 보존한다. (ADR-0033) |
 | **dev WAF의 개별 Count 예외와 경로별 exact-label Block을 함께 유지한다** | OTLP 본문·앱 경로 밖 SQL 본문/query는 Count지만 국가·악성 IP·URI·헤더 Block은 ingest에도 남는다. `/bin/` 확장자 예외는 `RestrictedExtensions_URIPATH` 한 규칙뿐이다. 앱 경로는 ALB와 공유하며 Host 기반 전면 Allow로 바꾸지 않는다. 앱의 인증·압축 전후 크기·압축 해제·JSON/protobuf·OTLP 구조 검증을 WAF가 대신하지 않는다. (ADR-0027) |
 | **WAF 앱 내용 검사와 등록 rate 범위는 구별한다** | PROJ-200의 `/api/v1` 인증·manifest·조직 관리·문의·업데이트 경로도 본문/query Block에 포함한다. 300건/300초는 `/api/v1/enroll`·`/api/v1/installations/*`·`/api/v1/invitations*` 세 조건만 합산하고, 추가된 앱 경로는 나머지 1,000건/300초에 포함한다. `/api/v1/*` 전체를 앱 경로나 등록 rate로 넓히지 않는다. (ADR-0027) |
 | **WAF 관리형 버전·override 이름·label을 함께 갱신한다** | Common `Version_1.23`, KnownBadInputs `Version_1.26`, SQLi `Version_2.4`를 고정한다. WAF 요청 로그에는 관리형 룰셋 버전이 직접 기록되지 않고 `formatVersion`은 로그 형식 버전이다. 과거 요청 분석은 당시 CDK·commit·배포 기록과 대조하며 갱신·만료 전 룰/label을 재검증한다. IP 목록은 비버전 그룹이다. (ADR-0027) |
@@ -369,7 +388,10 @@ DeployStack, 앱 workflow가 공유한다. prod의 `ENRICHMENT_ENV`와 Collector
 | prod | `edgeMode` | `B` | `A`이면 Cognito JWT + TLS/CloudFront, `B`이면 인증 없는 HTTP MVP |
 | prod | `certificateArn` | 없음 | 모드 A의 ACM 인증서 |
 | prod | `customDomain` | 없음 | 모드 A의 도메인 |
-| dev | `devAllowedCidr` | `0.0.0.0/0` | ALB `80/8123`과 RDS `5432` ingress source. 미지정/전면 공개면 `infra:dev-open-ingress` 경고 |
+| dev | `devAllowedCidr` | `0.0.0.0/0` | ALB `80/8123` 및 HTTPS 활성 ALB의 `443`, RDS `5432` ingress source. 미지정/전면 공개면 `infra:dev-open-ingress` 경고 |
+| dev | `devCertificateArn` | 없음 | ECS ALB의 외부 ACM 인증서. 없으면 기존 HTTP 유지 |
+| dev | `devEksCertificateArn` | 없음 | EKS 검증 ALB의 외부 ACM 인증서. `devEksEnabled=true` 필요 |
+| dev | `devHttpRedirectEnabled` | `true` | 인증서가 있는 ALB의 별도 80 → 443 HTTP 301. `false`이면 해당 ALB에 80 listener 없음 |
 | dev | `devAppAsgMaxCapacity` | `1` | 앱 ASG 최대 호스트 수. 병행 단계에서만 명시적으로 `2`를 쓰고 cleanup 뒤 기본값 `1`로 복귀 |
 | dev | `devImageTag` | `dev` | dev ECS task가 참조하는 앱 이미지 태그 |
 | cicd | `githubOidcProviderArn` | 없음 | 기존 GitHub OIDC provider 참조. 없으면 새 provider를 만들고 RETAIN |
@@ -417,8 +439,8 @@ binding하며 Secret 값은 환경변수나 output에 두지 않는다.
 
 `/windows`, `/unix`, `/bin/*` 라우팅은 설치 URL만 제공한다. `/app/binaries`에 실제 산출물을 넣는 일은
 이미지 공급 작업이다. 또한 public base URL은 bootstrap 주소일 뿐 manifest OTLP endpoint가 아니다.
-원격 endpoint는 backend와 telemetryctl 계약상 HTTPS여야 한다. 현재 dev에는 TLS listener/certificate가
-없으므로 CLI enrollment → manifest → OTLP forward E2E는 별도 HTTPS 선행 과제가 끝날 때까지 막힌다.
+원격 endpoint는 backend와 telemetryctl 계약상 HTTPS여야 한다. ADR-0033의 listener·인증서 참조만으로
+공개 URL·manifest 정합이나 실제 TLS·CLI E2E 성공이 증명되지 않는다. 도메인·DNS와 후속 URL 전환이 필요하다.
 
 #### prod legacy 앱과 공통 ClickHouse
 
@@ -430,14 +452,15 @@ prod `post-processor`는 `ENRICHMENT_CH_URL`, `ENRICHMENT_CH_DB`, `ENRICHMENT_PG
 
 ### EdgeStack
 
-prod의 모드 A/B, Cognito, CloudFront, TLS 계약은 바꾸지 않는다. dev는 HTTP `:80`의 정확한 OTLP 세
-경로와 `/api/v1` enrollment·인증·조직 관리·문의·업데이트, bootstrap 경로만 두 새 instance target group으로 전달하고 default 404를 쓴다.
+prod의 모드 A/B, Cognito, CloudFront, TLS 계약은 바꾸지 않는다. dev 앱 listener는 인증서 입력에 따라
+HTTP `:80` 또는 HTTPS `:443`에서 `app-routing.ts`의 OTLP·enrollment·dashboard path/method/OPTIONS를
+전달하고 default 404를 쓴다. HTTPS의 별도 80 redirect와 두 단계 적용·복구는 ADR-0033을 따른다.
 `:8123` ClickHouse ip target은 유지한다. `:4318`, 무제한 `/api/*`, 구 target group/output은 최종 상태에 없다.
 모든 listener는 `open: false`이고 `devAllowedCidr`가 유일한 network boundary다.
 
 ## 5. 지금 남은 작업
 
-### (A) 도메인 / ACM 인증서 확보 — 모드 A(TLS 종단) 전환 `미결`
+### (A) 도메인 / ACM 인증서 확보 — prod 모드 A와 dev TLS 실환경 적용 `미결`
 
 `docs/adr/0008-dual-auth-alb-cognito-and-otlp-token.md`
 
@@ -450,6 +473,9 @@ prod의 모드 A/B, Cognito, CloudFront, TLS 계약은 바꾸지 않는다. dev�
   2. `ap-northeast-2`에서 ACM 인증서를 발급·검증하고, DNS에 ALB Alias/CNAME 레코드를 만든다.
   3. `certificateArn`, `domainName` context 값을 확정하고 모드 A로 배포해 HTTP→HTTPS 리다이렉트를
      확인한 뒤 배포 런북에 기록한다.
+- dev 외부 ACM 연결 코드는 PROJ-238·ADR-0033으로 추가됐다. prod `certificateArn`과 dev의
+  `devCertificateArn`·`devEksCertificateArn`은 별도 입력이다. dev 실제 인증서·DNS·공개 URL 준비와
+  두 단계 적용·복구는 [dev HTTPS 런북](docs/runbooks/dev-alb-https.md)을 따른다.
 - `lib/prod/edge-stack.ts` 의 Cognito 구축 코드(User Pool·`AuthenticateCognitoAction`·`authenticateJwt`)는
   **의도적 잔존**이다 — Spring Security 이관 시 함께 걷어낸다. 결함으로 오독하지 않는다.
 
@@ -538,7 +564,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0033`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급으로 이미 쓰였다. `0020`은 프론트엔드 로그 정책이며, 프론트엔드 `0028`·`0029`·`0030`은 각각 Terraform 실행 환경·외부 DNS와 기존 인증서·독립 기반 상태를 다룬다. 중복 번호는 [ADR 인덱스](docs/adr/README.md)의 제목과 파일 링크로 구분하고, 기존 CDK 로그 정책 미결 사항은 위 (F)를 따른다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0034`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급, `0033`은 외부 ACM 기반 dev HTTPS로 이미 쓰였다. `0020`은 프론트엔드 로그 정책이며, 프론트엔드 `0028`·`0029`·`0030`은 각각 Terraform 실행 환경·외부 DNS와 기존 인증서·독립 기반 상태를 다룬다. 중복 번호는 [ADR 인덱스](docs/adr/README.md)의 제목과 파일 링크로 구분하고, 기존 CDK 로그 정책 미결 사항은 위 (F)를 따른다.
    형식은 `docs/adr/0000-adr-template.md`를 따른다.
 3. 상수는 **"이 값이 dev에서 달라야 할 이유가 있는가"**로 위치를 정한다 — 없으면 `lib/common/config.ts`, 운영 전용이면 `lib/prod/config.ts`, dev 전용이면 `lib/dev/config.ts`. 스택에서는 import만 한다 (4장).
 4. `test/prod/*.test.ts` / `test/dev/*.test.ts` / `test/cicd/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`(prod), `buildDevApp()`(dev), `buildCicdApp()`(cicd)를 재사용한다.
@@ -553,7 +579,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 - `devAllowedCidr=0.0.0.0/0`이면 비밀번호 없는 ClickHouse `:8123`과 RDS `:5432`가 인터넷에 열린다. synth 경고를 무시하지 않는다.
 - dev RDS와 prod Aurora 모두 `StorageEncrypted`를 명시하지 않는다. prod 전환 때 removal policy와 함께 검토한다.
 - `/app/binaries`의 실제 설치 파일 공급은 이 레포 범위가 아니다. URL과 rule만 있어도 설치 E2E는 완료되지 않는다.
-- dev 원격 OTLP endpoint에 필요한 HTTPS listener/certificate/domain이 없다. backend·telemetryctl·Schema 계약을 HTTP 허용으로 낮추지 않고 별도 선행 과제로 해결한다.
+- PROJ-238은 dev HTTPS listener와 외부 ACM 참조를 로컬 구현한다. 실제 인증서·도메인·DNS·공개 URL·manifest 정합과 원격 OTLP E2E는 미완료이며 backend·telemetryctl·Schema 계약을 HTTP 허용으로 낮추지 않는다.
 
 ### (I) ADR-0026 dev 백엔드 전환 `Accepted, 배포 증거 대기`
 
@@ -713,8 +739,8 @@ curl -i 'http://<alb-dns>/api/'
 유효 token 요청 뒤 Raw Signal S3 PUT과 ClickHouse insert를 실제 데이터로 확인하고 enrollment/bootstrap
 HTTP route를 검증한다. `/app/binaries`에 파일이 없으면 설치 download E2E는 미완료다.
 `PULSEMETRY_PUBLIC_BASE_URL`은 HTTP bootstrap URL이고 manifest OTLP endpoint가 아니다. 원격 endpoint는
-HTTPS여야 하므로 CLI enrollment → manifest → OTLP forward는 별도 TLS listener/certificate/domain 작업
-후에만 검증한다.
+HTTPS여야 하므로 CLI enrollment → manifest → OTLP forward는 ADR-0033의 실제 TLS 적용과 별도
+도메인·DNS·공개 URL·manifest 정합 뒤에 검증한다. HTTPS 활성 시 위 HTTP 앱 요청 예시는 301을 반환한다.
 
 ### PROJ-144 detach·delete 배포 순서
 

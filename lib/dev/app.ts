@@ -6,6 +6,7 @@ import { DevNetworkStack } from './network-stack';
 import { DevDataStack } from './data-stack';
 import { DevApplicationStack } from './application-stack';
 import { DevEdgeStack } from './edge-stack';
+import { validateDevEdgeEnvironment } from './edge-config';
 
 /**
  * 기본 dev 4스택과 선택적 EKS 스택. CLI와 테스트가 같은 조립 결과를 공유한다.
@@ -42,6 +43,7 @@ export interface SynthDevProps {
  */
 export function synthDev(app: App, props: SynthDevProps): DevStacks {
   const { env, config } = props;
+  validateDevEdgeEnvironment(config.edge, env);
 
   // 전 스택의 태그 지원 리소스에 공통 태그를 전파한다 (비용 배분/소유권 식별용).
   // Cost Explorer 에서 Env=dev 가 이 환경의 비용 축이 된다.
@@ -51,6 +53,8 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     env,
     allowedCidrs: config.allowedCidrs,
     eksEnabled: config.eks.enabled,
+    httpsEnabled: config.edge.certificateArn !== undefined,
+    eksHttpsEnabled: config.edge.eksCertificateArn !== undefined,
   });
 
   const data = new DevDataStack(app, 'DevDataStack', {
@@ -80,6 +84,7 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
 
   const edge = new DevEdgeStack(app, 'DevEdgeStack', {
     env,
+    edge: config.edge,
     vpc: network.vpc,
     albSecurityGroup: network.albSecurityGroup,
     eksValidationAlbSecurityGroup: network.eksValidationAlbSecurityGroup,

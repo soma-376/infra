@@ -4,6 +4,9 @@
 
 Accepted (구현·로컬 검증 대상, AWS 배포 증거 대기; JWT Secret 참조 목록은 [ADR-0030](0030-dev-user-jwt-keys-from-secrets-manager.md)이 부분 대체)
 
+[ADR-0033](0033-dev-alb-https-with-external-acm.md)이 인증서 context가 있는 dev ALB의 HTTP 전용
+listener를 HTTPS와 선택적 HTTP redirect로 부분 대체한다. 검증 ALB·TG 소유권과 라우팅은 유지한다.
+
 ADR-0001·0002·0003·0005·0006·0009·0016·0021·0022·0026의 dev ECS 전용 실행·접속·스토리지·스택 수 가정을 **EKS 활성화 경로에 한해** 부분 대체한다. 기존 ECS와 prod 결정은 계속 유효하다. ADR-0019의 ClickHouse 이미지·사용자 설정, ADR-0024의 기존 CI 권한, ADR-0027의 WAF 정책은 유지한다. ADR-0020 예약 범위인 기존 ECS 로그 정책은 이 결정으로 대체하지 않는다.
 
 [ADR-0029](0029-dev-dashboard-api-ecs-and-eks-deployment.md)이 dashboard 포함 네 workload와 전용 검증 TG·runtime·수동 Helm 배포를 추가한다. 아래 세 workload·두 앱 설정 목록은 PROJ-206~212 기준이며 추가 구현은 PROJ-221~224다. 기존 CDK/Helm 경계, ECS TG 재사용 금지와 데이터 전환 결정은 유효하다.
@@ -35,6 +38,7 @@ ADR-0001·0002·0003·0005·0006·0009·0016·0021·0022·0026의 dev ECS 전용
 - ingest NodePort 30416/컨테이너 4316, enrollment NodePort 30080/컨테이너 8080을 사용한다. HTTP readiness `/api/v1/healthz`와 TCP liveness를 분리하고 ingest startup 240초를 허용한다. 메모리는 앱별 request 1Gi/limit 2Gi이며 실측 전 초기값이다. 앱 이미지는 immutable digest를 필수 입력으로 받는다.
 - ClickHouse는 `24.8-alpine`, 기존 default user와 `CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1`, 50GiB gp3 PVC를 사용한다. StorageClass는 `ebs.csi.eks.amazonaws.com`, `WaitForFirstConsumer`, `Retain`이다. 기존 ECS EBS가 자동 승계된다고 가정하지 않는다.
 - 별도 검증 ALB와 전용 TG 3개를 추가한다. 앱 TG는 instance+NodePort, ClickHouse TG는 ip:8123이다. 기존 listener 경로·default 404·접근 CIDR·health check·WAF를 유지하고 같은 Web ACL에 검증 ALB association을 추가한다. 검증 TG와 후속 Canary TG는 별도 ARN이며 ECS TG를 TGB에 전달하지 않는다.
+  검증 ALB의 선택적 HTTPS는 ADR-0033의 `devEksCertificateArn`으로 켜며 기존 listener·규칙 ID를 유지한다.
 
 ### 3. 런타임 주입과 로그
 
@@ -82,7 +86,8 @@ Helm release 복구, ALB 트래픽 복구, DB/PVC 데이터 복구는 서로 다
 
 - PROJ-213~215에서 병행 운영·데이터 리허설·Canary·ECS 제거를 실제 수행한다.
 - 배포 전 EKS 버전·인스턴스·chart/CRD의 서울 리전 가용성, ARM64 이미지와 health 계약, API 접근과 Pod Identity를 확인한다.
-- HTTPS와 실제 바이너리 공급은 기존 별도 선행 과제다.
+- HTTPS listener·외부 인증서 참조는 ADR-0033이 담당한다. 실제 인증서·도메인·공개 URL·manifest 정합과
+  TLS/CLI E2E 및 바이너리 공급은 별도 선행 과제다.
 
 ## Acceptance Criteria
 

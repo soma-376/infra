@@ -32,8 +32,10 @@ const EPHEMERAL_PORT_MAX = 65535;
 
 export interface DevNetworkStackProps extends StackProps {
   readonly eksEnabled?: boolean;
+  readonly httpsEnabled?: boolean;
+  readonly eksHttpsEnabled?: boolean;
   /**
-   * ALB(80/8123)와 RDS(5432), 호스트 동적 포트의 인바운드 허용 소스.
+   * ALB(80/선택적 443/8123)와 RDS(5432), 호스트 동적 포트의 인바운드 허용 소스.
    */
   readonly allowedCidrs: readonly string[];
 }
@@ -143,6 +145,11 @@ export class DevNetworkStack extends Stack {
     });
 
     this.wireSecurityGroupRules();
+    if (props.httpsEnabled) {
+      this.forEachAllowedCidr((peer, cidr) => {
+        this.albSecurityGroup.addIngressRule(peer, Port.tcp(PORTS.https), `HTTPS from ${cidr}`);
+      });
+    }
     if (props.eksEnabled) {
       const sg = (name: string, description: string) => new SecurityGroup(this, name, {
         vpc: this.vpc, description, allowAllOutbound: true, disableInlineRules: true,
@@ -172,6 +179,9 @@ export class DevNetworkStack extends Stack {
       this.forEachAllowedCidr((peer, cidr) => {
         validation.addIngressRule(peer, Port.tcp(80), `Validation HTTP from ${cidr}`);
         validation.addIngressRule(peer, Port.tcp(8123), `Validation ClickHouse from ${cidr}`);
+        if (props.eksHttpsEnabled) {
+          validation.addIngressRule(peer, Port.tcp(PORTS.https), `Validation HTTPS from ${cidr}`);
+        }
       });
       // 기존 SG의 inline properties를 바꾸지 않고 별도 규칙을 추가한다.
       new CfnSecurityGroupIngress(this, 'EksToRds', {

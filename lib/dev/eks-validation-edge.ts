@@ -7,8 +7,9 @@ import { DEV_DEREGISTRATION_DELAY } from './config';
 import { installDevAppRoutes } from './app-routing';
 import { DEV_EKS_CLUSTER_NAME, DEV_EKS_NODE_PORTS } from './eks-config';
 import { DEV_EKS_TARGET_GROUP_CLUSTER_TAG } from './eks-lbc';
+import { addDevAppListener, DevAppListenerOptions } from './app-listener';
 
-export interface DevEksValidationEdgeProps {
+export interface DevEksValidationEdgeProps extends DevAppListenerOptions {
   readonly vpc: IVpc;
   readonly securityGroup: ISecurityGroup;
   readonly webAclArn: string;
@@ -37,10 +38,7 @@ export class DevEksValidationEdge extends Construct {
     const enrollment = tg('EnrollmentTg', 'enroll', DEV_EKS_NODE_PORTS.enrollment, '/api/v1/healthz', TargetType.INSTANCE);
     const dashboard = tg('DashboardTg', 'dashboard', DEV_EKS_NODE_PORTS.dashboard, '/api/v1/healthz', TargetType.INSTANCE);
     const clickhouse = tg('ClickhouseTg', 'ch', 8123, '/ping', TargetType.IP);
-    const http = alb.addListener('Http', {
-      port: 80, protocol: ApplicationProtocol.HTTP, open: false,
-      defaultAction: ListenerAction.fixedResponse(404, { contentType: 'text/plain', messageBody: 'Not Found' }),
-    });
+    const http = addDevAppListener(alb, 'Http', props);
     // ECS와 EKS는 같은 path/method/preflight 계약을 서로 독립된 TG에 연결한다.
     installDevAppRoutes(this, http, { enrollment, dashboard, ingest }, 'Otlp');
     alb.addListener('Clickhouse', { port: 8123, protocol: ApplicationProtocol.HTTP, open: false, defaultAction: ListenerAction.forward([clickhouse]) });
