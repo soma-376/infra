@@ -1,0 +1,21 @@
+{
+  "checkedAt": "2026-10-12",
+  "csiDriver": {
+    "version": "1.6.1",
+    "appVersion": "1.6.1",
+    "url": "https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts/secrets-store-csi-driver-1.6.1.tgz",
+    "sha256": "a3f9f5098cc1285f41c707a4de9bf06e27617ab792bef92c60ddc299f842dab0"
+  },
+  "ascp": {
+    "version": "3.1.4",
+    "appVersion": "3.1.4",
+    "url": "https://github.com/aws/secrets-store-csi-driver-provider-aws/releases/download/3.1.4/secrets-store-csi-driver-provider-aws-3.1.4.tgz",
+    "sha256": "09321996a1f4902301f105c8a71913cfb2108c9397256fe8705afbc6ffedee29"
+  },
+  "fluentBit": {
+    "version": "0.58.3",
+    "appVersion": "5.1.3",
+    "url": "https://github.com/fluent/helm-charts/releases/download/fluent-bit-0.58.3/fluent-bit-0.58.3.tgz",
+    "sha256": "99e025e461fa080e68dcfe65b8bc0bf64dd74d2c04b87cb910f9192fbf954f20"
+  }
+}
