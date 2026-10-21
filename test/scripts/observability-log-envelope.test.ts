@@ -46,7 +46,8 @@ test('대시보드·런북의 로그 query 필드는 실제 envelope 필드다',
     .filter((target: any) => target.queryMode === 'Logs' && target.logGroupNames.some((name: string) => /APPLICATION|OBSERVABILITY/.test(name)))
     .map((target: any) => target.expression));
   const runbook = readFileSync(resolve(root, 'docs/runbooks/dev-observability.md'), 'utf8');
-  const referenced = [...queries, runbook].join('\n').match(/\bkubernetes\.[a-z_]+|\b(?:stream|log|environment|cluster)\b(?=\s*[,|=])/g) ?? [];
+  // `app.kubernetes.io/name` 같은 label key는 필드 참조가 아니다.
+  const referenced = [...queries, runbook].join('\n').match(/(?<![.\w])kubernetes\.[a-z_]+|\b(?:stream|log|environment|cluster)\b(?=\s*[,|=])/g) ?? [];
   expect(queries.length).toBeGreaterThan(0);
-  for (const field of new Set(referenced)) expect(fields.has(field)).toBe(true);
+  expect([...new Set(referenced)].filter(field => !fields.has(field))).toEqual([]);
 });
