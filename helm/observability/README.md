@@ -76,11 +76,14 @@ Grafana admin password는 Secrets Manager 서버 측 생성값을 Pod Identity +
 
 공통 `cluster`는 **EKS cluster**, `msk_cluster`는 **MSK cluster**다. app/CH ServiceMonitor가
 `application`과 `service`를 `telemetry-gateway`, `telemetry-ingest`, `clickhouse`로 정규화한다.
-`honorLabels: false`이므로 앱 원래 label과 충돌하면 원래 값은 `exported_*`에 남는다. env/cluster/namespace/service/pod
+`honorLabels: false`이므로 앱 공통 tag(`application`·`environment`·`service`)는 `exported_*` 사본이 된다.
+target label이 기준이므로 metricRelabelings가 이 세 사본을 버린다. env/cluster/namespace/service/pod
 필터는 실제 앱·CH 질의에, K8s는 cluster/namespace/pod에, MSK/node는 해당 cluster 범위에 적용한다.
 서비스 선택으로 Pod 목록이 좁혀진다. 지표 패널의 진단 링크는 현재 시간과 선택한 service/pod를 넘긴다.
 앱 로그는 실제 `kubernetes.container_name`으로 service를 좁히고 `log` 원문을 읽는다. INFO 시작/종료와
 WARN/ERROR 모두 기본 조회한다. control-plane/MSK는 각 전용 로그 그룹을 사용한다.
+로그 패널이 있는 System Diagnostics는 기본 15분·1분 갱신이다. Logs Insights 스캔량을 줄이기 위해 지표 대시보드의
+30분·10초와 분리한다. 노드 디스크는 Bottlerocket의 읽기 전용 root가 아닌 쓰기 가능 data volume을 device별로 본다.
 
 Prometheus/JMX/CH scrape는 10초다. **MSK commit 기준 lag는 AWS/Kafka CloudWatch 원본 60초**가 권위 출처다.
 `SumOffsetLag`, `MaxOffsetLag`, `EstimatedMaxTimeLag`는 Cluster Name/Consumer Group/Topic 차원으로 조회한다.

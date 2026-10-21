@@ -186,24 +186,49 @@ tests:
               reason: OOMKilled
             exp_annotations:
               summary: 최근 재시작의 종료 원인이 OOMKilled다
+  # node1: Bottlerocket처럼 읽기 전용 root는 거의 차 있고 data volume이 /local·/var 두 mountpoint로 보인다.
+  # node2: data volume 여유. MSK broker의 node exporter는 별도 job이라 제외한다.
   - interval: 10s
     input_series:
-      - series: node_filesystem_avail_bytes{cluster="eks",instance="node1",mountpoint="/",fstype="xfs"}
+      - series: node_filesystem_avail_bytes{job="node-exporter",cluster="eks",instance="node1",device="/dev/dm-0",mountpoint="/",fstype="ext4"}
+        values: 1+0x40
+      - series: node_filesystem_size_bytes{job="node-exporter",cluster="eks",instance="node1",device="/dev/dm-0",mountpoint="/",fstype="ext4"}
+        values: 100+0x40
+      - series: node_filesystem_readonly{job="node-exporter",cluster="eks",instance="node1",device="/dev/dm-0",mountpoint="/",fstype="ext4"}
+        values: 1+0x40
+      - series: node_filesystem_avail_bytes{job="node-exporter",cluster="eks",instance="node1",device="/dev/nvme1n1p1",mountpoint="/local",fstype="xfs"}
         values: 10+0x40
-      - series: node_filesystem_size_bytes{cluster="eks",instance="node1",mountpoint="/",fstype="xfs"}
+      - series: node_filesystem_size_bytes{job="node-exporter",cluster="eks",instance="node1",device="/dev/nvme1n1p1",mountpoint="/local",fstype="xfs"}
+        values: 100+0x40
+      - series: node_filesystem_readonly{job="node-exporter",cluster="eks",instance="node1",device="/dev/nvme1n1p1",mountpoint="/local",fstype="xfs"}
+        values: 0+0x40
+      - series: node_filesystem_avail_bytes{job="node-exporter",cluster="eks",instance="node1",device="/dev/nvme1n1p1",mountpoint="/var",fstype="xfs"}
+        values: 10+0x40
+      - series: node_filesystem_size_bytes{job="node-exporter",cluster="eks",instance="node1",device="/dev/nvme1n1p1",mountpoint="/var",fstype="xfs"}
+        values: 100+0x40
+      - series: node_filesystem_readonly{job="node-exporter",cluster="eks",instance="node1",device="/dev/nvme1n1p1",mountpoint="/var",fstype="xfs"}
+        values: 0+0x40
+      - series: node_filesystem_avail_bytes{job="node-exporter",cluster="eks",instance="node2",device="/dev/nvme1n1p1",mountpoint="/local",fstype="xfs"}
+        values: 50+0x40
+      - series: node_filesystem_size_bytes{job="node-exporter",cluster="eks",instance="node2",device="/dev/nvme1n1p1",mountpoint="/local",fstype="xfs"}
+        values: 100+0x40
+      - series: node_filesystem_readonly{job="node-exporter",cluster="eks",instance="node2",device="/dev/nvme1n1p1",mountpoint="/local",fstype="xfs"}
+        values: 0+0x40
+      - series: node_filesystem_avail_bytes{job="msk-node",cluster="eks",instance="b-1:11002",device="/dev/nvme1n1",mountpoint="/kafka",fstype="xfs"}
+        values: 1+0x40
+      - series: node_filesystem_size_bytes{job="msk-node",cluster="eks",instance="b-1:11002",device="/dev/nvme1n1",mountpoint="/kafka",fstype="xfs"}
         values: 100+0x40
     alert_rule_test:
       - eval_time: 6m
-        alertname: NodeRootDiskSpaceLow
+        alertname: NodeDataDiskSpaceLow
         exp_alerts:
           - exp_labels:
               severity: warning
               cluster: eks
               instance: node1
-              mountpoint: /
-              fstype: xfs
+              device: /dev/nvme1n1p1
             exp_annotations:
-              summary: 노드 root 디스크 잔여 공간이 15퍼센트 미만이다
+              summary: 노드 쓰기 가능 data volume 잔여 공간이 15퍼센트 미만이다
   - interval: 10s
     input_series:
       - series: fluentbit_storage_fs_chunks_down{cluster="eks",job="fluent-bit",pod="collector"}

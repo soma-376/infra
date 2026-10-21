@@ -10,9 +10,9 @@
   "editable": false,
   "schemaVersion": 41,
   "version": 1,
-  "refresh": "10s",
+  "refresh": "1m",
   "time": {
-    "from": "now-30m",
+    "from": "now-15m",
     "to": "now"
   },
   "templating": {
@@ -948,7 +948,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Node filesystem 잔여 bytes",
+      "title": "Node 쓰기 가능 filesystem 잔여 bytes",
       "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
       "datasource": {
         "type": "prometheus",
@@ -957,8 +957,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "node_filesystem_avail_bytes{job!=\"msk-node\",fstype!~\"tmpfs|overlay\",cluster=\"$cluster\"}",
-          "legendFormat": "{{instance}} {{mountpoint}}",
+          "expr": "node_filesystem_avail_bytes{job=\"node-exporter\",fstype!~\"tmpfs|overlay\",cluster=\"$cluster\"} unless on (instance, device, mountpoint) (node_filesystem_readonly{job=\"node-exporter\"} == 1)",
+          "legendFormat": "{{instance}} {{device}} {{mountpoint}}",
           "range": true
         }
       ],

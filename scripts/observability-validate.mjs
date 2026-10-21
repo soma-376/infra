@@ -96,6 +96,9 @@ const usedCustomMetrics = new Set();
 const usedNativeMetrics = new Set();
 for (const dashboard of dashboards) {
   assert.equal(dashboard.timezone, 'utc');
+  // 로그 조회는 Logs Insights 스캔 비용이 들어 지표 10초 주기와 분리한다.
+  const logs = dashboard.panels.some(panel => (panel.targets ?? []).some(target => target.queryMode === 'Logs'));
+  assert.deepEqual([dashboard.refresh, dashboard.time.from], logs ? ['1m', 'now-15m'] : ['10s', 'now-30m'], `${dashboard.uid} 갱신 주기`);
   for (const panel of dashboard.panels) {
     if (panel.type === 'timeseries') {
       assert.equal(panel.fieldConfig.defaults.noValue, '미수집');
@@ -140,9 +143,15 @@ for (const name of ['fluent-bit','kubernetes-events']) {
   const endpoints=find('ServiceMonitor',name).spec.endpoints;
   assert.equal(endpoints.length,1);assert.equal(endpoints[0].path,'/api/v2/metrics/prometheus');
 }
+// 실제 Backend scrape의 앱 공통 tag는 target label과 겹친다. honorLabels=false라 exported_* 사본이 생기므로 버린다.
+const appTags = ['gateway-management.prom','ingest-management.prom'].map(x => readFileSync(resolve(fixtures,'fixtures',x),'utf8'));
+for (const tag of ['application','environment','service']) assert.ok(appTags.every(text => text.includes(`${tag}="`)), `앱 scrape에 ${tag} tag 없음`);
 for (const name of ['telemetry-gateway','telemetry-ingest','clickhouse']) {
   const endpoint=find('ServiceMonitor',name).spec.endpoints[0];
   assert.equal(endpoint.honorLabels,false);
+  const dropped = endpoint.metricRelabelings.filter(x => x.action==='labeldrop').map(x => new RegExp(`^(?:${x.regex})$`));
+  for (const label of ['exported_application','exported_environment','exported_service','tenant_id']) assert.ok(dropped.some(x => x.test(label)), `${name}: ${label} 미삭제`);
+  for (const label of ['application','environment','service','cluster','signal','outcome']) assert.ok(!dropped.some(x => x.test(label)), `${name}: ${label}를 지우면 안 된다`);
   for (const [targetLabel,replacement] of [['cluster','fixture-eks'],['environment','dev'],['service',name]]) {
     assert.ok(endpoint.relabelings.some(x => x.targetLabel===targetLabel && x.replacement===replacement));
   }

@@ -33,6 +33,9 @@ spec:
       metricRelabelings:
         - action: labeldrop
           regex: 'request_id|trace_id|tenant_id|member_id|installation_id|run_id|exception_message'
+        # 앱 공통 tag가 target label과 겹쳐 생기는 사본이다. 위 target label이 기준이다.
+        - action: labeldrop
+          regex: 'exported_(application|environment|service)'
 {{- end }}
 ---
 apiVersion: monitoring.coreos.com/v1
