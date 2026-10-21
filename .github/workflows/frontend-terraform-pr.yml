@@ -1,0 +1,80 @@
+name: Frontend Terraform PR
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend-terraform-*.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: 1.13.5
+          terraform_wrapper: false
+      - run: bash frontend/scripts/check.sh
+
+  plan:
+    needs: validate
+    # fork PR에는 AWS 역할과 상태 접근권한을 주지 않는다.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [dev, prod]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # 관리자 설정으로 필수 reviewer를 지정한다. PR 코드를 실행하므로 read 역할도 보호한다.
+    environment: frontend-${{ matrix.target }}-plan
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TF_IN_AUTOMATION: 'true'
+      AWS_EC2_METADATA_DISABLED: 'true'
+      TF_VAR_aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+      STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      ROLE_ARN: ${{ vars.TF_PLAN_ROLE_ARN }}
+    defaults:
+      run:
+        working-directory: frontend/environments/${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: 1.13.5
+          terraform_wrapper: false
+      - name: 설정 확인
+        run: |
+          test -n "$TF_VAR_aws_account_id"
+          test -n "$STATE_BUCKET"
+          test -n "$ROLE_ARN"
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c # v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ap-northeast-2
+          allowed-account-ids: ${{ env.TF_VAR_aws_account_id }}
+          role-session-name: frontend-plan-${{ github.run_id }}
+      - name: 변경 계획
+        run: |
+          terraform init -input=false -lockfile=readonly \
+            -backend-config="bucket=$STATE_BUCKET" \
+            -backend-config="allowed_account_ids=[\"$TF_VAR_aws_account_id\"]"
+          terraform plan -input=false -lock-timeout=5m -no-color
+      # 상태와 binary plan은 artifact나 PR 댓글로 게시하지 않는다.
