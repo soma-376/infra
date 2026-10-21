@@ -35,6 +35,8 @@ export const ECR_REPOS = {
   batchProcessor: `${ECR_NAMESPACE}/batch-processor`,
   enrollmentApi: `${ECR_NAMESPACE}/enrollment-api`,
   telemetryIngest: `${ECR_NAMESPACE}/telemetry-ingest`,
+  // ECS와 EKS가 공유할 dashboard-api 이미지 산출물의 레포 이름. (PROJ-226)
+  dashboardApi: `${ECR_NAMESPACE}/dashboard-api`,
 } as const;
 
 /**
