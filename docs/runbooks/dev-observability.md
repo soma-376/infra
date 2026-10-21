@@ -42,6 +42,8 @@ Fluent Bit envelope·관측 로그 그룹도 같은 CDK output에 의존하므�
 **GC/safepoint 로그.** runtime-values에 `jvmGcSafepointLog: true`를 넣으면 생성기가 Gateway·ingest에만
 `JDK_JAVA_OPTIONS=-Xlog:gc,safepoint:stderr:utctime,level,tags`를 넣는다(옵션 문자열은 Backend 인계값, chart 고정).
 생략하면 끈다. calibration부터 비교 시험이 끝날 때까지 값을 바꾸지 않고 실행 기록에 runtime-values를 남긴다.
+기동 시 stderr 첫 줄이 `NOTE: Picked up JDK_JAVA_OPTIONS: ...`인지로 적용을 확인한다. 출력 형식은 Backend
+`docs/telemetry-observability.md`를 따른다(tags 칸 공백 패딩 포함).
 safepoint 줄은 부하에 비례해 늘어나므로 dev 상시 운영에서는 켜지 않는다. `JDK_JAVA_OPTIONS`·`JAVA_TOOL_OPTIONS`를
 `env`로 직접 넣으면 chart가 거부한다.
 

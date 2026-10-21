@@ -139,6 +139,22 @@ Fluent Bit 5.1.3 실측에서 v1은 storage 지표가 없어 **v2 단일 endpoin
 [v1/v2 증거](tests/fluent-bit/evidence.json)를 참고한다. disk-only chunk 10분 증가 >128이 5분 지속되는 경보는
 초기 진단 문턱값이며 실제 부하 기준선으로 조정한다. chunk 개수는 byte 용량/유실 레코드 수가 아니다.
 
+Backend scrape 사본 3개는 [provenance](tests/fixtures/provenance.json)에 생성 commit·명령·SHA256을 둔다.
+검증기가 SHA256을 대조하고 대시보드의 custom 지표가 세 사본 중 하나에 있는지 확인한다.
+
+### 로컬 검증 기록 (2026-10-22)
+
+| 검사 | 도구 | 결과 |
+|---|---|---|
+| `npx jest` (`HELM_BIN`·`PROMTOOL_BIN`·`KUBECONFORM_BIN` 지정) | Helm 3.22.0, promtool 3.9.1, kubeconform 0.8.0 | 30 suites, 711 통과, skip 0 |
+| `observability-validate.mjs` | Helm 3.18.6·3.22.0, promtool 3.9.1 | 7 dashboards, 78 PromQL, 30 rules, digest·provenance 대조 통과 |
+| `validate-helm-workloads.mjs` | Helm 3.22.0, kubeconform 0.8.0 | workload 147·platform 10 resource, 실패 입력 232 통과 |
+| `eks-values-check-runtime.mjs` | 고정 CSI 1.6.1·ASCP 3.1.4·Fluent Bit chart 0.58.3 archive SHA256 | 통과 |
+| `observability-log-envelope-smoke.py`·`observability-fluent-bit-smoke.py` | Fluent Bit 5.1.3 ARM64 | envelope 10건, runtime/Events dry-run 0 |
+| `observability-metric-filter-check.mjs` | 로컬 부분 문자열 | 5 filter 통과. CloudWatch engine(`--aws`)은 미실행 |
+
+AWS 배포·실제 scrape·로그 배송·TestMetricFilter는 실행하지 않았다.
+
 배포 후에는 다음을 실제 증거로 추가해야 한다.
 
 1. 앱 9404·CH 9363·MSK 11001/11002 전체 broker·kubelet/KSM/node-exporter·Fluent Bit/Events의 UP와 지표 이름/라벨.
