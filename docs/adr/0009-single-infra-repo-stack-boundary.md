@@ -4,6 +4,8 @@
 
 Accepted — 프론트엔드의 도구·상태 분리는 [ADR 0030](0030-isolate-frontend-terraform-network.md)이 부분 대체한다. 기존 CDK 앱 경계와 인프라 저장소 소유권은 유지한다.
 
+EKS 활성화 dev 경로의 실행·접속·스토리지·스택 경계는 [ADR 0028](0028-dev-eks-auto-mode-transition.md)이 부분 대체한다. 기존 ECS와 prod 경로는 계속 유효하다.
+
 ## Context
 
 Collector & Processor와 Dashboard Backend는 서로 다른 깃 레포로 관리된다. 이 레포 경계를 그대로 CDK 스택 경계로 가져갈지 검토가 필요하다.
