@@ -149,3 +149,27 @@ describe('MSK Provisioned cluster', () => {
       .toThrow('subnet 3개');
   });
 });
+
+describe('Pod Identity·MSK 역할 조립', () => {
+  const template = Template.fromStack(buildDevApp(EKS).eks!);
+  const json = template.toJSON();
+  const clusterId = Object.keys(template.findResources('AWS::MSK::Cluster'))[0];
+  const uuid = { 'Fn::Select': [2, { 'Fn::Split': ['/', { 'Fn::GetAtt': [clusterId, 'Arn'] }] }] };
+  const dataArn = (type: 'topic' | 'group', name: string) => ({ 'Fn::Join': ['', [
+    `arn:aws:kafka:ap-northeast-2:111111111111:${type}/soma-376-dev-telemetry/`, uuid, `/${name}`,
+  ]] });
+
+  test('topic·group ARN은 cluster ARN의 UUID와 stage 이름으로 만든다', () => {
+    const text = JSON.stringify(json.Resources);
+    expect(text).toContain(JSON.stringify(dataArn('topic', 'pulsemetry-dev-telemetry-ingress-validation')));
+    expect(text).toContain(JSON.stringify(dataArn('group', 'pulsemetry-dev-telemetry-ingest-validation')));
+    expect(text).not.toContain('pulsemetry-dev-telemetry-ingress-main');
+  });
+
+  test.each(['telemetry-gateway', 'telemetry-kafka-admin', 'telemetry-kafka-offsets'])('%s SA의 Pod Identity association을 만든다', sa => {
+    template.hasResourceProperties('AWS::EKS::PodIdentityAssociation', {
+      Namespace: 'pulsemetry-dev', ServiceAccount: sa, DisableSessionTags: false,
+      ClusterName: { Ref: Object.keys(template.findResources('AWS::EKS::Cluster'))[0] },
+    });
+  });
+});

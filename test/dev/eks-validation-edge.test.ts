@@ -47,6 +47,7 @@ function build(eksEnabled: boolean) {
     dashboardRdsSourceSecret: reference('rdsSource'), dashboardRdsCacheSecret: reference('rdsCache'),
     dashboardClickHouseSourceSecret: reference('chSource'), dashboardClickHouseCacheSecret: reference('chCache'),
     userJwtPrivateKeySecret: reference('jwtPrivate'), userJwtPublicKeysSecret: reference('jwtPublic'),
+    telemetryJwtPrivateKeySecret: reference('telemetryJwtPrivate'), telemetryJwtPublicKeysSecret: reference('telemetryJwtPublic'),
     adminApiTokenSecret: reference('admin'), rawSignalBucket: Bucket.fromBucketName(services, 'RawBucket', 'fixture-raw-bucket'),
     controlPlaneSecurityGroup: network.eksControlPlaneSecurityGroup!, appNodeSecurityGroup: network.eksAppNodeSecurityGroup!,
     clickhouseNodeSecurityGroup: network.eksClickhouseNodeSecurityGroup!,

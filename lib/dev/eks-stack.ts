@@ -22,6 +22,8 @@ export interface DevEksStackProps extends StackProps {
   readonly dashboardClickHouseCacheSecret: ISecret;
   readonly userJwtPrivateKeySecret: ISecret;
   readonly userJwtPublicKeysSecret: ISecret;
+  readonly telemetryJwtPrivateKeySecret: ISecret;
+  readonly telemetryJwtPublicKeysSecret: ISecret;
   readonly oidcClientSecrets?: Readonly<Record<string, ISecret>>;
   readonly rawSignalBucket: IBucket;
   readonly vpc: IVpc;
@@ -115,6 +117,9 @@ export class DevEksStack extends Stack {
       userJwtPublicKeysSecret: props.userJwtPublicKeysSecret,
       oidcClientSecrets: props.oidcClientSecrets,
       rawSignalBucket: props.rawSignalBucket, archivePrefix: props.config.archivePrefix,
+      telemetryJwtPrivateKeySecret: props.telemetryJwtPrivateKeySecret,
+      telemetryJwtPublicKeysSecret: props.telemetryJwtPublicKeysSecret,
+      msk: { clusterArn: this.msk.cluster.attrArn, topicArn: this.msk.topicArn, consumerGroupArn: this.msk.consumerGroupArn },
     });
 
     const outputs: Record<string, string> = {

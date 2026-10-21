@@ -112,6 +112,8 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     dashboardClickHouseCacheSecret: data.dashboardClickHouseCacheSecret,
     userJwtPrivateKeySecret: data.userJwtPrivateKeySecret,
     userJwtPublicKeysSecret: data.userJwtPublicKeysSecret,
+    telemetryJwtPrivateKeySecret: data.telemetryJwtPrivateKeySecret,
+    telemetryJwtPublicKeysSecret: data.telemetryJwtPublicKeysSecret,
     oidcClientSecrets: data.oidcClientSecrets,
     rawSignalBucket: data.rawSignalBucket,
     controlPlaneSecurityGroup: network.eksControlPlaneSecurityGroup!,
