@@ -9,6 +9,9 @@ Accepted — 부분 대체: [ADR 0026](0026-dev-backend-deployment-units-and-sta
 
 EKS 활성화 dev 경로의 실행·접속·스토리지·스택 경계는 [ADR 0028](0028-dev-eks-auto-mode-transition.md)이 부분 대체한다. 기존 ECS와 prod 경로는 계속 유효하다.
 
+[ADR-0035](0035-dev-msk-isolated-subnets-under-eks-stack.md)가 EKS 활성화 경로에 MSK 전용 isolated subnet 3개를 추가해
+"퍼블릭 서브넷 전용"을 부분 대체한다. VPC construct·`maxAzs: 2`·NAT 0·기존 public subnet은 유지한다.
+
 [ADR-0033](0033-dev-alb-https-with-external-acm.md)이 인증서 context가 있는 dev ALB의 HTTP 전용
 listener를 HTTPS와 선택적 HTTP redirect로 부분 대체한다. 인증서가 없는 기본 HTTP 경로와
 `DevNetworkStack`의 SG 소유권은 유지한다.
