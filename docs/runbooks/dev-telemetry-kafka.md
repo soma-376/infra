@@ -32,7 +32,7 @@ backend(PROJ-245)는 아래 이름을 그대로 읽는다. backend 브랜치 `fe
 
 | 대상 | 이름 | 값·형식 |
 |---|---|---|
-| Gateway·ingest(dual/kafka) | `PULSEMETRY_KAFKA_BOOTSTRAP_SERVERS` | `b-1…:9098,b-2…:9098,b-3…:9098` (bootstrap 조회 JSON에서 생성) |
+| Gateway·ingest(dual/kafka) | `PULSEMETRY_KAFKA_BOOTSTRAP_SERVERS` | `b-<n>.<cluster>.<id>.c<n>.kafka.ap-northeast-2.amazonaws.com:9098`을 쉼표로 이은 1~3개 (bootstrap 조회 JSON 그대로, 정렬) |
 | 〃 | `PULSEMETRY_KAFKA_SECURITY` | `iam` |
 | 〃 | `PULSEMETRY_KAFKA_TOPIC` | `pulsemetry-dev-telemetry-ingress-<stage>` |
 | ingest(dual/kafka) | `PULSEMETRY_KAFKA_CONSUMER_GROUP` | `pulsemetry-dev-telemetry-ingest-<stage>` |

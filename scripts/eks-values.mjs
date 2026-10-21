@@ -26,9 +26,11 @@ export const TELEMETRY_CONTRACT = {
 
 /**
  * 운영자가 `aws kafka get-bootstrap-brokers --cluster-arn <MskClusterArn>`로 받은 JSON을 검사한다.
- * SASL/IAM 주소 하나만 허용하고 public·평문·TLS 전용 주소가 섞이면 거부한다. broker 3대·9098·cluster 이름·리전을 대조한다.
+ * SASL/IAM 주소 하나만 허용하고 public·평문·TLS 전용 주소가 섞이면 거부한다. 9098·리전·같은 cluster 주소만 대조한다.
+ * 주소는 API가 준 그대로 쓴다. MSK는 cluster 이름을 DNS에 그대로 넣지 않고(`lab-blog` → `labblog`) 목록이 모든 broker를
+ * 담는다고 보장하지 않는다. 그래서 cluster 이름으로 호스트를 추정하거나 broker 수를 강제하지 않는다. broker 수·AZ는 CDK가 고정한다.
  */
-export function parseMskBootstrap(text, clusterName, region) {
+export function parseMskBootstrap(text, region) {
   let value;
   try {
     value = JSON.parse(text);
@@ -40,12 +42,12 @@ export function parseMskBootstrap(text, clusterName, region) {
     throw new Error('msk-bootstrap: BootstrapBrokerStringSaslIam만 허용한다. public·평문·TLS·SCRAM 주소가 있으면 cluster 설정을 확인한다');
   }
   const brokers = String(value.BootstrapBrokerStringSaslIam).split(',');
-  const escaped = clusterName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const pattern = new RegExp(`^b-([1-3])\\.${escaped}\\.([a-z0-9]+)\\.(c[0-9]+)\\.kafka\\.${region}\\.amazonaws\\.com:9098$`);
+  const pattern = new RegExp(`^b-([0-9]+)\\.([A-Za-z0-9-]+\\.[a-z0-9]+\\.c[0-9]+)\\.kafka\\.${region}\\.amazonaws\\.com:9098$`);
   const parsed = brokers.map(broker => pattern.exec(broker));
-  if (brokers.length !== 3 || parsed.some(match => !match)) throw new Error('msk-bootstrap: 같은 cluster·리전의 9098 broker 3개가 필요하다');
-  if (new Set(parsed.map(match => match[1])).size !== 3 || new Set(parsed.map(match => `${match[2]}.${match[3]}`)).size !== 1) {
-    throw new Error('msk-bootstrap: b-1~b-3이 같은 cluster 주소에 한 번씩 있어야 한다');
+  // cluster의 broker는 3대다(DEV_EKS_MSK). 목록은 그중 일부일 수 있으므로 1~3개를 받는다.
+  if (brokers.length > 3 || parsed.some(match => !match)) throw new Error('msk-bootstrap: 리전의 9098 broker 주소 1~3개가 필요하다');
+  if (new Set(parsed.map(match => match[1])).size !== brokers.length || new Set(parsed.map(match => match[2])).size !== 1) {
+    throw new Error('msk-bootstrap: broker가 중복 없이 같은 cluster 주소에 있어야 한다');
   }
   return [...brokers].sort().join(',');
 }
@@ -165,7 +167,7 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText)
   for (const [key, value] of Object.entries(TELEMETRY_CONTRACT.sessions)) {
     if (required(key) !== value) throw new Error(`${key}가 MSK 역할 trust의 고정 세션 이름과 다르다`);
   }
-  const bootstrapServers = parseMskBootstrap(mskBootstrapText ?? '', mskClusterName, region);
+  const bootstrapServers = parseMskBootstrap(mskBootstrapText ?? '', region);
   // ALB의 OTLP 대상과 ingest 모드가 맞아야 수집이 끊기지 않는다. 전환·복구 순서를 이 검사로 강제한다. (ADR-0036)
   const otlpTarget = required('ValidationOtlpTarget');
   const allowedModes = { ingest: ['http', 'dual'], gateway: ['dual', 'kafka'] }[otlpTarget];

@@ -200,7 +200,7 @@ for stack in DevEksStack DevEdgeStack DevDataStack; do
 done
 jq -s '{Stacks: [.[].Stacks[]]}' "$RUN_DIR/DevEksStack.json" "$RUN_DIR/DevEdgeStack.json" "$RUN_DIR/DevDataStack.json" \
   > "$RUN_DIR/deployed-outputs.json"
-# CFN에는 bootstrap attribute가 없다. 운영자가 조회한 JSON을 생성기가 cluster 이름·broker 3개·9098과 대조한다.
+# CFN에는 bootstrap attribute가 없다. 운영자가 조회한 JSON을 생성기가 9098·리전·같은 cluster 주소와 대조한다(ADR-0035).
 MSK_CLUSTER_ARN=$(jq -er '.Stacks[].Outputs[] | select(.OutputKey=="MskClusterArn") | .OutputValue' \
   "$RUN_DIR/deployed-outputs.json")
 aws kafka get-bootstrap-brokers --cluster-arn "$MSK_CLUSTER_ARN" --region "$AWS_REGION" --output json \

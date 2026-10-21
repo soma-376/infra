@@ -13,7 +13,8 @@ const ingestImage = repository + 'telemetry-ingest@' + digest;
 const dashboardImage = repository + 'dashboard-api@' + digest;
 const gatewayImage = repository + 'telemetry-gateway@' + digest;
 const bootstrapFile = resolve(__dirname, 'fixtures/msk-bootstrap.json');
-const brokers = [1, 2, 3].map(n => `b-${n}.soma-376-dev-telemetry.abc123.c2.kafka.ap-northeast-2.amazonaws.com:9098`).join(',');
+// 실제 MSK는 cluster 이름의 하이픈을 지운 DNS를 준다(`soma-376-dev-telemetry` → `soma376devtelemetry`).
+const brokers = [1, 2, 3].map(n => `b-${n}.soma376devtelemetry.abc123.c2.kafka.ap-northeast-2.amazonaws.com:9098`).join(',');
 const mskRole = (name: string) => `arn:aws:iam::111111111111:role/DevEksStack-Runtime${name}MskRole-fixture`;
 const secret = (name: string) => `arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:${name}-abc123`;
 const tg = (name: string) => `arn:aws:elasticloadbalancing:ap-northeast-2:111111111111:targetgroup/soma-376-dev-eks-${name}/0123456789abcdef`;
@@ -677,20 +678,33 @@ describe('PROJ-246 Gateway·MSK·telemetry JWT values 생성', () => {
     ['public 주소 포함', JSON.stringify({ BootstrapBrokerStringSaslIam: brokers, BootstrapBrokerStringPublicSaslIam: brokers })],
     ['평문 주소 포함', JSON.stringify({ BootstrapBrokerStringSaslIam: brokers, BootstrapBrokerString: brokers.replace(/9098/g, '9092') })],
     ['TLS 주소만 있음', JSON.stringify({ BootstrapBrokerStringTls: brokers.replace(/9098/g, '9094') })],
-    ['broker 2대', JSON.stringify({ BootstrapBrokerStringSaslIam: brokers.split(',').slice(0, 2).join(',') })],
+    ['broker 4대', JSON.stringify({ BootstrapBrokerStringSaslIam: `${brokers},${brokers.split(',')[0].replace('b-1', 'b-4')}` })],
     ['broker 중복', JSON.stringify({ BootstrapBrokerStringSaslIam: brokers.replace('b-3', 'b-1') })],
-    ['다른 cluster', JSON.stringify({ BootstrapBrokerStringSaslIam: brokers.replace(/soma-376-dev-telemetry/g, 'other-cluster') })],
+    ['서로 다른 cluster 이름', JSON.stringify({ BootstrapBrokerStringSaslIam: brokers.replace('b-3.soma376devtelemetry', 'b-3.othercluster') })],
     ['다른 리전', JSON.stringify({ BootstrapBrokerStringSaslIam: brokers.replace(/ap-northeast-2/g, 'us-east-1') })],
     ['다른 포트', JSON.stringify({ BootstrapBrokerStringSaslIam: brokers.replace(/9098/g, '9096') })],
-    ['서로 다른 cluster id', JSON.stringify({ BootstrapBrokerStringSaslIam: brokers.replace('b-3.soma-376-dev-telemetry.abc123', 'b-3.soma-376-dev-telemetry.zzz999') })],
+    ['서로 다른 cluster id', JSON.stringify({ BootstrapBrokerStringSaslIam: brokers.replace('b-3.soma376devtelemetry.abc123', 'b-3.soma376devtelemetry.zzz999') })],
     ['중복 key', `{"BootstrapBrokerStringSaslIam":"${brokers}","BootstrapBrokerStringSaslIam":"${brokers}"}`],
     ['빈 문서', '{}'],
+    ['빈 목록', JSON.stringify({ BootstrapBrokerStringSaslIam: '' })],
     ['JSON 아님', 'b-1:9098'],
   ])('bootstrap JSON의 %s는 파일 생성 전에 거부한다', (_name, bootstrap) => {
     const output = run(outputs(), undefined, { bootstrap });
     expect(output.result.status).toBe(1);
     expect(output.result.stderr).toContain('msk-bootstrap');
     expect(existsSync(output.dir)).toBe(false);
+  });
+
+  // bootstrap 목록은 cluster의 모든 broker를 담는다고 보장되지 않는다. API가 준 일부 주소도 그대로 쓴다.
+  test.each([
+    ['broker 2대', [3, 1]],
+    ['broker 1대', [2]],
+  ])('bootstrap JSON이 %s만 담아도 받은 주소 그대로 생성한다', (_name, ids) => {
+    const list = ids.map(n => brokers.split(',')[n - 1]);
+    const output = run(outputs(), undefined, { bootstrap: JSON.stringify({ BootstrapBrokerStringSaslIam: list.join(',') }) });
+    expect(output.result.status).toBe(0);
+    expect(output.read('telemetry-gateway.yaml').kafka.bootstrapServers).toBe([...list].sort().join(','));
+    expect(output.read('telemetry-kafka-admin.yaml').bootstrapServers).toBe([...list].sort().join(','));
   });
 
   test('MSK·Gateway output 누락·불일치와 이미지 누락을 거부한다', () => {

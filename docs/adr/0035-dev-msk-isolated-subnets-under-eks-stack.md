@@ -58,7 +58,9 @@ CloudFormation `AWS::MSK::Cluster`는 bootstrap 주소를 attribute로 제공하
 
 - Lambda·`AwsCustomResource`를 만들지 않는다. 운영자가 `aws kafka get-bootstrap-brokers --cluster-arn <MskClusterArn>`의 JSON을
   values 생성기 `--msk-bootstrap`에 전달한다.
-- 생성기는 `BootstrapBrokerStringSaslIam` 키 하나만 허용한다. broker 3개(`b-1`~`b-3`), 포트 9098, `MskClusterName`·리전과 같은 호스트 형식을 검사한다.
+- 생성기는 `BootstrapBrokerStringSaslIam` 키 하나만 허용한다. 포트 9098, 리전, 모든 주소가 같은 cluster 주소이고 broker가 중복되지 않는지 검사한다.
+  주소는 API가 준 그대로 쓴다. MSK는 cluster 이름의 하이픈을 지운 DNS를 주고(`lab-blog` → `b-1.labblog…`) 목록에 모든 broker가 들어 있다고 보장하지 않는다.
+  그래서 `MskClusterName`으로 호스트를 추정하지 않고 1~3개를 받는다. broker 수·AZ는 CDK가 고정한다.
   public·평문·TLS 전용 키가 있으면 거부한다.
 
 ### 4. 수명과 비용

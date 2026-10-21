@@ -74,7 +74,8 @@ function binding(stage, suffix) {
 }
 
 const TELEMETRY_KEYS = [{ kid: 'telemetry-2026.10', alias: 'telemetry-2026-10.pem' }];
-const BOOTSTRAP = [1, 2, 3].map(n => `b-${n}.soma-376-dev-telemetry.abc123.c2.kafka.ap-northeast-2.amazonaws.com:9098`).join(',');
+// 실제 MSK 형식이다. cluster 이름의 하이픈이 빠진다(ADR-0035).
+const BOOTSTRAP = [1, 2, 3].map(n => `b-${n}.soma376devtelemetry.abc123.c2.kafka.ap-northeast-2.amazonaws.com:9098`).join(',');
 
 function telemetryJwt(workload) {
   return {
@@ -380,6 +381,10 @@ function checkTelemetry(chart) {
   assert.match(revision, /^[a-f0-9]{64}$/);
   const rotated = render('telemetry-gateway', chart, { ...gatewayValues, telemetryJwt: { ...gatewayValues.telemetryJwt, publicVersionId: '6'.repeat(32) } });
   assert.notEqual(find(rotated, 'Deployment', 'telemetry-gateway').spec.template.metadata.annotations['pulsemetry.io/telemetry-jwt-revision'], revision);
+  // bootstrap 목록은 모든 broker를 담지 않을 수 있다. 일부 주소도 그대로 env에 들어간다.
+  const partial = BOOTSTRAP.split(',').slice(0, 1).join(',');
+  const partialGateway = render('telemetry-gateway', chart, { ...gatewayValues, kafka: { ...gatewayValues.kafka, bootstrapServers: partial } });
+  assert.equal(environment(partialGateway, 'telemetry-gateway').PULSEMETRY_KAFKA_BOOTSTRAP_SERVERS, partial);
   const gw = gatewayValues;
   for (const invalid of [
     { ...gw, runtime: { enabled: true, secretProviderClass: 'telemetry-gateway-runtime', requiredFiles: RUNTIME_FILES['telemetry-ingest'] } },
@@ -394,7 +399,8 @@ function checkTelemetry(chart) {
     { ...gw, telemetryJwt: { ...gw.telemetryJwt, publicKeys: [{ kid: 'telemetry-2026.10', alias: 'private.pem' }] } },
     { ...gw, kafka: { ...gw.kafka, consumerGroup: 'pulsemetry-dev-telemetry-ingest-validation' } },
     { ...gw, kafka: { ...gw.kafka, iamSessionName: 'pulsemetry-dev-telemetry-ingest' } },
-    { ...gw, kafka: { ...gw.kafka, bootstrapServers: 'b-1.soma-376-dev-telemetry.abc123.c2.kafka.ap-northeast-2.amazonaws.com:9092' } },
+    { ...gw, kafka: { ...gw.kafka, bootstrapServers: 'b-1.soma376devtelemetry.abc123.c2.kafka.ap-northeast-2.amazonaws.com:9092' } },
+    { ...gw, kafka: { ...gw.kafka, bootstrapServers: `${BOOTSTRAP},b-4.soma376devtelemetry.abc123.c2.kafka.ap-northeast-2.amazonaws.com:9098` } },
     { ...gw, kafka: { ...gw.kafka, topic: 'pulsemetry-dev-telemetry-ingress-other' } },
     { ...gw, kafka: { ...gw.kafka, iamRoleArn: '*' } },
     { ...gw, env: { PULSEMETRY_DB_URL: 'jdbc:postgresql://db.example.invalid:5432/controlplane' } },
