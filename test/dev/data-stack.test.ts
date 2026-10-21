@@ -52,10 +52,10 @@ describe('DevDataStack', () => {
     });
   });
 
-  // 마스터(RDS 자동 생성) + 공유 토큰 해시 키 + enrollment-api 관리자 토큰.
+  // 기존 마스터·공유 토큰 해시·관리자 토큰 + dashboard DB 자격 증명 4개 + JWT 2개.
   // 폐기한 post-processor/auth-proxy 파생 접속 시크릿은 다시 만들지 않는다. (ADR-0026)
-  test('최종 시크릿 3개만 만든다', () => {
-    template.resourceCountIs('AWS::SecretsManager::Secret', 3);
+  test('기존 3개와 dashboard DB·JWT 원본 6개로 시크릿 9개를 만든다', () => {
+    template.resourceCountIs('AWS::SecretsManager::Secret', 9);
   });
 
   /**
@@ -72,6 +72,117 @@ describe('DevDataStack', () => {
     expect(matched).toHaveLength(1);
     return matched[0][1];
   }
+
+  function secretByName(name: string): [string, any] {
+    const matched = Object.entries(
+      template.findResources('AWS::SecretsManager::Secret'),
+    ).filter(([, resource]: [string, any]) => resource.Properties.Name === name);
+
+    expect(matched).toHaveLength(1);
+    return matched[0];
+  }
+
+  // 고정 원본을 교체하면 기존 사용자 비밀번호·발급 토큰과 연결이 끊어진다.
+  test.each([
+    ['DevAuthProxyTokenHashSecret', 'DevAuthProxyTokenHashSecret9DDA266E'],
+    ['DevEnrollmentAdminApiToken', 'DevEnrollmentAdminApiToken91056A11'],
+  ])('기존 %s의 logical ID와 삭제 정책을 유지한다', (prefix, logicalId) => {
+    const secrets = template.findResources('AWS::SecretsManager::Secret');
+    expect(Object.keys(secrets).filter((id) => id.startsWith(prefix))).toEqual([
+      logicalId,
+    ]);
+    expect(secrets[logicalId]).toMatchObject({
+      DeletionPolicy: 'Delete',
+      UpdateReplacePolicy: 'Delete',
+    });
+  });
+
+  test.each([
+    {
+      name: 'soma-376/dev/dashboard/rds-source',
+      username: 'dashboard_rds_source',
+      secret: data.dashboardRdsSourceSecret,
+      arn: data.dashboardRdsSourceSecretArn,
+    },
+    {
+      name: 'soma-376/dev/dashboard/rds-cache',
+      username: 'dashboard_rds_cache',
+      secret: data.dashboardRdsCacheSecret,
+      arn: data.dashboardRdsCacheSecretArn,
+    },
+    {
+      name: 'soma-376/dev/dashboard/clickhouse-source',
+      username: 'dashboard_ch_source',
+      secret: data.dashboardClickHouseSourceSecret,
+      arn: data.dashboardClickHouseSourceSecretArn,
+    },
+    {
+      name: 'soma-376/dev/dashboard/clickhouse-cache',
+      username: 'dashboard_ch_cache',
+      secret: data.dashboardClickHouseCacheSecret,
+      arn: data.dashboardClickHouseCacheSecretArn,
+    },
+  ])('$name은 사용자명과 생성 비밀번호만 보존하고 참조를 제공한다', ({
+    name, username, secret, arn,
+  }) => {
+    const [logicalId, resource] = secretByName(name);
+
+    expect(resource.Properties.GenerateSecretString).toEqual({
+      SecretStringTemplate: JSON.stringify({ username }),
+      GenerateStringKey: 'password',
+      PasswordLength: 32,
+      ExcludePunctuation: true,
+      ExcludeUppercase: false,
+      IncludeSpace: false,
+    });
+    expect(resource.Properties.SecretString).toBeUndefined();
+    expect(resource.Properties.KmsKeyId).toBeUndefined();
+    expect(resource.DeletionPolicy).toBe('Retain');
+    expect(resource.UpdateReplacePolicy).toBe('Retain');
+    expect(data.resolve(secret.secretArn)).toEqual({ Ref: logicalId });
+    expect(data.resolve(arn)).toEqual({ Ref: logicalId });
+  });
+
+  test.each([
+    {
+      name: 'soma-376/dev/user-jwt/private-key',
+      secret: data.userJwtPrivateKeySecret,
+      arn: data.userJwtPrivateKeySecretArn,
+    },
+    {
+      name: 'soma-376/dev/user-jwt/public-keys',
+      secret: data.userJwtPublicKeysSecret,
+      arn: data.userJwtPublicKeysSecretArn,
+    },
+  ])('$name은 값·자동 생성 없이 보존하고 전체 ARN 참조를 제공한다', ({
+    name, secret, arn,
+  }) => {
+    const [logicalId, resource] = secretByName(name);
+
+    expect(resource.Properties.SecretString).toBeUndefined();
+    expect(resource.Properties.GenerateSecretString).toBeUndefined();
+    expect(resource.Properties.KmsKeyId).toBeUndefined();
+    expect(resource.DeletionPolicy).toBe('Retain');
+    expect(resource.UpdateReplacePolicy).toBe('Retain');
+    expect(data.resolve(secret.secretArn)).toEqual({ Ref: logicalId });
+    expect(data.resolve(secret.secretFullArn)).toEqual({ Ref: logicalId });
+    expect(data.resolve(arn)).toEqual({ Ref: logicalId });
+  });
+
+  test('새 원본에 자동 회전·DB attachment·조회 정책을 만들지 않는다', () => {
+    template.resourceCountIs('AWS::SecretsManager::RotationSchedule', 0);
+    // 기존 RDS 마스터 Secret의 attachment 하나만 존재한다.
+    template.resourceCountIs('AWS::SecretsManager::SecretTargetAttachment', 1);
+    template.resourceCountIs('AWS::SecretsManager::ResourcePolicy', 0);
+    // 버킷 자동 정리용 기존 역할·정책에는 Secret 조회를 추가하지 않는다.
+    const iam = {
+      ...template.findResources('AWS::IAM::Role'),
+      ...template.findResources('AWS::IAM::Policy'),
+    };
+    expect(JSON.stringify(iam)).not.toContain('secretsmanager:');
+    const outputs = JSON.stringify(template.findOutputs('*'));
+    expect(outputs).not.toMatch(/DevDashboard|DevUserJwt|SecretString/);
+  });
 
   test('폐기한 파생 접속 시크릿을 만들지 않는다', () => {
     const logicalIds = Object.keys(
@@ -98,9 +209,11 @@ describe('DevDataStack', () => {
       'HMAC-SHA256 key for dev auth-proxy telemetry token hashing (TOKEN_HASH_SECRET). Shared with the enrollment server.',
     );
     expect(secret.Properties.SecretString).toBeUndefined();
-    expect(secret.Properties.GenerateSecretString).toMatchObject({
+    expect(secret.Properties.GenerateSecretString).toEqual({
       PasswordLength: 64,
       ExcludePunctuation: true,
+      ExcludeUppercase: false,
+      IncludeSpace: false,
     });
     // 마스터 시크릿과 달리 JSON 이 아니라 문자열 전체를 생성하므로 키가 없다.
     expect(
@@ -114,11 +227,12 @@ describe('DevDataStack', () => {
     const secret = secretByIdPrefix('DevEnrollmentAdminApiToken');
 
     expect(secret.Properties.SecretString).toBeUndefined();
-    expect(secret.Properties.GenerateSecretString).toMatchObject({
+    expect(secret.Properties.GenerateSecretString).toEqual({
       SecretStringTemplate: '{}',
       GenerateStringKey: ENROLLMENT_ADMIN_API_TOKEN_SECRET_KEY,
       PasswordLength: 64,
       ExcludePunctuation: true,
+      ExcludeUppercase: false,
       IncludeSpace: false,
     });
     expect(secret.DeletionPolicy).toBe('Delete');
@@ -128,26 +242,19 @@ describe('DevDataStack', () => {
   // 파생 접속 시크릿을 삭제해도 실제 RDS 마스터 Secret 의 논리 ID와 생성 속성은
   // 바뀌면 안 된다. 변경되면 기존 username/password 가 교체된다. (ADR-0026)
   test('RDS 마스터 Secret의 논리 ID와 생성 속성을 보존한다', () => {
-    // GenerateSecretString 을 쓰는 시크릿이 셋이다(마스터 + 토큰 해시 키 + 관리자 토큰).
-    // 여기서 보려는 것은 **RDS 마스터 비밀번호**이므로 GenerateStringKey 로 좁힌다.
-    const generated = Object.values(
+    // dashboard 자격 증명도 password를 생성하므로 master의 construct 경로로 좁힌다.
+    const generated = Object.entries(
       template.findResources('AWS::SecretsManager::Secret'),
-    ).filter(
-      (resource: any) =>
-        resource.Properties.GenerateSecretString?.GenerateStringKey ===
-        'password',
-    );
+    ).filter(([logicalId]) => logicalId.startsWith('DevDataStackDevPostgresSecret'));
 
     expect(generated).toHaveLength(1);
-    expect(Object.entries(template.findResources('AWS::SecretsManager::Secret'))
-      .find(([, resource]: [string, any]) =>
-        resource.Properties.GenerateSecretString?.GenerateStringKey ===
-        'password',
-      )?.[0],
-    ).toBe(
+    expect(generated[0][0]).toBe(
       'DevDataStackDevPostgresSecret0E0FB6843fdaad7efa858a3daf9490cf0a702aeb',
     );
-    expect((generated[0] as any).Properties.GenerateSecretString).toEqual({
+    const secret = generated[0][1] as any;
+    expect(secret.DeletionPolicy).toBe('Delete');
+    expect(secret.UpdateReplacePolicy).toBe('Delete');
+    expect(secret.Properties.GenerateSecretString).toEqual({
       ExcludeCharacters: ' %+~`#$&*()|[]{}:;<>?!\'/@"\\',
       GenerateStringKey: 'password',
       PasswordLength: 30,

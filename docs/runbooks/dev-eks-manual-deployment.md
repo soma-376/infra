@@ -6,13 +6,16 @@
 > [ADR-0029](../adr/0029-dev-dashboard-api-ecs-and-eks-deployment.md)와 §10을 따른다.
 > 사용자 JWT 키 공급은 [허브 ADR-0022](../../../docs/adr/0022-user-jwt-key-provisioning.md)·
 > [infra ADR-0030](../adr/0030-dev-user-jwt-keys-from-secrets-manager.md)와 §11의 후속 절차다.
+> PROJ-222의 공통 Secret 정의·수동 준비는 [준비 런북](dev-dashboard-prerequisites.md)과
+> [ADR-0031](../adr/0031-manage-dev-dashboard-and-jwt-secrets-with-cdk.md)을 따른다.
 > 기존 Secret 3개·configtree 검증 기록은 JWT writer·키 mount 구현·배포 증거를 포함하지 않는다.
 
 ## 1. 실행 범위와 사전 조건
 
-**실행 checkout 조건:** PROJ-226 기준 문서 브랜치에는 EKS CDK·Helm·values 생성기 코드가 없다.
+**실행 checkout 조건:** 현재 PROJ-226·222 기준 브랜치에는 EKS CDK·Helm·values 생성기 코드가 없다.
 §2~9를 실행하려면 PROJ-207~211의 누적 구현을 포함한 checkout을 먼저 준비한다.
-dashboard를 포함하려면 PROJ-221~224의 ECS·계정/설정·Helm·검증 Edge 구현도 있어야 한다.
+dashboard를 포함하려면 PROJ-222의 공통 준비에 이어 PROJ-230·231의 runtime 연결,
+PROJ-221·223·224의 ECS·Helm·검증 Edge 구현도 있어야 한다.
 PROJ-212에서 가져온 문서와 과거 로컬 검증 기록만으로 실행 전제가 충족됐다고 보지 않는다.
 기존 generator의 두 앱 입력에 존재하지 않는 dashboard 옵션을 덧붙이지 않는다.
 
@@ -369,7 +372,7 @@ YAML·DTO hash를 기록한다. NodeClass/NodePool의 로컬 구조 검사와 Ku
 
 ## 10. dashboard 추가 설치·기능·복구 검증
 
-이 절은 PROJ-220에서 채택한 후속 절차다. PROJ-221~224의 구현과 PROJ-222의 계정·설정 준비,
+이 절은 PROJ-220에서 채택한 후속 절차다. PROJ-221·223·224·230·231의 구현과 PROJ-222의 계정·설정 준비,
 PROJ-226의 최초 이미지 공급 증거가 없으면 실행하지 않는다. 경로·method·OPTIONS와 전체 설정 식별자는
 [허브 dashboard 계약](../../../docs/contracts/dashboard-api.md), backend 기동 조건은
 [dashboard 운영 명세](../../../pulsemetry-backend/docs/dashboard-server-spec.md)를 따른다.
@@ -379,6 +382,7 @@ PROJ-226의 최초 이미지 공급 증거가 없으면 실행하지 않는다. 
 1. `soma-376/dashboard-api`의 ARM64 manifest, commit 태그·`dev` 태그·digest와 pull 접근을 확인한다.
    최초 공급은 아직 없는 서비스의 ACTIVE 검사에 종속시키지 않는다.
 2. RDS/ClickHouse source·cache 네 계정·권한, 캐시 DB·스키마와 원천 migration을 준비한다.
+   Secret과 동일한 계정의 수동 생성·최소 권한 확인은 [공통 준비 런북](dev-dashboard-prerequisites.md)을 따른다.
    enrollment가 먼저 원천 Flyway를 적용하고 dashboard는 자기 캐시 DDL만 기동 시 적용한다.
    RDS cache와 source는 같은 논리 DB, ClickHouse cache와 source는 원천 분석 테이블을 함께 볼 수 있는 서버여야 한다.
 3. §11의 별도 Secrets Manager 원본·VersionId·파일 공급·보존 label을 준비하고 공개키 파일·실제 kid 맵·issuer·audience·허용 origin, 현재 사용자·세션·tenant 조회 권한을 확인한다.
@@ -498,13 +502,16 @@ done
 ## 11. 사용자 JWT 키 최초 공급·교체·복구
 
 이 절은 [ADR-0030](../adr/0030-dev-user-jwt-keys-from-secrets-manager.md)의 **후속 구현·운영 수락 절차**다.
-현재 checkout에는 키 초기화 도구·ECS writer·JWT SPC/mount·values 입력이 구현돼 있지 않다.
+현재 checkout은 빈 JWT 원본 두 개와 DB 계정 Secret 네 개의 CDK 정의만 제공한다.
+키 초기화는 [공통 준비 런북](dev-dashboard-prerequisites.md)의 수동 절차로 수행하며
+ECS writer·JWT SPC/mount·values 입력은 구현돼 있지 않다.
 §2~4의 기존 generator와 chart에 존재하지 않는 JWT 옵션을 추가해 실행하지 않는다.
 기존 Secret 3개 및 [과거 로컬 검증 기록](dev-eks-local-validation.md)은 이 절의 완료 증거가 아니다.
 
 ### 11-1. 최초 원본과 배포 참조 준비
 
-1. 명시적인 초기화 작업에서 RSA 2048bit 이상 키쌍과 `kid`를 생성한다. 앱 시작·일반 재배포는 생성하지 않는다.
+1. [공통 준비 런북](dev-dashboard-prerequisites.md)에 따라 CDK 원본의 존재를 확인한 뒤,
+   명시적인 초기화 작업에서 RSA 2048bit 이상 키쌍과 `kid`를 생성한다. 앱 시작·일반 재배포는 생성하지 않는다.
 2. 개인키 PKCS8 PEM과 `kid → X.509 PEM` 공개키 JSON 키링을 별도 Secrets Manager 원본 두 개에 등록한다.
    암호화는 AWS 관리형 `aws/secretsmanager`다. dev ECS/EKS는 같은 고정 ARN 원본을 사용한다.
 3. 두 등록 버전의 규격·시험 서명/검증·활성 kid 정합을 원문 출력 없이 확인한다. 한쪽 등록 실패 시
@@ -515,7 +522,7 @@ done
 5. 활성·교체·롤백 버전에 staging label을 유지한다. VersionId 기록만으로 보존을 보장하지 않는다.
    원본 삭제·동일명 재생성은 ARN을 바꾸므로 앱 배포·stack 삭제와 원본 보존 책임을 분리한다.
 
-초기화 도구의 승인된 런타임 경로 안에서 값을 다루며 원문을 에이전트 문맥으로 가져오는 조회 명령을 사용하지 않는다.
+승인된 운영자 환경의 수동 초기화·검증 절차 안에서 값을 다루며 원문을 에이전트 문맥으로 가져오는 조회 명령을 사용하지 않는다.
 아래 검사는 준비된 참조·exit code·버전·키 식별자·성공/실패만 기록한다.
 
 ### 11-2. ECS writer와 EKS 키 mount 수락

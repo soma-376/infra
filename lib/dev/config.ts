@@ -184,6 +184,36 @@ export const DEV_CLICKHOUSE_DATA_VOLUME_GIB = 50;
 export const DEV_RDS_ALLOCATED_STORAGE_GIB = 20;
 
 /**
+ * dashboard source/cache 접속용 자격 증명 원본. 실제 DB 사용자·권한은 런북으로
+ * 별도 준비하고, 기존 enrollment·ingest의 master credential은 바꾸지 않는다. (ADR-0031)
+ */
+export const DEV_DASHBOARD_DB_CREDENTIALS = {
+  rdsSource: {
+    secretName: 'soma-376/dev/dashboard/rds-source',
+    username: 'dashboard_rds_source',
+  },
+  rdsCache: {
+    secretName: 'soma-376/dev/dashboard/rds-cache',
+    username: 'dashboard_rds_cache',
+  },
+  clickHouseSource: {
+    secretName: 'soma-376/dev/dashboard/clickhouse-source',
+    username: 'dashboard_ch_source',
+  },
+  clickHouseCache: {
+    secretName: 'soma-376/dev/dashboard/clickhouse-cache',
+    username: 'dashboard_ch_cache',
+  },
+} as const;
+
+/** DB 사용자와 동기화해 수동 등록할 영숫자 비밀번호 길이. (ADR-0031) */
+export const DEV_DASHBOARD_DB_PASSWORD_LENGTH = 32;
+
+/** JWT 키 값은 별도 초기화하며 두 원본은 같은 ARN으로 보존한다. (ADR-0030·0031) */
+export const DEV_USER_JWT_PRIVATE_KEY_SECRET_NAME = 'soma-376/dev/user-jwt/private-key';
+export const DEV_USER_JWT_PUBLIC_KEYS_SECRET_NAME = 'soma-376/dev/user-jwt/public-keys';
+
+/**
  * RDS 인스턴스 타입 (ADR-0022 6번). Aurora Serverless v2 는 최소 0.5 ACU 가
  * 상시 과금되어 개발용으로 과하므로 `DatabaseInstance` + db.t4g.micro 를 쓴다.
  */
