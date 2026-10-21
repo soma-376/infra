@@ -27,7 +27,8 @@ telemetry-gateway Pod ── SASL/IAM 9098 ──▶ MSK(3 broker, 3 AZ) ──�
 
 ## 2. backend 인계 계약
 
-backend(PROJ-245)는 아래 이름을 그대로 읽어야 한다. infra는 값만 공급하며 앱이 이름을 읽는지는 인프라 테스트로 증명할 수 없다.
+backend(PROJ-245)는 아래 이름을 그대로 읽는다. backend 브랜치 `feature/PROJ-245-telemetry-jwt-gateway-consumer`의 설정 키와 대조했으며,
+인프라 테스트만으로는 앱이 이름을 읽는지 증명할 수 없다. `iss`·`aud`·`typ`·`scope`는 backend 고정 계약값이라 공급하지 않는다.
 
 | 대상 | 이름 | 값·형식 |
 |---|---|---|
@@ -40,7 +41,6 @@ backend(PROJ-245)는 아래 이름을 그대로 읽어야 한다. infra는 값�
 | Gateway·ingest | `AWS_REGION` | `ap-northeast-2`. aws-msk-iam-auth의 `awsStsRegion`도 같은 값이어야 한다 |
 | ingest | `PULSEMETRY_INGEST_MODE` | `http`·`dual`·`kafka` |
 | enrollment·Gateway·ingest | Spring `pulsemetry.telemetry-jwt.public-key-files` | `SPRING_APPLICATION_JSON`의 `{"[<kid>]": "/mnt/telemetry-jwt/keys/<alias>"}` |
-| 〃 | `pulsemetry.telemetry-jwt.issuer` / `.audience` | `pulsemetry-enrollment` / `pulsemetry-telemetry-ingest` |
 | enrollment | `pulsemetry.telemetry-jwt.active-kid`, `.private-key-file`, `.issue-enabled` | runtime 입력 kid, `/mnt/telemetry-jwt/keys/private.pem`, JSON boolean |
 | 모두 | health | `GET /api/v1/healthz` readiness, TCP liveness |
 

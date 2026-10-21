@@ -61,8 +61,9 @@ MSK IAM은 연결 수명 동안 재인증한다. 재인증 주체가 처음과 �
 - 개인키는 enrollment만 읽는다. Gateway와 ingest는 공개키만 읽는다. dashboard는 telemetry 키를 받지 않는다.
 - runtime chart가 앱별 `<app>-telemetry-jwt` SPC 3개를 고정 `objectVersion`으로 만든다. SPC는 기존 5개와 합쳐 8개다.
   키는 `/mnt/telemetry-jwt/keys`에 읽기 전용으로 mount하며 configtree·사용자 JWT 디렉터리와 분리한다. 같은 이미지의 UID 10001 initContainer가 파일을 검사한다.
-- chart는 기존 `SPRING_APPLICATION_JSON`의 `pulsemetry` 맵에 `telemetry-jwt`를 합친다. `public-key-files`(`[kid] → 파일`), `issuer`=`pulsemetry-enrollment`,
-  `audience`=`pulsemetry-telemetry-ingest`를 넣고 enrollment에만 `active-kid`, `private-key-file`, `issue-enabled`를 넣는다. VersionId·kid 맵은 Pod annotation hash에 포함한다.
+- chart는 기존 `SPRING_APPLICATION_JSON`의 `pulsemetry` 맵에 `telemetry-jwt`를 합친다. `public-key-files`(`[kid] → 파일`)를 넣고
+  enrollment에만 `active-kid`, `private-key-file`, `issue-enabled`를 넣는다. VersionId·kid 맵은 Pod annotation hash에 포함한다.
+  `iss`·`aud`·`typ`·`scope`는 backend 고정 계약값(backend ADR 0065)이라 설정으로 공급하지 않는다.
 
 ### 4. Kafka 설정 공급
 

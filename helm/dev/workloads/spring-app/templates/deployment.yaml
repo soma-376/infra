@@ -37,7 +37,8 @@
 {{- range $telemetry.publicKeys -}}
 {{- $_ := set $files (printf "[%s]" .kid) (printf "/mnt/telemetry-jwt/keys/%s" .alias) -}}
 {{- end -}}
-{{- $settings := dict "public-key-files" $files "issuer" $telemetry.issuer "audience" $telemetry.audience -}}
+{{- /* issuer·audience·typ·scope는 backend 고정 계약값이라 설정으로 주지 않는다. (ADR-0036) */ -}}
+{{- $settings := dict "public-key-files" $files -}}
 {{- if eq .Values.workload "enrollment-api" -}}
 {{- $_ := set $settings "active-kid" $telemetry.activeKid -}}
 {{- $_ := set $settings "private-key-file" "/mnt/telemetry-jwt/keys/private.pem" -}}

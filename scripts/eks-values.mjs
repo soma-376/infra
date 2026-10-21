@@ -16,8 +16,6 @@ export function parseRuntimeValues(text) {
 // CDK output과 대조하는 계약 상수다. lib/dev/eks-config.ts와 같은 값이며 테스트가 일치를 고정한다. (ADR-0035·0036)
 export const TELEMETRY_CONTRACT = {
   gatewayNodePort: '30082',
-  issuer: 'pulsemetry-enrollment',
-  audience: 'pulsemetry-telemetry-ingest',
   sessions: {
     MskGatewaySessionName: 'pulsemetry-dev-telemetry-gateway',
     MskIngestSessionName: 'pulsemetry-dev-telemetry-ingest',
@@ -190,7 +188,6 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText)
   const telemetry = runtime.telemetryJwt;
   const telemetryJwt = workload => ({
     enabled: true, secretProviderClass: `${workload}-telemetry-jwt`, publicVersionId: telemetry.publicVersionId, publicKeys: telemetry.publicKeys,
-    issuer: TELEMETRY_CONTRACT.issuer, audience: TELEMETRY_CONTRACT.audience,
     ...(workload === 'enrollment-api' ? { privateVersionId: telemetry.privateVersionId, activeKid: telemetry.activeKid, issueEnabled: telemetry.issueEnabled } : {}),
   });
   const kafka = workload => ({

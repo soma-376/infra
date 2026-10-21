@@ -79,7 +79,6 @@ const BOOTSTRAP = [1, 2, 3].map(n => `b-${n}.soma-376-dev-telemetry.abc123.c2.ka
 function telemetryJwt(workload) {
   return {
     enabled: true, secretProviderClass: `${workload}-telemetry-jwt`, publicVersionId: '4'.repeat(32), publicKeys: TELEMETRY_KEYS,
-    issuer: 'pulsemetry-enrollment', audience: 'pulsemetry-telemetry-ingest',
     ...(workload === 'enrollment-api' ? { privateVersionId: '5'.repeat(32), activeKid: 'telemetry-2026.10', issueEnabled: false } : {}),
   };
 }
@@ -358,7 +357,7 @@ function checkTelemetry(chart) {
   checkInit(gateway, 'telemetry-gateway', { '/mnt/telemetry-jwt/keys': ['telemetry-2026-10.pem'] });
   const gatewayEnv = environment(gateway, 'telemetry-gateway');
   assert.deepEqual(gatewayEnv, {
-    SPRING_APPLICATION_JSON: JSON.stringify({ pulsemetry: { 'telemetry-jwt': { audience: 'pulsemetry-telemetry-ingest', issuer: 'pulsemetry-enrollment', 'public-key-files': TELEMETRY_FILES } } }),
+    SPRING_APPLICATION_JSON: JSON.stringify({ pulsemetry: { 'telemetry-jwt': { 'public-key-files': TELEMETRY_FILES } } }),
     PULSEMETRY_KAFKA_BOOTSTRAP_SERVERS: BOOTSTRAP, PULSEMETRY_KAFKA_SECURITY: 'iam',
     PULSEMETRY_KAFKA_TOPIC: 'pulsemetry-dev-telemetry-ingress-validation',
     PULSEMETRY_KAFKA_IAM_ROLE_ARN: 'arn:aws:iam::000000000000:role/fixture-msk-gateway',
@@ -426,8 +425,7 @@ function checkTelemetry(chart) {
     assert.deepEqual(pod.containers[0].livenessProbe.tcpSocket, { port: 'http' });
     const env = environment(ingest, 'telemetry-ingest');
     assert.equal(env.PULSEMETRY_INGEST_MODE, mode);
-    assert.deepEqual(JSON.parse(env.SPRING_APPLICATION_JSON), { pulsemetry: { 'telemetry-jwt': {
-      audience: 'pulsemetry-telemetry-ingest', issuer: 'pulsemetry-enrollment', 'public-key-files': TELEMETRY_FILES } } });
+    assert.deepEqual(JSON.parse(env.SPRING_APPLICATION_JSON), { pulsemetry: { 'telemetry-jwt': { 'public-key-files': TELEMETRY_FILES } } });
     const kafkaEnv = Object.keys(env).filter(name => name.startsWith('PULSEMETRY_KAFKA_')).sort();
     if (mode === 'http') assert.deepEqual(kafkaEnv, []);
     else {
@@ -481,7 +479,7 @@ function checkTelemetry(chart) {
     const env = environment(enrollment, 'enrollment-api');
     assert.deepEqual(JSON.parse(env.SPRING_APPLICATION_JSON), { pulsemetry: {
       'user-auth': { 'public-key-files': { '[release-2026.10]': '/mnt/user-jwt/keys/release-2026-10.pem' } },
-      'telemetry-jwt': { 'public-key-files': TELEMETRY_FILES, issuer: 'pulsemetry-enrollment', audience: 'pulsemetry-telemetry-ingest',
+      'telemetry-jwt': { 'public-key-files': TELEMETRY_FILES,
         'active-kid': 'telemetry-2026.10', 'private-key-file': '/mnt/telemetry-jwt/keys/private.pem', 'issue-enabled': issueEnabled },
     } });
     assert.equal(env.PULSEMETRY_USER_AUTH_PRIVATE_KEY_FILE, '/mnt/user-jwt/keys/private.pem');

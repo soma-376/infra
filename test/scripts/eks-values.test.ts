@@ -434,7 +434,7 @@ describe('배포 output→values 변환', () => {
     expect(Object.keys(properties).sort()).toEqual(['oidc', 'telemetry-jwt', 'user-auth']);
     expect(properties['telemetry-jwt']).toEqual({
       'public-key-files': { '[telemetry-2026.10]': '/mnt/telemetry-jwt/keys/telemetry-2026-10.pem' },
-      issuer: 'pulsemetry-enrollment', audience: 'pulsemetry-telemetry-ingest', 'active-kid': 'telemetry-2026.10',
+      'active-kid': 'telemetry-2026.10',
       'private-key-file': '/mnt/telemetry-jwt/keys/private.pem', 'issue-enabled': false,
     });
     expect(pod.containers[0].env.filter((item: any) => item.name === 'SPRING_APPLICATION_JSON')).toHaveLength(1);
@@ -601,8 +601,7 @@ describe('PROJ-246 Gateway·MSK·telemetry JWT values 생성', () => {
   const runtime = (change: (value: any) => void = () => {}) => { const value = load(readFileSync(runtimeFile, 'utf8')); change(value); return dump(value); };
   const telemetryKeys = [{ kid: 'telemetry-2026.10', alias: 'telemetry-2026-10.pem' }];
   const publicTelemetry = (workload: string) => ({ enabled: true, secretProviderClass: `${workload}-telemetry-jwt`,
-    publicVersionId: '44444444-4444-4444-8444-444444444444', publicKeys: telemetryKeys,
-    issuer: 'pulsemetry-enrollment', audience: 'pulsemetry-telemetry-ingest' });
+    publicVersionId: '44444444-4444-4444-8444-444444444444', publicKeys: telemetryKeys });
 
   test('계약 상수는 CDK 상수와 같다', () => {
     const { DEV_EKS_NODE_PORTS, DEV_EKS_TELEMETRY_SESSION_NAMES } = require('../../lib/dev/eks-config');

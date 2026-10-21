@@ -455,12 +455,6 @@
             }
           }
         },
-        "issuer": {
-          "const": "pulsemetry-enrollment"
-        },
-        "audience": {
-          "const": "pulsemetry-telemetry-ingest"
-        },
         "issueEnabled": {
           "type": "boolean"
         }
@@ -478,9 +472,7 @@
             "required": [
               "secretProviderClass",
               "publicVersionId",
-              "publicKeys",
-              "issuer",
-              "audience"
+              "publicKeys"
             ]
           },
           "else": {
