@@ -130,7 +130,14 @@ for (const dashboard of dashboards) {
 }
 writeFileSync(resolve(temp, 'dashboard-queries.yaml'), dump({groups:[{name:'dashboard-query-check',rules:expressions}]}));
 checked(promtool, ['check', 'rules', resolve(temp, 'dashboard-queries.yaml')]);
-const scrapeFixture = readFileSync(resolve(fixtures, 'fixtures/backend-registry.prom'), 'utf8');
+// Backend 사본은 생성 commit과 SHA256을 함께 고정한다. 사본을 바꾸면 provenance도 같이 바꾼다.
+const provenance = JSON.parse(readFileSync(resolve(fixtures, 'fixtures/provenance.json'), 'utf8'));
+assert.match(provenance.source.commit, /^[0-9a-f]{40}$/);
+for (const item of provenance.fixtures) {
+  assert.equal(createHash('sha256').update(readFileSync(resolve(fixtures, 'fixtures', item.file))).digest('hex'), item.sha256, `${item.file} SHA256이 provenance와 다르다`);
+}
+// registry 단위 테스트와 두 앱의 실제 HTTP scrape 중 하나에는 있어야 한다(listener_running은 ingest 실행 시에만 생긴다).
+const scrapeFixture = ['backend-registry.prom','gateway-management.prom','ingest-management.prom'].map(x => readFileSync(resolve(fixtures, 'fixtures', x), 'utf8')).join('\n');
 const names = new Set(scrapeFixture.split('\n').filter(x => x && !x.startsWith('#')).map(x => x.split(/[\s{]/)[0]));
 for (const metric of usedCustomMetrics) assert.ok(names.has(metric), `실제 registry fixture에 없는 metric: ${metric}`);
 const nativeFixture = ['fixtures/gateway-management.prom','fixtures/ingest-management.prom','clickhouse/dashboard-metrics.prom'].map(x => readFileSync(resolve(fixtures,x),'utf8')).join('\n');

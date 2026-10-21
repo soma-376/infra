@@ -21,6 +21,8 @@ pulsemetry_clickhouse_request_duration_seconds_max{operation="insert",outcome="s
 # HELP pulsemetry_clickhouse_requests_total  
 # TYPE pulsemetry_clickhouse_requests_total counter
 pulsemetry_clickhouse_requests_total{operation="insert",outcome="success",table="telemetry_events"} 1.0
+pulsemetry_clickhouse_requests_total{operation="select",outcome="success",table="other"} 1.0
+pulsemetry_clickhouse_requests_total{operation="select",outcome="success",table="telemetry_retention_fence"} 1.0
 # HELP pulsemetry_clickhouse_rows_submitted_total  
 # TYPE pulsemetry_clickhouse_rows_submitted_total counter
 pulsemetry_clickhouse_rows_submitted_total{table="telemetry_events"} 2.0
@@ -168,7 +170,7 @@ pulsemetry_pipeline_stage_duration_seconds_bucket{outcome="success",stage="decod
 pulsemetry_pipeline_stage_duration_seconds_bucket{outcome="success",stage="decode",le="30.0"} 1
 pulsemetry_pipeline_stage_duration_seconds_bucket{outcome="success",stage="decode",le="+Inf"} 1
 pulsemetry_pipeline_stage_duration_seconds_count{outcome="success",stage="decode"} 1
-pulsemetry_pipeline_stage_duration_seconds_sum{outcome="success",stage="decode"} 4.7791E-5
+pulsemetry_pipeline_stage_duration_seconds_sum{outcome="success",stage="decode"} 6.2125E-5
 # HELP pulsemetry_pipeline_stage_duration_seconds_max  
 # TYPE pulsemetry_pipeline_stage_duration_seconds_max gauge
-pulsemetry_pipeline_stage_duration_seconds_max{outcome="success",stage="decode"} 4.7791E-5
+pulsemetry_pipeline_stage_duration_seconds_max{outcome="success",stage="decode"} 6.2125E-5

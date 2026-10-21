@@ -662,6 +662,70 @@
           "targetBlank": false
         }
       ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Consumer 상태 (listener 실행·처리 중 record)",
+      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다. listener 1은 Kafka listener container가 실행 중이고 처리 중 0은 대기다. listener 0이 이어지면 HTTP liveness 재시작과 함께 본다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (pod) (pulsemetry_pipeline_listener_running{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"$service\",pod=~\"$pod\"})",
+          "legendFormat": "{{{{pod}}}} listener",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (pod) (pulsemetry_pipeline_inflight{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"$service\",pod=~\"$pod\"})",
+          "legendFormat": "{{{{pod}}}} 처리 중",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 9,
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "links": [
+        {
+          "title": "같은 시간·서비스·Pod의 진단 로그",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
     }
   ]
 }

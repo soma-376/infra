@@ -1,12 +1,12 @@
 # HELP application_ready_time_seconds Time taken for the application to be ready to service requests
 # TYPE application_ready_time_seconds gauge
-application_ready_time_seconds{application="pulsemetry-telemetry-gateway",environment="local",main_application_class="com.team376.pulsemetry.telemetry.gateway.MetricsEndpointTest",service="gateway"} 3.115
+application_ready_time_seconds{application="pulsemetry-telemetry-gateway",environment="local",main_application_class="com.team376.pulsemetry.telemetry.gateway.GatewayAcceptanceTest",service="gateway"} 3.221
 # HELP application_started_time_seconds Time taken to start the application
 # TYPE application_started_time_seconds gauge
-application_started_time_seconds{application="pulsemetry-telemetry-gateway",environment="local",main_application_class="com.team376.pulsemetry.telemetry.gateway.MetricsEndpointTest",service="gateway"} 3.111
+application_started_time_seconds{application="pulsemetry-telemetry-gateway",environment="local",main_application_class="com.team376.pulsemetry.telemetry.gateway.GatewayAcceptanceTest",service="gateway"} 3.216
 # HELP disk_free_bytes Usable space for path
 # TYPE disk_free_bytes gauge
-disk_free_bytes{application="pulsemetry-telemetry-gateway",environment="local",path="/Users/ashcircle/Documents/Personal/project/soma-376/pulsemetry-backend-observability/apps/telemetry-gateway/.",service="gateway"} 5.3174255616E11
+disk_free_bytes{application="pulsemetry-telemetry-gateway",environment="local",path="/Users/ashcircle/Documents/Personal/project/soma-376/pulsemetry-backend-observability/apps/telemetry-gateway/.",service="gateway"} 5.34156935168E11
 # HELP disk_total_bytes Total space for path
 # TYPE disk_total_bytes gauge
 disk_total_bytes{application="pulsemetry-telemetry-gateway",environment="local",path="/Users/ashcircle/Documents/Personal/project/soma-376/pulsemetry-backend-observability/apps/telemetry-gateway/.",service="gateway"} 9.9461015552E11
@@ -31,6 +31,50 @@ executor_queue_remaining_tasks{application="pulsemetry-telemetry-gateway",enviro
 # HELP executor_queued_tasks The approximate number of tasks that are queued for execution
 # TYPE executor_queued_tasks gauge
 executor_queued_tasks{application="pulsemetry-telemetry-gateway",environment="local",name="applicationTaskExecutor",service="gateway"} 0.0
+# HELP http_server_requests_active_seconds  
+# TYPE http_server_requests_active_seconds summary
+http_server_requests_active_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",exception="none",method="GET",outcome="SUCCESS",service="gateway",status="200",uri="UNKNOWN"} 0
+http_server_requests_active_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",exception="none",method="GET",outcome="SUCCESS",service="gateway",status="200",uri="UNKNOWN"} 0.0
+http_server_requests_active_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",exception="none",method="POST",outcome="SUCCESS",service="gateway",status="200",uri="UNKNOWN"} 0
+http_server_requests_active_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",exception="none",method="POST",outcome="SUCCESS",service="gateway",status="200",uri="UNKNOWN"} 0.0
+http_server_requests_active_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",exception="none",method="PUT",outcome="SUCCESS",service="gateway",status="200",uri="UNKNOWN"} 0
+http_server_requests_active_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",exception="none",method="PUT",outcome="SUCCESS",service="gateway",status="200",uri="UNKNOWN"} 0.0
+# HELP http_server_requests_active_seconds_max  
+# TYPE http_server_requests_active_seconds_max gauge
+http_server_requests_active_seconds_max{application="pulsemetry-telemetry-gateway",environment="local",exception="none",method="GET",outcome="SUCCESS",service="gateway",status="200",uri="UNKNOWN"} 0.0
+http_server_requests_active_seconds_max{application="pulsemetry-telemetry-gateway",environment="local",exception="none",method="POST",outcome="SUCCESS",service="gateway",status="200",uri="UNKNOWN"} 0.0
+http_server_requests_active_seconds_max{application="pulsemetry-telemetry-gateway",environment="local",exception="none",method="PUT",outcome="SUCCESS",service="gateway",status="200",uri="UNKNOWN"} 0.0
+# HELP http_server_requests_seconds  
+# TYPE http_server_requests_seconds summary
+http_server_requests_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="GET",outcome="CLIENT_ERROR",service="gateway",status="401",uri="/v1/logs"} 1
+http_server_requests_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="GET",outcome="CLIENT_ERROR",service="gateway",status="401",uri="/v1/logs"} 4.05166E-4
+http_server_requests_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="GET",outcome="SUCCESS",service="gateway",status="200",uri="/api/v1/healthz"} 1
+http_server_requests_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="GET",outcome="SUCCESS",service="gateway",status="200",uri="/api/v1/healthz"} 0.019685875
+http_server_requests_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="POST",outcome="CLIENT_ERROR",service="gateway",status="400",uri="/v1/logs"} 2
+http_server_requests_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="POST",outcome="CLIENT_ERROR",service="gateway",status="400",uri="/v1/logs"} 0.002736708
+http_server_requests_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="POST",outcome="CLIENT_ERROR",service="gateway",status="401",uri="/v1/logs"} 9
+http_server_requests_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="POST",outcome="CLIENT_ERROR",service="gateway",status="401",uri="/v1/logs"} 0.025613502
+http_server_requests_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="POST",outcome="CLIENT_ERROR",service="gateway",status="404",uri="/**"} 1
+http_server_requests_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="POST",outcome="CLIENT_ERROR",service="gateway",status="404",uri="/**"} 0.001480584
+http_server_requests_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="POST",outcome="CLIENT_ERROR",service="gateway",status="413",uri="/v1/logs"} 1
+http_server_requests_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="POST",outcome="CLIENT_ERROR",service="gateway",status="413",uri="/v1/logs"} 0.001334
+http_server_requests_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="POST",outcome="CLIENT_ERROR",service="gateway",status="415",uri="/v1/logs"} 1
+http_server_requests_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="POST",outcome="CLIENT_ERROR",service="gateway",status="415",uri="/v1/logs"} 0.001484041
+http_server_requests_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="POST",outcome="SUCCESS",service="gateway",status="200",uri="/v1/logs"} 4
+http_server_requests_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="POST",outcome="SUCCESS",service="gateway",status="200",uri="/v1/logs"} 0.124781583
+http_server_requests_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="PUT",outcome="CLIENT_ERROR",service="gateway",status="405",uri="/v1/logs"} 1
+http_server_requests_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="PUT",outcome="CLIENT_ERROR",service="gateway",status="405",uri="/v1/logs"} 0.001390917
+# HELP http_server_requests_seconds_max  
+# TYPE http_server_requests_seconds_max gauge
+http_server_requests_seconds_max{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="GET",outcome="CLIENT_ERROR",service="gateway",status="401",uri="/v1/logs"} 4.05166E-4
+http_server_requests_seconds_max{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="GET",outcome="SUCCESS",service="gateway",status="200",uri="/api/v1/healthz"} 0.019685875
+http_server_requests_seconds_max{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="POST",outcome="CLIENT_ERROR",service="gateway",status="400",uri="/v1/logs"} 0.001697958
+http_server_requests_seconds_max{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="POST",outcome="CLIENT_ERROR",service="gateway",status="401",uri="/v1/logs"} 0.017941917
+http_server_requests_seconds_max{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="POST",outcome="CLIENT_ERROR",service="gateway",status="404",uri="/**"} 0.001480584
+http_server_requests_seconds_max{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="POST",outcome="CLIENT_ERROR",service="gateway",status="413",uri="/v1/logs"} 0.001334
+http_server_requests_seconds_max{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="POST",outcome="CLIENT_ERROR",service="gateway",status="415",uri="/v1/logs"} 0.001484041
+http_server_requests_seconds_max{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="POST",outcome="SUCCESS",service="gateway",status="200",uri="/v1/logs"} 0.086840041
+http_server_requests_seconds_max{application="pulsemetry-telemetry-gateway",environment="local",error="none",exception="none",method="PUT",outcome="CLIENT_ERROR",service="gateway",status="405",uri="/v1/logs"} 0.001390917
 # HELP jvm_info JVM version info
 # TYPE jvm_info gauge
 jvm_info{application="pulsemetry-telemetry-gateway",environment="local",runtime="OpenJDK Runtime Environment",service="gateway",vendor="Eclipse Adoptium",version="25.0.4+7-LTS"} 1
@@ -51,55 +95,58 @@ jvm_buffer_total_capacity_bytes{application="pulsemetry-telemetry-gateway",envir
 jvm_buffer_total_capacity_bytes{application="pulsemetry-telemetry-gateway",environment="local",id="mapped - 'non-volatile memory'",service="gateway"} 0.0
 # HELP jvm_classes_loaded_classes The number of classes that are currently loaded in the Java virtual machine
 # TYPE jvm_classes_loaded_classes gauge
-jvm_classes_loaded_classes{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 18287.0
+jvm_classes_loaded_classes{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 19419.0
 # HELP jvm_classes_loaded_count_classes_total The number of classes loaded in the Java virtual machine
 # TYPE jvm_classes_loaded_count_classes_total counter
-jvm_classes_loaded_count_classes_total{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 18302.0
+jvm_classes_loaded_count_classes_total{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 19368.0
 # HELP jvm_classes_unloaded_classes_total The number of classes unloaded in the Java virtual machine
 # TYPE jvm_classes_unloaded_classes_total counter
 jvm_classes_unloaded_classes_total{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 0.0
 # HELP jvm_compilation_time_ms_total The approximate accumulated elapsed time spent in compilation
 # TYPE jvm_compilation_time_ms_total counter
-jvm_compilation_time_ms_total{application="pulsemetry-telemetry-gateway",compiler="HotSpot 64-Bit Tiered Compilers",environment="local",service="gateway"} 3598.0
+jvm_compilation_time_ms_total{application="pulsemetry-telemetry-gateway",compiler="HotSpot 64-Bit Tiered Compilers",environment="local",service="gateway"} 4885.0
 # HELP jvm_gc_concurrent_phase_time_seconds Time spent in concurrent phase
 # TYPE jvm_gc_concurrent_phase_time_seconds summary
-jvm_gc_concurrent_phase_time_seconds_count{action="end of concurrent GC pause",application="pulsemetry-telemetry-gateway",cause="No GC",environment="local",gc="G1 Concurrent GC",service="gateway"} 2
-jvm_gc_concurrent_phase_time_seconds_sum{action="end of concurrent GC pause",application="pulsemetry-telemetry-gateway",cause="No GC",environment="local",gc="G1 Concurrent GC",service="gateway"} 0.001
+jvm_gc_concurrent_phase_time_seconds_count{action="end of concurrent GC pause",application="pulsemetry-telemetry-gateway",cause="No GC",environment="local",gc="G1 Concurrent GC",service="gateway"} 5
+jvm_gc_concurrent_phase_time_seconds_sum{action="end of concurrent GC pause",application="pulsemetry-telemetry-gateway",cause="No GC",environment="local",gc="G1 Concurrent GC",service="gateway"} 0.002
 # HELP jvm_gc_concurrent_phase_time_seconds_max Time spent in concurrent phase
 # TYPE jvm_gc_concurrent_phase_time_seconds_max gauge
 jvm_gc_concurrent_phase_time_seconds_max{action="end of concurrent GC pause",application="pulsemetry-telemetry-gateway",cause="No GC",environment="local",gc="G1 Concurrent GC",service="gateway"} 0.001
 # HELP jvm_gc_live_data_size_bytes Size of long-lived heap memory pool after reclamation
 # TYPE jvm_gc_live_data_size_bytes gauge
-jvm_gc_live_data_size_bytes{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 0.0
+jvm_gc_live_data_size_bytes{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 9.9353344E7
 # HELP jvm_gc_max_data_size_bytes Max size of long-lived heap memory pool
 # TYPE jvm_gc_max_data_size_bytes gauge
 jvm_gc_max_data_size_bytes{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 5.36870912E8
 # HELP jvm_gc_memory_allocated_bytes_total Incremented for an increase in the size of the (young) heap memory pool after one GC to before the next
 # TYPE jvm_gc_memory_allocated_bytes_total counter
-jvm_gc_memory_allocated_bytes_total{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 6.1865984E7
+jvm_gc_memory_allocated_bytes_total{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 1.6777216E8
 # HELP jvm_gc_memory_promoted_bytes_total Count of positive increases in the size of the old generation memory pool before GC to after GC
 # TYPE jvm_gc_memory_promoted_bytes_total counter
-jvm_gc_memory_promoted_bytes_total{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 5215392.0
+jvm_gc_memory_promoted_bytes_total{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 2.2705792E7
 # HELP jvm_gc_overhead An approximation of the percent of CPU time used by GC activities over the last lookback period or since monitoring began, whichever is shorter, in the range [0..1]
 # TYPE jvm_gc_overhead gauge
-jvm_gc_overhead{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 0.007197737042990063
+jvm_gc_overhead{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 8.420575215646478E-4
 # HELP jvm_gc_pause_seconds Time spent in GC pause
 # TYPE jvm_gc_pause_seconds summary
-jvm_gc_pause_seconds_count{action="end of minor GC",application="pulsemetry-telemetry-gateway",cause="G1 Evacuation Pause",environment="local",gc="G1 Young Generation",service="gateway"} 3
-jvm_gc_pause_seconds_sum{action="end of minor GC",application="pulsemetry-telemetry-gateway",cause="G1 Evacuation Pause",environment="local",gc="G1 Young Generation",service="gateway"} 0.003
+jvm_gc_pause_seconds_count{action="end of minor GC",application="pulsemetry-telemetry-gateway",cause="G1 Evacuation Pause",environment="local",gc="G1 Young Generation",service="gateway"} 8
+jvm_gc_pause_seconds_sum{action="end of minor GC",application="pulsemetry-telemetry-gateway",cause="G1 Evacuation Pause",environment="local",gc="G1 Young Generation",service="gateway"} 0.013
+jvm_gc_pause_seconds_count{action="end of minor GC",application="pulsemetry-telemetry-gateway",cause="G1 Humongous Allocation",environment="local",gc="G1 Young Generation",service="gateway"} 1
+jvm_gc_pause_seconds_sum{action="end of minor GC",application="pulsemetry-telemetry-gateway",cause="G1 Humongous Allocation",environment="local",gc="G1 Young Generation",service="gateway"} 0.001
 # HELP jvm_gc_pause_seconds_max Time spent in GC pause
 # TYPE jvm_gc_pause_seconds_max gauge
-jvm_gc_pause_seconds_max{action="end of minor GC",application="pulsemetry-telemetry-gateway",cause="G1 Evacuation Pause",environment="local",gc="G1 Young Generation",service="gateway"} 0.001
+jvm_gc_pause_seconds_max{action="end of minor GC",application="pulsemetry-telemetry-gateway",cause="G1 Evacuation Pause",environment="local",gc="G1 Young Generation",service="gateway"} 0.003
+jvm_gc_pause_seconds_max{action="end of minor GC",application="pulsemetry-telemetry-gateway",cause="G1 Humongous Allocation",environment="local",gc="G1 Young Generation",service="gateway"} 0.001
 # HELP jvm_memory_committed_bytes The amount of memory in bytes that is committed for the Java virtual machine to use
 # TYPE jvm_memory_committed_bytes gauge
-jvm_memory_committed_bytes{application="pulsemetry-telemetry-gateway",area="heap",environment="local",id="G1 Eden Space",service="gateway"} 2.62144E7
-jvm_memory_committed_bytes{application="pulsemetry-telemetry-gateway",area="heap",environment="local",id="G1 Old Gen",service="gateway"} 5.4525952E7
-jvm_memory_committed_bytes{application="pulsemetry-telemetry-gateway",area="heap",environment="local",id="G1 Survivor Space",service="gateway"} 2097152.0
+jvm_memory_committed_bytes{application="pulsemetry-telemetry-gateway",area="heap",environment="local",id="G1 Eden Space",service="gateway"} 6.1865984E7
+jvm_memory_committed_bytes{application="pulsemetry-telemetry-gateway",area="heap",environment="local",id="G1 Old Gen",service="gateway"} 1.56237824E8
+jvm_memory_committed_bytes{application="pulsemetry-telemetry-gateway",area="heap",environment="local",id="G1 Survivor Space",service="gateway"} 6291456.0
 jvm_memory_committed_bytes{application="pulsemetry-telemetry-gateway",area="nonheap",environment="local",id="CodeHeap 'non-nmethods'",service="gateway"} 2555904.0
-jvm_memory_committed_bytes{application="pulsemetry-telemetry-gateway",area="nonheap",environment="local",id="CodeHeap 'non-profiled nmethods'",service="gateway"} 2818048.0
-jvm_memory_committed_bytes{application="pulsemetry-telemetry-gateway",area="nonheap",environment="local",id="CodeHeap 'profiled nmethods'",service="gateway"} 1.1272192E7
-jvm_memory_committed_bytes{application="pulsemetry-telemetry-gateway",area="nonheap",environment="local",id="Compressed Class Space",service="gateway"} 1.2386304E7
-jvm_memory_committed_bytes{application="pulsemetry-telemetry-gateway",area="nonheap",environment="local",id="Metaspace",service="gateway"} 9.240576E7
+jvm_memory_committed_bytes{application="pulsemetry-telemetry-gateway",area="nonheap",environment="local",id="CodeHeap 'non-profiled nmethods'",service="gateway"} 3407872.0
+jvm_memory_committed_bytes{application="pulsemetry-telemetry-gateway",area="nonheap",environment="local",id="CodeHeap 'profiled nmethods'",service="gateway"} 1.5269888E7
+jvm_memory_committed_bytes{application="pulsemetry-telemetry-gateway",area="nonheap",environment="local",id="Compressed Class Space",service="gateway"} 1.3172736E7
+jvm_memory_committed_bytes{application="pulsemetry-telemetry-gateway",area="nonheap",environment="local",id="Metaspace",service="gateway"} 9.9155968E7
 # HELP jvm_memory_max_bytes The maximum amount of memory in bytes that can be used for memory management
 # TYPE jvm_memory_max_bytes gauge
 jvm_memory_max_bytes{application="pulsemetry-telemetry-gateway",area="heap",environment="local",id="G1 Eden Space",service="gateway"} -1.0
@@ -112,46 +159,46 @@ jvm_memory_max_bytes{application="pulsemetry-telemetry-gateway",area="nonheap",e
 jvm_memory_max_bytes{application="pulsemetry-telemetry-gateway",area="nonheap",environment="local",id="Metaspace",service="gateway"} -1.0
 # HELP jvm_memory_usage_after_gc The percentage of long-lived heap pool used after the last GC event, in the range [0..1]
 # TYPE jvm_memory_usage_after_gc gauge
-jvm_memory_usage_after_gc{application="pulsemetry-telemetry-gateway",area="heap",environment="local",pool="long-lived",service="gateway"} 0.0893072634935379
+jvm_memory_usage_after_gc{application="pulsemetry-telemetry-gateway",area="heap",environment="local",pool="long-lived",service="gateway"} 0.19666841626167297
 # HELP jvm_memory_used_bytes The amount of used memory
 # TYPE jvm_memory_used_bytes gauge
-jvm_memory_used_bytes{application="pulsemetry-telemetry-gateway",area="heap",environment="local",id="G1 Eden Space",service="gateway"} 1.7825792E7
-jvm_memory_used_bytes{application="pulsemetry-telemetry-gateway",area="heap",environment="local",id="G1 Old Gen",service="gateway"} 4.7946472E7
-jvm_memory_used_bytes{application="pulsemetry-telemetry-gateway",area="heap",environment="local",id="G1 Survivor Space",service="gateway"} 1248336.0
-jvm_memory_used_bytes{application="pulsemetry-telemetry-gateway",area="nonheap",environment="local",id="CodeHeap 'non-nmethods'",service="gateway"} 1621056.0
-jvm_memory_used_bytes{application="pulsemetry-telemetry-gateway",area="nonheap",environment="local",id="CodeHeap 'non-profiled nmethods'",service="gateway"} 2800256.0
-jvm_memory_used_bytes{application="pulsemetry-telemetry-gateway",area="nonheap",environment="local",id="CodeHeap 'profiled nmethods'",service="gateway"} 1.1189376E7
-jvm_memory_used_bytes{application="pulsemetry-telemetry-gateway",area="nonheap",environment="local",id="Compressed Class Space",service="gateway"} 1.2081496E7
-jvm_memory_used_bytes{application="pulsemetry-telemetry-gateway",area="nonheap",environment="local",id="Metaspace",service="gateway"} 9.1636088E7
+jvm_memory_used_bytes{application="pulsemetry-telemetry-gateway",area="heap",environment="local",id="G1 Eden Space",service="gateway"} 1048576.0
+jvm_memory_used_bytes{application="pulsemetry-telemetry-gateway",area="heap",environment="local",id="G1 Old Gen",service="gateway"} 1.05585552E8
+jvm_memory_used_bytes{application="pulsemetry-telemetry-gateway",area="heap",environment="local",id="G1 Survivor Space",service="gateway"} 6234560.0
+jvm_memory_used_bytes{application="pulsemetry-telemetry-gateway",area="nonheap",environment="local",id="CodeHeap 'non-nmethods'",service="gateway"} 1695360.0
+jvm_memory_used_bytes{application="pulsemetry-telemetry-gateway",area="nonheap",environment="local",id="CodeHeap 'non-profiled nmethods'",service="gateway"} 3407040.0
+jvm_memory_used_bytes{application="pulsemetry-telemetry-gateway",area="nonheap",environment="local",id="CodeHeap 'profiled nmethods'",service="gateway"} 1.5274304E7
+jvm_memory_used_bytes{application="pulsemetry-telemetry-gateway",area="nonheap",environment="local",id="Compressed Class Space",service="gateway"} 1.2833336E7
+jvm_memory_used_bytes{application="pulsemetry-telemetry-gateway",area="nonheap",environment="local",id="Metaspace",service="gateway"} 9.838448E7
 # HELP jvm_threads_daemon_threads The current number of live daemon threads
 # TYPE jvm_threads_daemon_threads gauge
-jvm_threads_daemon_threads{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 38.0
+jvm_threads_daemon_threads{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 63.0
 # HELP jvm_threads_live_threads The current number of live threads including both daemon and non-daemon threads
 # TYPE jvm_threads_live_threads gauge
-jvm_threads_live_threads{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 48.0
+jvm_threads_live_threads{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 79.0
 # HELP jvm_threads_peak_threads The peak live thread count since the Java virtual machine started or peak was reset
 # TYPE jvm_threads_peak_threads gauge
-jvm_threads_peak_threads{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 48.0
+jvm_threads_peak_threads{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 79.0
 # HELP jvm_threads_started_threads_total The total number of application threads started in the JVM
 # TYPE jvm_threads_started_threads_total counter
-jvm_threads_started_threads_total{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 59.0
+jvm_threads_started_threads_total{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 141.0
 # HELP jvm_threads_states_threads The current number of threads
 # TYPE jvm_threads_states_threads gauge
 jvm_threads_states_threads{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",state="blocked"} 0.0
 jvm_threads_states_threads{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",state="new"} 0.0
-jvm_threads_states_threads{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",state="runnable"} 12.0
+jvm_threads_states_threads{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",state="runnable"} 18.0
 jvm_threads_states_threads{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",state="terminated"} 0.0
-jvm_threads_states_threads{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",state="timed-waiting"} 11.0
-jvm_threads_states_threads{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",state="waiting"} 25.0
+jvm_threads_states_threads{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",state="timed-waiting"} 24.0
+jvm_threads_states_threads{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",state="waiting"} 37.0
 # HELP kafka_app_info_start_time_ms Metric indicating start-time-ms
 # TYPE kafka_app_info_start_time_ms gauge
-kafka_app_info_start_time_ms{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 1.792595137708E12
+kafka_app_info_start_time_ms{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 1.792607330609E12
 # HELP kafka_producer_batch_size_avg The average number of bytes sent per partition per-request.
 # TYPE kafka_producer_batch_size_avg gauge
-kafka_producer_batch_size_avg{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} NaN
+kafka_producer_batch_size_avg{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 2621873.25
 # HELP kafka_producer_batch_size_max The max number of bytes sent per partition per-request.
 # TYPE kafka_producer_batch_size_max gauge
-kafka_producer_batch_size_max{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} NaN
+kafka_producer_batch_size_max{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 1.0486162E7
 # HELP kafka_producer_batch_split_total The total number of batch splits
 # TYPE kafka_producer_batch_split_total counter
 kafka_producer_batch_split_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.0
@@ -178,7 +225,7 @@ kafka_producer_bufferpool_wait_ratio{application="pulsemetry-telemetry-gateway",
 kafka_producer_bufferpool_wait_time_ns_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.0
 # HELP kafka_producer_compression_rate_avg The average compression rate of record batches, defined as the average ratio of the compressed batch size over the uncompressed size.
 # TYPE kafka_producer_compression_rate_avg gauge
-kafka_producer_compression_rate_avg{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} NaN
+kafka_producer_compression_rate_avg{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 1.0
 # HELP kafka_producer_connection_close_total The total number of connections closed
 # TYPE kafka_producer_connection_close_total counter
 kafka_producer_connection_close_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.0
@@ -193,7 +240,7 @@ kafka_producer_connection_count{application="pulsemetry-telemetry-gateway",clien
 kafka_producer_connection_creation_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 2.0
 # HELP kafka_producer_connection_creation_rate The number of new connections established per second
 # TYPE kafka_producer_connection_creation_rate gauge
-kafka_producer_connection_creation_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.06547073458164201
+kafka_producer_connection_creation_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.04385868730948883
 # HELP kafka_producer_failed_authentication_total The total number of connections with failed authentication
 # TYPE kafka_producer_failed_authentication_total counter
 kafka_producer_failed_authentication_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.0
@@ -211,54 +258,52 @@ kafka_producer_failed_reauthentication_rate{application="pulsemetry-telemetry-ga
 kafka_producer_flush_time_ns_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.0
 # HELP kafka_producer_incoming_byte_total The total number of bytes read off all sockets
 # TYPE kafka_producer_incoming_byte_total counter
-kafka_producer_incoming_byte_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 1159.0
+kafka_producer_incoming_byte_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 1695.0
 # HELP kafka_producer_incoming_byte_rate The number of bytes read off all sockets per second
 # TYPE kafka_producer_incoming_byte_rate gauge
-kafka_producer_incoming_byte_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 37.93532338308458
+kafka_producer_incoming_byte_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 37.171052631578945
 # HELP kafka_producer_io_ratio The fraction of time the I/O thread spent doing I/O
 # TYPE kafka_producer_io_ratio gauge
-kafka_producer_io_ratio{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 4.416912149777429E-5
+kafka_producer_io_ratio{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 2.7600967105263156E-4
 # HELP kafka_producer_io_time_ns_total The total time the I/O thread spent doing I/O
 # TYPE kafka_producer_io_time_ns_total counter
-kafka_producer_io_time_ns_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 1349455.0
+kafka_producer_io_time_ns_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 1.2586041E7
 # HELP kafka_producer_io_time_ns_avg The average length of time for I/O per select call in nanoseconds.
 # TYPE kafka_producer_io_time_ns_avg gauge
-kafka_producer_io_time_ns_avg{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 103804.23076923077
+kafka_producer_io_time_ns_avg{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 112375.36607142857
 # HELP kafka_producer_io_wait_ratio The fraction of time the I/O thread spent waiting
 # TYPE kafka_producer_io_wait_ratio gauge
-kafka_producer_io_wait_ratio{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 1.0779434969064065E-4
+kafka_producer_io_wait_ratio{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.26374248089996055
 # HELP kafka_producer_io_wait_time_ns_total The total time the I/O thread spent waiting
 # TYPE kafka_producer_io_wait_time_ns_total counter
-kafka_producer_io_wait_time_ns_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 3292794.0
+kafka_producer_io_wait_time_ns_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 1.2027184614E10
 # HELP kafka_producer_io_wait_time_ns_avg The average length of time the I/O thread spent waiting for a socket ready for reads or writes in nanoseconds.
 # TYPE kafka_producer_io_wait_time_ns_avg gauge
-kafka_producer_io_wait_time_ns_avg{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 253291.84615384616
+kafka_producer_io_wait_time_ns_avg{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 1.0738557691071428E8
 # HELP kafka_producer_metadata_age The age in seconds of the current producer metadata being used.
 # TYPE kafka_producer_metadata_age gauge
-kafka_producer_metadata_age{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.548
+kafka_producer_metadata_age{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 15.598
 # HELP kafka_producer_metadata_wait_time_ns_total Total time producer has spent waiting on topic metadata in nanoseconds.
 # TYPE kafka_producer_metadata_wait_time_ns_total counter
-kafka_producer_metadata_wait_time_ns_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.0
+kafka_producer_metadata_wait_time_ns_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 4275250.0
 # HELP kafka_producer_network_io_total The total number of network operations (reads or writes) on all connections
 # TYPE kafka_producer_network_io_total counter
-kafka_producer_network_io_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 10.0
+kafka_producer_network_io_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 98.0
 # HELP kafka_producer_network_io_rate The number of network operations (reads or writes) on all connections per second
 # TYPE kafka_producer_network_io_rate gauge
-kafka_producer_network_io_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.32730010146303146
+kafka_producer_network_io_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 2.1490756781649525
 # HELP kafka_producer_node_incoming_byte_total The total number of incoming bytes
 # TYPE kafka_producer_node_incoming_byte_total counter
 kafka_producer_node_incoming_byte_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",node_id="node--1",service="gateway"} 611.0
 # HELP kafka_producer_node_incoming_byte_rate The number of incoming bytes per second
 # TYPE kafka_producer_node_incoming_byte_rate gauge
-kafka_producer_node_incoming_byte_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",node_id="node--1",service="gateway"} 19.999345356944126
-kafka_producer_node_incoming_byte_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",node_id="node-1",service="gateway"} 17.938981275369912
+kafka_producer_node_incoming_byte_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",node_id="node--1",service="gateway"} 13.399710513619018
 # HELP kafka_producer_node_outgoing_byte_total The total number of outgoing bytes
 # TYPE kafka_producer_node_outgoing_byte_total counter
 kafka_producer_node_outgoing_byte_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",node_id="node--1",service="gateway"} 174.0
-kafka_producer_node_outgoing_byte_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",node_id="node-1",service="gateway"} 127.0
 # HELP kafka_producer_node_outgoing_byte_rate The number of outgoing bytes per second
 # TYPE kafka_producer_node_outgoing_byte_rate gauge
-kafka_producer_node_outgoing_byte_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",node_id="node--1",service="gateway"} 5.695021765456747
+kafka_producer_node_outgoing_byte_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",node_id="node--1",service="gateway"} 3.8157894736842106
 # HELP kafka_producer_node_request_total The total number of requests sent
 # TYPE kafka_producer_node_request_total counter
 kafka_producer_node_request_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",node_id="node--1",service="gateway"} 3.0
@@ -268,12 +313,10 @@ kafka_producer_node_request_latency_avg{application="pulsemetry-telemetry-gatewa
 kafka_producer_node_request_latency_max{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",node_id="node--1",service="gateway"} NaN
 # HELP kafka_producer_node_request_rate The number of requests sent per second
 # TYPE kafka_producer_node_request_rate gauge
-kafka_producer_node_request_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",node_id="node--1",service="gateway"} 0.09819324430479183
-kafka_producer_node_request_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",node_id="node-1",service="gateway"} 0.06547073458164201
+kafka_producer_node_request_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",node_id="node--1",service="gateway"} 0.06578947368421052
 # HELP kafka_producer_node_request_size_avg The average size of requests sent.
 # TYPE kafka_producer_node_request_size_avg gauge
 kafka_producer_node_request_size_avg{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",node_id="node--1",service="gateway"} 58.0
-kafka_producer_node_request_size_avg{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",node_id="node-1",service="gateway"} 63.5
 # HELP kafka_producer_node_request_size_max The maximum size of any request sent.
 # TYPE kafka_producer_node_request_size_max gauge
 kafka_producer_node_request_size_max{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",node_id="node--1",service="gateway"} 68.0
@@ -282,13 +325,13 @@ kafka_producer_node_request_size_max{application="pulsemetry-telemetry-gateway",
 kafka_producer_node_response_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",node_id="node--1",service="gateway"} 3.0
 # HELP kafka_producer_node_response_rate The number of responses received per second
 # TYPE kafka_producer_node_response_rate gauge
-kafka_producer_node_response_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",node_id="node--1",service="gateway"} 0.09820610187246301
+kafka_producer_node_response_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",node_id="node--1",service="gateway"} 0.06580246101204185
 # HELP kafka_producer_outgoing_byte_total The total number of outgoing bytes sent to all servers
 # TYPE kafka_producer_outgoing_byte_total counter
-kafka_producer_outgoing_byte_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 301.0
+kafka_producer_outgoing_byte_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 1.0488274E7
 # HELP kafka_producer_outgoing_byte_rate The number of outgoing bytes sent to all servers per second
 # TYPE kafka_producer_outgoing_byte_rate gauge
-kafka_producer_outgoing_byte_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 9.851733054037247
+kafka_producer_outgoing_byte_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 230000.96489112082
 # HELP kafka_producer_produce_throttle_time_avg The average time in ms a request was throttled by a broker
 # TYPE kafka_producer_produce_throttle_time_avg gauge
 kafka_producer_produce_throttle_time_avg{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.0
@@ -309,10 +352,10 @@ kafka_producer_record_error_total{application="pulsemetry-telemetry-gateway",cli
 kafka_producer_record_error_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.0
 # HELP kafka_producer_record_queue_time_avg The average time in ms record batches spent in the send buffer.
 # TYPE kafka_producer_record_queue_time_avg gauge
-kafka_producer_record_queue_time_avg{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} NaN
+kafka_producer_record_queue_time_avg{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 6.0
 # HELP kafka_producer_record_queue_time_max The maximum time in ms record batches spent in the send buffer.
 # TYPE kafka_producer_record_queue_time_max gauge
-kafka_producer_record_queue_time_max{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} NaN
+kafka_producer_record_queue_time_max{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 6.0
 # HELP kafka_producer_record_retry_total The total number of retried record sends
 # TYPE kafka_producer_record_retry_total counter
 kafka_producer_record_retry_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.0
@@ -321,52 +364,52 @@ kafka_producer_record_retry_total{application="pulsemetry-telemetry-gateway",cli
 kafka_producer_record_retry_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.0
 # HELP kafka_producer_record_send_total The total number of records sent.
 # TYPE kafka_producer_record_send_total counter
-kafka_producer_record_send_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.0
+kafka_producer_record_send_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 4.0
 # HELP kafka_producer_record_send_rate The average number of records sent per second.
 # TYPE kafka_producer_record_send_rate gauge
-kafka_producer_record_send_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.0
+kafka_producer_record_send_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.08772122195662187
 # HELP kafka_producer_record_size_avg The average record size
 # TYPE kafka_producer_record_size_avg gauge
-kafka_producer_record_size_avg{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} NaN
+kafka_producer_record_size_avg{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 2621888.75
 # HELP kafka_producer_record_size_max The maximum record size
 # TYPE kafka_producer_record_size_max gauge
-kafka_producer_record_size_max{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} NaN
+kafka_producer_record_size_max{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 1.0486176E7
 # HELP kafka_producer_records_per_request_avg The average number of records per request.
 # TYPE kafka_producer_records_per_request_avg gauge
-kafka_producer_records_per_request_avg{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} NaN
+kafka_producer_records_per_request_avg{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 1.0
 # HELP kafka_producer_request_total The total number of requests sent
 # TYPE kafka_producer_request_total counter
-kafka_producer_request_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 5.0
+kafka_producer_request_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 10.0
 # HELP kafka_producer_request_latency_avg The average request latency in ms
 # TYPE kafka_producer_request_latency_avg gauge
-kafka_producer_request_latency_avg{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} NaN
+kafka_producer_request_latency_avg{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 12.75
 # HELP kafka_producer_request_latency_max The maximum request latency in ms
 # TYPE kafka_producer_request_latency_max gauge
-kafka_producer_request_latency_max{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} NaN
+kafka_producer_request_latency_max{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 36.0
 # HELP kafka_producer_request_rate The number of requests sent per second
 # TYPE kafka_producer_request_rate gauge
-kafka_producer_request_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.16366076396844623
+kafka_producer_request_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.21935115927087676
 # HELP kafka_producer_request_size_avg The average size of requests sent.
 # TYPE kafka_producer_request_size_avg gauge
-kafka_producer_request_size_avg{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 60.2
+kafka_producer_request_size_avg{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 1048827.4
 # HELP kafka_producer_request_size_max The maximum size of any request sent.
 # TYPE kafka_producer_request_size_max gauge
-kafka_producer_request_size_max{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 68.0
+kafka_producer_request_size_max{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 1.0486259E7
 # HELP kafka_producer_requests_in_flight The current number of in-flight requests awaiting a response.
 # TYPE kafka_producer_requests_in_flight gauge
 kafka_producer_requests_in_flight{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.0
 # HELP kafka_producer_response_total The total number of responses received
 # TYPE kafka_producer_response_total counter
-kafka_producer_response_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 5.0
+kafka_producer_response_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 10.0
 # HELP kafka_producer_response_rate The number of responses received per second
 # TYPE kafka_producer_response_rate gauge
-kafka_producer_response_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.16365005073151573
+kafka_producer_response_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.21929343654744413
 # HELP kafka_producer_select_total The total number of times the I/O layer checked for new I/O to perform
 # TYPE kafka_producer_select_total counter
-kafka_producer_select_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 13.0
+kafka_producer_select_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 112.0
 # HELP kafka_producer_select_rate The number of times the I/O layer checked for new I/O to perform per second
 # TYPE kafka_producer_select_rate gauge
-kafka_producer_select_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.425531914893617
+kafka_producer_select_rate{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 2.4566790962930467
 # HELP kafka_producer_successful_authentication_total The total number of connections with successful authentication
 # TYPE kafka_producer_successful_authentication_total counter
 kafka_producer_successful_authentication_total{application="pulsemetry-telemetry-gateway",client_id="pulsemetry-telemetry-gateway",environment="local",kafka_version="4.2.1",service="gateway"} 0.0
@@ -406,13 +449,13 @@ kafka_producer_waiting_threads{application="pulsemetry-telemetry-gateway",client
 # HELP logback_events_total Number of log events that were enabled by the effective log level
 # TYPE logback_events_total counter
 logback_events_total{application="pulsemetry-telemetry-gateway",environment="local",level="debug",service="gateway"} 0.0
-logback_events_total{application="pulsemetry-telemetry-gateway",environment="local",level="error",service="gateway"} 0.0
-logback_events_total{application="pulsemetry-telemetry-gateway",environment="local",level="info",service="gateway"} 11.0
+logback_events_total{application="pulsemetry-telemetry-gateway",environment="local",level="error",service="gateway"} 1.0
+logback_events_total{application="pulsemetry-telemetry-gateway",environment="local",level="info",service="gateway"} 136.0
 logback_events_total{application="pulsemetry-telemetry-gateway",environment="local",level="trace",service="gateway"} 0.0
 logback_events_total{application="pulsemetry-telemetry-gateway",environment="local",level="warn",service="gateway"} 0.0
 # HELP process_cpu_time_ns_total The "cpu time" used by the Java Virtual Machine process
 # TYPE process_cpu_time_ns_total counter
-process_cpu_time_ns_total{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 6.016048E9
+process_cpu_time_ns_total{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 8.35056E9
 # HELP process_cpu_usage The "recent cpu usage" for the Java Virtual Machine process
 # TYPE process_cpu_usage gauge
 process_cpu_usage{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 0.0
@@ -421,19 +464,175 @@ process_cpu_usage{application="pulsemetry-telemetry-gateway",environment="local"
 process_files_max_files{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 1048576.0
 # HELP process_files_open_files The open file descriptor count
 # TYPE process_files_open_files gauge
-process_files_open_files{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 227.0
+process_files_open_files{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 251.0
 # HELP process_start_time_seconds Start time of the process since unix epoch.
 # TYPE process_start_time_seconds gauge
-process_start_time_seconds{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 1.792595134387E9
+process_start_time_seconds{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 1.792607327171E9
 # HELP process_uptime_seconds The uptime of the Java virtual machine
 # TYPE process_uptime_seconds gauge
-process_uptime_seconds{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 3.881
+process_uptime_seconds{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 19.039
 # HELP pulsemetry_gateway_inflight  
 # TYPE pulsemetry_gateway_inflight gauge
 pulsemetry_gateway_inflight{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 0.0
-# HELP pulsemetry_pipeline_inflight  
-# TYPE pulsemetry_pipeline_inflight gauge
-pulsemetry_pipeline_inflight{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 0.0
+# HELP pulsemetry_gateway_publish_total  
+# TYPE pulsemetry_gateway_publish_total counter
+pulsemetry_gateway_publish_total{application="pulsemetry-telemetry-gateway",environment="local",outcome="acknowledged",reason="none",service="gateway",signal="logs"} 4.0
+# HELP pulsemetry_gateway_publish_duration_seconds  
+# TYPE pulsemetry_gateway_publish_duration_seconds histogram
+pulsemetry_gateway_publish_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",outcome="acknowledged",service="gateway",signal="logs",le="0.005"} 0
+pulsemetry_gateway_publish_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",outcome="acknowledged",service="gateway",signal="logs",le="0.01"} 0
+pulsemetry_gateway_publish_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",outcome="acknowledged",service="gateway",signal="logs",le="0.025"} 3
+pulsemetry_gateway_publish_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",outcome="acknowledged",service="gateway",signal="logs",le="0.05"} 3
+pulsemetry_gateway_publish_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",outcome="acknowledged",service="gateway",signal="logs",le="0.1"} 4
+pulsemetry_gateway_publish_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",outcome="acknowledged",service="gateway",signal="logs",le="0.25"} 4
+pulsemetry_gateway_publish_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",outcome="acknowledged",service="gateway",signal="logs",le="0.5"} 4
+pulsemetry_gateway_publish_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",outcome="acknowledged",service="gateway",signal="logs",le="1.0"} 4
+pulsemetry_gateway_publish_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",outcome="acknowledged",service="gateway",signal="logs",le="2.5"} 4
+pulsemetry_gateway_publish_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",outcome="acknowledged",service="gateway",signal="logs",le="5.0"} 4
+pulsemetry_gateway_publish_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",outcome="acknowledged",service="gateway",signal="logs",le="10.0"} 4
+pulsemetry_gateway_publish_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",outcome="acknowledged",service="gateway",signal="logs",le="30.0"} 4
+pulsemetry_gateway_publish_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",outcome="acknowledged",service="gateway",signal="logs",le="+Inf"} 4
+pulsemetry_gateway_publish_duration_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",outcome="acknowledged",service="gateway",signal="logs"} 4
+pulsemetry_gateway_publish_duration_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",outcome="acknowledged",service="gateway",signal="logs"} 0.104711416
+# HELP pulsemetry_gateway_publish_duration_seconds_max  
+# TYPE pulsemetry_gateway_publish_duration_seconds_max gauge
+pulsemetry_gateway_publish_duration_seconds_max{application="pulsemetry-telemetry-gateway",environment="local",outcome="acknowledged",service="gateway",signal="logs"} 0.069690666
+# HELP pulsemetry_gateway_rejections_total  
+# TYPE pulsemetry_gateway_rejections_total counter
+pulsemetry_gateway_rejections_total{application="pulsemetry-telemetry-gateway",environment="local",reason="jwt_expired",service="gateway",stage="authenticate"} 1.0
+pulsemetry_gateway_rejections_total{application="pulsemetry-telemetry-gateway",environment="local",reason="jwt_kid_unknown",service="gateway",stage="authenticate"} 1.0
+pulsemetry_gateway_rejections_total{application="pulsemetry-telemetry-gateway",environment="local",reason="jwt_lifetime",service="gateway",stage="authenticate"} 1.0
+pulsemetry_gateway_rejections_total{application="pulsemetry-telemetry-gateway",environment="local",reason="jwt_malformed",service="gateway",stage="authenticate"} 3.0
+pulsemetry_gateway_rejections_total{application="pulsemetry-telemetry-gateway",environment="local",reason="jwt_signature",service="gateway",stage="authenticate"} 1.0
+pulsemetry_gateway_rejections_total{application="pulsemetry-telemetry-gateway",environment="local",reason="jwt_type",service="gateway",stage="authenticate"} 1.0
+pulsemetry_gateway_rejections_total{application="pulsemetry-telemetry-gateway",environment="local",reason="method_not_allowed",service="gateway",stage="request"} 1.0
+pulsemetry_gateway_rejections_total{application="pulsemetry-telemetry-gateway",environment="local",reason="missing_bearer",service="gateway",stage="authenticate"} 2.0
+pulsemetry_gateway_rejections_total{application="pulsemetry-telemetry-gateway",environment="local",reason="payload_too_large",service="gateway",stage="request"} 1.0
+pulsemetry_gateway_rejections_total{application="pulsemetry-telemetry-gateway",environment="local",reason="unsupported_content_encoding",service="gateway",stage="request"} 2.0
+pulsemetry_gateway_rejections_total{application="pulsemetry-telemetry-gateway",environment="local",reason="unsupported_media_type",service="gateway",stage="request"} 1.0
+# HELP pulsemetry_gateway_request_bytes  
+# TYPE pulsemetry_gateway_request_bytes histogram
+pulsemetry_gateway_request_bytes_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",le="1024.0"} 3
+pulsemetry_gateway_request_bytes_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",le="16384.0"} 3
+pulsemetry_gateway_request_bytes_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",le="65536.0"} 3
+pulsemetry_gateway_request_bytes_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",le="262144.0"} 3
+pulsemetry_gateway_request_bytes_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",le="1048576.0"} 3
+pulsemetry_gateway_request_bytes_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",le="4194304.0"} 3
+pulsemetry_gateway_request_bytes_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",le="1.048576E7"} 4
+pulsemetry_gateway_request_bytes_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",le="+Inf"} 4
+pulsemetry_gateway_request_bytes_count{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs"} 4
+pulsemetry_gateway_request_bytes_sum{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs"} 1.0485923E7
+# HELP pulsemetry_gateway_request_bytes_max  
+# TYPE pulsemetry_gateway_request_bytes_max gauge
+pulsemetry_gateway_request_bytes_max{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs"} 1.048576E7
+# HELP pulsemetry_gateway_request_duration_seconds  
+# TYPE pulsemetry_gateway_request_duration_seconds histogram
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="200",le="0.005"} 0
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="200",le="0.01"} 0
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="200",le="0.025"} 3
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="200",le="0.05"} 3
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="200",le="0.1"} 4
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="200",le="0.25"} 4
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="200",le="0.5"} 4
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="200",le="1.0"} 4
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="200",le="2.5"} 4
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="200",le="5.0"} 4
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="200",le="10.0"} 4
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="200",le="30.0"} 4
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="200",le="+Inf"} 4
+pulsemetry_gateway_request_duration_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="200"} 4
+pulsemetry_gateway_request_duration_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="200"} 0.123204335
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="400",le="0.005"} 2
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="400",le="0.01"} 2
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="400",le="0.025"} 2
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="400",le="0.05"} 2
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="400",le="0.1"} 2
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="400",le="0.25"} 2
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="400",le="0.5"} 2
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="400",le="1.0"} 2
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="400",le="2.5"} 2
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="400",le="5.0"} 2
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="400",le="10.0"} 2
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="400",le="30.0"} 2
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="400",le="+Inf"} 2
+pulsemetry_gateway_request_duration_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="400"} 2
+pulsemetry_gateway_request_duration_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="400"} 0.00198875
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="401",le="0.005"} 10
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="401",le="0.01"} 10
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="401",le="0.025"} 10
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="401",le="0.05"} 10
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="401",le="0.1"} 10
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="401",le="0.25"} 10
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="401",le="0.5"} 10
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="401",le="1.0"} 10
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="401",le="2.5"} 10
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="401",le="5.0"} 10
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="401",le="10.0"} 10
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="401",le="30.0"} 10
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="401",le="+Inf"} 10
+pulsemetry_gateway_request_duration_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="401"} 10
+pulsemetry_gateway_request_duration_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="401"} 0.008048708
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="405",le="0.005"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="405",le="0.01"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="405",le="0.025"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="405",le="0.05"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="405",le="0.1"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="405",le="0.25"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="405",le="0.5"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="405",le="1.0"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="405",le="2.5"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="405",le="5.0"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="405",le="10.0"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="405",le="30.0"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="405",le="+Inf"} 1
+pulsemetry_gateway_request_duration_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="405"} 1
+pulsemetry_gateway_request_duration_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="405"} 8.40792E-4
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="413",le="0.005"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="413",le="0.01"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="413",le="0.025"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="413",le="0.05"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="413",le="0.1"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="413",le="0.25"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="413",le="0.5"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="413",le="1.0"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="413",le="2.5"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="413",le="5.0"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="413",le="10.0"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="413",le="30.0"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="413",le="+Inf"} 1
+pulsemetry_gateway_request_duration_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="413"} 1
+pulsemetry_gateway_request_duration_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="413"} 7.53083E-4
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="415",le="0.005"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="415",le="0.01"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="415",le="0.025"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="415",le="0.05"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="415",le="0.1"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="415",le="0.25"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="415",le="0.5"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="415",le="1.0"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="415",le="2.5"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="415",le="5.0"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="415",le="10.0"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="415",le="30.0"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="415",le="+Inf"} 1
+pulsemetry_gateway_request_duration_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="415"} 1
+pulsemetry_gateway_request_duration_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="415"} 0.001060333
+# HELP pulsemetry_gateway_request_duration_seconds_max  
+# TYPE pulsemetry_gateway_request_duration_seconds_max gauge
+pulsemetry_gateway_request_duration_seconds_max{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="200"} 0.086344792
+pulsemetry_gateway_request_duration_seconds_max{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="400"} 0.00128625
+pulsemetry_gateway_request_duration_seconds_max{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="401"} 0.00249975
+pulsemetry_gateway_request_duration_seconds_max{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="405"} 8.40792E-4
+pulsemetry_gateway_request_duration_seconds_max{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="413"} 7.53083E-4
+pulsemetry_gateway_request_duration_seconds_max{application="pulsemetry-telemetry-gateway",environment="local",service="gateway",signal="logs",status="415"} 0.001060333
+# HELP pulsemetry_gateway_requests_total  
+# TYPE pulsemetry_gateway_requests_total counter
+pulsemetry_gateway_requests_total{application="pulsemetry-telemetry-gateway",environment="local",outcome="accepted",service="gateway",signal="logs",status="200"} 4.0
+pulsemetry_gateway_requests_total{application="pulsemetry-telemetry-gateway",environment="local",outcome="rejected",service="gateway",signal="logs",status="400"} 2.0
+pulsemetry_gateway_requests_total{application="pulsemetry-telemetry-gateway",environment="local",outcome="rejected",service="gateway",signal="logs",status="401"} 10.0
+pulsemetry_gateway_requests_total{application="pulsemetry-telemetry-gateway",environment="local",outcome="rejected",service="gateway",signal="logs",status="405"} 1.0
+pulsemetry_gateway_requests_total{application="pulsemetry-telemetry-gateway",environment="local",outcome="rejected",service="gateway",signal="logs",status="413"} 1.0
+pulsemetry_gateway_requests_total{application="pulsemetry-telemetry-gateway",environment="local",outcome="rejected",service="gateway",signal="logs",status="415"} 1.0
 # HELP system_cpu_count The number of processors available to the Java virtual machine
 # TYPE system_cpu_count gauge
 system_cpu_count{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 15.0
@@ -442,7 +641,7 @@ system_cpu_count{application="pulsemetry-telemetry-gateway",environment="local",
 system_cpu_usage{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 0.0
 # HELP system_load_average_1m The sum of the number of runnable entities queued to available processors and the number of runnable entities running on the available processors averaged over a period of time
 # TYPE system_load_average_1m gauge
-system_load_average_1m{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 3.37939453125
+system_load_average_1m{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 3.83837890625
 # HELP tomcat_cache_access_total  
 # TYPE tomcat_cache_access_total counter
 tomcat_cache_access_total{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 0.0
@@ -454,36 +653,36 @@ tomcat_cache_hit_total{application="pulsemetry-telemetry-gateway",environment="l
 tomcat_connections_config_max_connections{application="pulsemetry-telemetry-gateway",environment="local",name="http-nio-auto-1",service="gateway"} 8192.0
 # HELP tomcat_connections_current_connections  
 # TYPE tomcat_connections_current_connections gauge
-tomcat_connections_current_connections{application="pulsemetry-telemetry-gateway",environment="local",name="http-nio-auto-1",service="gateway"} 1.0
+tomcat_connections_current_connections{application="pulsemetry-telemetry-gateway",environment="local",name="http-nio-auto-1",service="gateway"} 2.0
 # HELP tomcat_connections_keepalive_current_connections  
 # TYPE tomcat_connections_keepalive_current_connections gauge
-tomcat_connections_keepalive_current_connections{application="pulsemetry-telemetry-gateway",environment="local",name="http-nio-auto-1",service="gateway"} 0.0
+tomcat_connections_keepalive_current_connections{application="pulsemetry-telemetry-gateway",environment="local",name="http-nio-auto-1",service="gateway"} 1.0
 # HELP tomcat_global_error_total  
 # TYPE tomcat_global_error_total counter
-tomcat_global_error_total{application="pulsemetry-telemetry-gateway",environment="local",name="http-nio-auto-1",service="gateway"} 0.0
+tomcat_global_error_total{application="pulsemetry-telemetry-gateway",environment="local",name="http-nio-auto-1",service="gateway"} 16.0
 # HELP tomcat_global_received_bytes_total  
 # TYPE tomcat_global_received_bytes_total counter
-tomcat_global_received_bytes_total{application="pulsemetry-telemetry-gateway",environment="local",name="http-nio-auto-1",service="gateway"} 0.0
+tomcat_global_received_bytes_total{application="pulsemetry-telemetry-gateway",environment="local",name="http-nio-auto-1",service="gateway"} 1.0485923E7
 # HELP tomcat_global_request_max_seconds  
 # TYPE tomcat_global_request_max_seconds gauge
-tomcat_global_request_max_seconds{application="pulsemetry-telemetry-gateway",environment="local",name="http-nio-auto-1",service="gateway"} 0.0
+tomcat_global_request_max_seconds{application="pulsemetry-telemetry-gateway",environment="local",name="http-nio-auto-1",service="gateway"} 0.087
 # HELP tomcat_global_request_seconds  
 # TYPE tomcat_global_request_seconds summary
-tomcat_global_request_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",name="http-nio-auto-1",service="gateway"} 0
-tomcat_global_request_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",name="http-nio-auto-1",service="gateway"} 0.0
+tomcat_global_request_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",name="http-nio-auto-1",service="gateway"} 21
+tomcat_global_request_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",name="http-nio-auto-1",service="gateway"} 0.185
 # HELP tomcat_global_sent_bytes_total  
 # TYPE tomcat_global_sent_bytes_total counter
-tomcat_global_sent_bytes_total{application="pulsemetry-telemetry-gateway",environment="local",name="http-nio-auto-1",service="gateway"} 0.0
+tomcat_global_sent_bytes_total{application="pulsemetry-telemetry-gateway",environment="local",name="http-nio-auto-1",service="gateway"} 1032.0
 # HELP tomcat_servlet_error_total  
 # TYPE tomcat_servlet_error_total counter
 tomcat_servlet_error_total{application="pulsemetry-telemetry-gateway",environment="local",name="dispatcherServlet",service="gateway"} 0.0
 # HELP tomcat_servlet_request_max_seconds  
 # TYPE tomcat_servlet_request_max_seconds gauge
-tomcat_servlet_request_max_seconds{application="pulsemetry-telemetry-gateway",environment="local",name="dispatcherServlet",service="gateway"} 0.0
+tomcat_servlet_request_max_seconds{application="pulsemetry-telemetry-gateway",environment="local",name="dispatcherServlet",service="gateway"} 0.087
 # HELP tomcat_servlet_request_seconds  
 # TYPE tomcat_servlet_request_seconds summary
-tomcat_servlet_request_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",name="dispatcherServlet",service="gateway"} 0
-tomcat_servlet_request_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",name="dispatcherServlet",service="gateway"} 0.0
+tomcat_servlet_request_seconds_count{application="pulsemetry-telemetry-gateway",environment="local",name="dispatcherServlet",service="gateway"} 21
+tomcat_servlet_request_seconds_sum{application="pulsemetry-telemetry-gateway",environment="local",name="dispatcherServlet",service="gateway"} 0.185
 # HELP tomcat_sessions_active_current_sessions  
 # TYPE tomcat_sessions_active_current_sessions gauge
 tomcat_sessions_active_current_sessions{application="pulsemetry-telemetry-gateway",environment="local",service="gateway"} 0.0
