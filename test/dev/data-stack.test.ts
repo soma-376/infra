@@ -181,7 +181,7 @@ describe('DevDataStack', () => {
     };
     expect(JSON.stringify(iam)).not.toContain('secretsmanager:');
     const outputs = JSON.stringify(template.findOutputs('*'));
-    expect(outputs).not.toMatch(/DevDashboard|SecretString/);
+    expect(outputs).not.toMatch(/SecretString|resolve:secretsmanager|BEGIN (PRIVATE|PUBLIC) KEY/);
   });
 
   test('폐기한 파생 접속 시크릿을 만들지 않는다', () => {

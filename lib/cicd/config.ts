@@ -146,7 +146,7 @@ export interface DeployTarget {
  *
  * dev backend 역할은 ADR-0026의 `enrollment-api`와 `telemetry-ingest`를 배포한다.
  * PROJ-226은 ECS/EKS가 공유할 `dashboard-api` 이미지 공급 권한만 추가한다.
- * dashboard-api의 ECS 서비스 정의와 재배포 권한은 PROJ-221에서 관리한다.
+ * PROJ-221은 dashboard-api의 ECS 서비스와 재배포 권한을 추가한다.
  * 기존 dev `api-server` / `batch-processor` / `dashboard` 권한은 회수한 상태를 유지한다.
  *
  * dev pipeline 역할은 OIDC 신뢰 정책과 ARN output을 유지하기 위해 target 행 자체는 남기되,
@@ -174,6 +174,7 @@ export const DEPLOY_TARGETS: Readonly<
       services: [
         ECS_SERVICE_NAMES.enrollmentApi,
         ECS_SERVICE_NAMES.telemetryIngest,
+        ECS_SERVICE_NAMES.dashboardApi,
       ],
     },
   ],

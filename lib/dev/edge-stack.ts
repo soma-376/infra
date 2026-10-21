@@ -1,3 +1,4 @@
+import { installDevAppRoutes } from './app-routing';
 import { CfnOutput, Stack, StackProps } from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
 import { ISecurityGroup, IVpc, SubnetType } from 'aws-cdk-lib/aws-ec2';
@@ -7,16 +8,11 @@ import {
   ApplicationProtocol,
   ApplicationTargetGroup,
   ListenerAction,
-  ListenerCondition,
   TargetType,
 } from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import { PORTS } from '../common/config';
 import {
-  DEV_BOOTSTRAP_PATHS,
   DEV_DEREGISTRATION_DELAY,
-  DEV_ENROLLMENT_API_PATHS,
-  DEV_ENROLLMENT_MANAGEMENT_PATHS,
-  DEV_OTLP_PATHS,
 } from './config';
 import { DevWaf } from './waf';
 import { DevEksValidationEdge } from './eks-validation-edge';
@@ -30,6 +26,7 @@ export interface DevEdgeStackProps extends StackProps {
   readonly telemetryIngestService: Ec2Service;
   /** 등록·인증·관리 API와 bootstrap 경로가 공유하는 타깃. */
   readonly enrollmentApiService: Ec2Service;
+  readonly dashboardApiService: Ec2Service;
   readonly clickhouseService: Ec2Service;
   /** RDS 엔드포인트 호스트명 (CfnOutput 용). */
   readonly dbEndpoint: string;
@@ -174,34 +171,17 @@ export class DevEdgeStack extends Stack {
       }),
     );
 
-    listener.addAction('DevOtlpForward', {
-      priority: 1,
-      conditions: [
-        ListenerCondition.pathPatterns([...DEV_OTLP_PATHS]),
-      ],
-      action: ListenerAction.forward([telemetryIngestTargetGroup]),
+    const dashboardApiTargetGroup = new ApplicationTargetGroup(this, 'DevDashboardApiTg', {
+      vpc: props.vpc, port: PORTS.dashboardApi, protocol: ApplicationProtocol.HTTP,
+      targetType: TargetType.INSTANCE, deregistrationDelay: DEV_DEREGISTRATION_DELAY,
+      healthCheck: { path: '/api/v1/healthz', healthyHttpCodes: '200' },
     });
-    listener.addAction('DevEnrollmentForward', {
-      priority: 3,
-      conditions: [
-        ListenerCondition.pathPatterns([...DEV_ENROLLMENT_API_PATHS]),
-      ],
-      action: ListenerAction.forward([enrollmentApiTargetGroup]),
-    });
-    listener.addAction('DevBootstrapForward', {
-      priority: 4,
-      conditions: [
-        ListenerCondition.pathPatterns([...DEV_BOOTSTRAP_PATHS]),
-      ],
-      action: ListenerAction.forward([enrollmentApiTargetGroup]),
-    });
-    listener.addAction('DevEnrollmentManagementForward', {
-      priority: 5,
-      conditions: [
-        ListenerCondition.pathPatterns([...DEV_ENROLLMENT_MANAGEMENT_PATHS]),
-      ],
-      action: ListenerAction.forward([enrollmentApiTargetGroup]),
-    });
+    dashboardApiTargetGroup.addTarget(props.dashboardApiService.loadBalancerTarget({
+      containerName: 'dashboard-api', containerPort: PORTS.dashboardApi,
+    }));
+    installDevAppRoutes(this, listener, { enrollment: enrollmentApiTargetGroup,
+      dashboard: dashboardApiTargetGroup, ingest: telemetryIngestTargetGroup });
+
   }
 
   /**

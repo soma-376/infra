@@ -102,7 +102,7 @@ describe('DEPLOY_TARGETS', () => {
     expect(ECR_REPOS.dashboardApi).toEqual('soma-376/dashboard-api');
   });
 
-  test('dev backend 역할은 dashboard-api 이미지 공급 대상만 추가한다', () => {
+  test('dev backend 역할은 세 앱의 이미지 공급과 ECS 재배포를 허용한다', () => {
     expect(DEPLOY_TARGETS.dev[1]).toEqual({
       repo: GITHUB_REPOS.dashboard,
       ecrRepos: [
@@ -113,6 +113,7 @@ describe('DEPLOY_TARGETS', () => {
       services: [
         ECS_SERVICE_NAMES.enrollmentApi,
         ECS_SERVICE_NAMES.telemetryIngest,
+        ECS_SERVICE_NAMES.dashboardApi,
       ],
     });
   });

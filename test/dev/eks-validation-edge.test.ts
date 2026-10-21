@@ -12,7 +12,7 @@ test('검증 ALB는 신규 TG만 사용하고 기존 ECS forwarding과 WAF 정�
   const after = edge.toJSON();
   for (const [id, resource] of Object.entries(before.Resources)) expect(after.Resources[id]).toEqual(resource);
   edge.resourceCountIs('AWS::ElasticLoadBalancingV2::LoadBalancer', 2);
-  edge.resourceCountIs('AWS::ElasticLoadBalancingV2::TargetGroup', 6);
+  edge.resourceCountIs('AWS::ElasticLoadBalancingV2::TargetGroup', 7);
   edge.resourceCountIs('AWS::WAFv2::WebACL', 1);
   edge.resourceCountIs('AWS::WAFv2::WebACLAssociation', 2);
   edge.resourceCountIs('AWS::EC2::SecurityGroupIngress', 0);

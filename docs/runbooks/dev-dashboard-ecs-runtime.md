@@ -1,7 +1,7 @@
 # dev dashboard ECS runtime 입력과 로컬 검증
 
-PROJ-230은 네 DB 연결 helper와 enrollment JWT writer를 제공한다. dashboard 서비스 연결은
-PROJ-221이다. 원본은 `DevDataStack`의 기존 `ISecret`이며 실제 키 생성·등록·DB 계정 준비는
+PROJ-230은 네 DB 연결 helper와 enrollment JWT writer를 제공한다. PROJ-221은 dashboard
+서비스·공개키 writer·전용 TG·backend dev 재배포 권한을 연결한다. 원본은 `DevDataStack`의 기존 `ISecret`이며 실제 키 생성·등록·DB 계정 준비는
 [공통 준비 런북](dev-dashboard-prerequisites.md)과 ADR-0030·0031의 수동 절차를 따른다.
 이 구현과 fixture 검증은 실제 원본·이미지·AWS 배포의 존재를 증명하지 않는다.
 
@@ -54,3 +54,20 @@ Docker daemon이 없는 환경에서는 이미지 실행과 UID10001의 Linux/Do
 검증한 것으로 기록하지 않는다. CDK의 SUCCESS 의존성 검사는 실제 ECS 실패 시 미기동 증거와
 구분한다. 실제 Secret 조회, 이미지 push, DB 준비, CDK/Helm 배포, 인증·snapshot·복구 검증은
 이 작업에서 수행하지 않는다.
+
+## PROJ-221 서비스와 라우팅
+
+dev는 enrollment-api·telemetry-ingest·dashboard-api·clickhouse 네 서비스다. dashboard는
+8081·bridge·동적 host port·1024 MiB 소프트 예약이며 기존 app capacity provider와 0/100
+교체 정책을 공유한다. 앱 셋의 3072 MiB에 writer 두 개의 64 MiB 예약을 더하면 3200 MiB다.
+실제 placement와 동시 peak 여유는 배포 후 확인해야 한다.
+
+`lib/dev/app-routing.ts`가 허브 계약의 path·method·OPTIONS를 ECS/EKS 공통으로 설치한다.
+조직 onboarding·invitations GET과 auth/me는 enrollment에 남고 dashboard GET과 기존 쓰기를
+분리한다. preflight는 지원 path와 Access-Control-Request-Method가 모두 맞을 때만 전달한다.
+HEAD·미지원 method·여분 segment·공개 health 경로는 default 404다. 기존 OTLP 세 경로는
+priority 1의 path 조건을 유지한다. vendor catalog 두 경로의 WAF 검사만 추가하고 기존 넓은
+조직/auth 검사·등록 rate 세 조건·OTLP Count/Block 경계를 유지한다.
+
+backend dev 역할에는 dashboard-api의 UpdateService/DescribeServices만 추가한다.
+기존 ECR 공급 권한과 prod·다른 역할·trust는 보존한다. 앱 레포 workflow는 이 변경에서 수정하지 않는다.

@@ -1,5 +1,5 @@
-import { DashboardRuntimeConfig, loadDashboardRuntimeConfig } from './dashboard-runtime-config';
 import { DevEksConfig, loadDevEksConfig } from './eks-config';
+import { DashboardRuntimeConfig, loadDashboardRuntimeConfig } from './dashboard-runtime-config';
 import { Annotations, App, Duration } from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
 import { InstanceClass, InstanceSize, InstanceType } from 'aws-cdk-lib/aws-ec2';
@@ -290,8 +290,8 @@ export interface DevConfig {
  */
 export function loadDevConfig(app: App): DevConfig {
   return {
-    dashboardRuntime: loadDashboardRuntimeConfig(app),
     eks: loadDevEksConfig(app),
+    dashboardRuntime: loadDashboardRuntimeConfig(app),
     allowedCidrs: parseAllowedCidrs(
       app.node.tryGetContext('devAllowedCidr') as string | undefined,
     ),

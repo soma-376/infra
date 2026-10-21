@@ -380,11 +380,12 @@ describe('DeployStack', () => {
       );
     });
 
-    test('backend dev 역할의 ECS 재배포 대상은 기존 두 서비스로 유지한다', () => {
+    test('backend dev 역할의 ECS 재배포 대상은 dashboard를 포함한 세 앱이다', () => {
       expect(ecsServicesFor(DASHBOARD_DEV)).toEqual(
         [
           `${ECS_CLUSTER_NAMES.dev}/${ECS_SERVICE_NAMES.enrollmentApi}`,
           `${ECS_CLUSTER_NAMES.dev}/${ECS_SERVICE_NAMES.telemetryIngest}`,
+          `${ECS_CLUSTER_NAMES.dev}/${ECS_SERVICE_NAMES.dashboardApi}`,
         ].sort(),
       );
     });
@@ -403,6 +404,17 @@ describe('DeployStack', () => {
         expect(resourceTextFor(role)).not.toContain(
           `:repository/${ECR_REPOS.dashboardApi}`,
         );
+      }
+    });
+
+    test('dashboard-api 재배포 권한은 backend dev 역할에만 있고 JWT·writer 공급 권한은 없다', () => {
+      for (const role of ALL_ROLES) {
+        const actions = actionsFor(role);
+        expect(actions.some((action) => action.startsWith('secretsmanager:'))).toBe(false);
+        expect(resourceTextFor(role)).not.toContain(':repository/soma-376/jwt-key-writer');
+        if (role !== DASHBOARD_DEV) {
+          expect(resourceTextFor(role)).not.toContain(`/${ECS_SERVICE_NAMES.dashboardApi}`);
+        }
       }
     });
 
