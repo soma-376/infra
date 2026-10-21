@@ -1,0 +1,29 @@
+# Kafka CLI 이미지와 MSK IAM jar는 검증한 고정값이다. 바꾸려면 schema와 함께 갱신한다. (ADR-0036)
+# apache/kafka:3.9.2 multi-arch index digest (registry-1.docker.io, 2026-10-21 확인)
+image:
+  repository: docker.io/apache/kafka
+  digest: sha256:05b4616e0702ef2729327705d54ad6b50ea70b271c4b730fabd2320789fb7b02
+# GitHub release asset과 같은 release의 .sha256 파일로 대조한 값이다.
+iamAuthJar:
+  url: https://github.com/aws/aws-msk-iam-auth/releases/download/v2.3.9/aws-msk-iam-auth-2.3.9-all.jar
+  sha256: 922064f312ddc8a5f3dbe65fcef3d02ddbd588a02e3a6f0fca4b5a4dbec1ba43
+# 아래 값은 generated/telemetry-kafka-admin.yaml이 CDK output과 bootstrap 조회 JSON에서 채운다.
+region: ap-northeast-2
+bootstrapServers: ""
+stage: ""
+topic: ""
+consumerGroup: ""
+topicAdmin:
+  roleArn: ""
+  sessionName: ""
+offsetAdmin:
+  roleArn: ""
+  sessionName: ""
+# 기본 release는 topic 생성·대조만 수행한다.
+topicInit:
+  enabled: true
+# 수동 재처리는 별도 실행에서만 켠다. 기본 plan은 --dry-run이며 execute는 명시해야 한다.
+# partition+toOffset(한 partition) 또는 toDatetime(전체 partition) 중 하나만 지정한다.
+offsets:
+  enabled: false
+  mode: plan

@@ -507,6 +507,155 @@ function checkTelemetry(chart) {
   return documents;
 }
 
+const KAFKA_ADMIN_VALUES = {
+  bootstrapServers: BOOTSTRAP, stage: 'validation',
+  topic: 'pulsemetry-dev-telemetry-ingress-validation', consumerGroup: 'pulsemetry-dev-telemetry-ingest-validation',
+  topicAdmin: { roleArn: 'arn:aws:iam::000000000000:role/fixture-topic-admin', sessionName: 'pulsemetry-dev-telemetry-kafka-admin' },
+  offsetAdmin: { roleArn: 'arn:aws:iam::000000000000:role/fixture-offset-admin', sessionName: 'pulsemetry-dev-telemetry-kafka-offsets' },
+};
+
+// Kafka CLI를 기록용 stub으로 바꿔 Job의 실제 shell을 실행한다. MSK·AWS에는 접속하지 않는다.
+function runJobScript(job, stub) {
+  const container = job.spec.template.spec.containers[0];
+  const directory = mkdtempSync(resolve(temporary, 'kafka-stub-'));
+  const log = resolve(directory, 'calls.log');
+  writeFileSync(log, '');
+  const tool = (name, body) => {
+    const path = resolve(directory, name);
+    writeFileSync(path, `#!/bin/sh\necho "${name} $*" >> "$STUB_LOG"\n${body}\n`, { mode: 0o755 });
+  };
+  tool('kafka-topics.sh', 'case "$*" in *--describe*) printf "Topic: %s\\tTopicId: x\\tPartitionCount: %s\\tReplicationFactor: %s\\tConfigs: x\\n\\tTopic: %s\\tPartition: 0\\n" "$PULSEMETRY_KAFKA_TOPIC" "$STUB_PARTITIONS" "$STUB_RF" "$PULSEMETRY_KAFKA_TOPIC";; esac');
+  tool('kafka-configs.sh', 'printf "%s\\n" "$STUB_CONFIGS"');
+  tool('kafka-consumer-groups.sh', 'case "$*" in *--state*) printf "%s\\n" "$STUB_STATE";; esac');
+  const env = { PATH: process.env.PATH, ...Object.fromEntries(container.env.map(item => [item.name, item.value])),
+    KAFKA_BIN: directory, CLIENT_CONFIG: resolve(directory, 'client.properties'), STUB_LOG: log, ...stub };
+  const result = run('/bin/sh', ['-ec', container.args[0]], { env });
+  return { status: result.status, output: result.stdout + result.stderr, calls: readFileSync(log, 'utf8').trim().split('\n').filter(Boolean) };
+}
+
+const GOOD_CONFIGS = [
+  'All configs for topic pulsemetry-dev-telemetry-ingress-validation are:',
+  '  cleanup.policy=delete sensitive=false synonyms={DYNAMIC_TOPIC_CONFIG:cleanup.policy=delete}',
+  '  max.message.bytes=13631488 sensitive=false synonyms={DYNAMIC_TOPIC_CONFIG:max.message.bytes=13631488, STATIC_BROKER_CONFIG:message.max.bytes=13631488}',
+  '  min.insync.replicas=2 sensitive=false synonyms={DYNAMIC_TOPIC_CONFIG:min.insync.replicas=2, STATIC_BROKER_CONFIG:min.insync.replicas=2}',
+  '  retention.ms=259200000 sensitive=false synonyms={DYNAMIC_TOPIC_CONFIG:retention.ms=259200000}',
+  '  unclean.leader.election.enable=false sensitive=false synonyms={DYNAMIC_TOPIC_CONFIG:unclean.leader.election.enable=false}',
+].join('\n');
+
+// PROJ-246: topic 초기화와 수동 offset Job의 IAM client 설정·고정 이미지·대조 shell을 검사한다. (ADR-0035·0036)
+function checkKafkaAdmin() {
+  const chart = 'helm/dev/workloads/telemetry-kafka-admin';
+  const documents = render('telemetry-kafka-admin', chart, KAFKA_ADMIN_VALUES);
+  assert.deepEqual(documents.map(document => `${document.kind}/${document.metadata.name}`).sort(), [
+    'ConfigMap/telemetry-kafka-admin-client', 'ConfigMap/telemetry-kafka-offsets-client', 'Job/telemetry-topic-init-r1',
+    'ServiceAccount/telemetry-kafka-admin', 'ServiceAccount/telemetry-kafka-offsets',
+  ]);
+  for (const name of ['telemetry-kafka-admin', 'telemetry-kafka-offsets']) assert.equal(find(documents, 'ServiceAccount', name).automountServiceAccountToken, false);
+  for (const [name, role] of [['telemetry-kafka-admin-client', KAFKA_ADMIN_VALUES.topicAdmin], ['telemetry-kafka-offsets-client', KAFKA_ADMIN_VALUES.offsetAdmin]]) {
+    assert.equal(find(documents, 'ConfigMap', name).data['client.properties'], [
+      'security.protocol=SASL_SSL', 'sasl.mechanism=AWS_MSK_IAM',
+      `sasl.jaas.config=software.amazon.msk.auth.iam.IAMLoginModule required awsRoleArn="${role.roleArn}" awsRoleSessionName="${role.sessionName}" awsStsRegion="ap-northeast-2";`,
+      'sasl.client.callback.handler.class=software.amazon.msk.auth.iam.IAMClientCallbackHandler', ''].join('\n'));
+  }
+  const job = find(documents, 'Job', 'telemetry-topic-init-r1');
+  const pod = job.spec.template.spec;
+  assert.equal(job.spec.backoffLimit, 0);
+  assert.equal(pod.restartPolicy, 'Never');
+  assert.equal(pod.serviceAccountName, 'telemetry-kafka-admin');
+  assert.deepEqual(pod.nodeSelector, { 'kubernetes.io/arch': 'arm64', 'karpenter.sh/nodepool': 'pulsemetry-dev-apps' });
+  const image = 'docker.io/apache/kafka@sha256:05b4616e0702ef2729327705d54ad6b50ea70b271c4b730fabd2320789fb7b02';
+  assert.equal(pod.initContainers[0].image, image);
+  assert.equal(pod.containers[0].image, image);
+  const initEnv = Object.fromEntries(pod.initContainers[0].env.map(item => [item.name, item.value]));
+  assert.equal(initEnv.JAR_URL, 'https://github.com/aws/aws-msk-iam-auth/releases/download/v2.3.9/aws-msk-iam-auth-2.3.9-all.jar');
+  assert.equal(initEnv.JAR_SHA256, '922064f312ddc8a5f3dbe65fcef3d02ddbd588a02e3a6f0fca4b5a4dbec1ba43');
+  assert.ok(pod.initContainers[0].args[0].includes('sha256sum -c -'));
+  for (const container of [...pod.initContainers, ...pod.containers]) {
+    assert.deepEqual(container.securityContext, { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ['ALL'] } });
+  }
+  assert.deepEqual(pod.volumes.find(volume => volume.name === 'client-config'), { name: 'client-config', configMap: { name: 'telemetry-kafka-admin-client' } });
+  assert.ok(!JSON.stringify(documents).match(/secretKeyRef|kind":"Secret|AWS_ACCESS_KEY_ID/));
+  // topic 초기화 shell: 없을 때만 생성하고, 다르면 실패하며 다시 만들지 않는다.
+  const good = runJobScript(job, { STUB_PARTITIONS: '6', STUB_RF: '3', STUB_CONFIGS: GOOD_CONFIGS });
+  assert.equal(good.status, 0, good.output);
+  assert.match(good.calls[0], /--create --if-not-exists --topic pulsemetry-dev-telemetry-ingress-validation --partitions 6 --replication-factor 3 --config min.insync.replicas=2 --config retention.ms=259200000 --config cleanup.policy=delete --config max.message.bytes=13631488 --config unclean.leader.election.enable=false$/);
+  assert.equal(good.calls.filter(call => call.includes('--create')).length, 1);
+  assert.ok(!good.calls.some(call => /--delete|--alter/.test(call)));
+  for (const stub of [
+    { STUB_PARTITIONS: '3', STUB_RF: '3', STUB_CONFIGS: GOOD_CONFIGS },
+    { STUB_PARTITIONS: '6', STUB_RF: '2', STUB_CONFIGS: GOOD_CONFIGS },
+    { STUB_PARTITIONS: '6', STUB_RF: '3', STUB_CONFIGS: GOOD_CONFIGS.replace('  min.insync.replicas=2 sensitive', '  min.insync.replicas=1 sensitive') },
+    { STUB_PARTITIONS: '6', STUB_RF: '3', STUB_CONFIGS: GOOD_CONFIGS.replace('  unclean.leader.election.enable=false', '  unclean.leader.election.enable=true') },
+    { STUB_PARTITIONS: '6', STUB_RF: '3', STUB_CONFIGS: GOOD_CONFIGS.replace('  max.message.bytes=13631488 sensitive', '  max.message.bytes=1048588 sensitive') },
+    { STUB_PARTITIONS: '60', STUB_RF: '3', STUB_CONFIGS: GOOD_CONFIGS },
+  ]) {
+    const result = runJobScript(job, stub);
+    assert.notEqual(result.status, 0, `불일치 topic을 통과시켰다: ${JSON.stringify(stub)}`);
+    assert.match(result.output, /불일치/);
+    assert.equal(result.calls.filter(call => call.includes('--create')).length, 1);
+    negativeCases++;
+  }
+  const kafkaDocuments = [...documents];
+  // offset Job: 기본 plan은 --dry-run, execute는 명시적 입력이며 group이 비어 있어야 한다.
+  for (const offsets of [
+    { enabled: true, mode: 'plan', toDatetime: '2026-10-21T00:00:00.000+09:00' },
+    { enabled: true, mode: 'execute', partition: 2, toOffset: 1234 },
+  ]) {
+    const rendered = render('telemetry-kafka-admin', chart, { ...KAFKA_ADMIN_VALUES, topicInit: { enabled: false }, offsets });
+    kafkaDocuments.push(...rendered);
+    const offsetsJob = find(rendered, 'Job', `telemetry-offsets-${offsets.mode}-r1`);
+    assert.equal(rendered.filter(document => document.kind === 'Job').length, 1);
+    const offsetsPod = offsetsJob.spec.template.spec;
+    assert.equal(offsetsPod.serviceAccountName, 'telemetry-kafka-offsets');
+    assert.deepEqual(offsetsPod.volumes.find(volume => volume.name === 'client-config').configMap, { name: 'telemetry-kafka-offsets-client' });
+    const reset = expected => runJobScript(offsetsJob, { STUB_STATE: expected });
+    const header = 'GROUP COORDINATOR (ID) ASSIGNMENT-STRATEGY STATE #MEMBERS';
+    const empty = reset(`${header}\npulsemetry-dev-telemetry-ingest-validation b-1:9098 (1) range Empty 0`);
+    assert.equal(empty.status, 0, empty.output);
+    const resetCall = empty.calls.find(call => call.includes('--reset-offsets'));
+    assert.ok(resetCall.endsWith(offsets.mode === 'plan' ? '--dry-run' : '--execute'), resetCall);
+    assert.ok(resetCall.includes(offsets.mode === 'plan'
+      ? '--topic pulsemetry-dev-telemetry-ingress-validation --to-datetime 2026-10-21T00:00:00.000+09:00'
+      : '--topic pulsemetry-dev-telemetry-ingress-validation:2 --to-offset 1234'), resetCall);
+    assert.equal(empty.calls.some(call => call.includes('--offsets')), offsets.mode === 'execute');
+    const missing = reset("Consumer group 'pulsemetry-dev-telemetry-ingest-validation' does not exist.");
+    assert.equal(missing.status, 0, missing.output);
+    for (const state of ['Stable 3', 'PreparingRebalance 1', 'CompletingRebalance 1']) {
+      const active = reset(`${header}\npulsemetry-dev-telemetry-ingest-validation b-1:9098 (1) range ${state}`);
+      assert.notEqual(active.status, 0);
+      assert.ok(!active.calls.some(call => call.includes('--reset-offsets')), '활성 group에서 reset을 호출했다');
+      negativeCases++;
+    }
+  }
+  const values = KAFKA_ADMIN_VALUES;
+  const offsetsOn = { ...values, topicInit: { enabled: false } };
+  for (const invalid of [
+    { ...values, image: { repository: 'docker.io/apache/kafka', digest: `sha256:${'0'.repeat(64)}` } },
+    { ...values, image: { repository: 'docker.io/apache/kafka:latest', digest: 'sha256:05b4616e0702ef2729327705d54ad6b50ea70b271c4b730fabd2320789fb7b02' } },
+    { ...values, iamAuthJar: { url: 'https://example.invalid/aws-msk-iam-auth.jar', sha256: '922064f312ddc8a5f3dbe65fcef3d02ddbd588a02e3a6f0fca4b5a4dbec1ba43' } },
+    { ...values, iamAuthJar: { url: 'https://github.com/aws/aws-msk-iam-auth/releases/download/v2.3.9/aws-msk-iam-auth-2.3.9-all.jar', sha256: '0'.repeat(64) } },
+    { ...values, stage: 'main' },
+    { ...values, topic: 'pulsemetry-dev-telemetry-ingress-main' },
+    { ...values, region: 'us-east-1' },
+    { ...values, bootstrapServers: 'b-1.example.invalid:9092' },
+    { ...values, topicAdmin: { ...values.topicAdmin, sessionName: 'pulsemetry-dev-telemetry-gateway' } },
+    { ...values, offsetAdmin: { ...values.offsetAdmin, roleArn: values.topicAdmin.roleArn } },
+    { ...values, topicAdmin: { ...values.topicAdmin, roleArn: '*' } },
+    { ...values, offsets: { enabled: true, mode: 'plan', partition: 0, toOffset: 1 } },
+    { ...values, topicInit: { enabled: false } },
+    { ...offsetsOn, offsets: { enabled: true, mode: 'plan' } },
+    { ...offsetsOn, offsets: { enabled: true, mode: 'execute', partition: 1 } },
+    { ...offsetsOn, offsets: { enabled: true, mode: 'execute', partition: 6, toOffset: 1 } },
+    { ...offsetsOn, offsets: { enabled: true, mode: 'execute', partition: 1, toOffset: -1 } },
+    { ...offsetsOn, offsets: { enabled: true, mode: 'execute', partition: 1, toOffset: 1, toDatetime: '2026-10-21T00:00:00.000Z' } },
+    { ...offsetsOn, offsets: { enabled: true, mode: 'execute', toDatetime: '2026-10-21 00:00:00' } },
+    { ...offsetsOn, offsets: { enabled: true, mode: 'apply', toDatetime: '2026-10-21T00:00:00.000Z' } },
+    { ...offsetsOn, offsets: { enabled: false, mode: 'plan', partition: 1, toOffset: 1 } },
+  ]) rejects('telemetry-kafka-admin', chart, invalid);
+  rejects('telemetry-kafka-admin', chart, values, 'default');
+  return kafkaDocuments;
+}
+
 try {
   assert.match(checked(helm, ['version', '--short']), /^v3\.22\.0\+/);
   assert.match(checked(kubeconform, ['-v']), /^v0\.8\.0/);
@@ -598,6 +747,7 @@ try {
   }
   rejects('unknown', chart, { ...appValues('enrollment-api'), workload: 'unknown' });
   allDocuments.push(...checkTelemetry(chart));
+  allDocuments.push(...checkKafkaAdmin());
   const clickhouseChart = 'helm/dev/workloads/clickhouse';
   const clickhouseValues = {
     availabilityZone: 'ap-northeast-2a', vpcId: 'vpc-0123456789abcdef0',

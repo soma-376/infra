@@ -1,0 +1,15 @@
+{{- include "kafkaAdmin.validate" . -}}
+{{- range $item := list (dict "name" "telemetry-kafka-admin-client" "role" .Values.topicAdmin) (dict "name" "telemetry-kafka-offsets-client" "role" .Values.offsetAdmin) }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $item.name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "kafkaAdmin.labels" $ | nindent 4 }}
+data:
+  # 역할 ARN과 세션 이름만 담는다. 자격 증명은 Pod Identity가 공급한다.
+  client.properties: |
+    {{- include "kafkaAdmin.clientProperties" (dict "role" $item.role "region" $.Values.region) | nindent 4 }}
+{{- end }}
