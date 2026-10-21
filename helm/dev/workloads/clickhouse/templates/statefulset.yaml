@@ -1,0 +1,86 @@
+{{- include "pulsemetry.clickhouse.validate" . -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: clickhouse
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pulsemetry.clickhouse.labels" . | nindent 4 }}
+spec:
+  serviceName: clickhouse-headless
+  replicas: {{ .Values.replicaCount }}
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  selector:
+    matchLabels:
+      {{- include "pulsemetry.clickhouse.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pulsemetry.clickhouse.selector" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/arch: arm64
+        karpenter.sh/nodepool: pulsemetry-dev-clickhouse
+        topology.kubernetes.io/zone: {{ .Values.availabilityZone | quote }}
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: clickhouse
+          effect: NoSchedule
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: clickhouse
+          image: clickhouse/clickhouse-server:24.8-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CLICKHOUSE_DB
+              value: default
+            - name: CLICKHOUSE_USER
+              value: default
+            - name: CLICKHOUSE_PASSWORD
+              value: ""
+            - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
+              value: "1"
+          ports:
+            - name: http
+              containerPort: 8123
+              protocol: TCP
+            - name: native
+              containerPort: 9000
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 48
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/clickhouse
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: {{ .Values.storage.className }}
+        resources:
+          requests:
+            storage: {{ .Values.storage.size }}

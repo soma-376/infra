@@ -1,3 +1,4 @@
+import { DevEksStack } from '../lib/dev/eks-stack';
 import * as fs from 'fs';
 import * as path from 'path';
 import { App } from 'aws-cdk-lib/core';
@@ -59,6 +60,7 @@ export function buildApp(edgeConfig: EdgeConfig = DEFAULT_EDGE): BuiltApp {
 }
 
 export interface BuiltDevApp {
+  eks?: DevEksStack;
   app: App;
   network: DevNetworkStack;
   data: DevDataStack;
@@ -67,7 +69,7 @@ export interface BuiltDevApp {
 }
 
 /**
- * 고정 env 로 dev 4-스택을 조립하는 테스트 팩토리.
+ * 고정 env로 기본 dev 4스택과 선택적 EKS 스택을 조립하는 테스트 팩토리.
  *
  * `context` 로 dev context 키(`devAllowedCidr`, `devAppAsgMaxCapacity`,
  * `devImageTag`)를 주입한다 - CLI 의 `-c key=value` 와 같은 자리다. cdk.json 의

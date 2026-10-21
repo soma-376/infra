@@ -1,4 +1,5 @@
 import { DashboardRuntimeConfig, loadDashboardRuntimeConfig } from './dashboard-runtime-config';
+import { DevEksConfig, loadDevEksConfig } from './eks-config';
 import { Annotations, App, Duration } from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
 import { InstanceClass, InstanceSize, InstanceType } from 'aws-cdk-lib/aws-ec2';
@@ -270,6 +271,7 @@ const DEV_DEFAULT_IMAGE_TAG = 'dev';
  * dev 배포별 가변값. context 키 4개에서만 온다.
  */
 export interface DevConfig {
+  readonly eks: DevEksConfig;
   /** ALB(80/8123)와 RDS(5432)의 인바운드 허용 소스. 항상 1개 이상이다. */
   readonly allowedCidrs: readonly string[];
   /** 앱 호스트 ASG 의 최대 용량. 부하 테스트 확장 손잡이다 (ADR-0022 11번). */
@@ -289,6 +291,7 @@ export interface DevConfig {
 export function loadDevConfig(app: App): DevConfig {
   return {
     dashboardRuntime: loadDashboardRuntimeConfig(app),
+    eks: loadDevEksConfig(app),
     allowedCidrs: parseAllowedCidrs(
       app.node.tryGetContext('devAllowedCidr') as string | undefined,
     ),

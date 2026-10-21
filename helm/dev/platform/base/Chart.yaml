@@ -1,0 +1,5 @@
+apiVersion: v2
+name: pulsemetry-dev-platform
+version: 0.1.0
+description: dev EKS Auto Mode NodeClass와 NodePool 및 스토리지 선언
+type: application
