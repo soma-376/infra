@@ -9,6 +9,18 @@
 
 ---
 
+## 프론트엔드 Terraform 추가 범위 (ADR 0030·0028·0029)
+
+`frontend/`는 기존 CDK와 독립된 프론트엔드 인프라다. 부트스트랩·개발/운영 네트워크와 ALB·기존 ACM 인증서 연결,
+개발 EC2(ECS bridge)·운영 Fargate를 구현한다. runtime 입력이 없으면 네트워크만 생성한다. [운영 안내](frontend/README.md)와 [ADR 0030](docs/adr/0030-isolate-frontend-terraform-network.md), [ADR 0028](docs/adr/0028-frontend-alb-and-container-runtime.md), [ADR 0029](docs/adr/0029-use-external-dns-and-existing-frontend-certificate.md)을 따른다. DNS와 인증서 발급은 외부에서 관리한다.
+BFF 단일 프로세스에 맞춰 서비스 desired=1/min=0/max=100이다. 앱 이미지 게시·자동 배포는 [허브 ADR 0022](https://github.com/soma-376/docs/blob/main/adr/0022-frontend-ecs-image-delivery.md)를 따른다. 자동 배포 활성 환경은 deploy 태그를 사용하며 task definition은 계속 Terraform이 소유한다.
+기존 CDK 전용 테스트 규칙은 그대로 유지하고, 새 Terraform은 fmt·validate·mock test로 검증한다.
+기존 CDK 리소스를 Terraform에 import하거나 같은 리소스를 두 도구가 수정하지 않는다.
+실제 apply는 리뷰·머지 후 보호된 CI에서 수행한다. 최초 bootstrap과 이후 bootstrap 변경은 관리자 작업이다.
+다음 미사용 ADR은 **0034**다.
+
+---
+
 ## dashboard와 EKS 문서의 현재 기준
 
 이 브랜치는 PROJ-226 이미지 공급과 PROJ-222 공통 Secret 정의를 포함한다. dev ECS는 기존
@@ -118,7 +130,10 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 
 **ADR 우선 원칙은 이 레포의 기존 규칙과 같다** — 1장의 "코드와 ADR이 어긋나면 ADR이 기준이다"가
 전 레포 공통 규칙이며, 크로스레포 결정만 `../docs/adr/`가 소유한다. 스코프 판정은 `adr-new` 스킬이 안내한다.
-단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0034`부터이고 **`0020`은 예약**이다(5장 (F)).
+단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0034`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
+기존 병행 브랜치의 ADR `0028`·`0029`·`0030`은 번호가 겹치므로 파일명과 링크를 보존한다.
+프론트엔드 Terraform 절은 프론트엔드 ADR을, dashboard·EKS·기존 CDK 절은 해당 백엔드 ADR을 가리킨다.
+인용할 때는 번호와 함께 범위·제목 또는 파일 링크를 사용하며, 전체 목록은 [ADR 인덱스](docs/adr/README.md)를 따른다.
 
 **ADR 본문에서 타 레포 소스를 인용할 때는 행 번호 대신 함수·상수 이름으로 앵커한다**
 (예: `sink_clickhouse.py` 의 `execute()`). 행 번호 정합은 검증할 방법이 없어 반드시 낡는다 —
@@ -522,17 +537,20 @@ ADR-0018이 `post-processor`용 파생 DSN 시크릿을 도입했지만, **그 D
 - subnet 이동은 ClickHouse EC2 교체와 로컬 EBS 데이터 유실 가능성이 있으므로,
   전환 시 최근 Raw Signal 재처리와 배포 절차를 함께 준비해야 한다.
 
-### (F) ADR-0020 — 로그 그룹 정책 기록
+### (F) 기존 CDK 로그 그룹 정책 기록 (후속 ADR 미정)
+
+[프론트엔드 ADR 0020](docs/adr/0020-frontend-log-retention-policy.md)은 새 프론트엔드 Terraform 로그의
+dev 14일/prod 30일 보존과 삭제 시 유지 정책을 결정했다. 아래 기존 CDK 정책은 별도의 후속 ADR 대상이며 번호는 아직 정하지 않았다.
 
 현재 prod `ApplicationStack`은 컨테이너별 CloudWatch Logs 로그 그룹 5개를 만들고,
 보존 기간을 14일, 삭제 정책을 `RemovalPolicy.DESTROY`로 설정한다. 이 구성은
 구현되어 있지만 운영·비용·보안 관점의 결정 근거가 ADR에 없다.
 
 **`DevApplicationStack`은 최종 세 컨테이너 로그 그룹에 같은 정책(14일, `RemovalPolicy.DESTROY`)을 쓰며
-`/ecs/dev/` 접두사만 다르다.** ADR-0022 10번이 이를 명시적으로 ADR-0020에
-위임했으므로, 아래 항목을 정할 때 **환경별 차등 여부**도 함께 결정한다.
+`/ecs/dev/` 접두사만 다르다.** ADR-0022 10번의 기존 ADR-0020 예약 참조는 이 미결 검토를 가리킨다.
+현재 프론트엔드 ADR-0020이 기존 CDK 정책까지 확정한 것은 아니며, 아래 항목을 정할 때 **환경별 차등 여부**도 함께 결정한다.
 
-인프라 코드를 변경하기 전에 ADR-0020에서 다음 항목을 결정한다.
+이 로그 그룹 정책을 변경하기 전에 별도의 후속 ADR에서 다음 항목을 결정한다.
 
 - 컨테이너별 로그 그룹을 유지할지 서비스 단위로 통합할지와 로그 그룹 명명 규칙
 - 14일 보존 기간의 트래픽·장애 조사·비용 근거와 환경별 보존 기간 필요 여부
@@ -546,7 +564,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0034`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급, `0033`은 외부 ACM 기반 dev HTTPS로 이미 쓰였고, `0020`은 위 (F)의 로그 그룹 정책용으로 여전히 예약되어 있다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0034`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급, `0033`은 외부 ACM 기반 dev HTTPS로 이미 쓰였다. `0020`은 프론트엔드 로그 정책이며, 프론트엔드 `0028`·`0029`·`0030`은 각각 Terraform 실행 환경·외부 DNS와 기존 인증서·독립 기반 상태를 다룬다. 중복 번호는 [ADR 인덱스](docs/adr/README.md)의 제목과 파일 링크로 구분하고, 기존 CDK 로그 정책 미결 사항은 위 (F)를 따른다.
    형식은 `docs/adr/0000-adr-template.md`를 따른다.
 3. 상수는 **"이 값이 dev에서 달라야 할 이유가 있는가"**로 위치를 정한다 — 없으면 `lib/common/config.ts`, 운영 전용이면 `lib/prod/config.ts`, dev 전용이면 `lib/dev/config.ts`. 스택에서는 import만 한다 (4장).
 4. `test/prod/*.test.ts` / `test/dev/*.test.ts` / `test/cicd/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`(prod), `buildDevApp()`(dev), `buildCicdApp()`(cicd)를 재사용한다.
