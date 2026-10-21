@@ -5,6 +5,11 @@
 Accepted (PROJ-191; 사용자 승인 설계의 로컬 구현. AWS 배포·실부하·장애 검증은 별도).
 ADR-0035의 관측 범위를 확장한다. MSK DEFAULT CloudWatch 경보와 broker 설정은 유지한다.
 
+[ADR-0028](0028-dev-eks-auto-mode-transition.md)의 두 결정을 부분 대체한다. 앱·ClickHouse 두 NodePool 구성에
+관측 전용 NodePool을 더한다. 앱 namespace stdout/stderr 원문만 `/eks/dev/application`에 보내던 Fluent Bit은
+원문과 Kubernetes metadata를 함께 보내고 관측·로그 namespace를 `/eks/dev/observability`로 보낸다.
+로그 그룹은 CDK, 수집 설정은 Helm이 소유한다는 경계와 나머지 0028 결정은 유효하다.
+
 ## Context
 
 Gateway의 Kafka 접수와 ingest의 ClickHouse 적재를 구분하여 부하 병목을 확인해야 한다.
