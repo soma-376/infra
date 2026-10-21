@@ -1,0 +1,81 @@
+locals {
+  runtime_names = { for env in local.environments : env => "soma-376-frontend-${env}" }
+}
+
+# 상태 refresh를 위한 메타데이터 조회만 허용한다. GetSecretValue/로그 본문 조회는 없다.
+resource "aws_iam_role_policy" "runtime_read" {
+  for_each = local.roles
+  name     = "frontend-runtime-read"
+  role     = aws_iam_role.terraform[each.key].id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["ec2:DescribeInstances", "ec2:DescribeInstanceAttribute", "ec2:DescribeInstanceCreditSpecifications", "ec2:DescribeVolumes", "ec2:DescribeImages", "ec2:DescribeSecurityGroupRules", "ec2:DescribeIamInstanceProfileAssociations", "ec2:DescribeInstanceTypes",
+        "elasticloadbalancing:DescribeLoadBalancers", "elasticloadbalancing:DescribeLoadBalancerAttributes", "elasticloadbalancing:DescribeTargetGroups", "elasticloadbalancing:DescribeTargetGroupAttributes", "elasticloadbalancing:DescribeListeners", "elasticloadbalancing:DescribeListenerAttributes", "elasticloadbalancing:DescribeTags", "logs:DescribeLogGroups", "ecs:DescribeTaskDefinition"]
+        # DescribeTaskDefinition은 리소스 단위 권한을 지원하지 않아 리전으로 제한한다.
+        Resource  = "*"
+        Condition = { StringEquals = { "aws:RequestedRegion" = "ap-northeast-2" } }
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["ecs:DescribeClusters", "ecs:DescribeServices", "ecs:ListTagsForResource", "ecs:ListServiceDeployments", "ecs:DescribeServiceDeployments"]
+        Resource = ["arn:aws:ecs:ap-northeast-2:${var.aws_account_id}:cluster/${local.runtime_names[each.value.env]}", "arn:aws:ecs:ap-northeast-2:${var.aws_account_id}:service/${local.runtime_names[each.value.env]}/*", "arn:aws:ecs:ap-northeast-2:${var.aws_account_id}:task-definition/${local.runtime_names[each.value.env]}:*", "arn:aws:ecs:ap-northeast-2:${var.aws_account_id}:service-deployment/${local.runtime_names[each.value.env]}/${local.runtime_names[each.value.env]}/*"]
+      },
+      { Effect = "Allow", Action = ["secretsmanager:DescribeSecret", "secretsmanager:GetResourcePolicy"], Resource = aws_secretsmanager_secret.bff[each.value.env].arn },
+      { Effect = "Allow", Action = ["logs:ListTagsForResource", "logs:ListTagsLogGroup"], Resource = ["arn:aws:logs:ap-northeast-2:${var.aws_account_id}:log-group:/ecs/${local.runtime_names[each.value.env]}", "arn:aws:logs:ap-northeast-2:${var.aws_account_id}:log-group:/ecs/${local.runtime_names[each.value.env]}:*"] }
+    ]
+  })
+}
+
+# IAM inline 합계 한도를 피하도록 서비스별 managed policy로 분리한다.
+resource "aws_iam_policy" "runtime_write" {
+  for_each    = local.environments
+  name        = "${local.runtime_names[each.key]}-runtime-write"
+  description = "Manage only the frontend runtime for one environment"
+  tags        = merge(local.tags, { Env = each.key })
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["elasticloadbalancing:CreateLoadBalancer", "elasticloadbalancing:DeleteLoadBalancer", "elasticloadbalancing:ModifyLoadBalancerAttributes", "elasticloadbalancing:SetSecurityGroups", "elasticloadbalancing:SetSubnets", "elasticloadbalancing:SetIpAddressType", "elasticloadbalancing:CreateTargetGroup", "elasticloadbalancing:ModifyTargetGroup", "elasticloadbalancing:ModifyTargetGroupAttributes", "elasticloadbalancing:DeleteTargetGroup", "elasticloadbalancing:CreateListener", "elasticloadbalancing:ModifyListener", "elasticloadbalancing:ModifyListenerAttributes", "elasticloadbalancing:DeleteListener", "elasticloadbalancing:AddTags", "elasticloadbalancing:RemoveTags"]
+        Resource = ["arn:aws:elasticloadbalancing:ap-northeast-2:${var.aws_account_id}:loadbalancer/app/${local.runtime_names[each.key]}/*", "arn:aws:elasticloadbalancing:ap-northeast-2:${var.aws_account_id}:targetgroup/${local.runtime_names[each.key]}/*", "arn:aws:elasticloadbalancing:ap-northeast-2:${var.aws_account_id}:listener/app/${local.runtime_names[each.key]}/*/*"]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["ecs:CreateCluster", "ecs:DeleteCluster", "ecs:UpdateCluster", "ecs:UpdateClusterSettings", "ecs:DeleteService", "ecs:TagResource", "ecs:UntagResource"]
+        Resource = ["arn:aws:ecs:ap-northeast-2:${var.aws_account_id}:cluster/${local.runtime_names[each.key]}", "arn:aws:ecs:ap-northeast-2:${var.aws_account_id}:service/${local.runtime_names[each.key]}/${local.runtime_names[each.key]}", "arn:aws:ecs:ap-northeast-2:${var.aws_account_id}:task-definition/${local.runtime_names[each.key]}:*"]
+      },
+      {
+        Effect    = "Allow"
+        Action    = ["ecs:CreateService", "ecs:UpdateService"]
+        Resource  = "arn:aws:ecs:ap-northeast-2:${var.aws_account_id}:service/${local.runtime_names[each.key]}/${local.runtime_names[each.key]}"
+        Condition = { ArnLikeIfExists = { "ecs:task-definition" = "arn:aws:ecs:ap-northeast-2:${var.aws_account_id}:task-definition/${local.runtime_names[each.key]}:*" } }
+      },
+      {
+        Effect    = "Allow"
+        Action    = ["ecs:RegisterTaskDefinition"]
+        Resource  = "arn:aws:ecs:ap-northeast-2:${var.aws_account_id}:task-definition/${local.runtime_names[each.key]}:*"
+        Condition = { StringEquals = { "aws:RequestedRegion" = "ap-northeast-2", "aws:RequestTag/Project" = "pulsemetry-frontend", "aws:RequestTag/Env" = each.key, "aws:RequestTag/ManagedBy" = "terraform" } }
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:PutRetentionPolicy", "logs:DeleteRetentionPolicy", "logs:TagResource", "logs:UntagResource", "logs:TagLogGroup", "logs:UntagLogGroup"]
+        Resource = ["arn:aws:logs:ap-northeast-2:${var.aws_account_id}:log-group:/ecs/${local.runtime_names[each.key]}", "arn:aws:logs:ap-northeast-2:${var.aws_account_id}:log-group:/ecs/${local.runtime_names[each.key]}:*"]
+      },
+      {
+        Effect    = "Allow"
+        Action    = ["iam:PassRole"]
+        Resource  = aws_iam_role.execution[each.key].arn
+        Condition = { StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" } }
+      }
+    ]
+  })
+}
+resource "aws_iam_role_policy_attachment" "runtime_write" {
+  for_each   = local.environments
+  role       = aws_iam_role.terraform["${each.key}-apply"].name
+  policy_arn = aws_iam_policy.runtime_write[each.key].arn
+}
