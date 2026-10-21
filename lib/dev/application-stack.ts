@@ -1,3 +1,4 @@
+import { attachUserJwtKeyWriter } from './ecs-dashboard-runtime';
 import { RemovalPolicy, Stack, StackProps } from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
 import {
@@ -102,6 +103,8 @@ export interface DevApplicationStackProps extends StackProps {
   readonly adminApiTokenSecret: ISecret;
   /** 신규 두 Spring 앱이 공유하는 토큰 해시 Secret. (ADR-0026) */
   readonly tokenHashSecret: ISecret;
+  readonly userJwtPrivateKeySecret: ISecret;
+  readonly userJwtPublicKeysSecret: ISecret;
   readonly rawSignalBucket: IBucket;
   /** EC2 호스트 2대 공용 SG. ASG 에 붙는다. */
   readonly appHostSecurityGroup: ISecurityGroup;
@@ -425,7 +428,9 @@ export class DevApplicationStack extends Stack {
       networkMode: NetworkMode.BRIDGE,
     });
 
+    const logGroup = this.makeLogGroup('DevEnrollmentApiLog', 'enrollment-api');
     const container = task.addContainer('enrollment-api', {
+      user: '10001:10001',
       image: ContainerImage.fromEcrRepository(
         Repository.fromRepositoryName(
           this,
@@ -466,12 +471,13 @@ export class DevApplicationStack extends Stack {
       memoryReservationMiB: MEMORY_RESERVATION_MIB.enrollmentApi,
       logging: LogDriver.awsLogs({
         streamPrefix: 'enrollment-api',
-        logGroup: this.makeLogGroup(
-          'DevEnrollmentApiLog',
-          'enrollment-api',
-        ),
+        logGroup,
       }),
     });
+
+    attachUserJwtKeyWriter(task, container, props.devConfig.dashboardRuntime,
+      props.userJwtPublicKeysSecret, props.userJwtPrivateKeySecret,
+      LogDriver.awsLogs({ streamPrefix: 'jwt-key-writer', logGroup }));
 
     const service = new Ec2Service(this, 'DevEnrollmentApiService', {
       cluster: this.cluster,

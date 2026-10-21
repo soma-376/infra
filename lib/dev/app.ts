@@ -67,6 +67,8 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     dbSecret: data.dbSecret,
     adminApiTokenSecret: data.adminApiTokenSecret,
     tokenHashSecret: data.tokenHashSecret,
+    userJwtPrivateKeySecret: data.userJwtPrivateKeySecret,
+    userJwtPublicKeysSecret: data.userJwtPublicKeysSecret,
     rawSignalBucket: data.rawSignalBucket,
     appHostSecurityGroup: network.appHostSecurityGroup,
     clickhouseSecurityGroup: network.clickhouseSecurityGroup,
