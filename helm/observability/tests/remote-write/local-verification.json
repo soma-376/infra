@@ -1,0 +1,33 @@
+{
+  "scope": "local-remote-write-compatibility-only",
+  "testid": "observability-smoke/4d5b0856fc5c",
+  "status": "PASS",
+  "images": {
+    "quay.io/prometheus/prometheus:v3.9.1@sha256:1f0f50f06acaceb0f5670d2c8a658a599affe7b0d8e78b898c1035653849a702": {
+      "architecture": "arm64",
+      "digests": [
+        "quay.io/prometheus/prometheus@sha256:1f0f50f06acaceb0f5670d2c8a658a599affe7b0d8e78b898c1035653849a702"
+      ]
+    },
+    "grafana/k6:1.8.2@sha256:bd6ae8607c0a05d0dc0dc3f5753c464b0929baf083ef0f20b7eed845a3d9e6b4": {
+      "architecture": "arm64",
+      "digests": [
+        "grafana/k6@sha256:bd6ae8607c0a05d0dc0dc3f5753c464b0929baf083ef0f20b7eed845a3d9e6b4"
+      ]
+    }
+  },
+  "fixture_sha256": "76650f3099d493ce340191ee35861477227a255785e2107fdb5878d89fa09c5a",
+  "verifier_sha256": "782f815ce862aab99e0e318474d83b705f7d0b6a5096a31d3eda1e84a8e4580c",
+  "generator_ids": [
+    "fast",
+    "slow"
+  ],
+  "sample_count": 314.0,
+  "merged_p95_seconds": 0.20841051885658984,
+  "native_http_histogram_series": 2,
+  "stale_markers_verified": true,
+  "push_interval_seconds": 5,
+  "prometheus_scrape_interval_seconds": 10,
+  "started_at_unix": 1792595393.296105,
+  "finished_at_unix": 1792595413.511965
+}

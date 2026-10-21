@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pulsemetry-dashboards
+  namespace: {{ .Release.Namespace }}
+data:
+{{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
+  {{ base $path }}: |-
+    {{- /* JSON 내의 Grafana {{label}}과 Helm 템플릿을 섞지 않는다. */}}
+    {{- $.Files.Get $path | replace "__AWS_REGION__" $.Values.global.pulsemetry.region | replace "__ENVIRONMENT__" $.Values.global.pulsemetry.environment | replace "__TARGET_NAMESPACE__" $.Values.global.pulsemetry.targetNamespace | replace "__CLUSTER_NAME__" $.Values.global.pulsemetry.clusterName | replace "__MSK_CLUSTER__" $.Values.global.pulsemetry.mskClusterName | replace "__TOPIC__" $.Values.global.pulsemetry.topic | replace "__CONSUMER_GROUP__" $.Values.global.pulsemetry.consumerGroup | replace "__CONTROL_PLANE_LOG_GROUP__" $.Values.global.pulsemetry.controlPlaneLogGroup | replace "__APPLICATION_LOG_GROUP__" $.Values.global.pulsemetry.applicationLogGroup | replace "__BROKER_LOG_GROUP__" $.Values.global.pulsemetry.brokerLogGroup | replace "__OBSERVABILITY_LOG_GROUP__" $.Values.global.pulsemetry.observabilityLogGroup | replace "__EVENTS_LOG_GROUP__" $.Values.global.pulsemetry.kubernetesEventsLogGroup | nindent 4 }}
+{{- end }}

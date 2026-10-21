@@ -1,0 +1,172 @@
+groups:
+  - name: pulsemetry.recording
+    interval: 10s
+    rules:
+      - record: pulsemetry:gateway_requests:rate1m
+        expr: sum by (environment, cluster, namespace, service, pod, signal, outcome) (rate(pulsemetry_gateway_requests_total[1m]))
+      - record: pulsemetry:gateway_latency:p95
+        expr: histogram_quantile(0.95, sum by (environment, cluster, namespace, service, pod, signal, le) (rate(pulsemetry_gateway_request_duration_seconds_bucket[1m])))
+      - record: pulsemetry:gateway_latency:p99
+        expr: histogram_quantile(0.99, sum by (environment, cluster, namespace, service, pod, signal, le) (rate(pulsemetry_gateway_request_duration_seconds_bucket[1m])))
+      - record: pulsemetry:pipeline_attempts:rate1m
+        expr: sum by (environment, cluster, namespace, service, pod, signal, outcome) (rate(pulsemetry_pipeline_attempts_total[1m]))
+      - record: pulsemetry:pipeline_stage:p95
+        expr: histogram_quantile(0.95, sum by (environment, cluster, namespace, service, pod, stage, outcome, le) (rate(pulsemetry_pipeline_stage_duration_seconds_bucket[1m])))
+      - record: pulsemetry:pipeline_completion:p95
+        expr: histogram_quantile(0.95, sum by (environment, cluster, namespace, service, pod, signal, le) (rate(pulsemetry_pipeline_accepted_to_completion_seconds_bucket[1m])))
+      - record: pulsemetry:msk_messages:rate1m
+        expr: sum by (environment, cluster, msk_cluster, topic) (rate(kafka_server_BrokerTopicMetrics_Count{job="msk-jmx",name="MessagesInPerSec",topic!=""}[1m]))
+      - record: pulsemetry:clickhouse_inserted_rows:rate1m
+        expr: sum by (environment, cluster, namespace, service, pod) (rate(ClickHouseProfileEvents_InsertedRows{job="clickhouse"}[1m]))
+  - name: pulsemetry.alerts
+    interval: 10s
+    rules:
+      - alert: GatewayMetricsUnavailable
+        expr: absent(up{job="telemetry-gateway"}) or (up{job="telemetry-gateway"} == 0)
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Gateway 지표를 수집할 수 없다
+      - alert: PipelineMetricsUnavailable
+        expr: absent(up{job="telemetry-ingest"}) or (up{job="telemetry-ingest"} == 0)
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Pipeline 지표를 수집할 수 없다
+      - alert: ClickHouseMetricsUnavailable
+        expr: absent(up{job="clickhouse"}) or (up{job="clickhouse"} == 0)
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: ClickHouse 지표를 수집할 수 없다
+      - alert: MskJmxTargetSetIncomplete
+        expr: (count(up{job="msk-jmx"}) != 3) or absent(up{job="msk-jmx"}) or (up{job="msk-jmx"} == 0)
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: MSK broker 3개의 JMX 수집을 확인할 수 없다
+      - alert: MskNodeTargetSetIncomplete
+        expr: (count(up{job="msk-node"}) != 3) or absent(up{job="msk-node"}) or (up{job="msk-node"} == 0)
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: MSK broker 3개의 node 수집을 확인할 수 없다
+      - alert: MskUnderReplicatedPartitions
+        expr: max by (cluster) (kafka_server_ReplicaManager_Value{job="msk-jmx",name="UnderReplicatedPartitions"}) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: MSK under-replicated partition이 지속된다
+      - alert: PipelineRetryExhausted
+        expr: sum(increase(pulsemetry_pipeline_retry_exhausted_total[5m])) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: Pipeline 재시도 소진을 확인했다
+      - alert: PipelineCommitFailure
+        expr: sum(increase(pulsemetry_pipeline_commit_failures_total[5m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Kafka commit 실패를 확인했다
+      - alert: ObservabilityDiskSpaceLow
+        expr: kubelet_volume_stats_available_bytes{namespace="pulsemetry-observability"} / kubelet_volume_stats_capacity_bytes{namespace="pulsemetry-observability"} < 0.15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 관측 PVC 잔여 공간이 15퍼센트 미만이다
+      - alert: ObservabilityRuleEvaluationFailed
+        expr: increase(prometheus_rule_evaluation_failures_total[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Prometheus rule 평가 실패를 확인했다
+      - alert: KubernetesEventsUnavailable
+        expr: absent(up{job="kubernetes-events"}) or (up{job="kubernetes-events"} == 0)
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Kubernetes event 수집기의 지표가 없다
+      - alert: LogOutputDroppedRecords
+        expr: sum by (job, name) (increase(fluentbit_output_dropped_records_total[5m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: 로그 출력에서 폐기한 레코드를 확인했다
+      - alert: MskUnderMinimumIsr
+        expr: max by (cluster, msk_cluster) (kafka_server_ReplicaManager_Value{job="msk-jmx",name="UnderMinIsrPartitionCount"}) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: MSK partition의 ISR이 최소 개수 미만이다
+      - alert: MskOfflinePartitions
+        expr: max by (cluster, msk_cluster) (kafka_controller_KafkaController_Value{job="msk-jmx",name="OfflinePartitionsCount"}) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: MSK offline partition이 있다
+      - alert: ContainerRestarted
+        expr: sum by (cluster, namespace, pod) (increase(kube_pod_container_status_restarts_total{namespace=~"pulsemetry-(dev|perf|observability)"}[5m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Pulsemetry 컨테이너가 재시작했다
+      - alert: ContainerOomKilled
+        expr: >-
+          (kube_pod_container_status_last_terminated_reason{namespace=~"pulsemetry-(dev|perf|observability)",reason="OOMKilled"} == 1) and on (cluster, namespace, pod, container)
+          (increase(kube_pod_container_status_restarts_total[5m]) > 0)
+        labels:
+          severity: critical
+        annotations:
+          summary: 최근 재시작의 종료 원인이 OOMKilled다
+      - alert: FluentBitMetricsUnavailable
+        expr: absent(up{job="fluent-bit"}) or (up{job="fluent-bit"} == 0)
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: 노드 로그 수집기 지표가 없다
+      - alert: LogOutputRetrying
+        expr: sum by (cluster, job, name) (rate(fluentbit_output_retries_total[1m])) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: 로그 전송 재시도가 지속된다
+      - alert: PrometheusStorageOperationFailed
+        expr: increase(prometheus_tsdb_compactions_failed_total[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: Prometheus TSDB compaction 실패를 확인했다
+      - alert: PrometheusConfigurationRejected
+        expr: prometheus_config_last_reload_successful == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Prometheus 설정 갱신이 거부됐다
+      - alert: NodeRootDiskSpaceLow
+        expr: node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} < 0.15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 노드 root 디스크 잔여 공간이 15퍼센트 미만이다
+      - alert: LogDiskBacklogGrowing
+        expr: delta(fluentbit_storage_fs_chunks_down[10m]) > 128
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 로그 disk-only chunk 대기가 10분 동안 128개 이상 증가했다

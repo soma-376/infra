@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "fixtures": [
+    {
+      "file": "backend-registry.prom",
+      "source": "../pulsemetry-backend-observability/libs/telemetry-observability/build/metrics-contract.prom",
+      "scope": "실제 Micrometer registry 단위 테스트; 배포 scrape 아님",
+      "sha256": "c6fdb4cd13a7d2b4f87e73b192f5bc1b30faf3e67d22e8fef5902f7104d02435"
+    },
+    {
+      "file": "gateway-management.prom",
+      "source": "../pulsemetry-backend-observability/apps/telemetry-gateway/build/management-scrape.prom",
+      "scope": "Boot 4.1.0 실제 Gateway HTTP management scrape, 로컬 통합 테스트",
+      "sha256": "ce6b70a9bf00ee1a5a9e0f7bdff512365dedb0e7438146b5696c768eaf6b02ec"
+    },
+    {
+      "file": "ingest-management.prom",
+      "source": "../pulsemetry-backend-observability/apps/telemetry-ingest/build/management-scrape.prom",
+      "scope": "Boot 4.1.0 실제 ingest HTTP management scrape, 로컬 통합 테스트",
+      "sha256": "d348d521844f7b3f72aa1b4d52c3c2970ead77cac4d968adda71f6f1fe4d193c"
+    }
+  ],
+  "clickhouse": {
+    "fixture": "../clickhouse/dashboard-metrics.prom",
+    "evidence": "../clickhouse/evidence.json",
+    "scope": "실제 local Docker ARM64 ClickHouse24.8 native exporter, AWS 아님"
+  },
+  "msk": {
+    "status": "SOURCE_VERIFIED_AWS_NOT_RUN",
+    "source": "https://github.com/aws-samples/amazonmsk-managed-observability",
+    "metricNames": [
+      "kafka_server_BrokerTopicMetrics_Count",
+      "kafka_server_ReplicaManager_Value",
+      "kafka_controller_KafkaController_Value"
+    ],
+    "scope": "AWS sample/exporter metric naming, 실제MSK endpoint/label/value는 배포후검증"
+  },
+  "cloudwatch": {
+    "status": "DOC_VERIFIED_AWS_NOT_RUN",
+    "source": "https://docs.aws.amazon.com/msk/latest/developerguide/metrics-details.html",
+    "periodSeconds": 60,
+    "lagDimensions": [
+      "Cluster Name",
+      "Consumer Group",
+      "Topic"
+    ]
+  },
+  "kubernetes": {
+    "status": "UPSTREAM_CONTRACT_EKS_NOT_RUN",
+    "kubeStateMetrics": "2.18.0",
+    "nodeExporter": "1.10.2",
+    "scope": "실제 kubelet/cAdvisor/CSI volume metrics 지원과 KSM labels는 배포후확인"
+  },
+  "fluentBit": {
+    "status": "LOCAL_DOCKER_PASS_AWS_NOT_RUN",
+    "version": "5.1.3",
+    "source": "https://github.com/fluent/fluent-bit/tree/v5.1.3",
+    "scope": "v2에 storage와 output counter metadata 노출; 실제 CloudWatch 배송 및 Kubernetes event watch는 미실행",
+    "fixture": "../fluent-bit/v2-metrics.prom",
+    "evidence": "../fluent-bit/evidence.json"
+  }
+}

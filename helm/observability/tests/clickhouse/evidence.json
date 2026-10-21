@@ -1,0 +1,45 @@
+{
+  "scope": "로컬 Docker linux/arm64, AWS 및 live EKS 검증 아님",
+  "image": "clickhouse/clickhouse-server:24.8-alpine",
+  "imageDigests": [
+    "clickhouse/clickhouse-server@sha256:b002e56ed5c16e224c312527f6fcba7e77216fec5d7a88a7828f59efc614feb5"
+  ],
+  "version": "24.8.14.39",
+  "architecture": "arm64",
+  "cpuLimit": 1,
+  "memoryLimit": "2GiB",
+  "configSource": "helm/dev/workloads/clickhouse/templates/observability.yaml",
+  "configSha256": "907d4e759732a7fda1ff00b5d0db5b4e2ddafc21f247ee2a792dd8d1d843d093",
+  "httpHealth": true,
+  "native9000": true,
+  "metrics9363": true,
+  "database": "default",
+  "dataPathBeforeAndAfter": "/var/lib/clickhouse/",
+  "existingRowsPreserved": 3,
+  "rowsAfterInsert": 5,
+  "tableDefinitionUnchanged": true,
+  "serverLogFormat": "json",
+  "startupJsonRecords": 1,
+  "errorJsonRecords": 3,
+  "shutdownJsonRecords": 1,
+  "serverLogStreams": [
+    "stderr"
+  ],
+  "nonemptyDuplicateLogFiles": [],
+  "exitCode": 0,
+  "oomKilled": false,
+  "exportedMetricNames": 2008,
+  "dashboardMetricsPresent": [
+    "ClickHouseAsyncMetrics_TotalPartsOfMergeTreeTables",
+    "ClickHouseMetrics_HTTPConnection",
+    "ClickHouseMetrics_MemoryTracking",
+    "ClickHouseMetrics_Merge",
+    "ClickHouseMetrics_TCPConnection",
+    "ClickHouseProfileEvents_DelayedInserts",
+    "ClickHouseProfileEvents_FailedInsertQuery",
+    "ClickHouseProfileEvents_FailedQuery",
+    "ClickHouseProfileEvents_InsertedRows"
+  ],
+  "dashboardMetricsAbsent": [],
+  "absentMetricPolicy": "조건별 부재는 NoData다. 0으로 치환하지 않는다."
+}

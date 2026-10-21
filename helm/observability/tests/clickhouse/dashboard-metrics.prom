@@ -1,0 +1,27 @@
+# HELP ClickHouseProfileEvents_FailedQuery Number of failed queries.
+# TYPE ClickHouseProfileEvents_FailedQuery counter
+ClickHouseProfileEvents_FailedQuery 2
+# HELP ClickHouseProfileEvents_FailedInsertQuery Same as FailedQuery, but only for INSERT queries.
+# TYPE ClickHouseProfileEvents_FailedInsertQuery counter
+ClickHouseProfileEvents_FailedInsertQuery 1
+# HELP ClickHouseProfileEvents_InsertedRows Number of rows INSERTed to all tables.
+# TYPE ClickHouseProfileEvents_InsertedRows counter
+ClickHouseProfileEvents_InsertedRows 2
+# HELP ClickHouseProfileEvents_DelayedInserts Number of times the INSERT of a block to a MergeTree table was throttled due to high number of active data parts for partition.
+# TYPE ClickHouseProfileEvents_DelayedInserts counter
+ClickHouseProfileEvents_DelayedInserts 0
+# HELP ClickHouseMetrics_Merge Number of executing background merges
+# TYPE ClickHouseMetrics_Merge gauge
+ClickHouseMetrics_Merge 0
+# HELP ClickHouseMetrics_TCPConnection Number of connections to TCP server (clients with native interface), also included server-server distributed query connections
+# TYPE ClickHouseMetrics_TCPConnection gauge
+ClickHouseMetrics_TCPConnection 0
+# HELP ClickHouseMetrics_HTTPConnection Number of connections to HTTP server
+# TYPE ClickHouseMetrics_HTTPConnection gauge
+ClickHouseMetrics_HTTPConnection 0
+# HELP ClickHouseMetrics_MemoryTracking Total amount of memory (bytes) allocated by the server.
+# TYPE ClickHouseMetrics_MemoryTracking gauge
+ClickHouseMetrics_MemoryTracking 336162952
+# HELP ClickHouseAsyncMetrics_TotalPartsOfMergeTreeTables Total amount of data parts in all tables of MergeTree family. Numbers larger than 10 000 will negatively affect the server startup time and it may indicate unreasonable choice of the partition key.
+# TYPE ClickHouseAsyncMetrics_TotalPartsOfMergeTreeTables gauge
+ClickHouseAsyncMetrics_TotalPartsOfMergeTreeTables 16

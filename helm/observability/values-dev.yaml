@@ -1,0 +1,5 @@
+# 실제 리소스 식별자는 generated/observability.yaml에서 공급한다.
+global:
+  pulsemetry:
+    environment: dev
+    targetNamespace: pulsemetry-dev

@@ -1,0 +1,221 @@
+rule_files:
+  - ../pulsemetry-observability/rules/pulsemetry.yaml
+evaluation_interval: 10s
+tests:
+  - interval: 10s
+    input_series:
+      - series: pulsemetry_gateway_requests_total{environment="dev",signal="logs",outcome="accepted"}
+        values: 0 10 20 30 0 10 20 30 40 50 60 70 80
+    promql_expr_test:
+      - expr: pulsemetry:gateway_requests:rate1m
+        eval_time: 2m
+        exp_samples:
+          - labels: pulsemetry:gateway_requests:rate1m{environment="dev",signal="logs",outcome="accepted"}
+            value: 1
+  - interval: 10s
+    input_series: []
+    promql_expr_test:
+      - expr: pulsemetry:gateway_requests:rate1m
+        eval_time: 2m
+        exp_samples: []
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: GatewayMetricsUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: telemetry-gateway
+            exp_annotations:
+              summary: Gateway 지표를 수집할 수 없다
+  - interval: 10s
+    input_series:
+      - series: up{job="msk-jmx",instance="b-1:11001"}
+        values: 1+0x18
+      - series: up{job="msk-jmx",instance="b-2:11001"}
+        values: 1+0x18
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: MskJmxTargetSetIncomplete
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: MSK broker 3개의 JMX 수집을 확인할 수 없다
+  - interval: 10s
+    input_series:
+      - series: up{job="msk-jmx",instance="b-1:11001"}
+        values: 1+0x18
+      - series: up{job="msk-jmx",instance="b-2:11001"}
+        values: 1+0x18
+      - series: up{job="msk-jmx",instance="b-3:11001"}
+        values: 1+0x18
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: MskJmxTargetSetIncomplete
+        exp_alerts: []
+  - interval: 10s
+    input_series:
+      - series: pulsemetry_gateway_requests_total{environment="dev"}
+        values: 0+0x18
+    promql_expr_test:
+      - expr: pulsemetry:gateway_requests:rate1m
+        eval_time: 2m
+        exp_samples:
+          - labels: pulsemetry:gateway_requests:rate1m{environment="dev"}
+            value: 0
+  - interval: 10s
+    input_series:
+      - series: pulsemetry_gateway_request_duration_seconds_bucket{pod="fast",le="0.1"}
+        values: 0+10x18
+      - series: pulsemetry_gateway_request_duration_seconds_bucket{pod="fast",le="1"}
+        values: 0+10x18
+      - series: pulsemetry_gateway_request_duration_seconds_bucket{pod="fast",le="+Inf"}
+        values: 0+10x18
+      - series: pulsemetry_gateway_request_duration_seconds_bucket{pod="slow",le="0.1"}
+        values: 0+0x18
+      - series: pulsemetry_gateway_request_duration_seconds_bucket{pod="slow",le="1"}
+        values: 0+10x18
+      - series: pulsemetry_gateway_request_duration_seconds_bucket{pod="slow",le="+Inf"}
+        values: 0+10x18
+    promql_expr_test:
+      - expr: histogram_quantile(0.95,sum by(le)(rate(pulsemetry_gateway_request_duration_seconds_bucket[1m])))
+        eval_time: 2m
+        exp_samples:
+          - labels: '{}'
+            value: 0.9099999999999999
+  - interval: 10s
+    input_series:
+      - series: kafka_controller_KafkaController_Value{job="msk-jmx",name="OfflinePartitionsCount",cluster="eks",msk_cluster="msk"}
+        values: 1+0x30
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: MskOfflinePartitions
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              cluster: eks
+              msk_cluster: msk
+            exp_annotations:
+              summary: MSK offline partition이 있다
+  - interval: 10s
+    input_series:
+      - series: kafka_server_ReplicaManager_Value{job="msk-jmx",name="UnderMinIsrPartitionCount",cluster="eks",msk_cluster="msk"}
+        values: 1+0x30
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: MskUnderMinimumIsr
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              cluster: eks
+              msk_cluster: msk
+            exp_annotations:
+              summary: MSK partition의 ISR이 최소 개수 미만이다
+  - interval: 10s
+    input_series:
+      - series: kube_pod_container_status_restarts_total{cluster="eks",namespace="pulsemetry-dev",pod="p",container="app"}
+        values: 0+1x30
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: ContainerRestarted
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              cluster: eks
+              namespace: pulsemetry-dev
+              pod: p
+            exp_annotations:
+              summary: Pulsemetry 컨테이너가 재시작했다
+  - interval: 10s
+    input_series:
+      - series: fluentbit_output_retries_total{cluster="eks",job="fluent-bit",name="cloudwatch_logs.0"}
+        values: 0+10x30
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: LogOutputRetrying
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              cluster: eks
+              job: fluent-bit
+              name: cloudwatch_logs.0
+            exp_annotations:
+              summary: 로그 전송 재시도가 지속된다
+  - interval: 10s
+    input_series:
+      - series: prometheus_tsdb_compactions_failed_total{cluster="eks"}
+        values: 0+1x30
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: PrometheusStorageOperationFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              cluster: eks
+            exp_annotations:
+              summary: Prometheus TSDB compaction 실패를 확인했다
+  - interval: 10s
+    input_series:
+      - series: prometheus_config_last_reload_successful{cluster="eks"}
+        values: 0+0x30
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: PrometheusConfigurationRejected
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              cluster: eks
+            exp_annotations:
+              summary: Prometheus 설정 갱신이 거부됐다
+  - interval: 10s
+    input_series:
+      - series: kube_pod_container_status_last_terminated_reason{cluster="eks",namespace="pulsemetry-dev",pod="p",container="app",reason="OOMKilled"}
+        values: 1+0x30
+      - series: kube_pod_container_status_restarts_total{cluster="eks",namespace="pulsemetry-dev",pod="p",container="app"}
+        values: 0+1x30
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: ContainerOomKilled
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              cluster: eks
+              namespace: pulsemetry-dev
+              pod: p
+              container: app
+              reason: OOMKilled
+            exp_annotations:
+              summary: 최근 재시작의 종료 원인이 OOMKilled다
+  - interval: 10s
+    input_series:
+      - series: node_filesystem_avail_bytes{cluster="eks",instance="node1",mountpoint="/",fstype="xfs"}
+        values: 10+0x40
+      - series: node_filesystem_size_bytes{cluster="eks",instance="node1",mountpoint="/",fstype="xfs"}
+        values: 100+0x40
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: NodeRootDiskSpaceLow
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              cluster: eks
+              instance: node1
+              mountpoint: /
+              fstype: xfs
+            exp_annotations:
+              summary: 노드 root 디스크 잔여 공간이 15퍼센트 미만이다
+  - interval: 10s
+    input_series:
+      - series: fluentbit_storage_fs_chunks_down{cluster="eks",job="fluent-bit",pod="collector"}
+        values: 0+10x100
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: LogDiskBacklogGrowing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              cluster: eks
+              job: fluent-bit
+              pod: collector
+            exp_annotations:
+              summary: 로그 disk-only chunk 대기가 10분 동안 128개 이상 증가했다

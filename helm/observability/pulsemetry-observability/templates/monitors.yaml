@@ -1,0 +1,84 @@
+{{- range $name := list "telemetry-gateway" "telemetry-ingest" "clickhouse" }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    observability.pulsemetry.io/stack: pulsemetry
+spec:
+  namespaceSelector:
+    matchNames: [{{ $.Values.global.pulsemetry.targetNamespace | quote }}]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+  endpoints:
+    - port: metrics
+      path: {{ ternary "/metrics" "/actuator/prometheus" (eq $name "clickhouse") }}
+      interval: 10s
+      scrapeTimeout: 5s
+      honorLabels: false
+      relabelings:
+        - targetLabel: job
+          replacement: {{ $name }}
+        - targetLabel: application
+          replacement: {{ $name }}
+        - targetLabel: service
+          replacement: {{ $name }}
+        - targetLabel: cluster
+          replacement: {{ $.Values.global.pulsemetry.clusterName | quote }}
+        - targetLabel: environment
+          replacement: {{ $.Values.global.pulsemetry.environment | quote }}
+      metricRelabelings:
+        - action: labeldrop
+          regex: 'request_id|trace_id|tenant_id|member_id|installation_id|run_id|exception_message'
+{{- end }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kubernetes-events
+  namespace: {{ .Release.Namespace }}
+  labels:
+    observability.pulsemetry.io/stack: pulsemetry
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubernetes-events
+  endpoints:
+    - port: metrics
+      path: /api/v2/metrics/prometheus
+      interval: 10s
+      relabelings:
+        - targetLabel: job
+          replacement: kubernetes-events
+        - targetLabel: cluster
+          replacement: {{ .Values.global.pulsemetry.clusterName | quote }}
+        - targetLabel: environment
+          replacement: {{ .Values.global.pulsemetry.environment | quote }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: fluent-bit
+  namespace: {{ .Release.Namespace }}
+  labels:
+    observability.pulsemetry.io/stack: pulsemetry
+spec:
+  namespaceSelector:
+    matchNames: [{{ printf "%s-logs" .Values.global.pulsemetry.targetNamespace | quote }}]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fluent-bit
+  endpoints:
+    - port: http
+      path: /api/v2/metrics/prometheus
+      interval: 10s
+      relabelings:
+        - targetLabel: job
+          replacement: fluent-bit
+        - targetLabel: cluster
+          replacement: {{ .Values.global.pulsemetry.clusterName | quote }}
+        - targetLabel: environment
+          replacement: {{ .Values.global.pulsemetry.environment | quote }}
