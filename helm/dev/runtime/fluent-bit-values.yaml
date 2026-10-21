@@ -101,6 +101,8 @@ config:
         Kube_Tag_Prefix kube.var.log.containers.
         Merge_Log Off
         Keep_Log On
+        Labels On
+        Annotations Off
         K8S-Logging.Parser Off
         K8S-Logging.Exclude Off
     [FILTER]

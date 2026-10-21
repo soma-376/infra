@@ -7,7 +7,7 @@
   "version": "5.1.3",
   "pipeline": "dummy → null; filesystem buffering, storage.metrics On",
   "runtimeConfigSource": "helm/dev/runtime/fluent-bit-values.yaml",
-  "runtimeConfigSha256": "b7cad09119fcb72a51eb9cfa28fb99cbc7c7358fcef0fa05f307c8462455bc17",
+  "runtimeConfigSha256": "162e6b1323e93acf1088be6daf61154d0fd7815f047c36d1d2488f87a22c600c",
   "runtimeDryRunExitCode": 0,
   "invalidPluginPropertyDryRunExitCode": 1,
   "eventsConfigSha256": "cbd9d2c9b59db7909d1a4e7b6d4c119db0a33800420905a67ffa938a9558589e",

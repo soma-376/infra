@@ -54,9 +54,13 @@ upstream ServiceMonitor의 cluster/environment relabeling이다. 배포 output�
 | MSK broker 로그 | MSK → `/aws/vendedlogs/msk/soma-376-dev-telemetry` | 최신 broker 별 INFO/WARN/ERROR 로그 |
 | EKS control plane | EKS → `/aws/eks/<cluster>/cluster` | 기존 5종 export 상태 확인 |
 
-Grafana CloudWatch datasource는 Pod Identity로 허용된 그룹을 읽는다. source 필드는 앱 로그에서
-`environment`, `cluster`, `kubernetes.namespace_name`, `kubernetes.pod_name`, `kubernetes.container_name`,
-`kubernetes.host`, `stream`, `log`다. 별도 `component`/`node` 최상위 필드나 request correlation ID를 기대하지 않는다.
+Grafana CloudWatch datasource는 Pod Identity로 허용된 그룹을 읽는다. 앱 로그의 최상위 필드는
+`environment`, `cluster`, `kubernetes`, `stream`, `log`, `time`(CRI 원래 시각), `_p`(CRI 분할 표시)다.
+`kubernetes`에는 `namespace_name`·`pod_name`·`pod_id`·`container_name`·`host`·`labels`·`docker_id`·`container_hash`·`container_image`가 있다.
+annotation은 보내지 않는다. 구성요소는 `kubernetes.labels.app.kubernetes.io/name`으로 구분한다.
+별도 `component`/`node` 최상위 필드나 request correlation ID를 기대하지 않는다. CRI가 나눈 줄은 결합되지만
+`_p`는 첫 조각 값(`P`)으로 남으므로 분할 여부 판정에 쓰지 않는다. 필드 목록은 실제 Fluent Bit 5.1.3 출력
+[envelope 증거](../../helm/observability/tests/fluent-bit/envelope-evidence.json)에서 확인했다(Kubernetes metadata는 Lua로 재현).
 예를 들어 ClickHouse 종료 전후는 앱 로그 그룹에서 다음 Logs Insights query로 확인한다.
 
 ```text
@@ -79,7 +83,27 @@ OOM/SIGKILL에는 마지막 로그가 없을 수 있다. `kubectl describe pod`,
 `kube_pod_container_status_last_terminated_reason`을 함께 본다. 노드가 소실되기 전 전송된 로그만 보존된다.
 
 Fluent Bit은 `/var/log/fluent-bit-state/tail.db`와 같은 hostPath의 filesystem buffer를 사용한다.
-이는 같은 노드의 Pod 교체에서 offset을 유지한다. output queue는 앱 512MiB·관측 128MiB로 제한하며
+이는 같은 노드의 Pod 교체에서 offset을 유지한다.
+
+**tail DB 첫 전환의 중복 재전송.** 이 설정을 처음 적용하면 노드마다 tail DB가 비어 있고 `Read_From_Head On`이라
+노드에 남은 대상 namespace 컨테이너의 현재 로그 파일을 처음부터 다시 보낸다. 범위는 컨테이너당 현재 파일
+하나(kubelet `containerLogMaxSize`, 기본 10MiB)다. 회전된 파일은 `/var/log/containers` 대상이 아니다.
+이전 설정이 이미 보낸 줄이 다시 들어가고 CRI parser가 원래 시각을 유지하므로 **과거 시각의** 로그·metric filter
+집계가 중복된다. 실패 event 경보 중 영향을 받는 것은 threshold 50인 `gateway-rejected`의 적용 직전 5분 평가 구간뿐이다.
+나머지 네 종은 threshold 1이라 원래 경보가 이미 울린 구간이다. 적용 직후 다음을 실행 기록에 남긴다.
+
+```text
+# 앱 로그 그룹, 시간 범위는 적용 2시간 전 ~ 적용 후 30분. <apply_ms>는 Fluent Bit 적용 시작 UTC epoch ms
+fields @timestamp, @ingestionTime, kubernetes.host
+| filter @ingestionTime >= <apply_ms> and @timestamp < <apply_ms>
+| stats count(*) as replayed, min(@timestamp) as from, max(@timestamp) as to by kubernetes.host
+```
+
+노드별 `from`~`to`가 중복 가능 구간이다. 그 구간의 Logs Insights 결과와 `Pulsemetry/Dev/Telemetry` 지표는
+중복을 포함한다고 표시하고 성능 판정 증거로 쓰지 않는다. 기간 안에 `gateway-rejected` 경보가 울렸다면 재전송 여부를 먼저 확인한다.
+DB를 지우거나 hostPath를 바꾸면 같은 재전송이 다시 일어난다. 같은 노드의 Pod 재시작은 DB offset에서 이어 읽는다.
+
+output queue는 앱 512MiB·관측 128MiB로 제한하며
 가득 차면 가장 오래된 해당 output chunk가 버려질 수 있다. `Retry_Limit False`도 무한 저장 보장이 아니다.
 DB/WAL, filesystem chunk 메타데이터와 rewrite emitter가 추가 공간을 쓰므로 **hostPath 전체 1GiB hard quota가 아니다**.
 Kubernetes ephemeral-storage limit는 이 hostPath 전체를 제한하지 않는다. 노드 디스크 여유, queue backlog,
@@ -90,17 +114,23 @@ CRI/docker multiline parser는 런타임 분할 레코드를 결합한다. Java 
 종료·회전된 파일의 발견 간격은 5초다. node-local buffer는 노드 종료, 로컬 디스크 손상과 재생성에서 사라진다.
 
 기존 경보의 `"event=<code>"` filter 문구를 유지한다. JSON envelope의 `log`에도 원문이 그대로 있으므로
-동일 term이 남아야 한다. 로컬 검증은 filter 정의와 metadata/원문 보존 설정을 고정하며 AWS filter engine은
-실행하지 않는다. 배포 전 읽기 전용 `TestMetricFilter`로 실제 문구를 검증한다.
+동일 term이 남아야 한다. 입력 샘플은 실제 Fluent Bit 5.1.3이 runtime 설정으로 만든 envelope 10건이다
+([metric-filter-samples.jsonl](../../helm/observability/tests/fluent-bit/metric-filter-samples.jsonl)).
+실패 event 5종, CRI 분할 줄, 경보 대상이 아닌 `telemetry_transient_failure`·시작·GC stderr·ClickHouse JSON을 담는다.
+로컬 테스트는 부분 문자열 대조만 하며 CloudWatch filter engine을 실행하지 않는다.
+
+**배포 전 관문.** 읽기 전용 `TestMetricFilter`로 5개 filter가 각각 기대 샘플만 일치하는지 확인한다.
+하나라도 다르면 Fluent Bit 적용을 멈춘다. 결과 파일은 덮어쓰지 않으며 실행 기록에 경로를 남긴다.
 
 ```bash
-# 실제 비밀이나 payload 대신 합성 실패 이벤트 하나를 사용한다. 결과 matches가 1개여야 한다.
-aws logs test-metric-filter --region "$AWS_REGION" \
-  --filter-pattern '"event=telemetry_gateway_rejected"' \
-  --log-event-messages '{"environment":"dev","cluster":"soma-376-dev-eks","kubernetes":{"namespace_name":"pulsemetry-dev","container_name":"telemetry-gateway"},"log":"WARN event=telemetry_gateway_rejected reason=validation"}'
+# 샘플은 합성 로그이며 비밀·payload가 없다. logs:TestMetricFilter 권한만 쓴다.
+node scripts/observability-metric-filter-check.mjs --aws --region ap-northeast-2 \
+  --output "$RUN_DIR/metric-filter-check.json"
+# 샘플을 다시 만들 때(Fluent Bit·values 변경 시)
+python3 scripts/observability-log-envelope-smoke.py
 ```
 
-실부하 전에는 실패 이벤트 5종 전부의 해당 metric filter를 확인하고, 수집기 재시작/일시 전송 실패 후
+실부하 전에는 수집기 재시작/일시 전송 실패 후
 배송 재개, 긴 stacktrace, ClickHouse 오류, Pod 재시작 이벤트를 검증한다. 원인 확인 없이 OOM이나 노드 손실을
 강제로 유발하지 않는다. 테스트가 끝나도 lag가 0인지 뿐 아니라 마지막 committed offset·처리 결과를 확인한다.
 MSK lag는 group 상태와 committed offset 조건이 있어 미존재를 0으로 채우지 않는다.

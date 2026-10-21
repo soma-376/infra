@@ -172,6 +172,7 @@ try {
       check(config.includes('auto_create_group Off'), 'CDK 로그 그룹 소유권을 유지한다');
       check(config.includes('DB /var/fluent-bit/state/tail.db') && config.includes('storage.type filesystem'), 'offset과 미전송 로그를 node-local 디스크에 남긴다');
       check(!/\blog_key\b/.test(config) && config.includes('Keep_Log On'), '원문과 Kubernetes metadata를 함께 보내야 한다');
+      check(config.includes('Merge_Log Off') && config.includes('Labels On') && config.includes('Annotations Off'), 'label로 구성요소를 식별하고 annotation·임의 JSON 병합은 보내지 않는다');
       check(config.includes('Match application.*') && config.includes('Match observability.*'), '앱과 관측 스택 로그를 각각 전달한다');
       check(config.includes('storage.total_limit_size 512M') && config.includes('storage.total_limit_size 128M'), '재시도 buffer에 크기 상한이 필요하다');
       check(ds.spec.template.spec.tolerations.some(item => item.key === 'workload' && item.value === 'observability'), '관측 노드도 수집한다');

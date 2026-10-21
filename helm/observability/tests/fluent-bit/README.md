@@ -28,3 +28,20 @@ HELM_BIN=/path/to/helm python3 scripts/observability-fluent-bit-smoke.py
 
 이 검증은 옵션 이름·로컬 exporter만 확인한다. Kubernetes API/RBAC, ASCP·Pod Identity, 실제 tail multiline/
 DB 재시작, CloudWatch 권한·배송·재시도, Events PVC 중복 제거와 종료 노드 로그 보존은 검증하지 않았다.
+
+## 앱 로그 envelope와 metric filter 샘플
+
+`scripts/observability-log-envelope-smoke.py`는 같은 이미지로 실제 values의 tail·CRI multiline·grep·
+record_modifier·rewrite_tag를 실행해 file output의 JSON을 만든다. Kubernetes API가 없으므로 kubernetes filter만
+같은 metadata 구조를 붙이는 Lua로 재현한다. 결과는 `metric-filter-samples.jsonl`(실패 event 5종·CRI 분할 줄·
+음성 4건)과 `envelope-evidence.json`(실제 필드 목록·envelope overhead)이다.
+
+```bash
+python3 scripts/observability-log-envelope-smoke.py
+node scripts/observability-metric-filter-check.mjs        # 로컬 부분 문자열 대조
+```
+
+확인한 동작: CRI P/F 분할 줄은 원문 그대로 결합되지만 `_p`는 첫 조각 값 `P`로 남는다. `time`에 CRI 원래 시각이
+남는다. `pulsemetry-observability` namespace 로그는 observability output으로만 간다. 원문 한 줄당 envelope가
+약 640~660 bytes를 더한다(재현한 label 2개 기준, 실제 Pod label이 많으면 더 커진다).
+CloudWatch filter engine 일치는 배포 전 `--aws`로 확인한다([런북](../../../../docs/runbooks/dev-observability.md)).
