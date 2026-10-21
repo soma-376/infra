@@ -852,3 +852,30 @@ describe('관측 values와 전체 MSK broker 검증', () => {
     expect(existsSync(output.dir)).toBe(false);
   });
 });
+
+// PROJ-191: GC/safepoint stderr는 성능 비교 구간에서만 켜고 측정 대상 두 앱에만 전달한다.
+describe('JVM GC·safepoint 로그 입력', () => {
+  const temps: string[] = [];
+  afterEach(() => temps.splice(0).forEach(temp => rmSync(temp, { recursive: true, force: true })));
+  const run = (value: unknown) => {
+    const runtime = load(readFileSync(runtimeFile, 'utf8'));
+    if (value !== undefined) runtime.jvmGcSafepointLog = value;
+    const result = invoke(outputs(), undefined, undefined, dump(runtime));
+    temps.push(result.temp); return result;
+  };
+  test('생략하면 끄고 true면 Gateway·ingest values에만 넣는다', () => {
+    const off = run(undefined);
+    expect(off.result.status).toBe(0);
+    for (const file of ['telemetry-gateway.yaml', 'telemetry-ingest.yaml']) expect(off.read(file).jvm).toBeUndefined();
+    const on = run(true);
+    expect(on.result.status).toBe(0);
+    for (const file of ['telemetry-gateway.yaml', 'telemetry-ingest.yaml']) expect(on.read(file).jvm).toEqual({ gcSafepointLog: true });
+    for (const file of ['enrollment-api.yaml', 'dashboard-api.yaml']) expect(on.read(file).jvm).toBeUndefined();
+  });
+  test('boolean이 아니면 파일 생성 전에 거부한다', () => {
+    const output = run('-Xlog:gc');
+    expect(output.result.status).toBe(1);
+    expect(output.result.stderr).toContain('jvmGcSafepointLog');
+    expect(existsSync(output.dir)).toBe(false);
+  });
+});

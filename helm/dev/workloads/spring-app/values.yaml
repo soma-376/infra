@@ -33,6 +33,11 @@ telemetryJwt:
 kafka:
   enabled: false
 
+# GC·safepoint INFO를 stderr에 남긴다. 옵션 문자열은 backend 인계값으로 chart가 고정한다.
+# 성능 비교는 calibration부터 같은 값을 쓴다. 생성기는 runtime-values의 jvmGcSafepointLog로 켠다. (ADR-0037)
+jvm:
+  gcSafepointLog: false
+
 # 기존 앱 이미지와의 호환을 위해 관측 이미지 배포 때만 활성화한다.
 metrics:
   enabled: false

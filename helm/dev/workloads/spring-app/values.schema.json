@@ -548,6 +548,18 @@
           "type": "boolean"
         }
       }
+    },
+    "jvm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gcSafepointLog"
+      ],
+      "properties": {
+        "gcSafepointLog": {
+          "type": "boolean"
+        }
+      }
     }
   },
   "allOf": [

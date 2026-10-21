@@ -48,6 +48,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if regexMatch "^MANAGEMENT_" $name -}}
 {{- fail "management 설정은 metrics.enabled와 backend 기본 계약을 사용한다" -}}
 {{- end -}}
+{{- if has $name (list "JDK_JAVA_OPTIONS" "JAVA_TOOL_OPTIONS") -}}
+{{- fail "JVM 옵션은 jvm.gcSafepointLog의 고정 문자열로만 공급한다" -}}
+{{- end -}}
 {{- if or (regexMatch "^PULSEMETRY_(OIDC|COGNITO_)" $name) (regexMatch "^PULSEMETRY_DASHBOARD_(RDS|CLICKHOUSE)_(SOURCE|CACHE)_(USERNAME|PASSWORD)$" $name) (has $name (list "PULSEMETRY_DB_USERNAME" "PULSEMETRY_DB_PASSWORD" "PULSEMETRY_TOKEN_HASH_SECRET" "PULSEMETRY_ADMIN_API_TOKEN" "SPRING_CONFIG_IMPORT" "SPRING_DATASOURCE_USERNAME" "SPRING_DATASOURCE_PASSWORD" "SPRING_APPLICATION_JSON" "SERVER_PORT" "PULSEMETRY_USER_AUTH_ENABLED" "PULSEMETRY_USER_AUTH_ISSUER" "PULSEMETRY_USER_AUTH_AUDIENCE" "PULSEMETRY_USER_AUTH_ALLOWED_ORIGINS" "PULSEMETRY_USER_AUTH_ALLOWED_REDIRECT_URIS" "PULSEMETRY_USER_AUTH_ACTIVE_KID" "PULSEMETRY_USER_AUTH_PRIVATE_KEY_FILE" "PULSEMETRY_USER_AUTH_PUBLIC_KEY_FILE")) -}}
 {{- fail (printf "%s는 env가 아닌 runtime configtree로 공급해야 한다" $name) -}}
 {{- end -}}

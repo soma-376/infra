@@ -371,6 +371,15 @@ function checkObservability(chart, clickhouseChart, clickhouseValues) {
   }
   rejects('enrollment-api', chart, { ...appValues('enrollment-api'), metrics: { enabled: true } });
   rejects('telemetry-gateway', chart, { ...appValues('telemetry-gateway'), metrics: { enabled: true }, env: { MANAGEMENT_SERVER_PORT: '8082' } });
+  // GC/safepoint 로그는 고정 문자열 하나만 허용한다. 임의 JVM 옵션 env는 거부한다.
+  for (const workload of ['telemetry-gateway', 'telemetry-ingest']) {
+    const enabled = render(workload, chart, { ...appValues(workload), jvm: { gcSafepointLog: true } });
+    assert.equal(environment(enabled, workload).JDK_JAVA_OPTIONS, '-Xlog:gc,safepoint:stderr:utctime,level,tags');
+    assert.equal(environment(render(workload, chart, appValues(workload)), workload).JDK_JAVA_OPTIONS, undefined);
+    documents.push(...enabled);
+  }
+  for (const name of ['JDK_JAVA_OPTIONS', 'JAVA_TOOL_OPTIONS']) rejects('telemetry-ingest', chart, { ...appValues('telemetry-ingest'), env: { [name]: '-Xmx1g' } });
+  rejects('telemetry-ingest', chart, { ...appValues('telemetry-ingest'), jvm: { gcSafepointLog: true, options: '-Xmx1g' } });
   const clickhouse = render('clickhouse', clickhouseChart, { ...clickhouseValues, observability: { enabled: true } });
   const config = find(clickhouse, 'ConfigMap', 'clickhouse-observability').data['observability.xml'];
   assert.ok(config.includes('<endpoint>/metrics</endpoint><port>9363</port>'));

@@ -224,6 +224,7 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
     iamSessionName: required(workload === 'telemetry-ingest' ? 'MskIngestSessionName' : 'MskGatewaySessionName'),
   });
   const consumer = ['dual', 'kafka'].includes(runtime.ingestMode);
+  const jvm = runtime.jvmGcSafepointLog ? { jvm: { gcSafepointLog: true } } : {};
   const values = {
     'base.yaml': { nodeRoleName, subnetIds, appNodeSecurityGroupId: appSg, clickhouseNodeSecurityGroupId: chSg, clickhouseAvailabilityZone: zone, observabilityNodeSecurityGroupId: obsSg },
     'lbc.yaml': { clusterName, region, vpcId },
@@ -241,7 +242,7 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
       targetGroupBindings: binding('ValidationEnrollmentApiTargetGroupArn'),
     },
     'telemetry-ingest.yaml': {
-      image: image(images.ingest, 'ingest image'), vpcId, metrics: { enabled: true },
+      image: image(images.ingest, 'ingest image'), vpcId, metrics: { enabled: true }, ...jvm,
       runtime: { enabled: true, secretProviderClass: 'telemetry-ingest-runtime', requiredFiles: commonFiles },
       ingestMode: runtime.ingestMode, telemetryJwt: telemetryJwt('telemetry-ingest'),
       ...(consumer ? { kafka: kafka('telemetry-ingest') } : {}),
@@ -252,7 +253,7 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
         : { targetGroupBindings: binding('ValidationTelemetryIngestTargetGroupArn') }),
     },
     'telemetry-gateway.yaml': {
-      image: image(images.gateway, 'gateway image'), vpcId, metrics: { enabled: true }, nodePort: Number(gatewayNodePort),
+      image: image(images.gateway, 'gateway image'), vpcId, metrics: { enabled: true }, ...jvm, nodePort: Number(gatewayNodePort),
       telemetryJwt: telemetryJwt('telemetry-gateway'), kafka: kafka('telemetry-gateway'),
       env: { AWS_REGION: region, PULSEMETRY_OBSERVABILITY_ENVIRONMENT: 'dev' },
       targetGroupBindings: binding('ValidationTelemetryGatewayTargetGroupArn'),

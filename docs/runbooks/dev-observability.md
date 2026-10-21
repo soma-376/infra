@@ -32,6 +32,19 @@ Grafana는 운영자 localhost port-forward로 접속하며 public ALB/Ingress�
 upstream ServiceMonitor의 cluster/environment relabeling이다. 배포 output을 수동 문자열로 대체하지 않는다.
 별도 k6 인프라는 이번 범위에 없으며 새 환경을 만들 때 같은 관측 차트 입력·대시보드를 재사용한다.
 
+**생성기는 관측을 항상 켠다.** 관측 output(`ObservabilityNodeSecurityGroupId`·`GrafanaAdminSecretArn`·로그 그룹 등)과
+`--msk-nodes`가 없으면 values를 만들지 않는다. 1단계 CDK 배포가 생성기보다 먼저다. opt-in은 두지 않는다.
+Fluent Bit envelope·관측 로그 그룹도 같은 CDK output에 의존하므로 생성기만 opt-in으로 바꿔도 관측 이전 output을
+지원할 수 없기 때문이다. 9404가 없는 관측 이전 Backend 이미지는 `MANAGEMENT_SERVER_PORT`를 무시하고 그대로 동작한다.
+이때 Gateway/ingest target은 down·미수집으로 남고 `GatewayMetricsUnavailable`·`PipelineMetricsUnavailable`이 울린다.
+이 상태를 관측 정상으로 기록하지 않는다.
+
+**GC/safepoint 로그.** runtime-values에 `jvmGcSafepointLog: true`를 넣으면 생성기가 Gateway·ingest에만
+`JDK_JAVA_OPTIONS=-Xlog:gc,safepoint:stderr:utctime,level,tags`를 넣는다(옵션 문자열은 Backend 인계값, chart 고정).
+생략하면 끈다. calibration부터 비교 시험이 끝날 때까지 값을 바꾸지 않고 실행 기록에 runtime-values를 남긴다.
+safepoint 줄은 부하에 비례해 늘어나므로 dev 상시 운영에서는 켜지 않는다. `JDK_JAVA_OPTIONS`·`JAVA_TOOL_OPTIONS`를
+`env`로 직접 넣으면 chart가 거부한다.
+
 2026-10-22 runtime 검증 중 CSI driver **같은 1.6.1 버전**의 기존 SHA256
 `a3f9f5098cc1285f41c707a4de9bf06e27617ab792bef92c60ddc299f842dab0`가 현재 공식 archive와 불일치했다.
 [공식 index](https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts/index.yaml)와
@@ -181,6 +194,22 @@ rm "$DIAGNOSTIC_MANIFEST"
 Grafana/Prometheus 장애는 앱 실행 경로를 차단하지 않아야 한다. 앱 metrics/로그 변경을 되돌릴 때에는 이전
 image digest와 Helm revision으로 복구하고 CH data PVC, 관측 PVC, Secret과 로그 그룹을 삭제하지 않는다.
 Grafana 비밀번호는 persistent DB 초기화와 회전이 다른 절차이므로 차트 안내를 따른다.
+
+**첫 적용 실측.** 다음 두 값은 로컬에서 정할 수 없어 첫 적용에서 측정하고 실행 기록과 후속 PR로 확정한다.
+
+```text
+# 1) 노드 data volume 경보 대상. 노드마다 쓰기 가능 device가 하나 이상 보여야 한다(Bottlerocket은 /local 등).
+count by (instance, device, mountpoint, fstype) (
+  node_filesystem_size_bytes{job="node-exporter"}
+    unless on (instance, device, mountpoint) (node_filesystem_readonly{job="node-exporter"} == 1))
+# 2) MSK exporter scrape 비용. 1시간 이상 부하 구간을 포함한다.
+max by (job) (max_over_time(scrape_duration_seconds{job=~"msk-(jmx|node)"}[1h]))
+max by (job) (max_over_time(scrape_samples_scraped{job=~"msk-(jmx|node)"}[1h]))
+```
+
+1)이 비어 있으면 `NodeDataDiskSpaceLow`가 울릴 수 없다. node-exporter의 mount/fs-type 제외 설정을 먼저 고친다.
+2)의 duration이 timeout 5초의 절반을 넘으면 주기를 늘린다. `sample_limit`·`body_size_limit`은 실측 최대값에
+여유를 둔 값으로 정한다. 응답 크기는 관측 노드에서 broker `:11001/metrics`를 한 번 조회해 bytes를 기록한다.
 
 부하 전 기준선에는 chart/image 버전, 시간대, target 100% UP, broker 3대, Pod/노드 자원, PVC 여유,
 현재 lag/처리량과 Logs Insights 조회를 남긴다. 부하 후에는 수집 공백·drop, 처리량·지연·오류·backlog,

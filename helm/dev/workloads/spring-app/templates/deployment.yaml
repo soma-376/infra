@@ -153,11 +153,16 @@ spec:
               containerPort: 9404
               protocol: TCP
             {{- end }}
-          {{- if or .Values.env .Values.runtime.enabled $pulsemetry $kafka.enabled .Values.ingestMode .Values.metrics.enabled }}
+          {{- if or .Values.env .Values.runtime.enabled $pulsemetry $kafka.enabled .Values.ingestMode .Values.metrics.enabled .Values.jvm.gcSafepointLog }}
           env:
             {{- if .Values.metrics.enabled }}
             - name: MANAGEMENT_SERVER_PORT
               value: "9404"
+            {{- end }}
+            {{- if .Values.jvm.gcSafepointLog }}
+            # java launcher만 읽는다. 이미지 ENTRYPOINT의 메모리 비율 옵션은 그대로 둔다.
+            - name: JDK_JAVA_OPTIONS
+              value: "-Xlog:gc,safepoint:stderr:utctime,level,tags"
             {{- end }}
             {{- if .Values.runtime.enabled }}
             - name: SPRING_CONFIG_IMPORT
