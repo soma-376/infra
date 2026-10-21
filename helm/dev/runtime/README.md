@@ -21,9 +21,10 @@ Fluent Bit은 `*_pulsemetry-dev_*.log`만 tail하고 Kubernetes metadata의 name
 
 설치·복구 전체 순서는 [dev EKS 런북](../../../docs/runbooks/dev-eks-manual-deployment.md)을 따른다. 로컬 configtree 검증은 `python3 scripts/test-configtree.py --backend <backend checkout 또는 고정 source snapshot>`으로 실행한다. backend 소스·YAML을 변경하거나 DB·AWS에 접속하지 않는다.
 
-이번 검증 대상은 backend commit `4d6ccf2e2809344eac9feb1873f2d527eee2f212`다. 같은 소스를 재현하려면 `python3 scripts/test-configtree.py --fetch-ref 4d6ccf2e2809344eac9feb1873f2d527eee2f212`를 실행한다. 이 옵션은 기존 `gh` 접근으로 YAML·DTO·버전 카탈로그 5개만 임시 경로에 읽고 검증 뒤 삭제한다. 기본 실행은 형제 checkout을 읽으며 각 소스 SHA256을 출력하므로 검증 대상이 달라졌는지 비교할 수 있다. Spring Boot 4.1.0·Kotlin 2.3.21·JDK 25와 준비된 Gradle dependency cache가 필요하고 `--gradle-cache`로 cache 위치를 지정할 수 있다.
+PROJ-212 당시 configtree 검증 대상은 backend commit `4d6ccf2e2809344eac9feb1873f2d527eee2f212`다. 같은 소스를 재현하려면 `python3 scripts/test-configtree.py --fetch-ref 4d6ccf2e2809344eac9feb1873f2d527eee2f212`를 실행한다. 이 옵션은 기존 `gh` 접근으로 YAML·DTO·버전 카탈로그 5개만 임시 경로에 읽고 검증 뒤 삭제한다. 기본 실행은 형제 checkout을 읽으며 각 소스 SHA256을 출력하므로 검증 대상이 달라졌는지 비교할 수 있다. Spring Boot 4.1.0·Kotlin 2.3.21·JDK 25와 준비된 Gradle dependency cache가 필요하고 `--gradle-cache`로 cache 위치를 지정할 수 있다.
 
-fixture는 현재 두 Kotlin DTO 소스를 다시 컴파일해 Boot의 ConfigDataEnvironmentPostProcessor와 Binder에 전달한다. 네트워크 클라이언트의 기본 상수만 무해한 상수 stub으로 격리하며, 실제 앱 자동설정·HTTP·RDS·AWS 연결은 실행하지 않는다. 원본 JSON `0400` 파일도 fixture에 포함하고 PULSEMETRY 값·OS 환경변수 우선순위·필수 디렉터리 누락을 검사한다. 개별 필수 파일 누락·빈 파일은 앱 chart의 실제 init shell command로 검사한다. 로컬 파일 검증은 CSI mount와 UID 10001의 live 접근 증거가 아니다.
+이 configtree fixture는 지정한 두 Kotlin DTO 소스를 다시 컴파일해 Boot의 ConfigDataEnvironmentPostProcessor와 Binder에 전달한다. 네트워크 클라이언트의 기본 상수만 무해한 상수 stub으로 격리하며, 실제 앱 자동설정·HTTP·RDS·AWS 연결은 실행하지 않는다. 원본 JSON `0400` 파일도 fixture에 포함하고 PULSEMETRY 값·OS 환경변수 우선순위·필수 디렉터리 누락을 검사한다. 개별 필수 파일 누락·빈 파일은 앱 chart의 실제 init shell command로 검사한다. 로컬 파일 검증은 CSI mount와 UID 10001의 live 접근 증거가 아니다. 이 고정 source 검증을
+dashboard·JWT 전체 설정이나 현재 backend 계약의 검증 완료로 확대하지 않는다.
 
 근거: [AWS ASCP](https://github.com/aws/secrets-store-csi-driver-provider-aws), [CSI driver](https://github.com/kubernetes-sigs/secrets-store-csi-driver/releases/tag/v1.6.1), [Pod Identity trust](https://docs.aws.amazon.com/eks/latest/userguide/pod-id-role.html), [Fluent Bit CloudWatch output](https://docs.fluentbit.io/manual/data-pipeline/outputs/cloudwatch), [Spring configtree](https://docs.spring.io/spring-boot/reference/features/external-config.html).
 

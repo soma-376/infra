@@ -171,8 +171,10 @@ export function installDevAppRoutes(
   scope: Construct,
   listener: IApplicationListener,
   targets: DevAppRouteTargets,
+  otlpRuleId = 'DevOtlpForward',
 ): void {
-  listener.addAction('DevOtlpForward', {
+  // 기존 rule ID를 보존해야 같은 listener의 priority 1을 새 리소스로 중복 생성하지 않는다.
+  listener.addAction(otlpRuleId, {
     priority: 1,
     conditions: [ListenerCondition.pathPatterns([...DEV_OTLP_PATHS])],
     action: ListenerAction.forward([targets.ingest]),

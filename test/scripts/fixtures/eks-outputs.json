@@ -27,6 +27,7 @@
     "ValidationPublicBaseUrl": "http://validation-alb.example.test",
     "ValidationEnrollmentApiTargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:111111111111:targetgroup/soma-376-dev-eks-enroll-v/0123456789abcdef",
     "ValidationTelemetryIngestTargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:111111111111:targetgroup/soma-376-dev-eks-ingest-v/0123456789abcdef",
-    "ValidationClickhouseTargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:111111111111:targetgroup/soma-376-dev-eks-ch-v/0123456789abcdef"
+    "ValidationClickhouseTargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:111111111111:targetgroup/soma-376-dev-eks-ch-v/0123456789abcdef",
+    "ValidationDashboardApiTargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:111111111111:targetgroup/soma-376-dev-eks-dashboard-v/0123456789abcdef"
   }
 }

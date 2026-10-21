@@ -12,6 +12,7 @@ import {
   Vpc,
 } from 'aws-cdk-lib/aws-ec2';
 import { PORTS } from '../common/config';
+import { DEV_EKS_NODE_PORTS } from './eks-config';
 import {
   DEV_SUBNET_GROUP,
   DEV_VPC_CIDR,
@@ -165,6 +166,7 @@ export class DevNetworkStack extends Stack {
       for (const alb of [validation, this.albSecurityGroup]) {
         apps.addIngressRule(alb, Port.tcp(30416), 'EKS ingest NodePort from ALB');
         apps.addIngressRule(alb, Port.tcp(30080), 'EKS enrollment NodePort from ALB');
+        apps.addIngressRule(alb, Port.tcp(DEV_EKS_NODE_PORTS.dashboard), 'EKS dashboard NodePort from ALB');
         ch.addIngressRule(alb, Port.tcp(8123), 'EKS ClickHouse HTTP from ALB');
       }
       this.forEachAllowedCidr((peer, cidr) => {
