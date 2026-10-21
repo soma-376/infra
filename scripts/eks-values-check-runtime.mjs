@@ -167,6 +167,7 @@ try {
     if (key === 'fluentBit') {
       const ds = resources.find(resource => resource.kind === 'DaemonSet');
       check(ds.spec.template.spec.serviceAccountName === 'fluent-bit', 'Fluent Bit Pod Identity SA가 다르다');
+      check(ds.spec.template.spec.containers[0].image === 'cr.fluentbit.io/fluent/fluent-bit:5.1.3@sha256:c5542543523c9678398dd78d927c05e8425ec15b038f226b67b3b019b1a70845', 'Fluent Bit 이미지는 검증한 digest로 고정한다');
       const config = resources.find(resource => resource.kind === 'ConfigMap').data['fluent-bit.conf'];
       check(config.includes('Path /var/log/containers/*_pulsemetry-dev_*.log') && config.includes("Regex $kubernetes['namespace_name'] ^(pulsemetry-dev|pulsemetry-observability|pulsemetry-dev-logs)$"), 'app namespace 이중 filter가 필요하다');
       check(config.includes('auto_create_group Off'), 'CDK 로그 그룹 소유권을 유지한다');

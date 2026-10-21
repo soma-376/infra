@@ -159,6 +159,17 @@ for (const name of ['telemetry-gateway','telemetry-ingest','clickhouse']) {
 const arm64 = JSON.parse(readFileSync(resolve(fixtures,'fixtures/arm64-images.json'),'utf8'));
 assert.equal(arm64.status,'PASS'); assert.equal(arm64.images.length,8);
 assert.ok(arm64.images.every(x=>x.linux_arm64_digests.length));
+// 렌더된 모든 실행 이미지는 ARM64 증거의 tag와 multi-arch index digest를 함께 가진다.
+const pinned = new Map(arm64.images.map(x => [x.image.replace(/^docker\.io\//, ''), `sha256:${x.manifest_index_sha256}`]));
+const running = [prometheus.image, ...resources.filter(x => ['Deployment','DaemonSet','Job'].includes(x.kind))
+  .flatMap(x => [...(x.spec.template.spec.initContainers ?? []), ...x.spec.template.spec.containers]).map(x => x.image),
+  ...find('Deployment','pulsemetry-monitoring-operator').spec.template.spec.containers[0].args
+    .filter(x => x.startsWith('--prometheus-config-reloader=')).map(x => x.split('=')[1])];
+assert.equal(new Set(running.map(x => x.split('@')[0])).size, pinned.size, `실행 이미지 종류: ${[...new Set(running)]}`);
+for (const image of running) {
+  const [reference, digest] = image.replace(/^docker\.io\//, '').split('@');
+  assert.equal(digest, pinned.get(reference), `digest 미고정 또는 증거와 다름: ${image}`);
+}
 // perf values는 주소·식별자를 복제하지 않고 같은 차트의 환경 입력만 바꾼다.
 const perf = loadAll(checked(helm, [...base, '-f', resolve(root, 'helm/observability/values-perf.yaml')])).filter(Boolean);
 assert.deepEqual(perf.find(x => x.kind === 'ServiceMonitor' && x.metadata.name === 'telemetry-gateway').spec.namespaceSelector.matchNames, ['pulsemetry-perf']);

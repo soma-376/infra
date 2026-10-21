@@ -11,6 +11,9 @@ trace를 구성하는 작업은 아니다. 운영 적용 순서와 로그/노드
 Prometheus 3.9.1, Grafana 12.3.1, operator 0.88.0, kube-state-metrics 2.18.0, node-exporter 1.10.2,
 Fluent Bit 5.1.3을 사용한다. [ARM64 증거](tests/fixtures/arm64-images.json)는 공식 OCI index의 8개 이미지
 ARM64 manifest 확인이며 실제 EKS 기동 검증과 구분한다. k6는 1.8.2를 사용한다.
+8개 이미지는 values에서 tag와 그 multi-arch index digest를 함께 고정한다(runtime Fluent Bit DaemonSet 포함).
+`observability-validate.mjs`가 렌더된 모든 컨테이너·config-reloader 이미지의 digest를 증거 파일과 대조한다.
+버전을 바꿀 때는 `observability-image-contract.py`로 새 증거를 만들고 values의 digest를 함께 바꾼다.
 
 - Prometheus: 단일 replica, scrape/evaluation 10초, 보존 7일 또는 블록 20GB 중 먼저 도달한 조건,
   PVC 30Gi. WAL/head는 블록 크기 제한 외 공간을 쓰므로 PVC 여유 경보도 확인한다.
