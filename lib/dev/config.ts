@@ -216,6 +216,13 @@ export const DEV_USER_JWT_PRIVATE_KEY_SECRET_NAME = 'soma-376/dev/user-jwt/priva
 export const DEV_USER_JWT_PUBLIC_KEYS_SECRET_NAME = 'soma-376/dev/user-jwt/public-keys';
 
 /**
+ * telemetry 전용 RS256 키 원본. 사용자 로그인 JWT와 원본·SPC·mount를 공유하지 않는다.
+ * 개인키는 enrollment만, 공개키는 enrollment·Gateway·ingest가 읽는다. (ADR-0036)
+ */
+export const DEV_TELEMETRY_JWT_PRIVATE_KEY_SECRET_NAME = 'soma-376/dev/telemetry-jwt/private-key';
+export const DEV_TELEMETRY_JWT_PUBLIC_KEYS_SECRET_NAME = 'soma-376/dev/telemetry-jwt/public-keys';
+
+/**
  * RDS 인스턴스 타입 (ADR-0022 6번). Aurora Serverless v2 는 최소 0.5 ACU 가
  * 상시 과금되어 개발용으로 과하므로 `DatabaseInstance` + db.t4g.micro 를 쓴다.
  */

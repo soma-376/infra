@@ -52,10 +52,10 @@ describe('DevDataStack', () => {
     });
   });
 
-  // 기존 마스터·공유 토큰 해시·관리자 토큰 + dashboard DB 자격 증명 4개 + JWT 2개.
-  // 폐기한 post-processor/auth-proxy 파생 접속 시크릿은 다시 만들지 않는다. (ADR-0026)
-  test('기존 3개와 dashboard DB·JWT 원본 6개로 시크릿 9개를 만든다', () => {
-    template.resourceCountIs('AWS::SecretsManager::Secret', 9);
+  // 기존 마스터·공유 토큰 해시·관리자 토큰 + dashboard DB 자격 증명 4개 + 사용자 JWT 2개 + telemetry JWT 2개.
+  // 폐기한 post-processor/auth-proxy 파생 접속 시크릿은 다시 만들지 않는다. (ADR-0026, ADR-0036)
+  test('기존 3개와 dashboard DB·사용자/telemetry JWT 원본 8개로 시크릿 11개를 만든다', () => {
+    template.resourceCountIs('AWS::SecretsManager::Secret', 11);
   });
 
   /**
@@ -154,6 +154,16 @@ describe('DevDataStack', () => {
       secret: data.userJwtPublicKeysSecret,
       arn: data.userJwtPublicKeysSecretArn,
     },
+    {
+      name: 'soma-376/dev/telemetry-jwt/private-key',
+      secret: data.telemetryJwtPrivateKeySecret,
+      arn: data.telemetryJwtPrivateKeySecret.secretArn,
+    },
+    {
+      name: 'soma-376/dev/telemetry-jwt/public-keys',
+      secret: data.telemetryJwtPublicKeysSecret,
+      arn: data.telemetryJwtPublicKeysSecret.secretArn,
+    },
   ])('$name은 값·자동 생성 없이 보존하고 전체 ARN 참조를 제공한다', ({
     name, secret, arn,
   }) => {
@@ -182,6 +192,20 @@ describe('DevDataStack', () => {
     expect(JSON.stringify(iam)).not.toContain('secretsmanager:');
     const outputs = JSON.stringify(template.findOutputs('*'));
     expect(outputs).not.toMatch(/SecretString|resolve:secretsmanager|BEGIN (PRIVATE|PUBLIC) KEY/);
+  });
+
+  test('telemetry JWT 원본은 사용자 JWT와 다른 이름이며 ARN만 output으로 노출한다', () => {
+    const [privateId] = secretByName('soma-376/dev/telemetry-jwt/private-key');
+    const [publicId] = secretByName('soma-376/dev/telemetry-jwt/public-keys');
+    const [userPrivateId] = secretByName('soma-376/dev/user-jwt/private-key');
+    expect(new Set([privateId, publicId, userPrivateId]).size).toBe(3);
+    template.hasOutput('TelemetryJwtPrivateKeySecretArn', { Value: { Ref: privateId } });
+    template.hasOutput('TelemetryJwtPublicKeysSecretArn', { Value: { Ref: publicId } });
+    for (const id of [privateId, publicId]) {
+      const description = template.toJSON().Resources[id].Properties.Description;
+      expect(description).toMatch(/^[\x20-\x7e]+$/);
+      expect(description).toContain('telemetry JWT');
+    }
   });
 
   test('폐기한 파생 접속 시크릿을 만들지 않는다', () => {

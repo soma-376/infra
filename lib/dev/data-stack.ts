@@ -26,6 +26,8 @@ import {
   DEV_RAW_SIGNAL_EXPIRATION_DAYS,
   DEV_RDS_ALLOCATED_STORAGE_GIB,
   DEV_RDS_INSTANCE_TYPE,
+  DEV_TELEMETRY_JWT_PRIVATE_KEY_SECRET_NAME,
+  DEV_TELEMETRY_JWT_PUBLIC_KEYS_SECRET_NAME,
   DEV_USER_JWT_PRIVATE_KEY_SECRET_NAME,
   DEV_USER_JWT_PUBLIC_KEYS_SECRET_NAME,
 } from './config';
@@ -84,6 +86,9 @@ export class DevDataStack extends Stack {
   /** 운영자가 키 버전을 등록할 JWT 원본. PROJ-230이 IAM·파일 공급을 연결한다. */
   public readonly userJwtPrivateKeySecret: ISecret;
   public readonly userJwtPublicKeysSecret: ISecret;
+  /** telemetry JWT 원본. 값은 운영자가 등록하며 EKS Pod Identity·SPC가 읽는다. (ADR-0036) */
+  public readonly telemetryJwtPrivateKeySecret: ISecret;
+  public readonly telemetryJwtPublicKeysSecret: ISecret;
   public readonly oidcClientSecrets: Readonly<Record<string, ISecret>>;
   public readonly rawSignalBucket: IBucket;
 
@@ -206,6 +211,31 @@ export class DevDataStack extends Stack {
     this.userJwtPublicKeysSecret = Secret.fromSecretCompleteArn(
       this, 'DevUserJwtPublicKeysReference', userJwtPublicKeys.ref,
     );
+
+    // telemetry JWT 원본도 사용자 JWT와 같은 방식으로 값 없이 만들고 보존한다. 키 등록은 공개키 선배포 절차가
+    // 소유하며 EKS 배포 전에도 등록할 수 있도록 ARN을 이 스택에서 출력한다. (ADR-0036)
+    const telemetryJwtPrivateKey = new CfnSecret(this, 'DevTelemetryJwtPrivateKeySecret', {
+      name: DEV_TELEMETRY_JWT_PRIVATE_KEY_SECRET_NAME,
+      description: 'Versioned PKCS8 private key for dev telemetry JWT signing.',
+    });
+    const telemetryJwtPublicKeys = new CfnSecret(this, 'DevTelemetryJwtPublicKeysSecret', {
+      name: DEV_TELEMETRY_JWT_PUBLIC_KEYS_SECRET_NAME,
+      description: 'Versioned public key ring for dev telemetry JWT verification.',
+    });
+    telemetryJwtPrivateKey.applyRemovalPolicy(RemovalPolicy.RETAIN);
+    telemetryJwtPublicKeys.applyRemovalPolicy(RemovalPolicy.RETAIN);
+    this.telemetryJwtPrivateKeySecret = Secret.fromSecretCompleteArn(
+      this, 'DevTelemetryJwtPrivateKeyReference', telemetryJwtPrivateKey.ref,
+    );
+    this.telemetryJwtPublicKeysSecret = Secret.fromSecretCompleteArn(
+      this, 'DevTelemetryJwtPublicKeysReference', telemetryJwtPublicKeys.ref,
+    );
+    for (const [name, secret] of [
+      ['TelemetryJwtPrivateKeySecretArn', this.telemetryJwtPrivateKeySecret],
+      ['TelemetryJwtPublicKeysSecretArn', this.telemetryJwtPublicKeysSecret],
+    ] as const) {
+      new CfnOutput(this, name, { value: secret.secretArn }).overrideLogicalId(name);
+    }
 
     // key에 고정한 원본이므로 목록 재정렬·다른 client 추가가 기존 Secret을 교체하지 않는다.
     this.oidcClientSecrets = Object.fromEntries([...(props.oidcClientKeys ?? [])].sort().map(key => {
