@@ -47,7 +47,9 @@
 | 0035 | [dev EKS 경로의 MSK는 전용 3 AZ isolated subnet과 DevEksStack 하위 리소스로 둔다](0035-dev-msk-isolated-subnets-under-eks-stack.md) | Accepted (PROJ-246 로컬 구현·검증 대상; AWS 배포·MSK 접속 증거 별도) |
 | 0036 | [telemetry Gateway는 Pod Identity와 workload별 MSK 전용 역할로 dev EKS에 배포하고 OTLP 대상은 context로 전환한다](0036-dev-telemetry-gateway-workload-and-msk-iam.md) | Accepted (PROJ-246 로컬 구현·검증 대상; AWS 배포·MSK IAM·ALB 전환 증거 별도) |
 
-새 ADR을 작성할 때는 다음 미사용 번호(`0037-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
+| 0037 | [dev EKS 관측과 시스템 진단](0037-dev-observability-and-system-diagnostics.md) | Accepted (로컬 구현; 실환경 검증 별도) |
+
+새 ADR을 작성할 때는 다음 미사용 번호(`0038-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
 
 섹션 순서는 다음과 같다. 괄호로 표시한 것은 내용이 있을 때만 둔다.
 

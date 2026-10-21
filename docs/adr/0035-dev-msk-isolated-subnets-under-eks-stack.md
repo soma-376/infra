@@ -9,6 +9,8 @@ Accepted (PROJ-246; 로컬 구현·검증 대상, AWS 배포·MSK 접속·장애
 NAT 0·public subnet은 그대로다. [ADR-0028](0028-dev-eks-auto-mode-transition.md)의 DevEksStack 범위에
 MSK와 telemetry 관측 리소스를 더한다. 기존 ECS·prod·cicd 결정은 유지한다.
 
+관측·로그·metrics 네트워크 범위는 [ADR-0037](0037-dev-observability-and-system-diagnostics.md)이 확장한다. 나머지 MSK 배치·IAM·데이터 설정은 유지한다.
+
 ## Context
 
 PROJ-205는 telemetry 수집을 `ALB → Gateway → MSK → ingest Consumer`로 바꾼다. 공통 계약(PLAN §3.3)은

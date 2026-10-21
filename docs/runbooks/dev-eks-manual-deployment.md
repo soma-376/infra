@@ -29,7 +29,8 @@
 실제 DB·키·이미지 준비는 PROJ-222 런북의 운영 관문이며 아직 실행한 것으로 보지 않는다.
 PROJ-212에서 가져온 문서와 과거 로컬 검증 기록만으로 실행 전제가 충족됐다고 보지 않는다.
 생성기는 `--dashboard-image`·`--gateway-image`를 포함한 네 앱 digest, `--runtime-values` YAML,
-운영자가 조회한 MSK bootstrap JSON(`--msk-bootstrap`)을 받는다.
+운영자가 조회한 MSK bootstrap JSON(`--msk-bootstrap`)과 전체 broker 목록(`--msk-nodes`)을 받는다.
+PROJ-191 관측 스택과 시스템 로그 검증은 [관측 런북](dev-observability.md)을 함께 따른다.
 입력 YAML은 생성기에만 전달하며 Helm에는 정적 workload YAML 다음 generated 앱 YAML을 사용한다.
 
 운영자가 별도로 배포를 승인받은 뒤 이 순서를 실행한다. 기존 ECS 경로와 prod 리소스·권한, OIDC trust는 보존한다.
@@ -205,11 +206,15 @@ MSK_CLUSTER_ARN=$(jq -er '.Stacks[].Outputs[] | select(.OutputKey=="MskClusterAr
   "$RUN_DIR/deployed-outputs.json")
 aws kafka get-bootstrap-brokers --cluster-arn "$MSK_CLUSTER_ARN" --region "$AWS_REGION" --output json \
   > "$RUN_DIR/msk-bootstrap.json"
+# CLI 기본 pagination을 유지한다. bootstrap 목록은 전체 broker를 보장하지 않는다.
+aws kafka list-nodes --cluster-arn "$MSK_CLUSTER_ARN" --region "$AWS_REGION" --output json \
+  > "$RUN_DIR/msk-nodes.json"
 node scripts/eks-values.mjs --outputs "$RUN_DIR/deployed-outputs.json" \
   --output-dir "$RUN_DIR/generated" \
   --enrollment-image "$ENROLLMENT_IMAGE" --ingest-image "$INGEST_IMAGE" \
   --dashboard-image "$DASHBOARD_IMAGE" --gateway-image "$GATEWAY_IMAGE" \
-  --runtime-values "$RUNTIME_VALUES" --msk-bootstrap "$RUN_DIR/msk-bootstrap.json"
+  --runtime-values "$RUNTIME_VALUES" --msk-bootstrap "$RUN_DIR/msk-bootstrap.json" \
+  --msk-nodes "$RUN_DIR/msk-nodes.json"
 EKS_CLUSTER_NAME=$(jq -er '.Stacks[].Outputs[] | select(.OutputKey=="EksClusterName") | .OutputValue' \
   "$RUN_DIR/deployed-outputs.json")
 EKS_OPERATOR_ROLE_ARN=$(jq -er '.Stacks[].Outputs[] | select(.OutputKey=="EksOperatorRoleArn") | .OutputValue' \
