@@ -1,6 +1,7 @@
 import { Stack, StackProps } from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
 import {
+  CfnSecurityGroupIngress,
   GatewayVpcEndpointAwsService,
   IpAddresses,
   IPeer,
@@ -29,6 +30,7 @@ const EPHEMERAL_PORT_MIN = 32768;
 const EPHEMERAL_PORT_MAX = 65535;
 
 export interface DevNetworkStackProps extends StackProps {
+  readonly eksEnabled?: boolean;
   /**
    * ALB(80/8123)와 RDS(5432), 호스트 동적 포트의 인바운드 허용 소스.
    */
@@ -49,6 +51,10 @@ export interface DevNetworkStackProps extends StackProps {
  * 정의해 두는 것이 그 dedup 의 전제다. 운영도 같은 구조다.
  */
 export class DevNetworkStack extends Stack {
+  public readonly eksControlPlaneSecurityGroup?: SecurityGroup;
+  public readonly eksAppNodeSecurityGroup?: SecurityGroup;
+  public readonly eksClickhouseNodeSecurityGroup?: SecurityGroup;
+  public readonly eksValidationAlbSecurityGroup?: SecurityGroup;
   public readonly vpc: Vpc;
   public readonly albSecurityGroup: SecurityGroup;
   /** EC2 호스트 2대(앱 ASG + ClickHouse ASG) 공용 SG. */
@@ -136,6 +142,45 @@ export class DevNetworkStack extends Stack {
     });
 
     this.wireSecurityGroupRules();
+    if (props.eksEnabled) {
+      const sg = (name: string, description: string) => new SecurityGroup(this, name, {
+        vpc: this.vpc, description, allowAllOutbound: true, disableInlineRules: true,
+      });
+      this.eksControlPlaneSecurityGroup = sg('DevEksControlPlaneSg', 'dev EKS control plane');
+      this.eksAppNodeSecurityGroup = sg('DevEksAppNodeSg', 'dev EKS application nodes');
+      this.eksClickhouseNodeSecurityGroup = sg('DevEksClickhouseNodeSg', 'dev EKS ClickHouse nodes');
+      this.eksValidationAlbSecurityGroup = sg('DevEksValidationAlbSg', 'dev EKS validation ALB');
+      const cp = this.eksControlPlaneSecurityGroup;
+      const apps = this.eksAppNodeSecurityGroup;
+      const ch = this.eksClickhouseNodeSecurityGroup;
+      const validation = this.eksValidationAlbSecurityGroup;
+      for (const nodes of [apps, ch]) {
+        cp.addIngressRule(nodes, Port.tcp(443), 'Kubernetes API from nodes');
+        nodes.addIngressRule(cp, Port.tcp(10250), 'Kubelet from control plane');
+        nodes.addIngressRule(nodes, Port.allTraffic(), 'Same node pool communication');
+      }
+      apps.addIngressRule(cp, Port.tcp(9443), 'LBC admission webhook');
+      ch.addIngressRule(apps, Port.tcp(8123), 'ClickHouse HTTP from EKS applications');
+      ch.addIngressRule(apps, Port.tcp(9000), 'ClickHouse native from EKS applications');
+      for (const alb of [validation, this.albSecurityGroup]) {
+        apps.addIngressRule(alb, Port.tcp(30416), 'EKS ingest NodePort from ALB');
+        apps.addIngressRule(alb, Port.tcp(30080), 'EKS enrollment NodePort from ALB');
+        ch.addIngressRule(alb, Port.tcp(8123), 'EKS ClickHouse HTTP from ALB');
+      }
+      this.forEachAllowedCidr((peer, cidr) => {
+        validation.addIngressRule(peer, Port.tcp(80), `Validation HTTP from ${cidr}`);
+        validation.addIngressRule(peer, Port.tcp(8123), `Validation ClickHouse from ${cidr}`);
+      });
+      // 기존 SG의 inline properties를 바꾸지 않고 별도 규칙을 추가한다.
+      new CfnSecurityGroupIngress(this, 'EksToRds', {
+        groupId: this.rdsSecurityGroup.securityGroupId, sourceSecurityGroupId: apps.securityGroupId,
+        ipProtocol: 'tcp', fromPort: 5432, toPort: 5432, description: 'Postgres from EKS applications',
+      });
+      new CfnSecurityGroupIngress(this, 'EksToExistingClickhouse', {
+        groupId: this.clickhouseSecurityGroup.securityGroupId, sourceSecurityGroupId: apps.securityGroupId,
+        ipProtocol: 'tcp', fromPort: 8123, toPort: 8123, description: 'Existing ClickHouse from EKS canary',
+      });
+    }
   }
 
   private wireSecurityGroupRules(): void {

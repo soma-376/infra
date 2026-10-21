@@ -1,3 +1,4 @@
+import { DevEksStack } from './eks-stack';
 import { App, Environment } from 'aws-cdk-lib/core';
 import { applyCommonTags } from '../common/config';
 import { DevConfig, DEV_COMMON_TAGS } from './config';
@@ -7,9 +8,10 @@ import { DevApplicationStack } from './application-stack';
 import { DevEdgeStack } from './edge-stack';
 
 /**
- * dev 스택 4개. CLI 와 테스트가 같은 조립 결과를 공유하기 위한 반환 타입이다.
+ * 기본 dev 4스택과 선택적 EKS 스택. CLI와 테스트가 같은 조립 결과를 공유한다.
  */
 export interface DevStacks {
+  readonly eks?: DevEksStack;
   readonly network: DevNetworkStack;
   readonly data: DevDataStack;
   readonly application: DevApplicationStack;
@@ -22,7 +24,7 @@ export interface SynthDevProps {
 }
 
 /**
- * dev 환경의 4-스택을 주어진 App 에 조립한다.
+ * dev 환경의 기본 4스택과 활성화된 EKS 스택을 주어진 App에 조립한다.
  *
  * bin/infra.ts(CLI)와 후속 커밋의 테스트 픽스처가 모두 이 함수를 거치므로 양쪽
  * 산출물이 갈라질 수 없다. 스택 ID 와 props 전달 순서는 합성 산출물에 그대로
@@ -48,6 +50,7 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
   const network = new DevNetworkStack(app, 'DevNetworkStack', {
     env,
     allowedCidrs: config.allowedCidrs,
+    eksEnabled: config.eks.enabled,
   });
 
   const data = new DevDataStack(app, 'DevDataStack', {
@@ -73,6 +76,7 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     env,
     vpc: network.vpc,
     albSecurityGroup: network.albSecurityGroup,
+    eksValidationAlbSecurityGroup: network.eksValidationAlbSecurityGroup,
     telemetryIngestService: application.telemetryIngestService,
     enrollmentApiService: application.enrollmentApiService,
     clickhouseService: application.clickhouseService,
@@ -86,5 +90,15 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
   // 만든 뒤 application의 컨테이너 정의에 weak cross-stack reference로 연결한다.
   application.bindEnrollmentPublicBaseUrl(edge.publicBaseUrl);
 
-  return { network, data, application, edge };
+  const eks = config.eks.enabled ? new DevEksStack(app, 'DevEksStack', {
+    env, vpc: network.vpc, config: config.eks,
+    dbEndpoint: data.dbEndpoint, dbSecret: data.dbSecret,
+    tokenHashSecret: data.tokenHashSecret, adminApiTokenSecret: data.adminApiTokenSecret,
+    rawSignalBucket: data.rawSignalBucket,
+    controlPlaneSecurityGroup: network.eksControlPlaneSecurityGroup!,
+    appNodeSecurityGroup: network.eksAppNodeSecurityGroup!,
+    clickhouseNodeSecurityGroup: network.eksClickhouseNodeSecurityGroup!,
+  }) : undefined;
+
+  return { network, data, application, edge, ...(eks ? { eks } : {}) };
 }

@@ -6,6 +6,8 @@ Accepted — 부분 대체: [ADR 0026](0026-dev-backend-deployment-units-and-sta
 `collector.obs.local` 등록을 제거한다. ClickHouse의 `clickhouse.obs.local` A 레코드와 이 ADR의
 디스커버리 메커니즘은 그대로 유효하다.
 
+EKS 활성화 dev 경로의 실행·접속·스토리지·스택 경계는 [ADR 0028](0028-dev-eks-auto-mode-transition.md)이 부분 대체한다. 기존 ECS와 prod 경로는 계속 유효하다.
+
 ## Context
 
 Fargate 태스크는 awsvpc 네트워크 모드로 동작하며 IP가 유동적이다. 따라서 ClickHouse EC2 태스크의 주소를 Fargate 태스크 쪽에 하드코딩할 수 없다.

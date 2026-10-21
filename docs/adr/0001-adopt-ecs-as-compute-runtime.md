@@ -4,6 +4,8 @@
 
 Accepted
 
+EKS 활성화 dev 경로의 실행·접속·스토리지·스택 경계는 [ADR 0028](0028-dev-eks-auto-mode-transition.md)이 부분 대체한다. 기존 ECS와 prod 경로는 계속 유효하다.
+
 ## Context
 
 MVP 백엔드는 OTel Collector, Post Processor, API Server, Batch Processor, ClickHouse까지 총 다섯 개의 컴포넌트를 컨테이너로 정의해둔 상태다. 이 컨테이너들을 실제 AWS 환경에 배포하려면 배포 자동화가 필요했고, 후보로 Elastic Beanstalk도 함께 검토했다.

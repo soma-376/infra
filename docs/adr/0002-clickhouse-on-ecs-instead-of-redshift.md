@@ -4,6 +4,8 @@
 
 Accepted (MVP 한정)
 
+EKS 활성화 dev 경로의 실행·접속·스토리지·스택 경계는 [ADR 0028](0028-dev-eks-auto-mode-transition.md)이 부분 대체한다. 기존 ECS와 prod 경로는 계속 유효하다.
+
 ## Context
 
 초기 아키텍처 다이어그램은 Redshift Cluster와 Interface Endpoint 조합으로 분석 저장소를 구성하고 있었다. 그러나 MVP 단계의 비용 구조와 예상 데이터 볼륨을 함께 고려하면, 관리형 데이터 웨어하우스를 도입하는 것은 이 단계에서 과잉 투자에 해당한다.
