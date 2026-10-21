@@ -60,6 +60,7 @@ export class DevNetworkStack extends Stack {
   public readonly eksClickhouseNodeSecurityGroup?: SecurityGroup;
   public readonly eksValidationAlbSecurityGroup?: SecurityGroup;
   public readonly eksRelaySecurityGroup?: SecurityGroup;
+  public readonly eksObservabilityNodeSecurityGroup?: SecurityGroup;
   /** EKS 활성화 시 MSK broker 전용 isolated subnet 3개와 SG. (ADR-0035) */
   public readonly mskSubnets?: readonly PrivateSubnet[];
   public readonly mskSecurityGroup?: SecurityGroup;
@@ -162,6 +163,7 @@ export class DevNetworkStack extends Stack {
       this.eksControlPlaneSecurityGroup = sg('DevEksControlPlaneSg', 'dev EKS control plane');
       this.eksAppNodeSecurityGroup = sg('DevEksAppNodeSg', 'dev EKS application nodes');
       this.eksClickhouseNodeSecurityGroup = sg('DevEksClickhouseNodeSg', 'dev EKS ClickHouse nodes');
+      this.eksObservabilityNodeSecurityGroup = sg('DevEksObservabilityNodeSg', 'dev EKS observability nodes');
       this.eksValidationAlbSecurityGroup = sg('DevEksValidationAlbSg', 'dev EKS validation ALB');
       this.eksRelaySecurityGroup = new SecurityGroup(this, 'DevEksRelaySg', {
         vpc: this.vpc, description: 'dev EKS API SSM relay',
@@ -174,12 +176,24 @@ export class DevNetworkStack extends Stack {
       const apps = this.eksAppNodeSecurityGroup;
       const ch = this.eksClickhouseNodeSecurityGroup;
       const validation = this.eksValidationAlbSecurityGroup;
-      for (const nodes of [apps, ch]) {
+      const obs = this.eksObservabilityNodeSecurityGroup;
+      for (const nodes of [apps, ch, obs]) {
         cp.addIngressRule(nodes, Port.tcp(443), 'Kubernetes API from nodes');
         nodes.addIngressRule(cp, Port.tcp(10250), 'Kubelet from control plane');
         nodes.addIngressRule(nodes, Port.allTraffic(), 'Same node pool communication');
       }
       apps.addIngressRule(cp, Port.tcp(9443), 'LBC admission webhook');
+      obs.addIngressRule(cp, Port.tcp(10250), 'Prometheus operator admission webhook');
+      for (const nodes of [apps, ch]) {
+        nodes.addIngressRule(obs, Port.tcp(10250), 'Kubelet metrics from observability');
+        nodes.addIngressRule(obs, Port.tcp(2020), 'Fluent Bit metrics from observability');
+        nodes.addIngressRule(obs, Port.tcp(9100), 'Node exporter metrics from observability');
+      }
+      apps.addIngressRule(obs, Port.tcp(9404), 'Application metrics from observability');
+      ch.addIngressRule(obs, Port.tcp(9363), 'ClickHouse metrics from observability');
+      // kube-dns가 앱 노드에 배치되어도 관측 Pod의 이름 조회가 동작한다.
+      apps.addIngressRule(obs, Port.udp(53), 'Cluster DNS from observability');
+      apps.addIngressRule(obs, Port.tcp(53), 'Cluster DNS TCP from observability');
       ch.addIngressRule(apps, Port.tcp(8123), 'ClickHouse HTTP from EKS applications');
       ch.addIngressRule(apps, Port.tcp(9000), 'ClickHouse native from EKS applications');
       for (const alb of [validation, this.albSecurityGroup]) {
@@ -207,6 +221,7 @@ export class DevNetworkStack extends Stack {
         vpc: this.vpc, description: 'dev MSK brokers', allowAllOutbound: false, disableInlineRules: true,
       });
       this.mskSecurityGroup.addIngressRule(apps, Port.tcp(DEV_EKS_MSK_IAM_PORT), 'MSK IAM from EKS applications');
+      for (const port of [11001, 11002]) this.mskSecurityGroup.addIngressRule(obs, Port.tcp(port), 'MSK Open Monitoring from observability');
       // 기존 SG의 inline properties를 바꾸지 않고 별도 규칙을 추가한다.
       new CfnSecurityGroupIngress(this, 'EksToRds', {
         groupId: this.rdsSecurityGroup.securityGroupId, sourceSecurityGroupId: apps.securityGroupId,

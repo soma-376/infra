@@ -121,6 +121,7 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     appNodeSecurityGroup: network.eksAppNodeSecurityGroup!,
     clickhouseNodeSecurityGroup: network.eksClickhouseNodeSecurityGroup!,
     relaySecurityGroup: network.eksRelaySecurityGroup!,
+    observabilityNodeSecurityGroup: network.eksObservabilityNodeSecurityGroup!,
     mskSubnets: network.mskSubnets!, mskSecurityGroup: network.mskSecurityGroup!,
   }) : undefined;
 

@@ -91,7 +91,7 @@ test('추가 SG 규칙은 Network에만 생기고 기존 리소스 속성은 보
   }
   const network = Template.fromStack(after.network);
   // ADR-0035의 DevMskSg를 더해 EKS 활성 구성은 사용자 정의 SG 10개다.
-  network.resourceCountIs('AWS::EC2::SecurityGroup', 10);
+  network.resourceCountIs('AWS::EC2::SecurityGroup', 11);
   for (const port of [30416, 30080, 30082, 8123, 5432, 9443, 10250, 9098]) {
     network.hasResourceProperties('AWS::EC2::SecurityGroupIngress', { FromPort: port, ToPort: port, SourceSecurityGroupId: Match.anyValue() });
   }
