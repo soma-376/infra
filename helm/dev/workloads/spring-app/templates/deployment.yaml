@@ -1,0 +1,122 @@
+{{- include "pulsemetry.app.validate" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.workload }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pulsemetry.app.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "pulsemetry.app.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pulsemetry.app.selector" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.workload }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      nodeSelector:
+        kubernetes.io/arch: arm64
+        karpenter.sh/nodepool: pulsemetry-dev-apps
+      terminationGracePeriodSeconds: 60
+      {{- if .Values.runtime.enabled }}
+      initContainers:
+        - name: verify-configtree
+          image: {{ printf "%s@%s" .Values.image.repository .Values.image.digest | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              for file in {{ join " " .Values.runtime.requiredFiles }}; do
+                test -f "/mnt/secrets-store/$file"
+                test -r "/mnt/secrets-store/$file"
+                test -s "/mnt/secrets-store/$file"
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - name: secrets-store
+              mountPath: /mnt/secrets-store
+              readOnly: true
+      {{- end }}
+      containers:
+        - name: {{ .Values.workload }}
+          image: {{ printf "%s@%s" .Values.image.repository .Values.image.digest | quote }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          ports:
+            - name: http
+              containerPort: {{ include "pulsemetry.app.port" . }}
+              protocol: TCP
+          {{- if or .Values.env .Values.runtime.enabled }}
+          env:
+            {{- if .Values.runtime.enabled }}
+            - name: SPRING_CONFIG_IMPORT
+              value: "configtree:/mnt/secrets-store/"
+            {{- end }}
+            {{- range $name, $value := .Values.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+            {{- if eq .Values.workload "telemetry-ingest" }}
+            failureThreshold: 48
+            {{- else }}
+            failureThreshold: 12
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /api/v1/healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 6
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          {{- if .Values.runtime.enabled }}
+          volumeMounts:
+            - name: secrets-store
+              mountPath: /mnt/secrets-store
+              readOnly: true
+          {{- end }}
+      {{- if .Values.runtime.enabled }}
+      volumes:
+        - name: secrets-store
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: {{ .Values.runtime.secretProviderClass | quote }}
+      {{- end }}

@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["workload", "replicaCount", "image", "resources", "env", "runtime", "targetGroupBindings", "vpcId"],
+  "properties": {
+    "workload": {"enum": ["telemetry-ingest", "enrollment-api"]},
+    "replicaCount": {"const": 1},
+    "image": {
+      "type": "object", "additionalProperties": false, "required": ["repository", "digest"],
+      "properties": {
+        "repository": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.-]+/[a-z0-9/_-]+$"},
+        "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+      }
+    },
+    "resources": {
+      "type": "object", "additionalProperties": false, "required": ["requests", "limits"],
+      "properties": {
+        "requests": {
+          "type": "object", "additionalProperties": false, "required": ["cpu", "memory"],
+          "properties": {"cpu": {"const": "250m"}, "memory": {"const": "1Gi"}}
+        },
+        "limits": {
+          "type": "object", "additionalProperties": false, "required": ["cpu", "memory"],
+          "properties": {"cpu": {"const": "1"}, "memory": {"const": "2Gi"}}
+        }
+      }
+    },
+    "env": {
+      "type": "object", "propertyNames": {"pattern": "^[A-Z][A-Z0-9_]*$"},
+      "additionalProperties": {"type": "string"}
+    },
+    "runtime": {
+      "type": "object", "additionalProperties": false, "required": ["enabled", "secretProviderClass", "requiredFiles"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "secretProviderClass": {"type": "string", "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"},
+        "requiredFiles": {
+          "type": "array", "uniqueItems": true,
+          "items": {"enum": ["PULSEMETRY_DB_USERNAME", "PULSEMETRY_DB_PASSWORD", "PULSEMETRY_TOKEN_HASH_SECRET", "PULSEMETRY_ADMIN_API_TOKEN"]}
+        }
+      }
+    },
+    "targetGroupBindings": {
+      "type": "array", "maxItems": 2,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["stage", "targetGroupARN", "confirmExclusiveOwnership"],
+        "properties": {
+          "stage": {"enum": ["validation", "canary"]},
+          "targetGroupARN": {"type": "string", "pattern": "^arn:aws:elasticloadbalancing:ap-northeast-2:[0-9]{12}:targetgroup/soma-376-dev-eks-[a-z0-9-]+/[a-f0-9]{16}$"},
+          "confirmExclusiveOwnership": {"const": true}
+        }
+      }
+    },
+    "vpcId": {"type": "string", "pattern": "^(vpc-[a-f0-9]{8}([a-f0-9]{9})?)?$"}
+  }
+}
