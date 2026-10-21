@@ -33,7 +33,7 @@ backend-dev의 dashboard ECS 재배포 권한은 PROJ-221에서 구현한다. �
 사용자 JWT 키 공급은 [허브 ADR-0022](../docs/adr/0022-user-jwt-key-provisioning.md)와
 [infra ADR-0030](docs/adr/0030-dev-user-jwt-keys-from-secrets-manager.md)을 따른다.
 원본의 CDK 소유·보존은 [ADR-0031](docs/adr/0031-manage-dev-dashboard-and-jwt-secrets-with-cdk.md)을 따른다.
-`DevDataStack`은 기존 Secret 3개와 dashboard DB 계정 Secret 4개·값 없는 JWT 원본 2개, 총 9개를 정의한다.
+`DevDataStack`은 기존 Secret 3개와 dashboard DB 계정 Secret 4개·값 없는 JWT 원본 2개, 총 9개를 정의한다(PROJ-246의 telemetry JWT 원본 2개를 더해 현재 11개).
 새 6개는 삭제·교체 시 보존하며 DB 사용자 생성·JWT 초기화·CDK writer·EKS 키 mount는 후속 작업이다.
 enrollment는 두 JWT 원본, dashboard는 공개키만 읽으며 ingest에는 사용자 JWT 권한을 추가하지 않는다(PROJ-246의 telemetry JWT 공개키는 별도).
 기존 실제 Secret 3개와 과거 검증 수치는 당시 기록이다. 신규 리소스의 AWS 존재·키 등록·DB 권한은 미검증이다.
@@ -85,7 +85,7 @@ JWT 버전은 고정하고 별도 RO 디렉터리에 mount하며 정확한 kid �
 
 [ADR-0032](docs/adr/0032-dev-oidc-client-secret-runtime-supply.md)는 기존 Cognito의 client secret을
 enrollment ECS/EKS에 공급한다. ECS runtime JSON의 client key마다 `DevDataStack`이 초기 버전 없는
-빈 Retain 원본을 만들며 `OidcClientSecretArns`로 key→ARN을 출력한다. 기존 기본 9개에 선언 key 수만큼 추가된다.
+빈 Retain 원본을 만들며 `OidcClientSecretArns`로 key→ARN을 출력한다. 기본 Secret 정의(현재 11개)에 선언 key 수만큼 추가된다.
 OIDC 입력 생략은 비활성이고 비활성 key 선언만으로 bootstrap할 수 있다. 값은 운영자가 수동 등록한다.
 ECS execution role의 `secrets`와 EKS enrollment Pod Identity·SPC는 활성 입력의 VersionId를 고정하며
 JWT writer는 바꾸지 않는다. EKS 생성기는 DataStack output까지 모아 ARN을 채운다. runtime 입력의 ARN·원문
