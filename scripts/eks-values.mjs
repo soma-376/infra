@@ -32,7 +32,7 @@ function image(value, label) {
   return { repository: match[1], digest: match[2] };
 }
 
-export function generateValues(document, enrollmentImage, ingestImage) {
+export function generateValues(document, enrollmentImage, ingestImage, dashboardImage) {
   const outputs = collectOutputs(document);
   const required = key => {
     if (!outputs[key]) throw new Error(`${key}: 배포 output이 없다`);
@@ -66,6 +66,8 @@ export function generateValues(document, enrollmentImage, ingestImage) {
   if (!/^[a-zA-Z0-9_+=,.@-]{1,64}$/.test(nodeRoleName)) throw new Error('EksNodeRoleName은 IAM role 이름이어야 한다');
   const bucket = required('RawSignalBucketName');
   if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket)) throw new Error('RawSignalBucketName이 올바르지 않다');
+  const dashboardNodePort = required('EksDashboardApiNodePort');
+  if (dashboardNodePort !== '30081') throw new Error('EksDashboardApiNodePort는 30081이어야 한다');
   const commonFiles = ['PULSEMETRY_DB_USERNAME', 'PULSEMETRY_DB_PASSWORD', 'PULSEMETRY_TOKEN_HASH_SECRET'];
   const binding = key => [{ stage: 'validation', targetGroupARN: arn(key, 'elasticloadbalancing'), confirmExclusiveOwnership: true }];
   const values = {
@@ -86,6 +88,12 @@ export function generateValues(document, enrollmentImage, ingestImage) {
       env: { PULSEMETRY_DB_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_ARCHIVE_TYPE: 's3', PULSEMETRY_ARCHIVE_BUCKET: bucket, PULSEMETRY_ARCHIVE_PREFIX: prefix, AWS_REGION: region, PULSEMETRY_CLICKHOUSE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_CLICKHOUSE_DATABASE: 'default' },
       targetGroupBindings: binding('ValidationTelemetryIngestTargetGroupArn'),
     },
+    // PROJ-231 runtime·PROJ-224 검증 TG 연결 전에는 설치용 values가 아니다.
+    'dashboard-api.yaml': {
+      image: image(dashboardImage, 'dashboard image'), vpcId, nodePort: Number(dashboardNodePort),
+      runtime: { enabled: false, secretProviderClass: '', requiredFiles: [] },
+      env: { PULSEMETRY_DASHBOARD_PORT: '8081' }, targetGroupBindings: [],
+    },
     'clickhouse.yaml': { vpcId, availabilityZone: zone, targetGroupBindings: binding('ValidationClickhouseTargetGroupArn') },
     'fluent-bit.yaml': { env: [{ name: 'AWS_REGION', value: region }, { name: 'APPLICATION_LOG_GROUP', value: required('ApplicationLogGroupName') }] },
     'ascp.yaml': { awsRegion: region },
@@ -99,12 +107,12 @@ export function generateValues(document, enrollmentImage, ingestImage) {
 export function main(argv) {
   const options = {};
   for (let i = 0; i < argv.length; i += 2) {
-    if (!['--outputs', '--output-dir', '--enrollment-image', '--ingest-image'].includes(argv[i]) || !argv[i + 1]) throw new Error('사용법: node scripts/eks-values.mjs --outputs <cdk-output.json> --output-dir <dir> --enrollment-image <repository@sha256:digest> --ingest-image <repository@sha256:digest>');
+    if (!['--outputs', '--output-dir', '--enrollment-image', '--ingest-image', '--dashboard-image'].includes(argv[i]) || !argv[i + 1]) throw new Error('사용법: node scripts/eks-values.mjs --outputs <cdk-output.json> --output-dir <dir> --enrollment-image <repository@sha256:digest> --ingest-image <repository@sha256:digest> --dashboard-image <repository@sha256:digest>');
     if (options[argv[i]]) throw new Error(`${argv[i]} 옵션이 중복된다`);
     options[argv[i]] = argv[i + 1];
   }
-  for (const name of ['--outputs', '--output-dir', '--enrollment-image', '--ingest-image']) if (!options[name]) throw new Error(`${name} 옵션이 필요하다`);
-  const values = generateValues(JSON.parse(readFileSync(options['--outputs'], 'utf8')), options['--enrollment-image'], options['--ingest-image']);
+  for (const name of ['--outputs', '--output-dir', '--enrollment-image', '--ingest-image', '--dashboard-image']) if (!options[name]) throw new Error(`${name} 옵션이 필요하다`);
+  const values = generateValues(JSON.parse(readFileSync(options['--outputs'], 'utf8')), options['--enrollment-image'], options['--ingest-image'], options['--dashboard-image']);
   const dir = resolve(options['--output-dir']);
   mkdirSync(dir, { recursive: true });
   for (const [filename, value] of Object.entries(values)) {

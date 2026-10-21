@@ -107,14 +107,14 @@ function checkApp(documents, workload) {
   const pod = deployment.spec.template.spec;
   const container = pod.containers[0];
   const service = find(documents, 'Service', workload);
-  const port = workload === 'telemetry-ingest' ? 4316 : 8080;
+  const port = { 'telemetry-ingest': 4316, 'enrollment-api': 8080, 'dashboard-api': 8081 }[workload];
   assert.equal(deployment.spec.replicas, 1);
   assert.deepEqual(deployment.spec.strategy, { type: 'Recreate' });
   assert.deepEqual(deployment.spec.selector.matchLabels, deployment.spec.template.metadata.labels);
   assert.deepEqual(service.spec.selector, deployment.spec.selector.matchLabels);
   assert.equal(service.spec.type, 'NodePort');
   assert.deepEqual(service.spec.ports, [{ name: 'http', port, targetPort: 'http',
-    nodePort: workload === 'telemetry-ingest' ? 30416 : 30080, protocol: 'TCP' }]);
+    nodePort: { 'telemetry-ingest': 30416, 'enrollment-api': 30080, 'dashboard-api': 30081 }[workload], protocol: 'TCP' }]);
   assert.deepEqual(container.ports, [{ name: 'http', containerPort: port, protocol: 'TCP' }]);
   assert.deepEqual(pod.nodeSelector, {
     'kubernetes.io/arch': 'arm64', 'karpenter.sh/nodepool': 'pulsemetry-dev-apps',
@@ -274,13 +274,14 @@ try {
   assert.match(checked(kubeconform, ['-v']), /^v0\.8\.0/);
   const chart = 'helm/dev/workloads/spring-app';
   const allDocuments = [];
-  for (const workload of ['telemetry-ingest', 'enrollment-api']) {
+  for (const workload of ['telemetry-ingest', 'enrollment-api', 'dashboard-api']) {
     const values = appValues(workload);
     const base = render(workload, chart, values);
     checkApp(base, workload);
     assert.equal(find(base, 'Deployment', workload).spec.template.spec.volumes, undefined);
     const files = ['PULSEMETRY_DB_USERNAME', 'PULSEMETRY_DB_PASSWORD', 'PULSEMETRY_TOKEN_HASH_SECRET'];
     if (workload === 'enrollment-api') files.push('PULSEMETRY_ADMIN_API_TOKEN');
+    if (workload === 'dashboard-api') files.splice(0, files.length, ...['RDS', 'CLICKHOUSE'].flatMap(store => ['SOURCE', 'CACHE'].flatMap(role => ['USERNAME', 'PASSWORD'].map(field => `PULSEMETRY_DASHBOARD_${store}_${role}_${field}`))));
     const runtime = { enabled: true, secretProviderClass: `${workload}-runtime`, requiredFiles: files };
     const mounted = render(workload, chart, { ...values, runtime });
     checkApp(mounted, workload);
@@ -295,6 +296,8 @@ try {
     rejects(workload, chart, { ...values, env: { PULSEMETRY_ADMIN_API_TOKEN: 'fixture-only' } });
     rejects(workload, chart, { ...values, env: { SPRING_CONFIG_IMPORT: 'optional:configtree:/other/' } });
     rejects(workload, chart, { ...values, env: { SERVER_PORT: '4318' } });
+    rejects(workload, chart, { ...values, env: { PULSEMETRY_DASHBOARD_RDS_SOURCE_PASSWORD: 'fixture-only' } });
+    rejects(workload, chart, { ...values, env: { PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_USERNAME: 'fixture-only' } });
     rejects(workload, chart, { ...values, runtime: { ...runtime, secretProviderClass: '' } });
     rejects(workload, chart, { ...values, runtime: { ...runtime, requiredFiles: files.slice(1) } });
     rejects(workload, chart, { ...values, runtime: { ...runtime, requiredFiles: [...files, files[0]] } });
@@ -306,11 +309,19 @@ try {
     rejects(workload, chart, { ...values, vpcId: '' });
     rejects(workload, chart, values, 'default');
     rejects(workload, chart, { ...values, nodePort: 30000 });
+    if (workload === 'dashboard-api') {
+      const { nodePort, ...withoutNodePort } = values;
+      rejects(workload, chart, withoutNodePort);
+      rejects(workload, chart, { ...values, nodePort: 30080 });
+      rejects(workload, chart, { ...values, env: { PULSEMETRY_DASHBOARD_PORT: '8080' } });
+      rejects(workload, chart, { ...values, runtime: { ...runtime, requiredFiles: [...files, 'PULSEMETRY_TOKEN_HASH_SECRET'] } });
+    }
     if (workload === 'telemetry-ingest') {
       rejects(workload, chart, { ...values, env: { PULSEMETRY_INGEST_PORT: '4318' } });
       rejects(workload, chart, { ...values, runtime: { ...runtime, requiredFiles: [...files, 'PULSEMETRY_ADMIN_API_TOKEN'] } });
     }
   }
+  rejects('unknown', chart, { ...appValues('enrollment-api'), workload: 'unknown' });
   const clickhouseChart = 'helm/dev/workloads/clickhouse';
   const clickhouseValues = {
     availabilityZone: 'ap-northeast-2a', vpcId: 'vpc-0123456789abcdef0',

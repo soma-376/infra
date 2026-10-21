@@ -14,7 +14,8 @@
     "AdminApiTokenSecretArn": "arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:admin-abc123",
     "RawSignalBucketName": "fixture-raw-signals",
     "ApplicationLogGroupName": "/eks/dev/application",
-    "ArchivePrefix": "eks_validation"
+    "ArchivePrefix": "eks_validation",
+    "EksDashboardApiNodePort": "30081"
   },
   "DevEdgeStack": {
     "ValidationPublicBaseUrl": "http://validation-alb.example.test",

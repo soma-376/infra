@@ -5,7 +5,7 @@ export const DEV_EKS_CLUSTER_NAME = 'soma-376-dev-eks';
 export const DEV_EKS_OPERATOR_ROLE_NAME = 'soma-376-dev-eks-operator';
 export const DEV_EKS_NAMESPACE = 'pulsemetry-dev';
 export const DEV_EKS_VERSION = '1.36';
-export const DEV_EKS_NODE_PORTS = { ingest: 30416, enrollment: 30080 } as const;
+export const DEV_EKS_NODE_PORTS = { ingest: 30416, enrollment: 30080, dashboard: 30081 } as const;
 
 export interface DevEksConfig {
   readonly enabled: boolean;

@@ -1,0 +1,5 @@
+# PROJ-223의 고정 계약이다. 실제 클러스터의 포트 충돌은 배포 전 별도 확인한다.
+workload: dashboard-api
+nodePort: 30081
+env:
+  PULSEMETRY_DASHBOARD_PORT: "8081"

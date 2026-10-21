@@ -12,12 +12,12 @@
 
 ## 1. 실행 범위와 사전 조건
 
-**실행 checkout 조건:** 현재 PROJ-226·222 기준 브랜치에는 EKS CDK·Helm·values 생성기 코드가 없다.
-§2~9를 실행하려면 PROJ-207~211의 누적 구현을 포함한 checkout을 먼저 준비한다.
+**실행 checkout 조건:** PROJ-223은 기존 EKS 누적 tip `f36ccc8`과 PROJ-221을 merge해 양쪽 구현을 보존한다.
+실제 실행에는 아래 후속 runtime·검증 Edge 구현과 별도의 배포 승인이 필요하다.
 dashboard를 포함하려면 PROJ-222의 공통 준비에 이어 PROJ-230·231의 runtime 연결,
 PROJ-221·223·224의 ECS·Helm·검증 Edge 구현도 있어야 한다.
 PROJ-212에서 가져온 문서와 과거 로컬 검증 기록만으로 실행 전제가 충족됐다고 보지 않는다.
-기존 generator의 두 앱 입력에 존재하지 않는 dashboard 옵션을 덧붙이지 않는다.
+PROJ-223 생성기는 `--dashboard-image`를 포함한 세 앱 digest를 받는다. runtime·JWT 연결은 PROJ-231, 전용 검증 TG 연결은 PROJ-224다.
 
 운영자가 별도로 배포를 승인받은 뒤 이 순서를 실행한다. 기존 ECS 경로·prod·cicd는 유지한다.
 PROJ-213~215의 실제 병행 운영·데이터 이관·Canary·ECS 제거는 이 문서의 초기 설치와 별도 실행이다.
@@ -402,7 +402,7 @@ CDK는 AWS·SG·TG, Helm은 workload·Service·TGB를 소유한다. ECS TG를 TG
 `workload: dashboard-api`, 컨테이너 8081, replica 1·Recreate·UID 10001과 필수 설정 파일 검사가
 PROJ-223 구현의 schema/helpers/template에 실제로 지원되는지 먼저 lint/render로 확인한다.
 
-**NodePort 숫자는 미정이다.** PROJ-223의 확정값과 PROJ-224의 TG 포트·Network SG·CDK output·Helm Service를
+**dashboard NodePort는 30081이다. 실제 가용성은 미검증이다.** PROJ-224의 TG 포트·Network SG·CDK output·Helm Service를
 대조하고 실제 할당 충돌이 없음을 확인한 뒤 기록한다. 임의의 다음 번호를 빈 포트로 간주하지 않는다.
 기존 앱의 requests 250m/1Gi·limits 1 CPU/2Gi 기준과 apps NodePool의 실제 배치·여유를 확인한다.
 
