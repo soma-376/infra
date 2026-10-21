@@ -1,0 +1,21 @@
+{{- range .Values.targetGroupBindings }}
+---
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: {{ $.Values.workload }}-{{ .stage }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "pulsemetry.app.labels" $ | nindent 4 }}
+spec:
+  targetGroupARN: {{ .targetGroupARN | quote }}
+  targetType: instance
+  vpcID: {{ $.Values.vpcId | quote }}
+  serviceRef:
+    name: {{ $.Values.workload }}
+    port: http
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/arch: arm64
+      karpenter.sh/nodepool: pulsemetry-dev-apps
+{{- end }}

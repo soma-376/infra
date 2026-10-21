@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["region", "secrets"],
+  "properties": {
+    "region": { "const": "ap-northeast-2" },
+    "secrets": {
+      "type": "object", "additionalProperties": false,
+      "required": ["dbArn", "tokenHashArn", "adminApiTokenArn"],
+      "properties": {
+        "dbArn": { "type": "string", "pattern": "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:.+$" },
+        "tokenHashArn": { "type": "string", "pattern": "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:.+$" },
+        "adminApiTokenArn": { "type": "string", "pattern": "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:.+$" }
+      }
+    }
+  }
+}

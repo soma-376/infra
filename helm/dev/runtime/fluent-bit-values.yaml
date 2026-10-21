@@ -1,0 +1,96 @@
+# 독립 Fluent Bit release / namespace pulsemetry-dev-logs / SA fluent-bit.
+kind: DaemonSet
+image:
+  repository: cr.fluentbit.io/fluent/fluent-bit
+  tag: "5.1.3"
+testFramework:
+  enabled: false
+serviceAccount:
+  create: true
+  name: fluent-bit
+  annotations: {}
+rbac:
+  create: true
+  nodeAccess: false
+nodeSelector:
+  kubernetes.io/os: linux
+  kubernetes.io/arch: arm64
+tolerations:
+  - key: workload
+    operator: Equal
+    value: clickhouse
+    effect: NoSchedule
+  - key: CriticalAddonsOnly
+    operator: Exists
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+securityContext:
+  runAsUser: 0
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+env:
+  - name: AWS_REGION
+    value: ap-northeast-2
+  - name: APPLICATION_LOG_GROUP
+    value: /eks/dev/application
+daemonSetVolumes:
+  - name: varlog
+    hostPath:
+      path: /var/log
+daemonSetVolumeMounts:
+  - name: varlog
+    mountPath: /var/log
+    readOnly: true
+config:
+  service: |
+    [SERVICE]
+        Daemon Off
+        Flush 5
+        Log_Level info
+        Parsers_File /fluent-bit/etc/parsers.conf
+        HTTP_Server On
+        HTTP_Listen 0.0.0.0
+        HTTP_Port 2020
+        Health_Check On
+  inputs: |
+    [INPUT]
+        Name tail
+        Path /var/log/containers/*_pulsemetry-dev_*.log
+        Tag kube.*
+        multiline.parser docker, cri
+        Mem_Buf_Limit 10MB
+        Skip_Long_Lines On
+        Read_From_Head Off
+        Refresh_Interval 5
+  filters: |
+    [FILTER]
+        Name kubernetes
+        Match kube.*
+        Kube_Tag_Prefix kube.var.log.containers.
+        Merge_Log Off
+        Keep_Log On
+        K8S-Logging.Parser Off
+        K8S-Logging.Exclude Off
+    [FILTER]
+        Name grep
+        Match kube.*
+        Regex $kubernetes['namespace_name'] ^pulsemetry-dev$
+  outputs: |
+    [OUTPUT]
+        Name cloudwatch_logs
+        Match kube.*
+        region ${AWS_REGION}
+        log_group_name ${APPLICATION_LOG_GROUP}
+        log_stream_prefix from-fluent-bit-
+        auto_create_group Off
+        Retry_Limit False
+        log_key log
+  customParsers: |
+    # 이미지의 기본 docker/cri parser를 사용한다.
