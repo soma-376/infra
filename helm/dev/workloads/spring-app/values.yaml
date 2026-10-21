@@ -32,3 +32,7 @@ telemetryJwt:
 # Kafka 접속값은 CDK output과 bootstrap 조회 JSON에서 생성기가 채운다. (ADR-0036)
 kafka:
   enabled: false
+
+# 기존 앱 이미지와의 호환을 위해 관측 이미지 배포 때만 활성화한다.
+metrics:
+  enabled: false

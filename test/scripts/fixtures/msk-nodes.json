@@ -1,0 +1,31 @@
+{
+  "NodeInfoList": [
+    {
+      "NodeType": "BROKER",
+      "BrokerNodeInfo": {
+        "BrokerId": 1,
+        "Endpoints": [
+          "b-1.soma376devtelemetry.abc123.c2.kafka.ap-northeast-2.amazonaws.com"
+        ]
+      }
+    },
+    {
+      "NodeType": "BROKER",
+      "BrokerNodeInfo": {
+        "BrokerId": 2,
+        "Endpoints": [
+          "b-2.soma376devtelemetry.abc123.c2.kafka.ap-northeast-2.amazonaws.com"
+        ]
+      }
+    },
+    {
+      "NodeType": "BROKER",
+      "BrokerNodeInfo": {
+        "BrokerId": 3,
+        "Endpoints": [
+          "b-3.soma376devtelemetry.abc123.c2.kafka.ap-northeast-2.amazonaws.com"
+        ]
+      }
+    }
+  ]
+}

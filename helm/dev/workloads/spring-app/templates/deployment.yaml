@@ -148,8 +148,17 @@ spec:
             - name: http
               containerPort: {{ include "pulsemetry.app.port" . }}
               protocol: TCP
-          {{- if or .Values.env .Values.runtime.enabled $pulsemetry $kafka.enabled .Values.ingestMode }}
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: 9404
+              protocol: TCP
+            {{- end }}
+          {{- if or .Values.env .Values.runtime.enabled $pulsemetry $kafka.enabled .Values.ingestMode .Values.metrics.enabled }}
           env:
+            {{- if .Values.metrics.enabled }}
+            - name: MANAGEMENT_SERVER_PORT
+              value: "9404"
+            {{- end }}
             {{- if .Values.runtime.enabled }}
             - name: SPRING_CONFIG_IMPORT
               value: "configtree:/mnt/secrets-store/"

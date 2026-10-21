@@ -12,5 +12,9 @@ tolerations:
     operator: Equal
     value: clickhouse
     effect: NoSchedule
+  - key: workload
+    operator: Equal
+    value: observability
+    effect: NoSchedule
   - key: CriticalAddonsOnly
     operator: Exists

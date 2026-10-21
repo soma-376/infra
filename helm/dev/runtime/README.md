@@ -9,13 +9,18 @@ CDK는 기존·dashboard 전용 Secrets Manager ARN·Pod Identity 역할·associ
 | fluent-bit | pulsemetry-dev-logs | fluent-bit | 0.58.3 (image 5.1.3) |
 | runtime-config | pulsemetry-dev | `chart/` | 0.1.0 |
 
-`versions.json`은 공개 chart index와 tgz를 대조한 URL·SHA256이다. 별도 CSI release를 설치하고 ASCP의 driver dependency를 꺼서 `^1` 범위가 설치 버전을 바꾸지 않게 한다. Auto Mode 제공 Pod Identity Agent·EBS·네트워크 구성요소는 설치하지 않는다. CSI·ASCP·Fluent Bit은 ARM64 두 NodePool에 배치한다.
+`versions.json`은 공개 chart index와 tgz를 대조한 URL·SHA256이다. 별도 CSI release를 설치하고 ASCP의 driver dependency를 꺼서 `^1` 범위가 설치 버전을 바꾸지 않게 한다. Auto Mode 제공 Pod Identity Agent·EBS·네트워크 구성요소는 설치하지 않는다. CSI·ASCP·Fluent Bit은 앱·ClickHouse·관측 ARM64 NodePool 모두에 배치한다.
 
 Spring 앱은 UID/GID 10001로 `configtree:/mnt/secrets-store/`를 읽는다. PULSEMETRY 파일은 Pod 전용 readOnly CSI volume의 `0444` 파일로 만들며, Secret 읽기 권한은 namespace·ServiceAccount·cluster별 Pod Identity로 제한한다. driver 1.6.1의 CSIDriver는 fsGroupPolicy를 명시하지 않으므로 `0440`과 fsGroup만으로 읽기 권한이 생긴다고 가정하지 않는다. 앱 chart의 initContainer가 같은 UID로 필수 파일의 존재·읽기 가능·비어 있지 않음을 검사한다. 실제 CSI mount·Pod Identity·UID 권한은 배포 후 검증 대상이다.
 
 ASCP jmesPath는 원본 JSON도 파일로 제공한다. `_source_db_json`·`_source_admin_json`은 `0400`이고 앱이 사용하는 PULSEMETRY 필드만 `0444`다. HMAC Secret은 JSON 추출 없이 전체 SecretString을 읽는다. 관리자 Secret ARN·token 파일은 enrollment SPC에만 존재하며 ingest 권한·SPC에는 없다. Kubernetes Secret 복제·자동 회전은 비활성화한다. 기존 설정 변경은 명시적 재배포로 반영한다. JWT 교체는 아래 verifier → signer 순서를 따른다.
 
-Fluent Bit은 `*_pulsemetry-dev_*.log`만 tail하고 Kubernetes metadata의 namespace도 재검사한다. 노드·시스템 namespace 로그를 전송하지 않으며, CDK가 생성한 단일 로그 그룹으로 stdout/stderr 문자열을 전달한다. `auto_create_group Off`와 로그 그룹별 IAM으로 그룹 생성을 막는다. 14일 보존은 dev 초기 정책이고 실제 전달·누락·권한 검증은 아직 수행하지 않았다.
+Fluent Bit은 `pulsemetry-dev`·`pulsemetry-observability`·`pulsemetry-dev-logs` namespace의 컨테이너 로그를 tail하고
+Kubernetes metadata의 namespace도 재검사한다. 앱은 `/eks/dev/application`, 관측 스택과 수집기는
+`/eks/dev/observability`로 보낸다. 원문 `log`와 `kubernetes.*` metadata를 JSON envelope에 함께 보존한다.
+`auto_create_group Off`와 그룹별 IAM으로 그룹 생성을 막는다. tail DB·filesystem buffer는 같은 노드의 Pod 교체를
+견디지만 노드 손실을 보장하지 않는다. queue 상한과 긴 줄 누락 경계는 [관측 런북](../../../docs/runbooks/dev-observability.md)에 있다.
+Events는 독립 관측 차트의 단일 collector, 노드 상세 로그는 NodeDiagnostic을 사용한다. 실제 배송·누락·권한 검증은 배포 후 수행한다.
 
 검증 prefix `eks_validation`와 병행 운영 prefix `eks`는 CDK `ArchivePrefix` output에서 values로 전달한다. ingest의 S3 권한은 해당 prefix의 PutObject뿐이며 조회·정리는 운영자 권한이다. 두 값을 함께 바꾸는 절차는 배포 런북을 따른다.
 

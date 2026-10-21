@@ -52,6 +52,27 @@ export function parseMskBootstrap(text, region) {
   return [...brokers].sort().join(',');
 }
 
+/** 전체 list-nodes 결과에서 실제 broker만 읽는다. bootstrap은 일부 broker일 수 있다. */
+export function parseMskNodes(text, region, bootstrapServers) {
+  let value;
+  try { value = JSON.parse(text); load(text, { schema: JSON_SCHEMA }); }
+  catch { throw new Error('msk-nodes: 중복 키 없는 list-nodes JSON이 필요하다'); }
+  if (!value || !Array.isArray(value.NodeInfoList) || value.NextToken) throw new Error('msk-nodes: pagination이 끝난 NodeInfoList가 필요하다');
+  const suffix = bootstrapServers.split(',')[0].replace(/^b-[0-9]+\./, '').replace(/:9098$/, '');
+  const nodes = value.NodeInfoList.filter(node => node.NodeType === 'BROKER' && node.BrokerNodeInfo);
+  if (nodes.length !== 3) throw new Error('msk-nodes: broker 3개 전체가 필요하다');
+  const hosts = nodes.map(node => {
+    const broker = node.BrokerNodeInfo;
+    if (![1, 2, 3].includes(broker.BrokerId) || !Array.isArray(broker.Endpoints) || !broker.Endpoints.length) throw new Error('msk-nodes: broker ID·endpoint가 올바르지 않다');
+    const expected = `b-${broker.BrokerId}.${suffix}`;
+    const hosts = broker.Endpoints.map(endpoint => typeof endpoint === 'string' ? endpoint.replace(/:9098$/, '') : '');
+    if (!hosts.every(host => host === expected) || !expected.endsWith(`.kafka.${region}.amazonaws.com`)) throw new Error('msk-nodes: bootstrap과 같은 cluster의 내부 broker DNS만 허용한다');
+    return expected;
+  });
+  if (new Set(hosts).size !== 3) throw new Error('msk-nodes: broker가 중복된다');
+  return hosts.sort();
+}
+
 // AWS API·Secret 읽기 없이 배포 output 참조를 Helm values로 변환한다.
 export function collectOutputs(document) {
   const result = {};
@@ -107,7 +128,7 @@ function oidcValues(oidc, outputs, existingSecrets) {
   return { ...oidc, clients };
 }
 
-export function generateValues(document, images, runtimeInput, mskBootstrapText) {
+export function generateValues(document, images, runtimeInput, mskBootstrapText, mskNodesText) {
   const runtime = parseRuntimeInputs(runtimeInput, { eks: true });
   const outputs = collectOutputs(document);
   const required = key => {
@@ -168,6 +189,10 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText)
     if (required(key) !== value) throw new Error(`${key}가 MSK 역할 trust의 고정 세션 이름과 다르다`);
   }
   const bootstrapServers = parseMskBootstrap(mskBootstrapText ?? '', region);
+  const mskBrokers = parseMskNodes(mskNodesText ?? '', region, bootstrapServers);
+  const obsSg = required('ObservabilityNodeSecurityGroupId');
+  if (!/^sg-[a-f0-9]{8}([a-f0-9]{9})?$/.test(obsSg)) throw new Error('ObservabilityNodeSecurityGroupId가 올바르지 않다');
+  if (required('ObservabilityNamespace') !== 'pulsemetry-observability') throw new Error('ObservabilityNamespace가 계약과 다르다');
   // ALB의 OTLP 대상과 ingest 모드가 맞아야 수집이 끊기지 않는다. 전환·복구 순서를 이 검사로 강제한다. (ADR-0036)
   const otlpTarget = required('ValidationOtlpTarget');
   const allowedModes = { ingest: ['http', 'dual'], gateway: ['dual', 'kafka'] }[otlpTarget];
@@ -200,7 +225,7 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText)
   });
   const consumer = ['dual', 'kafka'].includes(runtime.ingestMode);
   const values = {
-    'base.yaml': { nodeRoleName, subnetIds, appNodeSecurityGroupId: appSg, clickhouseNodeSecurityGroupId: chSg, clickhouseAvailabilityZone: zone },
+    'base.yaml': { nodeRoleName, subnetIds, appNodeSecurityGroupId: appSg, clickhouseNodeSecurityGroupId: chSg, clickhouseAvailabilityZone: zone, observabilityNodeSecurityGroupId: obsSg },
     'lbc.yaml': { clusterName, region, vpcId },
     'runtime.yaml': {
       region, secrets: { dbArn: arn('DbSecretArn', 'secretsmanager'), tokenHashArn: arn('TokenHashSecretArn', 'secretsmanager'), adminApiTokenArn: arn('AdminApiTokenSecretArn', 'secretsmanager'), ...dashboardSecrets, ...telemetrySecrets },
@@ -216,20 +241,20 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText)
       targetGroupBindings: binding('ValidationEnrollmentApiTargetGroupArn'),
     },
     'telemetry-ingest.yaml': {
-      image: image(images.ingest, 'ingest image'), vpcId,
+      image: image(images.ingest, 'ingest image'), vpcId, metrics: { enabled: true },
       runtime: { enabled: true, secretProviderClass: 'telemetry-ingest-runtime', requiredFiles: commonFiles },
       ingestMode: runtime.ingestMode, telemetryJwt: telemetryJwt('telemetry-ingest'),
       ...(consumer ? { kafka: kafka('telemetry-ingest') } : {}),
-      env: { PULSEMETRY_DB_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_ARCHIVE_TYPE: 's3', PULSEMETRY_ARCHIVE_BUCKET: bucket, PULSEMETRY_ARCHIVE_PREFIX: prefix, AWS_REGION: region, PULSEMETRY_CLICKHOUSE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_CLICKHOUSE_DATABASE: 'default' },
+      env: { PULSEMETRY_OBSERVABILITY_ENVIRONMENT: 'dev', PULSEMETRY_DB_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_ARCHIVE_TYPE: 's3', PULSEMETRY_ARCHIVE_BUCKET: bucket, PULSEMETRY_ARCHIVE_PREFIX: prefix, AWS_REGION: region, PULSEMETRY_CLICKHOUSE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_CLICKHOUSE_DATABASE: 'default' },
       // kafka 모드는 외부 OTLP 노출을 없애고 내부 health ClusterIP만 둔다.
       ...(runtime.ingestMode === 'kafka'
         ? { service: { type: 'ClusterIP' }, targetGroupBindings: [] }
         : { targetGroupBindings: binding('ValidationTelemetryIngestTargetGroupArn') }),
     },
     'telemetry-gateway.yaml': {
-      image: image(images.gateway, 'gateway image'), vpcId, nodePort: Number(gatewayNodePort),
+      image: image(images.gateway, 'gateway image'), vpcId, metrics: { enabled: true }, nodePort: Number(gatewayNodePort),
       telemetryJwt: telemetryJwt('telemetry-gateway'), kafka: kafka('telemetry-gateway'),
-      env: { AWS_REGION: region },
+      env: { AWS_REGION: region, PULSEMETRY_OBSERVABILITY_ENVIRONMENT: 'dev' },
       targetGroupBindings: binding('ValidationTelemetryGatewayTargetGroupArn'),
     },
     'telemetry-kafka-admin.yaml': {
@@ -243,9 +268,25 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText)
       jwt: jwt(false), userAuth: authSettings,
       env: { ...runtime.dashboard.settings, PULSEMETRY_DASHBOARD_PORT: '8081', PULSEMETRY_MANAGEMENT_ENABLED: String(runtime.dashboard.managementEnabled), PULSEMETRY_MAIL_ENABLED: String(runtime.dashboard.mailEnabled), PULSEMETRY_DASHBOARD_RDS_SOURCE_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_DASHBOARD_RDS_CACHE_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_DATABASE: 'default', PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_DATABASE: 'dashboard_cache' }, targetGroupBindings: binding('ValidationDashboardApiTargetGroupArn'),
     },
-    'clickhouse.yaml': { vpcId, availabilityZone: zone, targetGroupBindings: binding('ValidationClickhouseTargetGroupArn') },
-    'fluent-bit.yaml': { env: [{ name: 'AWS_REGION', value: region }, { name: 'APPLICATION_LOG_GROUP', value: required('ApplicationLogGroupName') }] },
+    'clickhouse.yaml': { vpcId, availabilityZone: zone, observability: { enabled: true }, targetGroupBindings: binding('ValidationClickhouseTargetGroupArn') },
+    'fluent-bit.yaml': { env: [{ name: 'AWS_REGION', value: region }, { name: 'APPLICATION_LOG_GROUP', value: required('ApplicationLogGroupName') }, { name: 'OBSERVABILITY_LOG_GROUP', value: required('ObservabilityLogGroupName') }, { name: 'CLUSTER_NAME', value: clusterName }] },
     'ascp.yaml': { awsRegion: region },
+    'observability.yaml': { global: { pulsemetry: {
+      environment: 'dev', targetNamespace: 'pulsemetry-dev', region, clusterName, mskBrokers,
+      grafanaAdminSecretArn: arn('GrafanaAdminSecretArn', 'secretsmanager'), mskClusterName,
+      applicationLogGroup: required('ApplicationLogGroupName'), brokerLogGroup: required('MskBrokerLogGroupName'),
+      controlPlaneLogGroup: required('EksControlPlaneLogGroupName'),
+      observabilityLogGroup: required('ObservabilityLogGroupName'), kubernetesEventsLogGroup: required('KubernetesEventsLogGroupName'),
+      diagnosticsBucket: required('DiagnosticsBucketName'), topic, consumerGroup,
+    } }, monitoring: Object.fromEntries([
+      ['kubelet', ['serviceMonitor']], ['prometheus', ['serviceMonitor']],
+      ['prometheusOperator', ['serviceMonitor']], ['grafana', ['serviceMonitor']],
+      ['kube-state-metrics', ['prometheus', 'monitor']], ['prometheus-node-exporter', ['prometheus', 'monitor']],
+    ].map(([name, path]) => {
+      // upstream chart의 relabelings는 tpl로 평가되지 않으므로 output에서 실제 문자열을 채운다.
+      const relabelings = [{ targetLabel: 'cluster', replacement: clusterName }, { targetLabel: 'environment', replacement: 'dev' }];
+      return [name, path.reduceRight((value, key) => ({ [key]: value }), { relabelings })];
+    })) },
   };
   const groups = ['ValidationEnrollmentApiTargetGroupArn', 'ValidationTelemetryIngestTargetGroupArn', 'ValidationClickhouseTargetGroupArn', 'ValidationDashboardApiTargetGroupArn', 'ValidationTelemetryGatewayTargetGroupArn'].map(required);
   if (new Set(groups).size !== groups.length) throw new Error('다섯 검증 TG ARN은 서로 달라야 한다');
@@ -253,18 +294,18 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText)
   return values;
 }
 
-const OPTIONS = ['--outputs', '--output-dir', '--enrollment-image', '--ingest-image', '--dashboard-image', '--gateway-image', '--runtime-values', '--msk-bootstrap'];
+const OPTIONS = ['--outputs', '--output-dir', '--enrollment-image', '--ingest-image', '--dashboard-image', '--gateway-image', '--runtime-values', '--msk-bootstrap', '--msk-nodes'];
 
 export function main(argv) {
   const options = {};
   for (let i = 0; i < argv.length; i += 2) {
-    if (!OPTIONS.includes(argv[i]) || !argv[i + 1]) throw new Error('사용법: node scripts/eks-values.mjs --outputs <cdk-output.json> --output-dir <dir> --enrollment-image <repository@sha256:digest> --ingest-image <repository@sha256:digest> --dashboard-image <repository@sha256:digest> --gateway-image <repository@sha256:digest> --runtime-values <runtime.yaml> --msk-bootstrap <get-bootstrap-brokers.json>');
+    if (!OPTIONS.includes(argv[i]) || !argv[i + 1]) throw new Error('사용법: node scripts/eks-values.mjs --outputs <cdk-output.json> --output-dir <dir> --enrollment-image <repository@sha256:digest> --ingest-image <repository@sha256:digest> --dashboard-image <repository@sha256:digest> --gateway-image <repository@sha256:digest> --runtime-values <runtime.yaml> --msk-bootstrap <get-bootstrap-brokers.json> --msk-nodes <list-nodes.json>');
     if (options[argv[i]]) throw new Error(`${argv[i]} 옵션이 중복된다`);
     options[argv[i]] = argv[i + 1];
   }
   for (const name of OPTIONS) if (!options[name]) throw new Error(`${name} 옵션이 필요하다`);
   const images = { enrollment: options['--enrollment-image'], ingest: options['--ingest-image'], dashboard: options['--dashboard-image'], gateway: options['--gateway-image'] };
-  const values = generateValues(JSON.parse(readFileSync(options['--outputs'], 'utf8')), images, parseRuntimeValues(readFileSync(options['--runtime-values'], 'utf8')), readFileSync(options['--msk-bootstrap'], 'utf8'));
+  const values = generateValues(JSON.parse(readFileSync(options['--outputs'], 'utf8')), images, parseRuntimeValues(readFileSync(options['--runtime-values'], 'utf8')), readFileSync(options['--msk-bootstrap'], 'utf8'), readFileSync(options['--msk-nodes'], 'utf8'));
   const dir = resolve(options['--output-dir']);
   mkdirSync(dir, { recursive: true });
   for (const [filename, value] of Object.entries(values)) {

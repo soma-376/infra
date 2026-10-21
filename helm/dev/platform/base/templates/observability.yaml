@@ -1,0 +1,76 @@
+{{- $sg := required "observabilityNodeSecurityGroupId는 필수다" .Values.observabilityNodeSecurityGroupId -}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pulsemetry-observability
+  annotations:
+    helm.sh/resource-policy: keep
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3-observability
+  annotations:
+    helm.sh/resource-policy: keep
+provisioner: ebs.csi.eks.amazonaws.com
+parameters:
+  type: gp3
+  encrypted: "true"
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+allowedTopologies:
+  - matchLabelExpressions:
+      - key: eks.amazonaws.com/compute-type
+        values: [auto]
+---
+apiVersion: eks.amazonaws.com/v1
+kind: NodeClass
+metadata:
+  name: pulsemetry-observability
+spec:
+  role: {{ .Values.nodeRoleName | quote }}
+  subnetSelectorTerms:
+    {{- range .Values.subnetIds }}
+    - id: {{ . | quote }}
+    {{- end }}
+  securityGroupSelectorTerms:
+    - id: {{ $sg | quote }}
+  advancedNetworking:
+    associatePublicIPAddress: true
+  ephemeralStorage:
+    size: "80Gi"
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: pulsemetry-observability
+spec:
+  template:
+    metadata:
+      labels:
+        pulsemetry.io/workload: observability
+    spec:
+      nodeClassRef:
+        group: eks.amazonaws.com
+        kind: NodeClass
+        name: pulsemetry-observability
+      taints:
+        - key: workload
+          value: observability
+          effect: NoSchedule
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: [arm64]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: [on-demand]
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: [m7g.large]
+  limits:
+    cpu: "4"
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 5m
