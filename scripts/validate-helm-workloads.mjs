@@ -542,7 +542,7 @@ function runJobScript(job, stub) {
   };
   tool('kafka-topics.sh', 'case "$*" in *--describe*) printf "Topic: %s\\tTopicId: x\\tPartitionCount: %s\\tReplicationFactor: %s\\tConfigs: x\\n\\tTopic: %s\\tPartition: 0\\n" "$PULSEMETRY_KAFKA_TOPIC" "$STUB_PARTITIONS" "$STUB_RF" "$PULSEMETRY_KAFKA_TOPIC";; esac');
   tool('kafka-configs.sh', 'printf "%s\\n" "$STUB_CONFIGS"');
-  tool('kafka-consumer-groups.sh', 'case "$*" in *--state*) printf "%s\\n" "$STUB_STATE";; esac');
+  tool('kafka-consumer-groups.sh', 'case "$*" in *--state*) printf "%s\\n" "$STUB_STATE";; *--to-current*) printf "%s\\n" "$STUB_CURRENT";; *--reset-offsets*) printf "%s\\n" "$STUB_RESET";; esac');
   const env = { PATH: process.env.PATH, ...Object.fromEntries(container.env.map(item => [item.name, item.value])),
     KAFKA_BIN: directory, CLIENT_CONFIG: resolve(directory, 'client.properties'), STUB_LOG: log, ...stub };
   const result = run('/bin/sh', ['-ec', container.args[0]], { env });
@@ -624,18 +624,47 @@ function checkKafkaAdmin() {
     const offsetsPod = offsetsJob.spec.template.spec;
     assert.equal(offsetsPod.serviceAccountName, 'telemetry-kafka-offsets');
     assert.deepEqual(offsetsPod.volumes.find(volume => volume.name === 'client-config').configMap, { name: 'telemetry-kafka-offsets-client' });
-    const reset = expected => runJobScript(offsetsJob, { STUB_STATE: expected });
+    // CLI는 `--export`에서 `topic,partition,offset` CSV를 낸다. execute 뒤에는 --to-current로 committed offset을 다시 읽는다.
+    const topic = 'pulsemetry-dev-telemetry-ingress-validation';
+    const planned = offsets.mode === 'plan' ? [0, 1, 2, 3, 4, 5].map(p => `${topic},${p},${100 + p}`).join('\n') : `${topic},2,1234`;
     const header = 'GROUP COORDINATOR (ID) ASSIGNMENT-STRATEGY STATE #MEMBERS';
-    const empty = reset(`${header}\npulsemetry-dev-telemetry-ingest-validation b-1:9098 (1) range Empty 0`);
+    const emptyState = `${header}\npulsemetry-dev-telemetry-ingest-validation b-1:9098 (1) range Empty 0`;
+    const reset = (state, stub = {}) => runJobScript(offsetsJob, { STUB_STATE: state, STUB_RESET: planned, STUB_CURRENT: planned, ...stub });
+    const empty = reset(emptyState);
     assert.equal(empty.status, 0, empty.output);
     const resetCall = empty.calls.find(call => call.includes('--reset-offsets'));
-    assert.ok(resetCall.endsWith(offsets.mode === 'plan' ? '--dry-run' : '--execute'), resetCall);
+    assert.ok(resetCall.endsWith(offsets.mode === 'plan' ? '--export --dry-run' : '--export --execute'), resetCall);
     assert.ok(resetCall.includes(offsets.mode === 'plan'
-      ? '--topic pulsemetry-dev-telemetry-ingress-validation --to-datetime 2026-10-21T00:00:00.000+09:00'
-      : '--topic pulsemetry-dev-telemetry-ingress-validation:2 --to-offset 1234'), resetCall);
-    assert.equal(empty.calls.some(call => call.includes('--offsets')), offsets.mode === 'execute');
+      ? `--topic ${topic} --to-datetime 2026-10-21T00:00:00.000+09:00`
+      : `--topic ${topic}:2 --to-offset 1234`), resetCall);
+    const verifyCall = empty.calls.find(call => call.includes('--to-current'));
+    assert.equal(Boolean(verifyCall), offsets.mode === 'execute');
+    if (verifyCall) assert.ok(verifyCall.endsWith(`--topic ${topic}:2 --to-current --export --dry-run`), verifyCall);
     const missing = reset("Consumer group 'pulsemetry-dev-telemetry-ingest-validation' does not exist.");
     assert.equal(missing.status, 0, missing.output);
+    // Kafka 3.9.2 CLI는 아래 실패를 `Error:` 출력과 종료 코드 0으로 끝낸다. Job은 실패해야 한다.
+    const failures = [
+      { STUB_RESET: '\nError: Executing consumer group command failed due to org.apache.kafka.common.errors.TimeoutException: timed out' },
+      { STUB_RESET: "\nError: Assignments can only be reset if the group 'pulsemetry-dev-telemetry-ingest-validation' is inactive, but the current state is Stable." },
+      { STUB_RESET: '' },
+      { STUB_RESET: `${topic.replace('validation', 'main')},2,1234` },
+    ];
+    if (offsets.mode === 'execute') {
+      failures.push(
+        { STUB_RESET: `${topic},3,1234` },
+        { STUB_CURRENT: `${topic},2,1000` },
+        { STUB_CURRENT: '' },
+        { STUB_CURRENT: "\nError: Assignments can only be reset if the group 'pulsemetry-dev-telemetry-ingest-validation' is inactive, but the current state is Stable." },
+      );
+      // 범위를 벗어난 목표는 CLI가 보정한다. 입력값이 아니라 CLI 계획과 committed offset을 대조한다.
+      const clamped = reset(emptyState, { STUB_RESET: `${topic},2,1500`, STUB_CURRENT: `${topic},2,1500` });
+      assert.equal(clamped.status, 0, clamped.output);
+    }
+    for (const stub of failures) {
+      const failed = reset(emptyState, stub);
+      assert.notEqual(failed.status, 0, `${JSON.stringify(stub)}\n${failed.output}`);
+      negativeCases++;
+    }
     for (const state of ['Stable 3', 'PreparingRebalance 1', 'CompletingRebalance 1']) {
       const active = reset(`${header}\npulsemetry-dev-telemetry-ingest-validation b-1:9098 (1) range ${state}`);
       assert.notEqual(active.status, 0);

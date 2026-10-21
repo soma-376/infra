@@ -97,5 +97,7 @@ MSK 세션 이름은 workload별 고정값(`pulsemetry-dev-telemetry-gateway`·`
 `telemetry-kafka-admin` chart는 digest 고정 `apache/kafka:3.9.2`와 release `.sha256`으로 대조한 `aws-msk-iam-auth-2.3.9-all.jar`를
 schema 상수로 고정한다. 기본 실행은 topic을 `--if-not-exists`로 만들고 partition 6·RF 3·minISR 2·72시간·13 MiB·unclean off를 대조하며
 다르면 실패한다. `offsets.enabled=true`는 group이 Empty일 때만 plan(`--dry-run`) 또는 명시적 execute를 수행한다.
+Kafka 3.9 CLI는 오류를 출력하고도 종료 코드 0으로 끝나므로, Job은 `Error:` 출력이나 대상 행 없는 결과를 실패로 본다.
+execute는 committed offset을 `--to-current --dry-run`으로 다시 읽어 CLI 계획과 다르면 실패한다.
 두 Job은 각각 `telemetry-kafka-admin`·`telemetry-kafka-offsets` ServiceAccount와 Pod Identity, 서로 다른 MSK 역할을 쓴다.
 `validate-helm-workloads.mjs`는 Kafka CLI를 stub으로 바꿔 Job shell의 생성·대조·거부 동작을 실행한다. 실제 MSK 접속은 검증하지 않는다.

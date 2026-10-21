@@ -177,6 +177,8 @@ EKS 런북 §6과 같이 prefix를 바꾸고 이 문서 §6의 topic 초기화�
    ```
    전체 partition을 시각으로 옮길 때는 `--set offsets.toDatetime=2026-10-21T00:00:00.000+09:00`을 대신 쓴다.
 4. 결과를 검토한 뒤 같은 입력에 `offsets.mode=execute`로 실행하고, 적용된 offset 로그를 기록한다.
+   Job은 CLI의 `Error:` 출력·빈 결과, 그리고 실행 뒤 다시 읽은 committed offset이 계획(`topic,partition,offset` CSV)과 다른 경우 실패한다.
+   그 사이 Consumer가 다시 가입해도 실패한다. 목표가 보존 범위 밖이면 CLI가 가장 가까운 offset으로 보정하므로 계획 행의 값을 기준으로 본다.
 5. `helm upgrade`로 ingest를 원래 values(replica 1)로 되돌린다. 마지막에 topic 초기화 기본 release로 되돌려 offset Job을 남기지 않는다.
 
 ## 11. 관측
