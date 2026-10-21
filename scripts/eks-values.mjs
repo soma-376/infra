@@ -2,7 +2,16 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { dump } from 'js-yaml';
+import { dump, load, JSON_SCHEMA } from 'js-yaml';
+import runtimeInputs from '../lib/dev/runtime-input.cjs';
+const { parseRuntimeInputs } = runtimeInputs;
+
+export function parseRuntimeValues(text) {
+  let value;
+  try { value = load(text, { schema: JSON_SCHEMA }); }
+  catch { throw new Error('runtime-values는 중복 키 없는 단일 YAML 문서여야 한다'); }
+  return parseRuntimeInputs(value);
+}
 
 // AWS API·Secret 읽기 없이 배포 output 참조를 Helm values로 변환한다.
 export function collectOutputs(document) {
@@ -32,7 +41,8 @@ function image(value, label) {
   return { repository: match[1], digest: match[2] };
 }
 
-export function generateValues(document, enrollmentImage, ingestImage, dashboardImage) {
+export function generateValues(document, enrollmentImage, ingestImage, dashboardImage, runtimeInput) {
+  const runtime = parseRuntimeInputs(runtimeInput);
   const outputs = collectOutputs(document);
   const required = key => {
     if (!outputs[key]) throw new Error(`${key}: 배포 output이 없다`);
@@ -68,18 +78,26 @@ export function generateValues(document, enrollmentImage, ingestImage, dashboard
   if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket)) throw new Error('RawSignalBucketName이 올바르지 않다');
   const dashboardNodePort = required('EksDashboardApiNodePort');
   if (dashboardNodePort !== '30081') throw new Error('EksDashboardApiNodePort는 30081이어야 한다');
+  const auth = runtime.userAuth;
+  const authSettings = { issuer: auth.issuer, audience: auth.audience, allowedOrigins: auth.allowedOrigins };
+  const jwt = signer => ({ enabled: true, secretProviderClass: `${signer ? 'enrollment-api' : 'dashboard-api'}-jwt`, publicVersionId: auth.publicVersionId, publicKeys: auth.publicKeys, ...(signer ? { privateVersionId: auth.privateVersionId, activeKid: auth.activeKid } : {}) });
+  const dashboardFiles = ['RDS', 'CLICKHOUSE'].flatMap(store => ['SOURCE', 'CACHE'].flatMap(role => ['USERNAME', 'PASSWORD'].map(field => `PULSEMETRY_DASHBOARD_${store}_${role}_${field}`)));
+  const dashboardSecrets = { dashboardRdsSourceArn: arn('DashboardRdsSourceSecretArn', 'secretsmanager'), dashboardRdsCacheArn: arn('DashboardRdsCacheSecretArn', 'secretsmanager'), dashboardClickHouseSourceArn: arn('DashboardClickHouseSourceSecretArn', 'secretsmanager'), dashboardClickHouseCacheArn: arn('DashboardClickHouseCacheSecretArn', 'secretsmanager'), userJwtPrivateKeyArn: arn('UserJwtPrivateKeySecretArn', 'secretsmanager'), userJwtPublicKeysArn: arn('UserJwtPublicKeysSecretArn', 'secretsmanager') };
+  const allSecrets = [...Object.values(dashboardSecrets), ...['DbSecretArn', 'TokenHashSecretArn', 'AdminApiTokenSecretArn'].map(required)];
+  if (new Set(allSecrets).size !== allSecrets.length) throw new Error('DB 계정·JWT·기존 인증 Secret 원본은 서로 달라야 한다');
   const commonFiles = ['PULSEMETRY_DB_USERNAME', 'PULSEMETRY_DB_PASSWORD', 'PULSEMETRY_TOKEN_HASH_SECRET'];
   const binding = key => [{ stage: 'validation', targetGroupARN: arn(key, 'elasticloadbalancing'), confirmExclusiveOwnership: true }];
   const values = {
     'base.yaml': { nodeRoleName, subnetIds, appNodeSecurityGroupId: appSg, clickhouseNodeSecurityGroupId: chSg, clickhouseAvailabilityZone: zone },
     'lbc.yaml': { clusterName, region, vpcId },
     'runtime.yaml': {
-      region, secrets: { dbArn: arn('DbSecretArn', 'secretsmanager'), tokenHashArn: arn('TokenHashSecretArn', 'secretsmanager'), adminApiTokenArn: arn('AdminApiTokenSecretArn', 'secretsmanager') },
+      region, secrets: { dbArn: arn('DbSecretArn', 'secretsmanager'), tokenHashArn: arn('TokenHashSecretArn', 'secretsmanager'), adminApiTokenArn: arn('AdminApiTokenSecretArn', 'secretsmanager'), ...dashboardSecrets },
+      userAuth: { privateVersionId: auth.privateVersionId, publicVersionId: auth.publicVersionId, activeKid: auth.activeKid, publicKeys: auth.publicKeys },
     },
     'enrollment-api.yaml': {
-      image: image(enrollmentImage, 'enrollment image'), vpcId,
+      image: image(enrollmentImage, 'enrollment image'), vpcId, jwt: jwt(true), userAuth: authSettings,
       runtime: { enabled: true, secretProviderClass: 'enrollment-api-runtime', requiredFiles: [...commonFiles, 'PULSEMETRY_ADMIN_API_TOKEN'] },
-      env: { PULSEMETRY_DB_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_PUBLIC_BASE_URL: publicBaseUrl, PULSEMETRY_BINARIES_DIR: '/app/binaries' },
+      env: { PULSEMETRY_DB_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_PUBLIC_BASE_URL: publicBaseUrl, PULSEMETRY_BINARIES_DIR: '/app/binaries', PULSEMETRY_MANAGEMENT_ENABLED: String(runtime.dashboard.managementEnabled), PULSEMETRY_MAIL_ENABLED: String(runtime.dashboard.mailEnabled) },
       targetGroupBindings: binding('ValidationEnrollmentApiTargetGroupArn'),
     },
     'telemetry-ingest.yaml': {
@@ -88,11 +106,12 @@ export function generateValues(document, enrollmentImage, ingestImage, dashboard
       env: { PULSEMETRY_DB_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_ARCHIVE_TYPE: 's3', PULSEMETRY_ARCHIVE_BUCKET: bucket, PULSEMETRY_ARCHIVE_PREFIX: prefix, AWS_REGION: region, PULSEMETRY_CLICKHOUSE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_CLICKHOUSE_DATABASE: 'default' },
       targetGroupBindings: binding('ValidationTelemetryIngestTargetGroupArn'),
     },
-    // PROJ-231 runtime·PROJ-224 검증 TG 연결 전에는 설치용 values가 아니다.
+    // PROJ-224의 검증 TG 연결 전에는 설치용 values가 아니다.
     'dashboard-api.yaml': {
       image: image(dashboardImage, 'dashboard image'), vpcId, nodePort: Number(dashboardNodePort),
-      runtime: { enabled: false, secretProviderClass: '', requiredFiles: [] },
-      env: { PULSEMETRY_DASHBOARD_PORT: '8081' }, targetGroupBindings: [],
+      runtime: { enabled: true, secretProviderClass: 'dashboard-api-runtime', requiredFiles: dashboardFiles },
+      jwt: jwt(false), userAuth: authSettings,
+      env: { ...runtime.dashboard.settings, PULSEMETRY_DASHBOARD_PORT: '8081', PULSEMETRY_MANAGEMENT_ENABLED: String(runtime.dashboard.managementEnabled), PULSEMETRY_MAIL_ENABLED: String(runtime.dashboard.mailEnabled), PULSEMETRY_DASHBOARD_RDS_SOURCE_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_DASHBOARD_RDS_CACHE_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_DATABASE: 'default', PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_DATABASE: 'dashboard_cache' }, targetGroupBindings: [],
     },
     'clickhouse.yaml': { vpcId, availabilityZone: zone, targetGroupBindings: binding('ValidationClickhouseTargetGroupArn') },
     'fluent-bit.yaml': { env: [{ name: 'AWS_REGION', value: region }, { name: 'APPLICATION_LOG_GROUP', value: required('ApplicationLogGroupName') }] },
@@ -107,12 +126,12 @@ export function generateValues(document, enrollmentImage, ingestImage, dashboard
 export function main(argv) {
   const options = {};
   for (let i = 0; i < argv.length; i += 2) {
-    if (!['--outputs', '--output-dir', '--enrollment-image', '--ingest-image', '--dashboard-image'].includes(argv[i]) || !argv[i + 1]) throw new Error('사용법: node scripts/eks-values.mjs --outputs <cdk-output.json> --output-dir <dir> --enrollment-image <repository@sha256:digest> --ingest-image <repository@sha256:digest> --dashboard-image <repository@sha256:digest>');
+    if (!['--outputs', '--output-dir', '--enrollment-image', '--ingest-image', '--dashboard-image', '--runtime-values'].includes(argv[i]) || !argv[i + 1]) throw new Error('사용법: node scripts/eks-values.mjs --outputs <cdk-output.json> --output-dir <dir> --enrollment-image <repository@sha256:digest> --ingest-image <repository@sha256:digest> --dashboard-image <repository@sha256:digest> --runtime-values <runtime.yaml>');
     if (options[argv[i]]) throw new Error(`${argv[i]} 옵션이 중복된다`);
     options[argv[i]] = argv[i + 1];
   }
-  for (const name of ['--outputs', '--output-dir', '--enrollment-image', '--ingest-image', '--dashboard-image']) if (!options[name]) throw new Error(`${name} 옵션이 필요하다`);
-  const values = generateValues(JSON.parse(readFileSync(options['--outputs'], 'utf8')), options['--enrollment-image'], options['--ingest-image'], options['--dashboard-image']);
+  for (const name of ['--outputs', '--output-dir', '--enrollment-image', '--ingest-image', '--dashboard-image', '--runtime-values']) if (!options[name]) throw new Error(`${name} 옵션이 필요하다`);
+  const values = generateValues(JSON.parse(readFileSync(options['--outputs'], 'utf8')), options['--enrollment-image'], options['--ingest-image'], options['--dashboard-image'], parseRuntimeValues(readFileSync(options['--runtime-values'], 'utf8')));
   const dir = resolve(options['--output-dir']);
   mkdirSync(dir, { recursive: true });
   for (const [filename, value] of Object.entries(values)) {

@@ -1,9 +1,10 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync, rmSync, readdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, rmSync, readdirSync, existsSync, mkdirSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-const { load } = require('js-yaml');
+const { load, dump } = require('js-yaml');
+const runtimeFile = resolve(__dirname, '../fixtures/eks-runtime.yaml');
 const root = resolve(__dirname, '../..');
 const digest = 'sha256:' + 'a'.repeat(64);
 const repository = '111111111111.dkr.ecr.ap-northeast-2.amazonaws.com/soma-376/';
@@ -18,6 +19,7 @@ function outputs(prefix = 'eks_validation') {
   return {
     DevEksStack: {
       EksDashboardApiNodePort: '30081',
+      DashboardRdsSourceSecretArn: secret('dashboard-rds-source'), DashboardRdsCacheSecretArn: secret('dashboard-rds-cache'), DashboardClickHouseSourceSecretArn: secret('dashboard-ch-source'), DashboardClickHouseCacheSecretArn: secret('dashboard-ch-cache'), UserJwtPrivateKeySecretArn: secret('jwt-private'), UserJwtPublicKeysSecretArn: secret('jwt-public'),
       EksClusterName: 'soma-376-dev-eks', EksRegion: 'ap-northeast-2', EksVpcId: 'vpc-0123456789abcdef0',
       EksSubnetIds: 'subnet-0123456789abcdef0,subnet-0123456789abcdef1',
       EksAppNodeSecurityGroupId: 'sg-0123456789abcdef0', EksClickhouseNodeSecurityGroupId: 'sg-0123456789abcdef1',
@@ -35,14 +37,16 @@ function outputs(prefix = 'eks_validation') {
   };
 }
 
-function invoke(document: any, image = enrollmentImage, dashboard = dashboardImage) {
+function invoke(document: any, image = enrollmentImage, dashboard = dashboardImage, runtimeText = readFileSync(runtimeFile, 'utf8')) {
   const temp = mkdtempSync(join(tmpdir(), 'eks-values-test-'));
   const source = join(temp, 'outputs.json');
   const dir = join(temp, 'values');
   writeFileSync(source, JSON.stringify(document));
+  const runtime = join(temp, 'runtime.yaml');
+  writeFileSync(runtime, runtimeText);
   const result = spawnSync(process.execPath, [
     join(root, 'scripts/eks-values.mjs'), '--outputs', source, '--output-dir', dir,
-    '--enrollment-image', image, '--ingest-image', ingestImage, '--dashboard-image', dashboard,
+    '--enrollment-image', image, '--ingest-image', ingestImage, '--dashboard-image', dashboard, '--runtime-values', runtime,
   ], { cwd: root, encoding: 'utf8' });
   return { temp, dir, result, read: (file: string) => load(readFileSync(join(dir, file), 'utf8')) };
 }
@@ -50,7 +54,7 @@ function invoke(document: any, image = enrollmentImage, dashboard = dashboardIma
 describe('배포 output→values 변환', () => {
   const temps: string[] = [];
   afterEach(() => { for (const temp of temps.splice(0)) rmSync(temp, { recursive: true, force: true }); });
-  const run = (document: any, image?: string, dashboard?: string) => { const output = invoke(document, image, dashboard); temps.push(output.temp); return output; };
+  const run = (document: any, image?: string, dashboard?: string, runtimeText?: string) => { const output = invoke(document, image, dashboard, runtimeText); temps.push(output.temp); return output; };
 
   test.each(['eks_validation', 'eks'])('%s prefix가 IAM output과 일치하며 immutable image를 전달한다', prefix => {
     const output = run(outputs(prefix));
@@ -66,8 +70,14 @@ describe('배포 output→values 변환', () => {
     const dashboard = output.read('dashboard-api.yaml');
     expect(dashboard.image).toEqual({ repository: repository + 'dashboard-api', digest });
     expect(dashboard.nodePort).toBe(30081);
-    expect(dashboard.env).toEqual({ PULSEMETRY_DASHBOARD_PORT: '8081' });
-    expect(dashboard.runtime.enabled).toBe(false);
+    expect(dashboard.env.PULSEMETRY_DASHBOARD_PORT).toBe('8081');
+    expect(dashboard.env.PULSEMETRY_DASHBOARD_RDS_SOURCE_URL).toBe(dashboard.env.PULSEMETRY_DASHBOARD_RDS_CACHE_URL);
+    expect(dashboard.env.PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_URL).toBe(dashboard.env.PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_URL);
+    expect(dashboard.jwt.publicKeys).toHaveLength(1);
+    expect(dashboard.jwt.privateVersionId).toBeUndefined();
+    expect(dashboard.jwt.activeKid).toBeUndefined();
+    expect(dashboard.runtime.enabled).toBe(true);
+    expect(dashboard.runtime.requiredFiles).toHaveLength(8);
     expect(dashboard.targetGroupBindings).toEqual([]);
     expect(ingest.env.PULSEMETRY_ARCHIVE_PREFIX).toBe(prefix);
     expect(ingest.env.PULSEMETRY_DB_URL).toBe('jdbc:postgresql://database.example.test:5432/controlplane');
@@ -80,7 +90,9 @@ describe('배포 output→values 변환', () => {
       expect(app.env.SPRING_CONFIG_IMPORT).toBeUndefined();
       expect(app.env.PULSEMETRY_ADMIN_API_TOKEN).toBeUndefined();
     }
-    expect(output.read('runtime.yaml').secrets).toEqual({ dbArn: secret('db'), tokenHashArn: secret('hmac'), adminApiTokenArn: secret('admin') });
+    expect(output.read('runtime.yaml').secrets).toEqual({ dbArn: secret('db'), tokenHashArn: secret('hmac'), adminApiTokenArn: secret('admin'), dashboardRdsSourceArn: secret('dashboard-rds-source'), dashboardRdsCacheArn: secret('dashboard-rds-cache'), dashboardClickHouseSourceArn: secret('dashboard-ch-source'), dashboardClickHouseCacheArn: secret('dashboard-ch-cache'), userJwtPrivateKeyArn: secret('jwt-private'), userJwtPublicKeysArn: secret('jwt-public') });
+    expect(output.read('runtime.yaml').userAuth.publicVersionId).toBe(enrollment.jwt.publicVersionId);
+    expect(output.read('runtime.yaml').userAuth.publicKeys).toEqual(dashboard.jwt.publicKeys);
     expect(enrollment.targetGroupBindings).toEqual([{ stage: 'validation', targetGroupARN: tg('enroll-v'), confirmExclusiveOwnership: true }]);
   });
 
@@ -106,6 +118,8 @@ describe('배포 output→values 변환', () => {
     for (const change of [
       (source: any) => { delete source.DevEksStack.DbSecretArn; },
       (source: any) => { delete source.DevEksStack.EksDashboardApiNodePort; },
+      (source: any) => { delete source.DevEksStack.UserJwtPublicKeysSecretArn; },
+      (source: any) => { source.DevEksStack.UserJwtPublicKeysSecretArn = source.DevEksStack.UserJwtPrivateKeySecretArn; },
       (source: any) => { source.DevEksStack.EksDashboardApiNodePort = '30080'; },
       (source: any) => { source.DevEksStack.DbEndpoint = '${Token[TOKEN.42]}'; },
       (source: any) => { source.DevEdgeStack.EksClusterName = 'another-cluster'; },
@@ -128,7 +142,7 @@ describe('배포 output→values 변환', () => {
     };
     const runtime = render('pulsemetry-runtime', 'helm/dev/runtime/chart', [join(output.dir, 'runtime.yaml')]);
     const documents = runtime.split(/^---\s*$/m).filter(text => text.trim()).map(text => load(text));
-    expect(documents).toHaveLength(2);
+    expect(documents).toHaveLength(5);
     const enrollment = documents.find(doc => doc.metadata.name === 'enrollment-api-runtime');
     const ingest = documents.find(doc => doc.metadata.name === 'telemetry-ingest-runtime');
     const objects = (doc: any) => load(doc.spec.parameters.objects);
@@ -148,7 +162,76 @@ describe('배포 output→values 변환', () => {
     expect(dashboard).toContain('containerPort: 8081');
     expect(dashboard).toContain('nodePort: 30081');
     expect(dashboard).not.toContain('kind: TargetGroupBinding');
+    expect(dashboard).toContain('dashboard-api-jwt');
+    expect(dashboard).not.toContain('private.pem');
+    expect(dashboard).not.toContain('PULSEMETRY_TOKEN_HASH_SECRET');
+    expect(dashboard).not.toContain('PULSEMETRY_ADMIN_API_TOKEN');
+    const pod = dashboard.split(/^---\s*$/m).filter(text => text.trim()).map(text => load(text)).find((doc: any) => doc?.kind === 'Deployment').spec.template.spec;
+    expect(pod.securityContext.runAsUser).toBe(10001);
+    expect(pod.volumes).toHaveLength(2);
+    expect(pod.containers[0].volumeMounts.every((mount: any) => mount.readOnly)).toBe(true);
+    expect(pod.initContainers[0].volumeMounts).toEqual(pod.containers[0].volumeMounts);
+    expect(pod.initContainers[0].args[0]).toContain('head -c 1');
+    const authEnv = pod.containers[0].env.find((env: any) => env.name === 'SPRING_APPLICATION_JSON');
+    expect(JSON.parse(authEnv.value).pulsemetry['user-auth']['public-key-files']).toEqual({ '[release-2026.10]': '/mnt/user-jwt/keys/release-2026-10.pem' });
     render('clickhouse', 'helm/dev/workloads/clickhouse', [join(output.dir, 'clickhouse.yaml')]);
     render('pulsemetry-base', 'helm/dev/platform/base', [join(output.dir, 'base.yaml')]);
   });
+
+  test('YAML 중복·알 수 없는 필드·비밀·잘못된 버전/alias/kid는 파일 생성 전에 거부한다', () => {
+    const good = readFileSync(runtimeFile, 'utf8');
+    const invalid = [good + '\nuserAuth: {}\n', good + '\nwriterImage: unused\n', good + '\nsecrets: {dbArn: forbidden}\n'];
+    for (const change of [
+      (value: any) => { value.userAuth.publicVersionId = 'AWSCURRENT'; },
+      (value: any) => { value.userAuth.publicKeys[0].alias = '../escape.pem'; },
+      (value: any) => { value.userAuth.publicKeys[0].alias = 'private.pem'; },
+      (value: any) => { value.userAuth.publicKeys.push({ ...value.userAuth.publicKeys[0] }); },
+      (value: any) => { value.userAuth.activeKid = 'missing'; },
+      (value: any) => { value.dashboard.settings.PULSEMETRY_DASHBOARD_RDS_SOURCE_PASSWORD = 'forbidden'; },
+      (value: any) => { value.dashboard.settings.PULSEMETRY_DASHBOARD_RDS_SOURCE_URL = 'forbidden'; },
+    ]) { const value = load(good); change(value); invalid.push(dump(value)); }
+    for (const text of invalid) {
+      const output = run(outputs(), enrollmentImage, dashboardImage, text);
+      expect(output.result.status).toBe(1);
+      expect(existsSync(output.dir)).toBe(false);
+      expect(output.result.stderr).not.toContain('forbidden');
+    }
+  });
+
+  helmTest('인용이 필요한 kid의 추출 identifier와 파일 맵을 보존한다', () => {
+    const value = load(readFileSync(runtimeFile, 'utf8'));
+    const kid = 'release-2026.10/"quoted"';
+    value.userAuth.activeKid = kid; value.userAuth.publicKeys[0].kid = kid;
+    const output = run(outputs(), enrollmentImage, dashboardImage, dump(value));
+    expect(output.result.status).toBe(0);
+    const render = (app: string, chart: string, files: string[]) => spawnSync(process.env.HELM_BIN!, ['template', app, chart, '--namespace', 'pulsemetry-dev', '--kube-version', '1.36.0', ...files.flatMap(file => ['-f', file])], { cwd: root, encoding: 'utf8' });
+    const runtime = render('runtime-config', 'helm/dev/runtime/chart', [join(output.dir, 'runtime.yaml')]);
+    expect(runtime.status).toBe(0);
+    const spcs = runtime.stdout.split(/^---\s*$/m).filter(text => text.trim()).map(text => load(text)).filter(Boolean);
+    const publicObjects = load(spcs.find((doc: any) => doc.metadata.name === 'dashboard-api-jwt').spec.parameters.objects);
+    expect(publicObjects).toHaveLength(1);
+    expect(publicObjects[0].objectVersion).toBe(value.userAuth.publicVersionId);
+    expect(publicObjects[0].objectVersionLabel).toBeUndefined();
+    expect(publicObjects[0].jmesPath[0].path).toBe(JSON.stringify(kid));
+    expect(publicObjects[0].jmesPath[0].objectAlias).toBe('release-2026-10.pem');
+    const text = render('dashboard-api', 'helm/dev/workloads/spring-app', ['helm/dev/workloads/dashboard-api.yaml', join(output.dir, 'dashboard-api.yaml')]);
+    expect(text.status).toBe(0);
+    const pod = text.stdout.split(/^---\s*$/m).filter(text => text.trim()).map(text => load(text)).find((doc: any) => doc?.kind === 'Deployment').spec.template.spec;
+    const env = pod.containers[0].env.find((env: any) => env.name === 'SPRING_APPLICATION_JSON');
+    expect(JSON.parse(env.value).pulsemetry['user-auth']['public-key-files'][`[${kid}]`]).toBe('/mnt/user-jwt/keys/release-2026-10.pem');
+    const files = join(output.temp, 'configtree'), keys = join(output.temp, 'keys');
+    mkdirSync(files); mkdirSync(keys);
+    const generated = output.read('dashboard-api.yaml');
+    for (const file of generated.runtime.requiredFiles) writeFileSync(join(files, file), 'fixture-only');
+    writeFileSync(join(keys, 'release-2026-10.pem'), 'fixture-only');
+    const command = pod.initContainers[0].args[0].replaceAll('/mnt/secrets-store', files).replaceAll('/mnt/user-jwt/keys', keys);
+    const check = () => spawnSync('/bin/sh', ['-ec', command], { encoding: 'utf8' });
+    const good = check(); expect(good.status).toBe(0); expect(good.stdout).toBe(''); expect(good.stderr).toBe('');
+    writeFileSync(join(keys, 'release-2026-10.pem'), ''); expect(check().status).not.toBe(0);
+    writeFileSync(join(keys, 'release-2026-10.pem'), 'fixture-only');
+    chmodSync(join(keys, 'release-2026-10.pem'), 0); expect(check().status).not.toBe(0);
+    chmodSync(join(keys, 'release-2026-10.pem'), 0o600);
+    rmSync(join(keys, 'release-2026-10.pem')); expect(check().status).not.toBe(0);
+  });
+
 });

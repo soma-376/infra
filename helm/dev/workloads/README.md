@@ -20,8 +20,8 @@ PROJ-223은 dashboard NodePort를 30081로 정하고 CDK의 `DEV_EKS_NODE_PORTS.
 `EksDashboardApiNodePort` output, chart schema/helpers를 일치시킨다. 실제 클러스터에 이미 쓰는
 Service가 없는지는 배포 전 확인한다. PROJ-224가 SG·검증 TG에 같은 값을 연결하기 전에는 설치하지 않는다.
 
-`eks-values.mjs`는 세 앱의 `--enrollment-image`, `--ingest-image`, `--dashboard-image`를 필수로
-받아 CDK output에서 `generated/*.yaml`을 만든다. 정적 workload values 뒤 생성 YAML을 전달한다.
+`eks-values.mjs`는 세 앱의 `--enrollment-image`, `--ingest-image`, `--dashboard-image`와
+`--runtime-values <yaml>`을 필수로 받아 CDK output에서 `generated/*.yaml`을 만든다. 정적 workload values 뒤 생성 YAML을 전달한다.
 예를 들어 dashboard chart의 로컬 렌더링은 다음과 같다.
 
 ```bash
@@ -31,15 +31,15 @@ helm template dashboard-api helm/dev/workloads/spring-app \
   --values generated/dashboard-api.yaml
 ```
 
-이 단계의 `generated/dashboard-api.yaml`은 immutable image·포트·VPC 참조만 준비하며 runtime은
-꺼져 있고 TGB는 비어 있다. PROJ-231의 네 연결·JWT 공개키 공급과 PROJ-224의 전용 검증 TG가
-완성되기 전에는 배포 입력으로 사용하지 않는다. 사용자 기존 `generated/`는 로컬 검증에서 덮어쓰지 않는다.
+PROJ-231의 `generated/dashboard-api.yaml`은 네 연결 설정·전용 configtree·JWT 공개키 mount를
+공급한다. TGB는 PROJ-224의 전용 검증 TG 연결 전까지 비어 있으므로 그 전에는 배포 입력으로
+사용하지 않는다. 사용자 기존 `generated/`는 로컬 검증에서 덮어쓰지 않는다.
 
 앱 `runtime.enabled=true`는 별도 runtime-config release의 `secretProviderClass`를 참조한다.
 기존 두 앱의 필수 파일은 `PULSEMETRY_DB_USERNAME`, `PULSEMETRY_DB_PASSWORD`,
 `PULSEMETRY_TOKEN_HASH_SECRET`이고 enrollment만 `PULSEMETRY_ADMIN_API_TOKEN`을 추가한다.
 dashboard runtime의 필수 파일은 source/cache 네 연결의 username/password 여덟 개이며
-HMAC·관리자 토큰을 포함하지 않는다. 해당 SPC 구현은 PROJ-231이 소유한다.
+HMAC·관리자 토큰을 포함하지 않는다. 해당 SPC 구현은 별도 runtime-config release가 소유한다.
 chart는 `SPRING_CONFIG_IMPORT=configtree:/mnt/secrets-store/`를 설정하고 UID/GID/fsGroup 10001로
 파일을 읽는다. 같은 이미지의 initContainer가 파일 존재·읽기·비어 있지 않음을 검사하며 내용은
 출력하지 않는다. Secret 값과 `SPRING_CONFIG_IMPORT`를 `env` map에 넣으면 렌더링을 거부한다.
@@ -76,3 +76,7 @@ NodeClass/NodePool은 AWS가 제공하는 실제 CRD 설치 전의 구조 검사
 [OSS TargetGroupBinding](https://kubernetes-sigs.github.io/aws-load-balancer-controller/latest/guide/targetgroupbinding/targetgroupbinding/).
 health 경로·이미지 UID는 backend develop `4d6ccf2e2809344eac9feb1873f2d527eee2f212`의
 `SecurityConfig.HEALTH_PATH`, `HealthController`, `Dockerfile`을 읽기 확인했다.
+
+JWT는 별도 읽기 전용 CSI mount와 정확한 kid → PEM 경로 맵을 사용한다. 버전·키 맵 변경은 Pod
+template hash를 바꾸며, 모든 공개키 파일과 enrollment 개인키의 실제 read를 init에서 검사한다.
+추가 YAML 입력과 키 교체 순서는 [runtime 안내](../runtime/README.md)를 따른다.

@@ -1,6 +1,6 @@
 # dev EKS 런타임
 
-CDK는 기존 Secrets Manager ARN·Pod Identity 역할·association과 `/eks/dev/application` 로그 그룹을 소유한다. Helm은 아래 release를 소유한다. Secret 값은 values에 넣지 않는다.
+CDK는 기존·dashboard 전용 Secrets Manager ARN·Pod Identity 역할·association과 `/eks/dev/application` 로그 그룹을 소유한다. Helm은 아래 release를 소유한다. Secret 값은 values에 넣지 않는다.
 
 | release | namespace | chart | 고정 버전 |
 |---|---|---|---|
@@ -13,7 +13,7 @@ CDK는 기존 Secrets Manager ARN·Pod Identity 역할·association과 `/eks/dev
 
 Spring 앱은 UID/GID 10001로 `configtree:/mnt/secrets-store/`를 읽는다. PULSEMETRY 파일은 Pod 전용 readOnly CSI volume의 `0444` 파일로 만들며, Secret 읽기 권한은 namespace·ServiceAccount·cluster별 Pod Identity로 제한한다. driver 1.6.1의 CSIDriver는 fsGroupPolicy를 명시하지 않으므로 `0440`과 fsGroup만으로 읽기 권한이 생긴다고 가정하지 않는다. 앱 chart의 initContainer가 같은 UID로 필수 파일의 존재·읽기 가능·비어 있지 않음을 검사한다. 실제 CSI mount·Pod Identity·UID 권한은 배포 후 검증 대상이다.
 
-ASCP jmesPath는 원본 JSON도 파일로 제공한다. `_source_db_json`·`_source_admin_json`은 `0400`이고 앱이 사용하는 PULSEMETRY 필드만 `0444`다. HMAC Secret은 JSON 추출 없이 전체 SecretString을 읽는다. 관리자 Secret ARN·token 파일은 enrollment SPC에만 존재하며 ingest 권한·SPC에는 없다. Kubernetes Secret 복제·자동 회전은 비활성화한다. 변경 반영은 enrollment 준비 확인 후 ingest까지 명시적 rollout restart로 처리한다.
+ASCP jmesPath는 원본 JSON도 파일로 제공한다. `_source_db_json`·`_source_admin_json`은 `0400`이고 앱이 사용하는 PULSEMETRY 필드만 `0444`다. HMAC Secret은 JSON 추출 없이 전체 SecretString을 읽는다. 관리자 Secret ARN·token 파일은 enrollment SPC에만 존재하며 ingest 권한·SPC에는 없다. Kubernetes Secret 복제·자동 회전은 비활성화한다. 기존 설정 변경은 명시적 재배포로 반영한다. JWT 교체는 아래 verifier → signer 순서를 따른다.
 
 Fluent Bit은 `*_pulsemetry-dev_*.log`만 tail하고 Kubernetes metadata의 namespace도 재검사한다. 노드·시스템 namespace 로그를 전송하지 않으며, CDK가 생성한 단일 로그 그룹으로 stdout/stderr 문자열을 전달한다. `auto_create_group Off`와 로그 그룹별 IAM으로 그룹 생성을 막는다. 14일 보존은 dev 초기 정책이고 실제 전달·누락·권한 검증은 아직 수행하지 않았다.
 
@@ -26,3 +26,55 @@ Fluent Bit은 `*_pulsemetry-dev_*.log`만 tail하고 Kubernetes metadata의 name
 fixture는 현재 두 Kotlin DTO 소스를 다시 컴파일해 Boot의 ConfigDataEnvironmentPostProcessor와 Binder에 전달한다. 네트워크 클라이언트의 기본 상수만 무해한 상수 stub으로 격리하며, 실제 앱 자동설정·HTTP·RDS·AWS 연결은 실행하지 않는다. 원본 JSON `0400` 파일도 fixture에 포함하고 PULSEMETRY 값·OS 환경변수 우선순위·필수 디렉터리 누락을 검사한다. 개별 필수 파일 누락·빈 파일은 앱 chart의 실제 init shell command로 검사한다. 로컬 파일 검증은 CSI mount와 UID 10001의 live 접근 증거가 아니다.
 
 근거: [AWS ASCP](https://github.com/aws/secrets-store-csi-driver-provider-aws), [CSI driver](https://github.com/kubernetes-sigs/secrets-store-csi-driver/releases/tag/v1.6.1), [Pod Identity trust](https://docs.aws.amazon.com/eks/latest/userguide/pod-id-role.html), [Fluent Bit CloudWatch output](https://docs.fluentbit.io/manual/data-pipeline/outputs/cloudwatch), [Spring configtree](https://docs.spring.io/spring-boot/reference/features/external-config.html).
+
+## dashboard와 JWT의 YAML 공급
+
+PROJ-231은 runtime-config release에 SPC 다섯 개를 만든다. 기존 두 configtree SPC와
+`dashboard-api-runtime`, `enrollment-api-jwt`, `dashboard-api-jwt`다. dashboard configtree에는
+네 전용 계정의 username/password 여덟 파일만 공급한다. dashboard Pod Identity는 이 네 ARN과
+공개키 ARN만 읽고 HMAC·관리자 token·개인키·raw S3 권한을 받지 않는다. enrollment만 JWT 두
+원본을 읽으며 ingest의 기존 원본·권한·configtree는 유지한다.
+
+추가 운영 입력은 `--runtime-values <yaml>`로 생성기에 전달한다. `userAuth`와 `dashboard` 구조는
+공통 `lib/dev/runtime-input.cjs` 검증기를 사용하며 ECS JSON 입력과 같다. `writerImage`는 ECS 전용이므로
+이 YAML에 넣지 않는다. 중복 YAML key·알 수 없는 필드·주소/ARN/비밀번호 재정의는 거부한다.
+관리 기능과 메일의 추가 Secret·transport 공급은 이 릴리스 범위 밖이므로 두 enabled 값은 false만 허용한다.
+`test/fixtures/eks-runtime.yaml`은 구조 검증용 예시이며 그 운영 수치는 실제 배포 기본값이 아니다.
+운영자는 issuer·audience·origin·버전·kid 맵·운영 한도를 검토한 제한된 입력 파일을 준비한다.
+
+CDK output이 ARN·RDS endpoint·NodePort·TG를 소유하고 추가 YAML은 JWT VersionId·kid/alias와
+운영값을 소유한다. 생성 후에는 추가 입력을 Helm에 다시 중첩하거나 `--set-json`으로 재정의하지 않는다.
+
+```bash
+node scripts/eks-values.mjs \
+  --outputs /secure/cdk-outputs.json \
+  --output-dir generated \
+  --runtime-values /secure/eks-runtime-values.yaml \
+  --enrollment-image "$ENROLLMENT_IMAGE" \
+  --ingest-image "$INGEST_IMAGE" \
+  --dashboard-image "$DASHBOARD_IMAGE"
+```
+
+생성기는 같은 입력에서 `generated/runtime.yaml`과 앱별 YAML을 함께 만든다. runtime chart는
+`generated/runtime.yaml`을 사용하고 각 workload는 정적 앱 YAML 다음에 `generated/<app>.yaml`을
+전달한다. 비밀 원문 없이도 ARN은 계정 ID를 포함하므로 생성 파일은 접근 제한 경로에서 mode 0600으로 관리한다.
+
+JWT SPC는 고정 `objectVersion`만 사용하며 이동 label을 함께 지정하지 않는다. 공개키 JSON의 kid를
+인용 JMESPath identifier로 escape하고 별도 검토 alias의 PEM으로 추출한다. alias는 경로가 될 수 없고
+중복·개인키 파일 충돌을 거부한다. 개인키 파일은 enrollment에만 존재한다. 키 mount는
+`/mnt/user-jwt/keys`, 설정 mount는 `/mnt/secrets-store`로 분리하며 둘 다 앱/init에 읽기 전용이다.
+PEM을 configtree나 환경변수로 전달하지 않고 chart가 bracket map의 파일 경로만
+`SPRING_APPLICATION_JSON`에 구성한다.
+
+같은 앱 이미지의 UID 10001 initContainer가 두 디렉터리 접근과 모든 필수 파일의 존재·읽기·크기,
+실제 1-byte read를 출력 없이 검사한다. 로컬 테스트는 fixture에서 이 명령의 정상·누락·빈 파일·읽기
+불가 실패를 확인한다. 이 결과는 실제 CSI 파일 소유권과 UID 10001의 live mount 접근을 증명하지 않는다.
+PEM 형식·RSA 크기·키쌍 정합은 앱 기동 검증이며 선택한 키링과 배포 manifest의 전체 kid 일치와 시험
+서명/검증은 수동 준비·배포 관문이다. 단순 파일 검사로 이를 완료 처리하지 않는다.
+
+VersionId·키 맵은 Pod template annotation의 hash에 포함된다. 새로운 runtime/app YAML을 함께 적용해야
+Pod가 새 파일을 다시 읽으며 SPC만 바꿔서는 완료되지 않는다. 모든 ECS/EKS verifier에 신·구 공개키를
+먼저 적용한 뒤 signer의 private VersionId·active-kid를 전환한다. 마지막 구 발급 이후 330초 이상
+대기한 뒤 구 공개키를 제거한다. 실패 시 겹치는 공개키 상태를 유지하고 중단하며, 제거 후 롤백도
+모든 verifier 복구가 signer 복구보다 앞선다. Secret label 보존·실제 UID 접근·인증 조회·캐시 DDL·
+교체/롤백은 PROJ-225의 실제 배포 증거로 남긴다.

@@ -296,6 +296,8 @@ try {
     rejects(workload, chart, { ...values, env: { PULSEMETRY_ADMIN_API_TOKEN: 'fixture-only' } });
     rejects(workload, chart, { ...values, env: { SPRING_CONFIG_IMPORT: 'optional:configtree:/other/' } });
     rejects(workload, chart, { ...values, env: { SERVER_PORT: '4318' } });
+    rejects(workload, chart, { ...values, env: { PULSEMETRY_USER_AUTH_PRIVATE_KEY_FILE: '/other/key' } });
+    rejects(workload, chart, { ...values, env: { SPRING_APPLICATION_JSON: '{}' } });
     rejects(workload, chart, { ...values, env: { PULSEMETRY_DASHBOARD_RDS_SOURCE_PASSWORD: 'fixture-only' } });
     rejects(workload, chart, { ...values, env: { PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_USERNAME: 'fixture-only' } });
     rejects(workload, chart, { ...values, runtime: { ...runtime, secretProviderClass: '' } });
@@ -320,6 +322,41 @@ try {
       rejects(workload, chart, { ...values, env: { PULSEMETRY_INGEST_PORT: '4318' } });
       rejects(workload, chart, { ...values, runtime: { ...runtime, requiredFiles: [...files, 'PULSEMETRY_ADMIN_API_TOKEN'] } });
     }
+  }
+  for (const workload of ['enrollment-api', 'dashboard-api']) {
+    const values = appValues(workload);
+    const files = workload === 'enrollment-api'
+      ? ['PULSEMETRY_DB_USERNAME', 'PULSEMETRY_DB_PASSWORD', 'PULSEMETRY_TOKEN_HASH_SECRET', 'PULSEMETRY_ADMIN_API_TOKEN']
+      : ['RDS', 'CLICKHOUSE'].flatMap(store => ['SOURCE', 'CACHE'].flatMap(role => ['USERNAME', 'PASSWORD'].map(field => `PULSEMETRY_DASHBOARD_${store}_${role}_${field}`)));
+    values.runtime = { enabled: true, secretProviderClass: `${workload}-runtime`, requiredFiles: files };
+    values.userAuth = { issuer: 'https://issuer.example.invalid', audience: 'pulsemetry-dev', allowedOrigins: ['https://dashboard.example.invalid'] };
+    values.jwt = { enabled: true, secretProviderClass: `${workload}-jwt`, publicVersionId: '2'.repeat(32), publicKeys: [{ kid: 'release-2026.10', alias: 'release-2026-10.pem' }],
+      ...(workload === 'enrollment-api' ? { privateVersionId: '1'.repeat(32), activeKid: 'release-2026.10' } : {}) };
+    const documents = render(workload, chart, values);
+    allDocuments.push(...documents);
+    const deployment = find(documents, 'Deployment', workload);
+    const pod = deployment.spec.template.spec;
+    const container = pod.containers[0];
+    assert.equal(pod.volumes.length, 2);
+    assert.deepEqual(pod.volumes[1], { name: 'user-jwt', csi: { driver: 'secrets-store.csi.k8s.io', readOnly: true, volumeAttributes: { secretProviderClass: `${workload}-jwt` } } });
+    assert.deepEqual(container.volumeMounts[1], { name: 'user-jwt', mountPath: '/mnt/user-jwt/keys', readOnly: true });
+    assert.deepEqual(pod.initContainers[0].volumeMounts, container.volumeMounts);
+    assert.ok(pod.initContainers[0].args[0].includes('head -c 1'));
+    assert.equal(pod.initContainers[0].args[0].includes('private.pem'), workload === 'enrollment-api');
+    const json = JSON.parse(container.env.find(item => item.name === 'SPRING_APPLICATION_JSON').value);
+    assert.deepEqual(json, { pulsemetry: { 'user-auth': { 'public-key-files': { '[release-2026.10]': '/mnt/user-jwt/keys/release-2026-10.pem' } } } });
+    assert.equal(container.env.some(item => item.name === 'PULSEMETRY_USER_AUTH_PRIVATE_KEY_FILE'), workload === 'enrollment-api');
+    assert.match(deployment.spec.template.metadata.annotations['pulsemetry.io/jwt-revision'], /^[a-f0-9]{64}$/);
+    const next = render(workload, chart, { ...values, jwt: { ...values.jwt, publicVersionId: '3'.repeat(32) } });
+    assert.notEqual(find(next, 'Deployment', workload).spec.template.metadata.annotations['pulsemetry.io/jwt-revision'], deployment.spec.template.metadata.annotations['pulsemetry.io/jwt-revision']);
+    rejects(workload, chart, { ...values, runtime: { ...values.runtime, enabled: false } });
+    rejects(workload, chart, { ...values, jwt: { ...values.jwt, publicVersionId: 'AWSCURRENT' } });
+    rejects(workload, chart, { ...values, jwt: { ...values.jwt, secretProviderClass: 'other-jwt' } });
+    rejects(workload, chart, { ...values, jwt: { ...values.jwt, publicKeys: [] } });
+    for (const alias of ['../escape.pem', 'private.pem']) rejects(workload, chart, { ...values, jwt: { ...values.jwt, publicKeys: [{ kid: 'release-2026.10', alias }] } });
+    rejects(workload, chart, { ...values, jwt: { ...values.jwt, publicKeys: [...values.jwt.publicKeys, { kid: 'another', alias: 'release-2026-10.pem' }] } });
+    rejects(workload, chart, { ...values, userAuth: { ...values.userAuth, allowedOrigins: [] } });
+    rejects(workload, chart, { ...values, jwt: { ...values.jwt, privateVersionId: '1'.repeat(32), activeKid: 'missing' } });
   }
   rejects('unknown', chart, { ...appValues('enrollment-api'), workload: 'unknown' });
   const clickhouseChart = 'helm/dev/workloads/clickhouse';
