@@ -8,7 +8,6 @@ const EKS_CERTIFICATE_ARN = `arn:aws:acm:${TEST_ENV.region}:${TEST_ENV.account}:
 const ALLOWED_CIDRS = ['203.0.113.10/32', '198.51.100.0/24'];
 const EKS_CONTEXT = {
   devEksEnabled: true,
-  devEksApiAllowedCidrs: '203.0.113.10/32',
   devAllowedCidr: ALLOWED_CIDRS.join(','),
 };
 

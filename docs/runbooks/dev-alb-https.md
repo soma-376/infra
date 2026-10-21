@@ -26,7 +26,10 @@ ACM 발급·DNS 검증·Route 53·도메인 context·앱 공개 URL·endpoint ou
 ALB 443 ingress는 해당 ALB의 SG에 기존 `devAllowedCidr`로만 추가된다. listener의 `open:false`는 유지한다.
 
 이미 배포된 EKS에는 계속 `devEksEnabled=true`를 전달한다. HTTPS 복구를 이유로 EKS를 비활성화하지 않는다.
-기존 runtime JSON·이미지 태그·ASG 용량·CIDR·EKS API CIDR·archive prefix와 다른 배포 context는 모두 유지한다.
+기존 runtime JSON·이미지 태그·ASG 용량·ALB/RDS CIDR·archive prefix와 다른 배포 context는 모두 유지한다.
+PROJ-244 이후 EKS API는 private 전용이다. 폐기된 `devEksApiAllowedCidrs`는 모든 context 입력에서
+제거한다. 기존 public API에서의 전환·SSM 터널 준비는 [EKS 런북 §2](dev-eks-manual-deployment.md#2-eks-활성화-설정과-cdk-배포)를
+먼저 완료하며, HTTPS listener 전환에 EKS API 접근 전환을 섞지 않는다.
 아래 예시는 기존 dev 스택이 배포되어 있고 인증서 context를 CLI 배열에서만 공급하는 경우다.
 `cdk.json` 또는 다른 입력에 저장한 ARN/redirect 값이 있다면 먼저 함께 확인한다. ARN 제거 단계에서는
 모든 입력 출처에서 해당 키를 제거해야 하며 빈 문자열이나 `null`을 넣어 비활성화하지 않는다.
@@ -51,10 +54,8 @@ HTTPS_BASE_CONTEXT=(-c env=dev
   -c "devAppAsgMaxCapacity=$DEV_APP_ASG_MAX_CAPACITY"
   -c "devEksEnabled=$DEV_EKS_ENABLED")
 if [ "$DEV_EKS_ENABLED" = true ]; then
-  : "${EKS_API_ALLOWED_CIDRS:?기존 devEksApiAllowedCidrs}"
   : "${DEV_EKS_ARCHIVE_PREFIX:?기존 devEksArchivePrefix}"
-  HTTPS_BASE_CONTEXT+=(-c "devEksApiAllowedCidrs=$EKS_API_ALLOWED_CIDRS"
-    -c "devEksArchivePrefix=$DEV_EKS_ARCHIVE_PREFIX")
+  HTTPS_BASE_CONTEXT+=(-c "devEksArchivePrefix=$DEV_EKS_ARCHIVE_PREFIX")
 fi
 
 # 활성화할 ARN만 환경에 설정한다. 이미 HTTPS인 다른 ALB의 ARN도 보존한다.

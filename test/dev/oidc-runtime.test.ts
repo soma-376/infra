@@ -21,8 +21,7 @@ function active() {
 function build(value: any) {
   const filename = join(directory, `runtime-${sequence++}.json`);
   writeFileSync(filename, JSON.stringify(value));
-  return buildDevApp({ devDashboardRuntimeFile: filename, devEksEnabled: true,
-    devEksApiAllowedCidrs: '203.0.113.10/32' });
+  return buildDevApp({ devDashboardRuntimeFile: filename, devEksEnabled: true });
 }
 function appTask(template: any, name: string) {
   return (Object.values(template.Resources) as any[]).find(r => r.Type === 'AWS::ECS::TaskDefinition' &&

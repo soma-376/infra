@@ -22,7 +22,7 @@
 | 0013 | [Raw Signal 보존 정책 - MVP에서는 최근 30일만 복구](0013-raw-signal-retention-for-mvp.md) | Proposed |
 | 0014 | [MVP에서는 ClickHouse를 app subnet에 유지](0014-keep-clickhouse-in-app-subnet-for-mvp.md) | Proposed |
 | 0015 | [Fargate 태스크를 ARM64로 통일](0015-arm64-fargate-for-cost-savings.md) | Accepted |
-| 0016 | [운영자 접속은 SSM 기반으로 (EC2는 Session Manager, Fargate는 ECS Exec)](0016-ssm-based-operator-access.md) | Accepted; EKS 활성화 경로 부분 대체: [백엔드 ADR 0028](0028-dev-eks-auto-mode-transition.md) |
+| 0016 | [운영자 접속은 SSM 기반으로 (EC2는 Session Manager, Fargate는 ECS Exec)](0016-ssm-based-operator-access.md) | Accepted; EKS 활성화 경로 부분 대체: [백엔드 ADR 0028](0028-dev-eks-auto-mode-transition.md); EKS API 릴레이 추가: ADR 0034 |
 | 0017 | [Collector config를 env provider로 주입](0017-inject-collector-config-via-env-provider.md) | Accepted (dev 부분 대체: ADR 0026) |
 | 0018 | [post-processor 런타임 계약을 앱 환경변수에 맞추고 PG DSN을 파생 시크릿으로 주입](0018-post-processor-runtime-contract-via-derived-dsn-secret.md) | Accepted (dev 부분 대체: ADR 0026) |
 | 0019 | [ClickHouse 컨테이너 런타임 계약 - compose와 동일한 사용자 설정 + 이미지 태그 고정](0019-clickhouse-container-runtime-contract.md) | Accepted |
@@ -35,7 +35,7 @@
 | 0026 | [dev 백엔드를 telemetry-ingest·enrollment-api·ClickHouse 세 서비스로 전환](0026-dev-backend-deployment-units-and-staged-migration.md) | Accepted (API 경로·health check는 허브 ADR 0016이 부분 대체); EKS 활성화 경로 부분 대체: [백엔드 ADR 0028](0028-dev-eks-auto-mode-transition.md), dashboard 배포 범위 부분 대체: [백엔드 ADR 0029](0029-dev-dashboard-api-ecs-and-eks-deployment.md); 선택적 dev HTTPS 부분 대체: ADR 0033 |
 | 0027 | [dev ALB에 경로별 Count 예외를 가진 WAF를 적용](0027-dev-alb-waf-policy.md) | Accepted (배포 증거 대기); dashboard 배포 범위 부분 대체: [백엔드 ADR 0029](0029-dev-dashboard-api-ecs-and-eks-deployment.md) |
 | 0028 (프론트엔드) | [프론트엔드 HTTPS와 단일 컨테이너 실행 환경을 Terraform으로 관리한다](0028-frontend-alb-and-container-runtime.md) | Accepted (DNS·ACM은 [프론트엔드 0029](0029-use-external-dns-and-existing-frontend-certificate.md), 이미지 릴리스는 허브 0022로 부분 대체) |
-| 0028 (백엔드 CDK/EKS) | [dev에 EKS Auto Mode를 병행 추가하고 수동 Helm으로 단계 전환](0028-dev-eks-auto-mode-transition.md) | Accepted (구현·검증 기록은 PROJ-206~212; dashboard 범위 부분 대체: [백엔드 ADR 0029](0029-dev-dashboard-api-ecs-and-eks-deployment.md); JWT 참조 목록 부분 대체: [백엔드 ADR 0030](0030-dev-user-jwt-keys-from-secrets-manager.md); 선택적 dev HTTPS 부분 대체: ADR 0033) |
+| 0028 (백엔드 CDK/EKS) | [dev에 EKS Auto Mode를 병행 추가하고 수동 Helm으로 단계 전환](0028-dev-eks-auto-mode-transition.md) | Accepted (구현·검증 기록은 PROJ-206~212; dashboard 범위 부분 대체: [백엔드 ADR 0029](0029-dev-dashboard-api-ecs-and-eks-deployment.md); JWT 참조 목록 부분 대체: [백엔드 ADR 0030](0030-dev-user-jwt-keys-from-secrets-manager.md); 선택적 dev HTTPS 부분 대체: ADR 0033; API 접근·operator IAM 부분 대체: ADR 0034) |
 | 0029 (프론트엔드) | [프론트 DNS는 외부에서 관리하고 발급된 ACM 인증서를 참조한다](0029-use-external-dns-and-existing-frontend-certificate.md) | Accepted |
 | 0029 (백엔드 CDK/EKS) | [dev dashboard-api는 공통 ARM64 이미지로 ECS와 EKS에 각각 배포](0029-dev-dashboard-api-ecs-and-eks-deployment.md) | Accepted (후속 구현·AWS 배포 증거 대기; JWT 공개키 공급 부분 대체: [백엔드 ADR 0030](0030-dev-user-jwt-keys-from-secrets-manager.md)) |
 | 0030 (프론트엔드) | [프론트엔드 기반 인프라는 독립 Terraform 상태로 관리한다](0030-isolate-frontend-terraform-network.md) | Accepted |
@@ -43,8 +43,9 @@
 | 0031 | [dev dashboard DB 자격 증명과 사용자 JWT Secret 원본은 CDK로 생성하고 보존](0031-manage-dev-dashboard-and-jwt-secrets-with-cdk.md) | Accepted (dev 원본 정의·운영 절차; AWS 배포·값 등록·DB 적용 증거 대기) |
 | 0032 | [dev OIDC client secret은 CDK 원본의 고정 버전을 ECS와 EKS에 공급](0032-dev-oidc-client-secret-runtime-supply.md) | Accepted (선택적 localhost HTTP 허용 입력 포함; 로컬 구현·검증, AWS 배포·값 등록·Cognito 로그인 증거 별도) |
 | 0033 | [dev ALB는 외부 ACM 인증서를 context로 참조해 선택적으로 HTTPS를 제공](0033-dev-alb-https-with-external-acm.md) | Accepted (로컬 구현·검증; AWS 배포·TLS·애플리케이션 E2E 증거 별도) |
+| 0034 | [dev EKS API는 SSM 릴레이 터널을 통해 private endpoint로 접근](0034-dev-eks-private-api-via-ssm-relay.md) | Accepted (로컬 구현·검증 대상; AWS 배포·SSM·Kubernetes 접속 증거 별도) |
 
-새 ADR을 작성할 때는 다음 미사용 번호(`0034-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
+새 ADR을 작성할 때는 다음 미사용 번호(`0035-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
 
 섹션 순서는 다음과 같다. 괄호로 표시한 것은 내용이 있을 때만 둔다.
 

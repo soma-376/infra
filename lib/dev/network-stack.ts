@@ -58,6 +58,7 @@ export class DevNetworkStack extends Stack {
   public readonly eksAppNodeSecurityGroup?: SecurityGroup;
   public readonly eksClickhouseNodeSecurityGroup?: SecurityGroup;
   public readonly eksValidationAlbSecurityGroup?: SecurityGroup;
+  public readonly eksRelaySecurityGroup?: SecurityGroup;
   public readonly vpc: Vpc;
   public readonly albSecurityGroup: SecurityGroup;
   /** EC2 호스트 2대(앱 ASG + ClickHouse ASG) 공용 SG. */
@@ -158,6 +159,13 @@ export class DevNetworkStack extends Stack {
       this.eksAppNodeSecurityGroup = sg('DevEksAppNodeSg', 'dev EKS application nodes');
       this.eksClickhouseNodeSecurityGroup = sg('DevEksClickhouseNodeSg', 'dev EKS ClickHouse nodes');
       this.eksValidationAlbSecurityGroup = sg('DevEksValidationAlbSg', 'dev EKS validation ALB');
+      this.eksRelaySecurityGroup = new SecurityGroup(this, 'DevEksRelaySg', {
+        vpc: this.vpc, description: 'dev EKS API SSM relay',
+        allowAllOutbound: false, disableInlineRules: true,
+      });
+      // NAT 없는 public subnet에서 SSM과 private Kubernetes API의 HTTPS만 사용한다.
+      this.eksRelaySecurityGroup.addEgressRule(Peer.anyIpv4(), Port.tcp(443), 'HTTPS to SSM and EKS API');
+      this.eksControlPlaneSecurityGroup.addIngressRule(this.eksRelaySecurityGroup, Port.tcp(443), 'Kubernetes API from SSM relay');
       const cp = this.eksControlPlaneSecurityGroup;
       const apps = this.eksAppNodeSecurityGroup;
       const ch = this.eksClickhouseNodeSecurityGroup;

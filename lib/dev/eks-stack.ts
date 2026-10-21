@@ -2,6 +2,7 @@ import { ISecret } from 'aws-cdk-lib/aws-secretsmanager';
 import { IBucket } from 'aws-cdk-lib/aws-s3';
 import { DevEksRuntime } from './eks-runtime';
 import { DevEksLbc } from './eks-lbc';
+import { DevEksRelay } from './eks-relay';
 import { CfnOutput, Stack, StackProps } from 'aws-cdk-lib/core';
 import { IVpc, ISecurityGroup } from 'aws-cdk-lib/aws-ec2';
 import { CfnAccessEntry, CfnCluster } from 'aws-cdk-lib/aws-eks';
@@ -26,6 +27,7 @@ export interface DevEksStackProps extends StackProps {
   readonly controlPlaneSecurityGroup: ISecurityGroup;
   readonly appNodeSecurityGroup: ISecurityGroup;
   readonly clickhouseNodeSecurityGroup: ISecurityGroup;
+  readonly relaySecurityGroup: ISecurityGroup;
   readonly config: DevEksConfig;
 }
 
@@ -59,8 +61,9 @@ export class DevEksStack extends Stack {
       resourcesVpcConfig: {
         subnetIds: props.vpc.publicSubnets.map(subnet => subnet.subnetId),
         securityGroupIds: [props.controlPlaneSecurityGroup.securityGroupId],
-        endpointPrivateAccess: true, endpointPublicAccess: true,
-        publicAccessCidrs: props.config.publicAccessCidrs,
+        endpointPrivateAccess: true, endpointPublicAccess: false,
+        // CFN은 이전 템플릿의 이 속성을 제거할 수 없다. public endpoint는 위에서 비활성화한다.
+        publicAccessCidrs: ['0.0.0.0/0'],
       },
       // custom NodeClass가 role을 선택한다. 기본 NodePool의 암묵적 AccessEntry와 중복시키지 않는다.
       computeConfig: { enabled: true, nodePools: [] },
@@ -86,6 +89,10 @@ export class DevEksStack extends Stack {
     new CfnAccessEntry(this, 'OperatorAccess', {
       clusterName: this.cluster.ref, principalArn: this.operatorRole.roleArn, type: 'STANDARD',
       accessPolicies: [{ policyArn: `arn:${this.partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy`, accessScope: { type: 'cluster' } }],
+    });
+    const relay = new DevEksRelay(this, 'Relay', {
+      vpc: props.vpc, securityGroup: props.relaySecurityGroup,
+      clusterEndpoint: this.cluster.attrEndpoint, operatorRole: this.operatorRole,
     });
     new DevEksLbc(this, 'Lbc', { clusterName: this.cluster.ref });
     new DevEksRuntime(this, 'Runtime', {
@@ -122,6 +129,8 @@ export class DevEksStack extends Stack {
       EksControlPlaneSecurityGroupId: props.controlPlaneSecurityGroup.securityGroupId,
       EksNodeRoleArn: this.nodeRole.roleArn, EksNodeRoleName: this.nodeRole.roleName,
       EksOperatorRoleArn: this.operatorRole.roleArn, EksOperatorRoleName: this.operatorRole.roleName,
+      EksRelayInstanceId: relay.instance.instanceId,
+      EksRelaySessionDocumentName: relay.sessionDocument.ref,
     };
     for (const [name, value] of Object.entries(outputs)) {
       new CfnOutput(this, name, { value }).overrideLogicalId(name);
