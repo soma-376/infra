@@ -170,7 +170,7 @@ pulsemetry_pipeline_stage_duration_seconds_bucket{outcome="success",stage="decod
 pulsemetry_pipeline_stage_duration_seconds_bucket{outcome="success",stage="decode",le="30.0"} 1
 pulsemetry_pipeline_stage_duration_seconds_bucket{outcome="success",stage="decode",le="+Inf"} 1
 pulsemetry_pipeline_stage_duration_seconds_count{outcome="success",stage="decode"} 1
-pulsemetry_pipeline_stage_duration_seconds_sum{outcome="success",stage="decode"} 6.2125E-5
+pulsemetry_pipeline_stage_duration_seconds_sum{outcome="success",stage="decode"} 4.7E-5
 # HELP pulsemetry_pipeline_stage_duration_seconds_max  
 # TYPE pulsemetry_pipeline_stage_duration_seconds_max gauge
-pulsemetry_pipeline_stage_duration_seconds_max{outcome="success",stage="decode"} 6.2125E-5
+pulsemetry_pipeline_stage_duration_seconds_max{outcome="success",stage="decode"} 4.7E-5

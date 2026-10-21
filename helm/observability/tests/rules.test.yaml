@@ -244,3 +244,74 @@ tests:
               pod: collector
             exp_annotations:
               summary: 로그 disk-only chunk 대기가 10분 동안 128개 이상 증가했다
+  # 재시도 소진·commit 실패: 첫 scrape 전에 실패한 새 series는 1 이상으로 처음 보인다. increase()만으로는 0이다.
+  - interval: 1m
+    input_series:
+      - series: pulsemetry_pipeline_retry_exhausted_total{pod="new",stage="process"}
+        values: _ _ 1 1 1 1 1 1 1 1 1 1
+      - series: pulsemetry_pipeline_commit_failures_total{pod="new"}
+        values: _ _ 1 1 1 1 1 1 1 1 1 1
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: PipelineRetryExhausted
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: Pipeline 재시도 소진을 확인했다
+      - eval_time: 3m
+        alertname: PipelineCommitFailure
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: Kafka commit 실패를 확인했다
+      # 과거 실패는 5분 뒤 경보를 끝낸다.
+      - eval_time: 8m
+        alertname: PipelineRetryExhausted
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: PipelineCommitFailure
+        exp_alerts: []
+  # 0으로 미리 노출된 series의 첫 실패(0 → 1)와 같은 Pod 재시작 뒤 실패(감소 후 값)는 increase()가 센다.
+  - interval: 1m
+    input_series:
+      - series: pulsemetry_pipeline_retry_exhausted_total{pod="old",stage="insert"}
+        values: 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1
+      - series: pulsemetry_pipeline_commit_failures_total{pod="old"}
+        values: 2 2 2 2 2 2 2 1 1 1 1 1 1 1 1 1 1 1 1 1
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: PipelineRetryExhausted
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: Pipeline 재시도 소진을 확인했다
+      - eval_time: 9m
+        alertname: PipelineCommitFailure
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: Kafka commit 실패를 확인했다
+      - eval_time: 15m
+        alertname: PipelineRetryExhausted
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: PipelineCommitFailure
+        exp_alerts: []
+  # 실패 없이 0으로 노출된 새 Pod는 울리지 않는다.
+  - interval: 1m
+    input_series:
+      - series: pulsemetry_pipeline_retry_exhausted_total{pod="fresh",stage="authorize"}
+        values: _ _ 0 0 0 0 0 0 0 0
+      - series: pulsemetry_pipeline_commit_failures_total{pod="fresh"}
+        values: _ _ 0 0 0 0 0 0 0 0
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: PipelineRetryExhausted
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: PipelineCommitFailure
+        exp_alerts: []

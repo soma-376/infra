@@ -3,7 +3,7 @@
   "source": {
     "repository": "soma-376/pulsemetry-backend",
     "branch": "feature/PROJ-191-telemetry-observability",
-    "commit": "496d68a35e74bdf42883e9f6d5acab3a120373c0",
+    "commit": "fb46cfdab7610f1367aa21ae4d3f085a5d627125",
     "toolchain": "Temurin 25.0.4, Gradle wrapper 9.5.1, Spring Boot 4.1.0",
     "regenerate": "JAVA_HOME=<jdk25> ./gradlew :libs:telemetry-observability:test :apps:telemetry-gateway:test :apps:telemetry-ingest:test",
     "note": "앱 HTTP scrape 사본의 일부 계열은 같은 테스트 컨텍스트에서 먼저 실행된 테스트에 따라 있고 없을 수 있다. 계약 확인은 세 파일의 합집합으로 한다."
@@ -13,19 +13,19 @@
       "file": "backend-registry.prom",
       "source": "libs/telemetry-observability/build/metrics-contract.prom",
       "scope": "실제 Micrometer registry 단위 테스트; 배포 scrape 아님",
-      "sha256": "19c444d14ae9eee9e733bf0d4773e308f723f207813a8a5214abdf2790eeea77"
+      "sha256": "bb707946cd5d88821a51c4779b43d599abdfd495bcbaea1850540df1b3011e41"
     },
     {
       "file": "gateway-management.prom",
       "source": "apps/telemetry-gateway/build/management-scrape.prom",
       "scope": "Boot 4.1.0 실제 Gateway HTTP management scrape, 로컬 통합 테스트",
-      "sha256": "7eb9753b087fd46ce8feea1e84c46febe1472b385198c43d3942b6e89399d530"
+      "sha256": "078cdc37a9c999bdd4ce436636ffc12e8838392e4f87cc11c92caee44ba3d33f"
     },
     {
       "file": "ingest-management.prom",
       "source": "apps/telemetry-ingest/build/management-scrape.prom",
       "scope": "Boot 4.1.0 실제 ingest HTTP management scrape, 로컬 통합 테스트",
-      "sha256": "c86a42bf9d8c3b4016d6ed880f205a67631a74a8b56163a5693fb548e5c74f80"
+      "sha256": "9da0f529a5b38a840a1d9658f2253dbbc403c302b65633b284c1156d910e37cd"
     }
   ],
   "clickhouse": {

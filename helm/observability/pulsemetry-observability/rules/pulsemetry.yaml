@@ -63,14 +63,21 @@ groups:
           severity: warning
         annotations:
           summary: MSK under-replicated partition이 지속된다
+      # Backend는 두 counter를 실패 전부터 0으로 노출하지만, 새 Pod가 첫 scrape 전에 실패하면 series가 1 이상으로 처음 보인다.
+      # increase()는 그 첫 값을 세지 못하므로 최근 5분 안에 생긴 series의 값도 본다. counter > 0 단독은 과거 실패를 계속 울린다.
+      # Prometheus 수집이 5분 넘게 끊겼다 돌아오면 이미 0보다 큰 series가 새로 보여 5분 동안 한 번 울릴 수 있다.
       - alert: PipelineRetryExhausted
-        expr: sum(increase(pulsemetry_pipeline_retry_exhausted_total[5m])) > 0
+        expr: |
+          sum(increase(pulsemetry_pipeline_retry_exhausted_total[5m])) > 0
+            or sum(pulsemetry_pipeline_retry_exhausted_total unless pulsemetry_pipeline_retry_exhausted_total offset 5m) > 0
         labels:
           severity: critical
         annotations:
           summary: Pipeline 재시도 소진을 확인했다
       - alert: PipelineCommitFailure
-        expr: sum(increase(pulsemetry_pipeline_commit_failures_total[5m])) > 0
+        expr: |
+          sum(increase(pulsemetry_pipeline_commit_failures_total[5m])) > 0
+            or sum(pulsemetry_pipeline_commit_failures_total unless pulsemetry_pipeline_commit_failures_total offset 5m) > 0
         labels:
           severity: warning
         annotations:

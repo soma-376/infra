@@ -140,6 +140,11 @@ for (const item of provenance.fixtures) {
 const scrapeFixture = ['backend-registry.prom','gateway-management.prom','ingest-management.prom'].map(x => readFileSync(resolve(fixtures, 'fixtures', x), 'utf8')).join('\n');
 const names = new Set(scrapeFixture.split('\n').filter(x => x && !x.startsWith('#')).map(x => x.split(/[\s{]/)[0]));
 for (const metric of usedCustomMetrics) assert.ok(names.has(metric), `실제 registry fixture에 없는 metric: ${metric}`);
+// 재시도 소진·commit 실패 경보와 패널의 increase()는 Backend가 실패 전부터 0으로 노출한다는 전제다. ingest HTTP scrape로 확인한다.
+const ingestScrape = readFileSync(resolve(fixtures, 'fixtures/ingest-management.prom'), 'utf8');
+for (const metric of ['pulsemetry_pipeline_retry_exhausted_total', 'pulsemetry_pipeline_commit_failures_total']) {
+  assert.match(ingestScrape, new RegExp(`^${metric}\\{`, 'm'), `ingest scrape에 실패 전 노출된 ${metric}가 없다`);
+}
 const nativeFixture = ['fixtures/gateway-management.prom','fixtures/ingest-management.prom','clickhouse/dashboard-metrics.prom'].map(x => readFileSync(resolve(fixtures,x),'utf8')).join('\n');
 const nativeNames = new Set(nativeFixture.split('\n').filter(x => x && !x.startsWith('#')).map(x => x.split(/[\s{]/)[0]));
 for (const metric of usedNativeMetrics) assert.ok(nativeNames.has(metric), `실제 local scrape에 없는 metric: ${metric}`);

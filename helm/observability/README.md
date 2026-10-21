@@ -141,6 +141,7 @@ Fluent Bit 5.1.3 실측에서 v1은 storage 지표가 없어 **v2 단일 endpoin
 
 Backend scrape 사본 3개는 [provenance](tests/fixtures/provenance.json)에 생성 commit·명령·SHA256을 둔다.
 검증기가 SHA256을 대조하고 대시보드의 custom 지표가 세 사본 중 하나에 있는지 확인한다.
+재시도 소진·commit 실패 경보와 패널은 ingest가 두 counter를 실패 전부터 0으로 노출한다는 전제라, ingest 사본에서 이를 확인한다.
 
 ### 로컬 검증 기록 (2026-10-22)
 
