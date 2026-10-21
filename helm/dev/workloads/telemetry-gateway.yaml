@@ -1,0 +1,3 @@
+# Gateway는 DB·HMAC configtree 없이 telemetry 공개키와 Kafka 발행 설정만 받는다. (ADR-0036)
+workload: telemetry-gateway
+nodePort: 30082

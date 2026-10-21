@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { createRequire } from 'node:module';
@@ -73,6 +73,27 @@ function binding(stage, suffix) {
   };
 }
 
+const TELEMETRY_KEYS = [{ kid: 'telemetry-2026.10', alias: 'telemetry-2026-10.pem' }];
+const BOOTSTRAP = [1, 2, 3].map(n => `b-${n}.soma-376-dev-telemetry.abc123.c2.kafka.ap-northeast-2.amazonaws.com:9098`).join(',');
+
+function telemetryJwt(workload) {
+  return {
+    enabled: true, secretProviderClass: `${workload}-telemetry-jwt`, publicVersionId: '4'.repeat(32), publicKeys: TELEMETRY_KEYS,
+    issuer: 'pulsemetry-enrollment', audience: 'pulsemetry-telemetry-ingest',
+    ...(workload === 'enrollment-api' ? { privateVersionId: '5'.repeat(32), activeKid: 'telemetry-2026.10', issueEnabled: false } : {}),
+  };
+}
+
+function kafka(workload) {
+  const gateway = workload === 'telemetry-gateway';
+  return {
+    enabled: true, bootstrapServers: BOOTSTRAP, topic: 'pulsemetry-dev-telemetry-ingress-validation',
+    ...(gateway ? {} : { consumerGroup: 'pulsemetry-dev-telemetry-ingest-validation' }),
+    iamRoleArn: `arn:aws:iam::000000000000:role/fixture-msk-${gateway ? 'gateway' : 'ingest'}`,
+    iamSessionName: `pulsemetry-dev-telemetry-${gateway ? 'gateway' : 'ingest'}`,
+  };
+}
+
 function appValues(workload) {
   const defaults = yaml.load(readFileSync(resolve(root, `helm/dev/workloads/${workload}.yaml`), 'utf8'));
   return {
@@ -80,7 +101,44 @@ function appValues(workload) {
     image: { repository: `example.invalid/soma-376/${workload}`, digest },
     vpcId: 'vpc-0123456789abcdef0',
     targetGroupBindings: [binding('validation', `${workload}-v`), binding('canary', `${workload}-c`)],
+    // Gateway는 telemetry 공개키와 Kafka 발행 설정이 없으면 렌더링을 거부한다.
+    ...(workload === 'telemetry-gateway' ? { telemetryJwt: telemetryJwt(workload), kafka: kafka(workload), env: { AWS_REGION: 'ap-northeast-2' } } : {}),
   };
+}
+
+function environment(documents, workload) {
+  const container = find(documents, 'Deployment', workload).spec.template.spec.containers[0];
+  const names = (container.env ?? []).map(item => item.name);
+  assert.equal(new Set(names).size, names.length, `${workload} env 이름이 중복된다`);
+  return Object.fromEntries((container.env ?? []).map(item => [item.name, item.value]));
+}
+
+// chart의 실제 init shell을 fixture 디렉터리에 적용해 파일 누락·빈 파일을 거부하는지 확인한다.
+function checkInit(documents, workload, files) {
+  const init = find(documents, 'Deployment', workload).spec.template.spec.initContainers[0].args[0];
+  const directory = mkdtempSync(resolve(temporary, 'init-'));
+  let command = init;
+  for (const mount of ['/mnt/secrets-store', '/mnt/user-jwt/keys', '/mnt/telemetry-jwt/keys']) {
+    const local = resolve(directory, mount.replaceAll('/', '_'));
+    mkdirSync(local);
+    command = command.replaceAll(mount, local);
+    for (const file of files[mount] ?? []) writeFileSync(resolve(local, file), 'fixture-only');
+  }
+  const check = () => run('/bin/sh', ['-ec', command]);
+  const good = check();
+  assert.equal(good.status, 0, good.stderr);
+  assert.equal(good.stdout + good.stderr, '');
+  for (const [mount, names] of Object.entries(files)) {
+    for (const file of names) {
+      const path = resolve(directory, mount.replaceAll('/', '_'), file);
+      writeFileSync(path, '');
+      assert.notEqual(check().status, 0, `${file} 빈 파일을 허용했다`);
+      rmSync(path);
+      assert.notEqual(check().status, 0, `${file} 누락을 허용했다`);
+      writeFileSync(path, 'fixture-only');
+      negativeCases += 2;
+    }
+  }
 }
 
 function checkBindings(documents, workload, targetType) {
@@ -102,19 +160,21 @@ function checkBindings(documents, workload, targetType) {
   }
 }
 
-function checkApp(documents, workload) {
+function checkApp(documents, workload, grace = 60) {
   const deployment = find(documents, 'Deployment', workload);
   const pod = deployment.spec.template.spec;
   const container = pod.containers[0];
   const service = find(documents, 'Service', workload);
-  const port = { 'telemetry-ingest': 4316, 'enrollment-api': 8080, 'dashboard-api': 8081 }[workload];
+  const port = { 'telemetry-ingest': 4316, 'enrollment-api': 8080, 'dashboard-api': 8081, 'telemetry-gateway': 8082 }[workload];
+  assert.equal(pod.terminationGracePeriodSeconds, grace);
   assert.equal(deployment.spec.replicas, 1);
   assert.deepEqual(deployment.spec.strategy, { type: 'Recreate' });
   assert.deepEqual(deployment.spec.selector.matchLabels, deployment.spec.template.metadata.labels);
   assert.deepEqual(service.spec.selector, deployment.spec.selector.matchLabels);
   assert.equal(service.spec.type, 'NodePort');
   assert.deepEqual(service.spec.ports, [{ name: 'http', port, targetPort: 'http',
-    nodePort: { 'telemetry-ingest': 30416, 'enrollment-api': 30080, 'dashboard-api': 30081 }[workload], protocol: 'TCP' }]);
+    nodePort: { 'telemetry-ingest': 30416, 'enrollment-api': 30080, 'dashboard-api': 30081, 'telemetry-gateway': 30082 }[workload], protocol: 'TCP' }]);
+  assert.equal(service.spec.externalTrafficPolicy, 'Cluster');
   assert.deepEqual(container.ports, [{ name: 'http', containerPort: port, protocol: 'TCP' }]);
   assert.deepEqual(pod.nodeSelector, {
     'kubernetes.io/arch': 'arm64', 'karpenter.sh/nodepool': 'pulsemetry-dev-apps',
@@ -269,6 +329,184 @@ function checkPlatform() {
   return documents.length;
 }
 
+const RUNTIME_FILES = {
+  'telemetry-ingest': ['PULSEMETRY_DB_USERNAME', 'PULSEMETRY_DB_PASSWORD', 'PULSEMETRY_TOKEN_HASH_SECRET'],
+  'enrollment-api': ['PULSEMETRY_DB_USERNAME', 'PULSEMETRY_DB_PASSWORD', 'PULSEMETRY_TOKEN_HASH_SECRET', 'PULSEMETRY_ADMIN_API_TOKEN'],
+};
+
+function telemetryVolume(workload) {
+  return { name: 'telemetry-jwt', csi: { driver: 'secrets-store.csi.k8s.io', readOnly: true,
+    volumeAttributes: { secretProviderClass: `${workload}-telemetry-jwt` } } };
+}
+const TELEMETRY_MOUNT = { name: 'telemetry-jwt', mountPath: '/mnt/telemetry-jwt/keys', readOnly: true };
+const TELEMETRY_FILES = { '[telemetry-2026.10]': '/mnt/telemetry-jwt/keys/telemetry-2026-10.pem' };
+
+// PROJ-246: Gateway·ingest 모드·telemetry JWT 경계를 실제 render로 검사한다. (ADR-0036)
+function checkTelemetry(chart) {
+  const documents = [];
+  // Gateway: configtree·사용자 JWT 없이 공개키 mount와 Kafka 발행 설정만 받는다.
+  const gatewayValues = appValues('telemetry-gateway');
+  const gateway = render('telemetry-gateway', chart, gatewayValues);
+  documents.push(...gateway);
+  checkApp(gateway, 'telemetry-gateway', 60);
+  const gatewayPod = find(gateway, 'Deployment', 'telemetry-gateway').spec.template.spec;
+  assert.deepEqual(gatewayPod.volumes, [telemetryVolume('telemetry-gateway')]);
+  assert.deepEqual(gatewayPod.containers[0].volumeMounts, [TELEMETRY_MOUNT]);
+  assert.deepEqual(gatewayPod.initContainers[0].volumeMounts, [TELEMETRY_MOUNT]);
+  assert.ok(!gatewayPod.initContainers[0].args[0].includes('/mnt/secrets-store'));
+  assert.ok(!gatewayPod.initContainers[0].args[0].includes('private.pem'));
+  checkInit(gateway, 'telemetry-gateway', { '/mnt/telemetry-jwt/keys': ['telemetry-2026-10.pem'] });
+  const gatewayEnv = environment(gateway, 'telemetry-gateway');
+  assert.deepEqual(gatewayEnv, {
+    SPRING_APPLICATION_JSON: JSON.stringify({ pulsemetry: { 'telemetry-jwt': { audience: 'pulsemetry-telemetry-ingest', issuer: 'pulsemetry-enrollment', 'public-key-files': TELEMETRY_FILES } } }),
+    PULSEMETRY_KAFKA_BOOTSTRAP_SERVERS: BOOTSTRAP, PULSEMETRY_KAFKA_SECURITY: 'iam',
+    PULSEMETRY_KAFKA_TOPIC: 'pulsemetry-dev-telemetry-ingress-validation',
+    PULSEMETRY_KAFKA_IAM_ROLE_ARN: 'arn:aws:iam::000000000000:role/fixture-msk-gateway',
+    PULSEMETRY_KAFKA_IAM_SESSION_NAME: 'pulsemetry-dev-telemetry-gateway', AWS_REGION: 'ap-northeast-2',
+  });
+  const revision = find(gateway, 'Deployment', 'telemetry-gateway').spec.template.metadata.annotations['pulsemetry.io/telemetry-jwt-revision'];
+  assert.match(revision, /^[a-f0-9]{64}$/);
+  const rotated = render('telemetry-gateway', chart, { ...gatewayValues, telemetryJwt: { ...gatewayValues.telemetryJwt, publicVersionId: '6'.repeat(32) } });
+  assert.notEqual(find(rotated, 'Deployment', 'telemetry-gateway').spec.template.metadata.annotations['pulsemetry.io/telemetry-jwt-revision'], revision);
+  const gw = gatewayValues;
+  for (const invalid of [
+    { ...gw, runtime: { enabled: true, secretProviderClass: 'telemetry-gateway-runtime', requiredFiles: RUNTIME_FILES['telemetry-ingest'] } },
+    { ...gw, jwt: { enabled: true, secretProviderClass: 'telemetry-gateway-jwt', publicVersionId: '2'.repeat(32), publicKeys: TELEMETRY_KEYS } },
+    { ...gw, userAuth: { issuer: 'https://issuer.example.invalid', audience: 'pulsemetry-dev', allowedOrigins: ['https://dashboard.example.invalid'] } },
+    { ...gw, telemetryJwt: { enabled: false } },
+    { ...gw, kafka: { enabled: false } },
+    { ...gw, telemetryJwt: { ...gw.telemetryJwt, privateVersionId: '5'.repeat(32) } },
+    { ...gw, telemetryJwt: { ...gw.telemetryJwt, issueEnabled: true } },
+    { ...gw, telemetryJwt: { ...gw.telemetryJwt, secretProviderClass: 'telemetry-ingest-telemetry-jwt' } },
+    { ...gw, telemetryJwt: { ...gw.telemetryJwt, issuer: 'https://issuer.example.invalid' } },
+    { ...gw, telemetryJwt: { ...gw.telemetryJwt, publicKeys: [{ kid: 'telemetry-2026.10', alias: 'private.pem' }] } },
+    { ...gw, kafka: { ...gw.kafka, consumerGroup: 'pulsemetry-dev-telemetry-ingest-validation' } },
+    { ...gw, kafka: { ...gw.kafka, iamSessionName: 'pulsemetry-dev-telemetry-ingest' } },
+    { ...gw, kafka: { ...gw.kafka, bootstrapServers: 'b-1.soma-376-dev-telemetry.abc123.c2.kafka.ap-northeast-2.amazonaws.com:9092' } },
+    { ...gw, kafka: { ...gw.kafka, topic: 'pulsemetry-dev-telemetry-ingress-other' } },
+    { ...gw, kafka: { ...gw.kafka, iamRoleArn: '*' } },
+    { ...gw, env: { PULSEMETRY_DB_URL: 'jdbc:postgresql://db.example.invalid:5432/controlplane' } },
+    { ...gw, env: { PULSEMETRY_ARCHIVE_BUCKET: 'fixture' } },
+    { ...gw, env: { PULSEMETRY_KAFKA_TOPIC: 'override' } },
+    { ...gw, env: { PULSEMETRY_TELEMETRY_JWT_ISSUER: 'override' } },
+    { ...gw, env: { AWS_ACCESS_KEY_ID: 'fixture-only' } },
+    { ...gw, env: { AWS_CONTAINER_CREDENTIALS_FULL_URI: 'http://169.254.170.23/v1/credentials' } },
+    { ...gw, service: { type: 'ClusterIP' }, targetGroupBindings: [] },
+    { ...gw, nodePort: 30081 },
+    { ...gw, ingestMode: 'kafka' },
+    (({ nodePort, ...rest }) => rest)(gw),
+    (({ kafka: _kafka, ...rest }) => rest)(gw),
+  ]) rejects('telemetry-gateway', chart, invalid);
+
+  // ingest: http는 기존 경로, dual은 HTTP+Consumer, kafka는 ClusterIP health만 둔다.
+  for (const mode of ['http', 'dual', 'kafka']) {
+    const values = {
+      ...appValues('telemetry-ingest'), ingestMode: mode, telemetryJwt: telemetryJwt('telemetry-ingest'),
+      runtime: { enabled: true, secretProviderClass: 'telemetry-ingest-runtime', requiredFiles: RUNTIME_FILES['telemetry-ingest'] },
+      ...(mode === 'http' ? {} : { kafka: kafka('telemetry-ingest') }),
+      ...(mode === 'kafka' ? { service: { type: 'ClusterIP' }, targetGroupBindings: [] } : {}),
+    };
+    const ingest = render('telemetry-ingest', chart, values);
+    documents.push(...ingest);
+    const grace = mode === 'http' ? 60 : 90;
+    if (mode === 'kafka') {
+      const service = find(ingest, 'Service', 'telemetry-ingest');
+      assert.equal(service.spec.type, 'ClusterIP');
+      assert.equal(service.spec.externalTrafficPolicy, undefined);
+      assert.deepEqual(service.spec.ports, [{ name: 'http', port: 4316, targetPort: 'http', protocol: 'TCP' }]);
+      assert.equal(ingest.filter(document => document.kind === 'TargetGroupBinding').length, 0);
+      assert.equal(find(ingest, 'Deployment', 'telemetry-ingest').spec.template.spec.terminationGracePeriodSeconds, grace);
+    } else checkApp(ingest, 'telemetry-ingest', grace);
+    const pod = find(ingest, 'Deployment', 'telemetry-ingest').spec.template.spec;
+    assert.deepEqual(pod.volumes.map(volume => volume.name), ['secrets-store', 'telemetry-jwt']);
+    assert.deepEqual(pod.volumes[1], telemetryVolume('telemetry-ingest'));
+    assert.deepEqual(pod.initContainers[0].volumeMounts, pod.containers[0].volumeMounts);
+    assert.deepEqual(pod.containers[0].volumeMounts[1], TELEMETRY_MOUNT);
+    // liveness는 Kafka 상태와 무관한 TCP 검사다.
+    assert.deepEqual(pod.containers[0].livenessProbe.tcpSocket, { port: 'http' });
+    const env = environment(ingest, 'telemetry-ingest');
+    assert.equal(env.PULSEMETRY_INGEST_MODE, mode);
+    assert.deepEqual(JSON.parse(env.SPRING_APPLICATION_JSON), { pulsemetry: { 'telemetry-jwt': {
+      audience: 'pulsemetry-telemetry-ingest', issuer: 'pulsemetry-enrollment', 'public-key-files': TELEMETRY_FILES } } });
+    const kafkaEnv = Object.keys(env).filter(name => name.startsWith('PULSEMETRY_KAFKA_')).sort();
+    if (mode === 'http') assert.deepEqual(kafkaEnv, []);
+    else {
+      assert.deepEqual(kafkaEnv, ['PULSEMETRY_KAFKA_BOOTSTRAP_SERVERS', 'PULSEMETRY_KAFKA_CONSUMER_GROUP', 'PULSEMETRY_KAFKA_IAM_ROLE_ARN',
+        'PULSEMETRY_KAFKA_IAM_SESSION_NAME', 'PULSEMETRY_KAFKA_SECURITY', 'PULSEMETRY_KAFKA_TOPIC']);
+      assert.equal(env.PULSEMETRY_KAFKA_CONSUMER_GROUP, 'pulsemetry-dev-telemetry-ingest-validation');
+      assert.equal(env.PULSEMETRY_KAFKA_IAM_SESSION_NAME, 'pulsemetry-dev-telemetry-ingest');
+    }
+    for (const name of ['PULSEMETRY_USER_AUTH_ENABLED', 'PULSEMETRY_USER_AUTH_PRIVATE_KEY_FILE']) assert.equal(env[name], undefined);
+    if (mode === 'dual') {
+      checkInit(ingest, 'telemetry-ingest', { '/mnt/secrets-store': RUNTIME_FILES['telemetry-ingest'], '/mnt/telemetry-jwt/keys': ['telemetry-2026-10.pem'] });
+      for (const invalid of [
+        { ...values, kafka: { enabled: false } },
+        { ...values, kafka: (({ consumerGroup, ...rest }) => rest)(values.kafka) },
+        { ...values, kafka: { ...values.kafka, iamSessionName: 'pulsemetry-dev-telemetry-gateway' } },
+        { ...values, ingestMode: 'http' },
+        { ...values, ingestMode: 'kafka' },
+        { ...values, ingestMode: 'consumer' },
+        { ...values, service: { type: 'ClusterIP' } },
+        { ...values, service: { type: 'LoadBalancer' } },
+        { ...values, telemetryJwt: { ...values.telemetryJwt, privateVersionId: '5'.repeat(32), activeKid: 'telemetry-2026.10' } },
+        { ...values, telemetryJwt: { ...values.telemetryJwt, secretProviderClass: 'telemetry-gateway-telemetry-jwt' } },
+        { ...values, env: { ...values.env, PULSEMETRY_INGEST_MODE: 'kafka' } },
+        { ...values, env: { ...values.env, PULSEMETRY_KAFKA_CONSUMER_GROUP: 'other' } },
+        (({ ingestMode, ...rest }) => rest)(values),
+      ]) rejects('telemetry-ingest', chart, invalid);
+    }
+    if (mode === 'kafka') {
+      rejects('telemetry-ingest', chart, { ...values, targetGroupBindings: [binding('validation', 'telemetry-ingest-v')] });
+      rejects('telemetry-ingest', chart, { ...values, service: { type: 'NodePort' } });
+    }
+  }
+
+  // enrollment: 사용자 JWT·OIDC 맵을 유지하고 telemetry JWT 서명 설정을 같은 SPRING_APPLICATION_JSON에 합친다.
+  const enrollmentValues = {
+    ...appValues('enrollment-api'),
+    runtime: { enabled: true, secretProviderClass: 'enrollment-api-runtime', requiredFiles: RUNTIME_FILES['enrollment-api'] },
+    userAuth: { issuer: 'https://issuer.example.invalid', audience: 'pulsemetry-dev', allowedOrigins: ['https://dashboard.example.invalid'] },
+    jwt: { enabled: true, secretProviderClass: 'enrollment-api-jwt', publicVersionId: '2'.repeat(32), privateVersionId: '1'.repeat(32),
+      activeKid: 'release-2026.10', publicKeys: [{ kid: 'release-2026.10', alias: 'release-2026-10.pem' }] },
+    telemetryJwt: telemetryJwt('enrollment-api'),
+  };
+  for (const issueEnabled of [false, true]) {
+    const enrollment = render('enrollment-api', chart, { ...enrollmentValues, telemetryJwt: { ...enrollmentValues.telemetryJwt, issueEnabled } });
+    documents.push(...enrollment);
+    checkApp(enrollment, 'enrollment-api', 60);
+    const pod = find(enrollment, 'Deployment', 'enrollment-api').spec.template.spec;
+    assert.deepEqual(pod.volumes.map(volume => volume.name), ['secrets-store', 'user-jwt', 'telemetry-jwt']);
+    assert.deepEqual(pod.volumes[2], telemetryVolume('enrollment-api'));
+    assert.deepEqual(pod.initContainers[0].volumeMounts, pod.containers[0].volumeMounts);
+    const env = environment(enrollment, 'enrollment-api');
+    assert.deepEqual(JSON.parse(env.SPRING_APPLICATION_JSON), { pulsemetry: {
+      'user-auth': { 'public-key-files': { '[release-2026.10]': '/mnt/user-jwt/keys/release-2026-10.pem' } },
+      'telemetry-jwt': { 'public-key-files': TELEMETRY_FILES, issuer: 'pulsemetry-enrollment', audience: 'pulsemetry-telemetry-ingest',
+        'active-kid': 'telemetry-2026.10', 'private-key-file': '/mnt/telemetry-jwt/keys/private.pem', 'issue-enabled': issueEnabled },
+    } });
+    assert.equal(env.PULSEMETRY_USER_AUTH_PRIVATE_KEY_FILE, '/mnt/user-jwt/keys/private.pem');
+    for (const name of Object.keys(env)) assert.ok(!name.startsWith('PULSEMETRY_KAFKA_') && name !== 'PULSEMETRY_INGEST_MODE');
+    if (!issueEnabled) checkInit(enrollment, 'enrollment-api', { '/mnt/secrets-store': RUNTIME_FILES['enrollment-api'],
+      '/mnt/user-jwt/keys': ['release-2026-10.pem', 'private.pem'], '/mnt/telemetry-jwt/keys': ['telemetry-2026-10.pem', 'private.pem'] });
+  }
+  const et = enrollmentValues.telemetryJwt;
+  for (const invalid of [
+    { ...enrollmentValues, telemetryJwt: (({ privateVersionId, ...rest }) => rest)(et) },
+    { ...enrollmentValues, telemetryJwt: (({ issueEnabled, ...rest }) => rest)(et) },
+    { ...enrollmentValues, telemetryJwt: { ...et, activeKid: 'missing' } },
+    { ...enrollmentValues, telemetryJwt: { ...et, privateVersionId: 'AWSCURRENT' } },
+    { ...enrollmentValues, telemetryJwt: { ...et, secretProviderClass: 'enrollment-api-jwt' } },
+    { ...enrollmentValues, telemetryJwt: { ...et, audience: 'pulsemetry-dev' } },
+    { ...enrollmentValues, kafka: kafka('telemetry-ingest') },
+    { ...enrollmentValues, ingestMode: 'http' },
+  ]) rejects('enrollment-api', chart, invalid);
+  // dashboard는 telemetry 키·Kafka를 받지 않는다.
+  const dashboard = appValues('dashboard-api');
+  rejects('dashboard-api', chart, { ...dashboard, telemetryJwt: { ...telemetryJwt('telemetry-ingest'), secretProviderClass: 'enrollment-api-telemetry-jwt' } });
+  rejects('dashboard-api', chart, { ...dashboard, kafka: kafka('telemetry-ingest') });
+  return documents;
+}
+
 try {
   assert.match(checked(helm, ['version', '--short']), /^v3\.22\.0\+/);
   assert.match(checked(kubeconform, ['-v']), /^v0\.8\.0/);
@@ -359,6 +597,7 @@ try {
     rejects(workload, chart, { ...values, jwt: { ...values.jwt, privateVersionId: '1'.repeat(32), activeKid: 'missing' } });
   }
   rejects('unknown', chart, { ...appValues('enrollment-api'), workload: 'unknown' });
+  allDocuments.push(...checkTelemetry(chart));
   const clickhouseChart = 'helm/dev/workloads/clickhouse';
   const clickhouseValues = {
     availabilityZone: 'ap-northeast-2a', vpcId: 'vpc-0123456789abcdef0',

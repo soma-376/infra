@@ -1,5 +1,50 @@
 {{- include "pulsemetry.app.validate" . -}}
 {{- $oidc := .Values.oidc | default (dict "enabled" false) -}}
+{{- $telemetry := .Values.telemetryJwt | default (dict "enabled" false) -}}
+{{- $kafka := .Values.kafka | default (dict "enabled" false) -}}
+{{- $mounts := list -}}
+{{- $volumes := list -}}
+{{- if .Values.runtime.enabled -}}
+{{- $mounts = append $mounts (dict "name" "secrets-store" "mountPath" "/mnt/secrets-store" "readOnly" true) -}}
+{{- $volumes = append $volumes (dict "name" "secrets-store" "spc" .Values.runtime.secretProviderClass) -}}
+{{- if .Values.jwt.enabled -}}
+{{- $mounts = append $mounts (dict "name" "user-jwt" "mountPath" "/mnt/user-jwt/keys" "readOnly" true) -}}
+{{- $volumes = append $volumes (dict "name" "user-jwt" "spc" .Values.jwt.secretProviderClass) -}}
+{{- end -}}
+{{- end -}}
+{{- /* telemetry JWT는 configtree·사용자 JWT와 독립된 mount다. Gateway는 configtree 없이 이 mount만 쓴다. (ADR-0036) */ -}}
+{{- if $telemetry.enabled -}}
+{{- $mounts = append $mounts (dict "name" "telemetry-jwt" "mountPath" "/mnt/telemetry-jwt/keys" "readOnly" true) -}}
+{{- $volumes = append $volumes (dict "name" "telemetry-jwt" "spc" $telemetry.secretProviderClass) -}}
+{{- end -}}
+{{- $pulsemetry := dict -}}
+{{- if .Values.jwt.enabled -}}
+{{- $files := dict -}}
+{{- range .Values.jwt.publicKeys -}}
+{{- $_ := set $files (printf "[%s]" .kid) (printf "/mnt/user-jwt/keys/%s" .alias) -}}
+{{- end -}}
+{{- $_ := set $pulsemetry "user-auth" (dict "public-key-files" $files) -}}
+{{- if $oidc.enabled -}}
+{{- $clients := dict -}}
+{{- range $oidc.clients -}}
+{{- $_ := set $clients (printf "[%s]" .key) (printf "${%s}" .alias) -}}
+{{- end -}}
+{{- $_ := set $pulsemetry "oidc" (dict "callback-registration-id" $oidc.callbackRegistrationId "allow-insecure-localhost" ($oidc.allowInsecureLocalhost | default false) "client-secrets" $clients) -}}
+{{- end -}}
+{{- end -}}
+{{- if $telemetry.enabled -}}
+{{- $files := dict -}}
+{{- range $telemetry.publicKeys -}}
+{{- $_ := set $files (printf "[%s]" .kid) (printf "/mnt/telemetry-jwt/keys/%s" .alias) -}}
+{{- end -}}
+{{- $settings := dict "public-key-files" $files "issuer" $telemetry.issuer "audience" $telemetry.audience -}}
+{{- if eq .Values.workload "enrollment-api" -}}
+{{- $_ := set $settings "active-kid" $telemetry.activeKid -}}
+{{- $_ := set $settings "private-key-file" "/mnt/telemetry-jwt/keys/private.pem" -}}
+{{- $_ := set $settings "issue-enabled" $telemetry.issueEnabled -}}
+{{- end -}}
+{{- $_ := set $pulsemetry "telemetry-jwt" $settings -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -16,11 +61,16 @@ spec:
       {{- include "pulsemetry.app.selector" . | nindent 6 }}
   template:
     metadata:
-      {{- if .Values.jwt.enabled }}
+      {{- if or .Values.jwt.enabled $telemetry.enabled }}
       annotations:
+        {{- if .Values.jwt.enabled }}
         pulsemetry.io/jwt-revision: {{ .Values.jwt | toJson | sha256sum | quote }}
         {{- if $oidc.enabled }}
         pulsemetry.io/oidc-revision: {{ $oidc | toJson | sha256sum | quote }}
+        {{- end }}
+        {{- end }}
+        {{- if $telemetry.enabled }}
+        pulsemetry.io/telemetry-jwt-revision: {{ $telemetry | toJson | sha256sum | quote }}
         {{- end }}
       {{- end }}
       labels:
@@ -35,8 +85,8 @@ spec:
       nodeSelector:
         kubernetes.io/arch: arm64
         karpenter.sh/nodepool: pulsemetry-dev-apps
-      terminationGracePeriodSeconds: 60
-      {{- if .Values.runtime.enabled }}
+      terminationGracePeriodSeconds: {{ include "pulsemetry.app.grace" . }}
+      {{- if $mounts }}
       initContainers:
         - name: verify-configtree
           image: {{ printf "%s@%s" .Values.image.repository .Values.image.digest | quote }}
@@ -44,6 +94,7 @@ spec:
           command: ["/bin/sh", "-ec"]
           args:
             - |
+              {{- if .Values.runtime.enabled }}
               test -x /mnt/secrets-store
               for file in {{ join " " .Values.runtime.requiredFiles }}; do
                 test -f "/mnt/secrets-store/$file"
@@ -60,6 +111,16 @@ spec:
                 head -c 1 "/mnt/user-jwt/keys/$file" > /dev/null
               done
               {{- end }}
+              {{- end }}
+              {{- if $telemetry.enabled }}
+              test -x /mnt/telemetry-jwt/keys
+              for file in {{ range $telemetry.publicKeys }}{{ .alias }} {{ end }}{{ if eq .Values.workload "enrollment-api" }}private.pem{{ end }}; do
+                test -f "/mnt/telemetry-jwt/keys/$file"
+                test -r "/mnt/telemetry-jwt/keys/$file"
+                test -s "/mnt/telemetry-jwt/keys/$file"
+                head -c 1 "/mnt/telemetry-jwt/keys/$file" > /dev/null
+              done
+              {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -72,14 +133,7 @@ spec:
               cpu: 100m
               memory: 64Mi
           volumeMounts:
-            - name: secrets-store
-              mountPath: /mnt/secrets-store
-              readOnly: true
-            {{- if .Values.jwt.enabled }}
-            - name: user-jwt
-              mountPath: /mnt/user-jwt/keys
-              readOnly: true
-            {{- end }}
+            {{- toYaml $mounts | nindent 12 }}
       {{- end }}
       containers:
         - name: {{ .Values.workload }}
@@ -93,7 +147,7 @@ spec:
             - name: http
               containerPort: {{ include "pulsemetry.app.port" . }}
               protocol: TCP
-          {{- if or .Values.env .Values.runtime.enabled }}
+          {{- if or .Values.env .Values.runtime.enabled $pulsemetry $kafka.enabled .Values.ingestMode }}
           env:
             {{- if .Values.runtime.enabled }}
             - name: SPRING_CONFIG_IMPORT
@@ -112,26 +166,17 @@ spec:
             - name: PULSEMETRY_USER_AUTH_ALLOWED_REDIRECT_URIS
               value: {{ join "," .Values.userAuth.allowedRedirectUris | quote }}
             {{- end }}
-            {{- $files := dict }}
-            {{- range .Values.jwt.publicKeys }}
-            {{- $_ := set $files (printf "[%s]" .kid) (printf "/mnt/user-jwt/keys/%s" .alias) }}
             {{- end }}
-            {{- $pulsemetry := dict "user-auth" (dict "public-key-files" $files) }}
-            {{- if $oidc.enabled }}
-            {{- $clients := dict }}
-            {{- range $oidc.clients }}
-            {{- $_ := set $clients (printf "[%s]" .key) (printf "${%s}" .alias) }}
-            {{- end }}
-            {{- $_ := set $pulsemetry "oidc" (dict "callback-registration-id" $oidc.callbackRegistrationId "allow-insecure-localhost" ($oidc.allowInsecureLocalhost | default false) "client-secrets" $clients) }}
-            {{- end }}
+            {{- /* 사용자 JWT·OIDC·telemetry JWT 맵을 한 SPRING_APPLICATION_JSON에 합친다. 중복 선언으로 기존 맵을 지우지 않는다. */}}
+            {{- if $pulsemetry }}
             - name: SPRING_APPLICATION_JSON
               value: {{ dict "pulsemetry" $pulsemetry | toJson | quote }}
-            {{- if eq .Values.workload "enrollment-api" }}
+            {{- end }}
+            {{- if and .Values.jwt.enabled (eq .Values.workload "enrollment-api") }}
             - name: PULSEMETRY_USER_AUTH_ACTIVE_KID
               value: {{ .Values.jwt.activeKid | quote }}
             - name: PULSEMETRY_USER_AUTH_PRIVATE_KEY_FILE
               value: /mnt/user-jwt/keys/private.pem
-            {{- end }}
             {{- end }}
             {{- if hasKey .Values "oidc" }}
             - name: PULSEMETRY_OIDC_ENABLED
@@ -145,6 +190,26 @@ spec:
             {{- end }}
             {{- end }}
             {{- end }}
+            {{- if .Values.ingestMode }}
+            - name: PULSEMETRY_INGEST_MODE
+              value: {{ .Values.ingestMode | quote }}
+            {{- end }}
+            {{- if $kafka.enabled }}
+            - name: PULSEMETRY_KAFKA_BOOTSTRAP_SERVERS
+              value: {{ $kafka.bootstrapServers | quote }}
+            - name: PULSEMETRY_KAFKA_SECURITY
+              value: "iam"
+            - name: PULSEMETRY_KAFKA_TOPIC
+              value: {{ $kafka.topic | quote }}
+            {{- if $kafka.consumerGroup }}
+            - name: PULSEMETRY_KAFKA_CONSUMER_GROUP
+              value: {{ $kafka.consumerGroup | quote }}
+            {{- end }}
+            - name: PULSEMETRY_KAFKA_IAM_ROLE_ARN
+              value: {{ $kafka.iamRoleArn | quote }}
+            - name: PULSEMETRY_KAFKA_IAM_SESSION_NAME
+              value: {{ $kafka.iamSessionName | quote }}
+            {{- end }}
             {{- range $name, $value := .Values.env }}
             - name: {{ $name }}
               value: {{ $value | quote }}
@@ -152,6 +217,7 @@ spec:
           {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- /* liveness는 TCP만 본다. Kafka·RDS·S3 일시 장애로 재시작을 반복하지 않는다. */}}
           startupProbe:
             tcpSocket:
               port: http
@@ -175,31 +241,18 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 2
             failureThreshold: 3
-          {{- if .Values.runtime.enabled }}
+          {{- if $mounts }}
           volumeMounts:
-            - name: secrets-store
-              mountPath: /mnt/secrets-store
-              readOnly: true
-            {{- if .Values.jwt.enabled }}
-            - name: user-jwt
-              mountPath: /mnt/user-jwt/keys
-              readOnly: true
-            {{- end }}
+            {{- toYaml $mounts | nindent 12 }}
           {{- end }}
-      {{- if .Values.runtime.enabled }}
+      {{- if $volumes }}
       volumes:
-        - name: secrets-store
+        {{- range $volumes }}
+        - name: {{ .name }}
           csi:
             driver: secrets-store.csi.k8s.io
             readOnly: true
             volumeAttributes:
-              secretProviderClass: {{ .Values.runtime.secretProviderClass | quote }}
-        {{- if .Values.jwt.enabled }}
-        - name: user-jwt
-          csi:
-            driver: secrets-store.csi.k8s.io
-            readOnly: true
-            volumeAttributes:
-              secretProviderClass: {{ .Values.jwt.secretProviderClass | quote }}
+              secretProviderClass: {{ .spc | quote }}
         {{- end }}
       {{- end }}
