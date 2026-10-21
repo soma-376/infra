@@ -1,0 +1,8 @@
+terraform {
+  backend "s3" {
+    region = "ap-northeast-2"
+    key = "bootstrap/terraform.tfstate"
+    encrypt = true
+    use_lockfile = true
+  }
+}
