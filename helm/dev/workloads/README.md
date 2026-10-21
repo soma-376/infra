@@ -92,6 +92,7 @@ telemetry 공개키 mount와 `kafka` values가 없으면 렌더링을 거부한�
 ingest는 `ingestMode`가 필수다. `dual`·`kafka`는 `kafka.consumerGroup`이 필요하고 grace가 90초이며, `kafka`는 Service ClusterIP·TGB 없음만 허용한다.
 `PULSEMETRY_KAFKA_*`·`PULSEMETRY_INGEST_MODE`·telemetry JWT 설정과 정적 AWS 자격 env는 자유 `env`로 넣을 수 없고 구조화된 values에서만 만든다.
 MSK 세션 이름은 workload별 고정값(`pulsemetry-dev-telemetry-gateway`·`-ingest`)만 허용한다. liveness는 TCP라 Kafka·RDS·S3 장애로 재시작하지 않는다.
+단, `dual`·`kafka` ingest의 liveness는 HTTP `/api/v1/healthz`다. backend health가 멈춘 Kafka listener만 503으로 알리므로 그때만 재기동한다.
 
 `telemetry-kafka-admin` chart는 digest 고정 `apache/kafka:3.9.2`와 release `.sha256`으로 대조한 `aws-msk-iam-auth-2.3.9-all.jar`를
 schema 상수로 고정한다. 기본 실행은 topic을 `--if-not-exists`로 만들고 partition 6·RF 3·minISR 2·72시간·13 MiB·unclean off를 대조하며

@@ -159,6 +159,19 @@ function checkBindings(documents, workload, targetType) {
   }
 }
 
+// liveness는 TCP가 기본이다. dual·kafka ingest만 멈춘 listener를 503으로 알리는 health를 HTTP로 본다.
+function checkLiveness(container, listenerHealth) {
+  if (listenerHealth) {
+    assert.deepEqual(container.livenessProbe.httpGet, { path: '/api/v1/healthz', port: 'http' });
+    assert.equal(container.livenessProbe.tcpSocket, undefined);
+    assert.equal(container.livenessProbe.timeoutSeconds, 6);
+  } else {
+    assert.deepEqual(container.livenessProbe.tcpSocket, { port: 'http' });
+    assert.equal(container.livenessProbe.httpGet, undefined);
+  }
+  assert.equal(container.livenessProbe.periodSeconds * container.livenessProbe.failureThreshold, 30);
+}
+
 function checkApp(documents, workload, grace = 60) {
   const deployment = find(documents, 'Deployment', workload);
   const pod = deployment.spec.template.spec;
@@ -183,8 +196,8 @@ function checkApp(documents, workload, grace = 60) {
   assert.deepEqual(container.resources.limits, { cpu: '1', memory: '2Gi' });
   assert.deepEqual(container.readinessProbe.httpGet, { path: '/api/v1/healthz', port: 'http' });
   assert.equal(container.readinessProbe.timeoutSeconds, 6);
-  assert.deepEqual(container.livenessProbe.tcpSocket, { port: 'http' });
-  assert.equal(container.livenessProbe.httpGet, undefined);
+  const mode = (container.env ?? []).find(item => item.name === 'PULSEMETRY_INGEST_MODE')?.value;
+  checkLiveness(container, workload === 'telemetry-ingest' && ['dual', 'kafka'].includes(mode));
   assert.equal(container.startupProbe.periodSeconds * container.startupProbe.failureThreshold,
     workload === 'telemetry-ingest' ? 240 : 60);
   assert.equal(pod.serviceAccountName, workload);
@@ -421,8 +434,7 @@ function checkTelemetry(chart) {
     assert.deepEqual(pod.volumes[1], telemetryVolume('telemetry-ingest'));
     assert.deepEqual(pod.initContainers[0].volumeMounts, pod.containers[0].volumeMounts);
     assert.deepEqual(pod.containers[0].volumeMounts[1], TELEMETRY_MOUNT);
-    // liveness는 Kafka 상태와 무관한 TCP 검사다.
-    assert.deepEqual(pod.containers[0].livenessProbe.tcpSocket, { port: 'http' });
+    checkLiveness(pod.containers[0], mode !== 'http');
     const env = environment(ingest, 'telemetry-ingest');
     assert.equal(env.PULSEMETRY_INGEST_MODE, mode);
     assert.deepEqual(JSON.parse(env.SPRING_APPLICATION_JSON), { pulsemetry: { 'telemetry-jwt': { 'public-key-files': TELEMETRY_FILES } } });

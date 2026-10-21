@@ -218,7 +218,8 @@ spec:
           {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- /* liveness는 TCP만 본다. Kafka·RDS·S3 일시 장애로 재시작을 반복하지 않는다. */}}
+          {{- /* liveness는 Kafka·RDS·S3 일시 장애로 재시작을 반복하지 않는다. dual·kafka ingest만 멈춘 Kafka listener를
+               503으로 알리는 health를 보고 재기동한다. 그 health는 저장소·MSK를 확인하지 않는다. (ADR-0036) */}}
           startupProbe:
             tcpSocket:
               port: http
@@ -237,11 +238,20 @@ spec:
             timeoutSeconds: 6
             failureThreshold: 3
           livenessProbe:
+            {{- if and (eq .Values.workload "telemetry-ingest") (has .Values.ingestMode (list "dual" "kafka")) }}
+            httpGet:
+              path: /api/v1/healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 6
+            failureThreshold: 3
+            {{- else }}
             tcpSocket:
               port: http
             periodSeconds: 10
             timeoutSeconds: 2
             failureThreshold: 3
+            {{- end }}
           {{- if $mounts }}
           volumeMounts:
             {{- toYaml $mounts | nindent 12 }}

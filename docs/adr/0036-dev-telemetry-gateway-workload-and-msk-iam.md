@@ -32,7 +32,9 @@ MSK IAM은 연결 수명 동안 재인증한다. 재인증 주체가 처음과 �
 | telemetry-ingest `kafka` | 4316 / ClusterIP | 없음 | 90s | 기존 | 공개키 |
 | enrollment-api | 8080 / NodePort 30080 | 기존 | 60s | 기존 | `enrollment-api-telemetry-jwt`(개인키·공개키) |
 
-- 모든 앱은 `GET /api/v1/healthz` readiness와 TCP liveness를 쓴다. liveness를 Kafka·RDS·S3 상태에 묶지 않는다.
+- 모든 앱은 `GET /api/v1/healthz` readiness를 쓴다. liveness는 TCP이며 Kafka·RDS·S3 상태에 묶지 않는다.
+  예외로 `dual`·`kafka` ingest는 liveness도 같은 HTTP health를 본다. backend health는 저장소·MSK를 확인하지 않고
+  Kafka listener 컨테이너가 비정상으로 멈췄을 때만 503 `listener_stopped`를 반환하므로, 소비가 조용히 끊긴 Pod만 재기동한다.
 - Gateway에는 DB·HMAC·관리 token·사용자 JWT·OIDC·S3 설정과 권한이 없다. chart는 Gateway의 configtree·사용자 JWT mount와 DB 계열 env를 거부한다.
 - ClusterIP는 ingest `kafka` 모드 전용이며 TGB를 선언할 수 없다. 반대로 `kafka` 모드는 ClusterIP여야 한다.
 

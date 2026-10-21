@@ -42,7 +42,7 @@ backend(PROJ-245)는 아래 이름을 그대로 읽는다. backend 브랜치 `fe
 | ingest | `PULSEMETRY_INGEST_MODE` | `http`·`dual`·`kafka` |
 | enrollment·Gateway·ingest | Spring `pulsemetry.telemetry-jwt.public-key-files` | `SPRING_APPLICATION_JSON`의 `{"[<kid>]": "/mnt/telemetry-jwt/keys/<alias>"}` |
 | enrollment | `pulsemetry.telemetry-jwt.active-kid`, `.private-key-file`, `.issue-enabled` | runtime 입력 kid, `/mnt/telemetry-jwt/keys/private.pem`, JSON boolean |
-| 모두 | health | `GET /api/v1/healthz` readiness, TCP liveness |
+| 모두 | health | `GET /api/v1/healthz` readiness. liveness는 TCP, dual·kafka ingest만 같은 HTTP health(listener 정지 시 503 `listener_stopped`) |
 
 추가로 다음을 전제로 한다. 이 전제가 backend 구현과 다르면 chart·생성기를 고친다.
 
