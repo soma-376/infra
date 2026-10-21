@@ -118,6 +118,7 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     appNodeSecurityGroup: network.eksAppNodeSecurityGroup!,
     clickhouseNodeSecurityGroup: network.eksClickhouseNodeSecurityGroup!,
     relaySecurityGroup: network.eksRelaySecurityGroup!,
+    mskSubnets: network.mskSubnets!, mskSecurityGroup: network.mskSecurityGroup!,
   }) : undefined;
 
   return { network, data, application, edge, ...(eks ? { eks } : {}) };

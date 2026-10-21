@@ -1,6 +1,9 @@
 import { Template } from 'aws-cdk-lib/assertions';
-import { buildDevApp } from '../helpers';
-import { DEV_EKS_MSK_IAM_PORT, DEV_EKS_MSK_SUBNETS, DEV_EKS_NODE_PORTS } from '../../lib/dev/eks-config';
+import { App, Stack } from 'aws-cdk-lib/core';
+import { SecurityGroup, SubnetType, Vpc } from 'aws-cdk-lib/aws-ec2';
+import { buildDevApp, TEST_ENV } from '../helpers';
+import { DevEksMsk } from '../../lib/dev/eks-msk';
+import { DEV_EKS_MSK_IAM_PORT, DEV_EKS_MSK_SUBNETS, DEV_EKS_NODE_PORTS, devTelemetryStage } from '../../lib/dev/eks-config';
 
 const EKS = { devEksEnabled: true };
 
@@ -64,5 +67,85 @@ describe('MSK 전용 네트워크', () => {
     }
     expect(rules.map(rule => JSON.stringify(rule.Properties.SourceSecurityGroupId)).sort())
       .toEqual([expect.stringContaining('DevAlbSg'), expect.stringContaining('DevEksValidationAlbSg')]);
+  });
+});
+
+describe('MSK Provisioned cluster', () => {
+  const built = buildDevApp(EKS);
+  const eks = Template.fromStack(built.eks!);
+  const cluster = () => Object.values(eks.findResources('AWS::MSK::Cluster'))[0] as any;
+
+  test('EKS 비활성 합성에는 MSK·관련 output이 없다', () => {
+    const disabled = buildDevApp();
+    expect(disabled.eks).toBeUndefined();
+    for (const stack of [disabled.network, disabled.data, disabled.application, disabled.edge]) {
+      const json = JSON.stringify(Template.fromStack(stack).toJSON());
+      expect(json).not.toContain('AWS::MSK::');
+      expect(json).not.toContain('MskClusterArn');
+    }
+  });
+
+  test('3.9 KRaft broker 3대를 세 MSK subnet·DevMskSg에 IAM·TLS 전용으로 둔다', () => {
+    eks.resourceCountIs('AWS::MSK::Cluster', 1);
+    eks.resourceCountIs('AWS::MSK::Configuration', 1);
+    const properties = cluster().Properties;
+    expect(properties).toMatchObject({
+      ClusterName: 'soma-376-dev-telemetry', KafkaVersion: '3.9.x.kraft', NumberOfBrokerNodes: 3,
+      ClientAuthentication: { Sasl: { Iam: { Enabled: true }, Scram: { Enabled: false } }, Unauthenticated: { Enabled: false } },
+      EncryptionInfo: { EncryptionInTransit: { ClientBroker: 'TLS', InCluster: true } },
+      EnhancedMonitoring: 'DEFAULT',
+      LoggingInfo: { BrokerLogs: { CloudWatchLogs: { Enabled: true, LogGroup: { Ref: expect.stringMatching(/^MskBrokerLogs/) } } } },
+    });
+    // 저장 암호화는 AWS 관리 키다. TLS 인증서 인증·public broker를 만들지 않는다.
+    expect(properties.EncryptionInfo.EncryptionAtRest).toBeUndefined();
+    expect(properties.ClientAuthentication.Tls).toBeUndefined();
+    expect(properties.OpenMonitoring).toBeUndefined();
+    const group = properties.BrokerNodeGroupInfo;
+    expect(group).toMatchObject({ InstanceType: 'kafka.m7g.large', StorageInfo: { EBSStorageInfo: { VolumeSize: 100 } },
+      ConnectivityInfo: { PublicAccess: { Type: 'DISABLED' } } });
+    expect(group.ClientSubnets).toHaveLength(3);
+    group.ClientSubnets.forEach((subnet: any, index: number) =>
+      expect(JSON.stringify(subnet)).toContain(`DevMskSubnet${index + 1}Subnet`));
+    expect(group.SecurityGroups).toHaveLength(1);
+    expect(JSON.stringify(group.SecurityGroups)).toContain('DevMskSg');
+    eks.hasResourceProperties('AWS::Logs::LogGroup', { LogGroupName: '/aws/vendedlogs/msk/soma-376-dev-telemetry', RetentionInDays: 14 });
+  });
+
+  test('broker 설정은 auto create off·RF3·minISR2·6 partition·unclean off·13 MiB·72시간이다', () => {
+    const [id, configuration] = Object.entries(eks.findResources('AWS::MSK::Configuration'))[0] as [string, any];
+    expect(configuration.Properties.KafkaVersionsList).toEqual(['3.9.x.kraft']);
+    expect(configuration.Properties.ServerProperties.split('\n').sort()).toEqual([
+      'auto.create.topics.enable=false', 'default.replication.factor=3', 'log.retention.hours=72',
+      'message.max.bytes=13631488', 'min.insync.replicas=2', 'num.partitions=6',
+      'replica.fetch.max.bytes=13631488', 'unclean.leader.election.enable=false',
+    ]);
+    expect(cluster().Properties.ConfigurationInfo).toEqual({
+      Arn: { 'Fn::GetAtt': [id, 'Arn'] }, Revision: { 'Fn::GetAtt': [id, 'LatestRevision.Revision'] },
+    });
+  });
+
+  test.each([
+    ['eks_validation', 'validation'],
+    ['eks', 'main'],
+  ] as const)('%s prefix는 %s stage topic/group을 출력하고 bootstrap 조회 Lambda가 없다', (prefix, stage) => {
+    expect(devTelemetryStage(prefix)).toBe(stage);
+    const template = Template.fromStack(buildDevApp({ ...EKS, devEksArchivePrefix: prefix }).eks!);
+    template.hasOutput('MskStage', { Value: stage });
+    template.hasOutput('MskTopicName', { Value: `pulsemetry-dev-telemetry-ingress-${stage}` });
+    template.hasOutput('MskConsumerGroupName', { Value: `pulsemetry-dev-telemetry-ingest-${stage}` });
+    template.hasOutput('MskClusterName', { Value: 'soma-376-dev-telemetry' });
+    const clusterId = Object.keys(template.findResources('AWS::MSK::Cluster'))[0];
+    template.hasOutput('MskClusterArn', { Value: { 'Fn::GetAtt': [clusterId, 'Arn'] } });
+    template.resourceCountIs('AWS::Lambda::Function', 0);
+    expect(JSON.stringify(template.toJSON())).not.toMatch(/Custom::|AWS::CloudFormation::CustomResource|GetBootstrapBrokers/);
+  });
+
+  test('알 수 없는 prefix와 broker 수와 다른 subnet 수는 조립을 거부한다', () => {
+    expect(() => devTelemetryStage('other' as 'eks')).toThrow('archivePrefix');
+    const stack = new Stack(new App(), 'MskSubnetCount', { env: TEST_ENV });
+    const vpc = new Vpc(stack, 'Vpc', { maxAzs: 2, natGateways: 0, subnetConfiguration: [{ name: 'p', subnetType: SubnetType.PUBLIC }] });
+    const securityGroup = new SecurityGroup(stack, 'Sg', { vpc });
+    expect(() => new DevEksMsk(stack, 'Msk', { subnets: vpc.publicSubnets, securityGroup, stage: 'validation' }))
+      .toThrow('subnet 3개');
   });
 });

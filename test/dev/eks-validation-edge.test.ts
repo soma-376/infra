@@ -51,6 +51,7 @@ function build(eksEnabled: boolean) {
     controlPlaneSecurityGroup: network.eksControlPlaneSecurityGroup!, appNodeSecurityGroup: network.eksAppNodeSecurityGroup!,
     clickhouseNodeSecurityGroup: network.eksClickhouseNodeSecurityGroup!,
     relaySecurityGroup: network.eksRelaySecurityGroup!,
+    mskSubnets: network.mskSubnets!, mskSecurityGroup: network.mskSecurityGroup!,
   }) : undefined;
   return { network: Template.fromStack(network), edge: Template.fromStack(edge), eks: eks ? Template.fromStack(eks) : undefined };
 }
