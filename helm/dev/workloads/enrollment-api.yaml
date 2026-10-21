@@ -1,0 +1,3 @@
+workload: enrollment-api
+env:
+  PULSEMETRY_BINARIES_DIR: /app/binaries

@@ -1,0 +1,7 @@
+workload: telemetry-ingest
+env:
+  PULSEMETRY_INGEST_PORT: "4316"
+  PULSEMETRY_ARCHIVE_TYPE: s3
+  PULSEMETRY_ARCHIVE_PREFIX: eks_validation
+  PULSEMETRY_CLICKHOUSE_URL: http://clickhouse.pulsemetry-dev.svc.cluster.local:8123
+  PULSEMETRY_CLICKHOUSE_DATABASE: default
