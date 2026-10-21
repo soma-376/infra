@@ -78,7 +78,11 @@ export const DEV_EKS_TELEMETRY_SERVICE_ACCOUNTS = {
 export interface DevEksConfig {
   readonly enabled: boolean;
   readonly archivePrefix: 'eks_validation' | 'eks';
+  /** 검증 ALB의 OTLP 규칙 대상. ECS listener와 규칙 ID·우선순위는 바뀌지 않는다. (ADR-0036) */
+  readonly otlpTarget: DevEksOtlpTarget;
 }
+
+export type DevEksOtlpTarget = 'ingest' | 'gateway';
 
 /** 무인자 synth는 기존 ECS만 유지한다. 활성화 입력 오타는 조용히 기본값으로 바꾸지 않는다. */
 export function loadDevEksConfig(app: App): DevEksConfig {
@@ -90,10 +94,18 @@ export function loadDevEksConfig(app: App): DevEksConfig {
     throw new Error('devEksEnabled는 true 또는 false여야 한다');
   }
   const enabled = raw === true || raw === 'true';
-  if (!enabled) return { enabled: false, archivePrefix: 'eks_validation' };
+  const otlpTarget = app.node.tryGetContext('devEksOtlpTarget') ?? 'ingest';
+  if (otlpTarget !== 'ingest' && otlpTarget !== 'gateway') {
+    throw new Error('devEksOtlpTarget은 ingest 또는 gateway여야 한다');
+  }
+  if (!enabled) {
+    // Gateway 전환은 EKS 검증 ALB에만 존재한다. 비활성 구성에서 조용히 무시하지 않는다.
+    if (otlpTarget === 'gateway') throw new Error('devEksOtlpTarget=gateway는 devEksEnabled=true일 때만 사용할 수 있다');
+    return { enabled: false, archivePrefix: 'eks_validation', otlpTarget: 'ingest' };
+  }
   const archivePrefix = app.node.tryGetContext('devEksArchivePrefix') ?? 'eks_validation';
   if (archivePrefix !== 'eks_validation' && archivePrefix !== 'eks') {
     throw new Error('devEksArchivePrefix는 eks_validation 또는 eks여야 한다');
   }
-  return { enabled, archivePrefix };
+  return { enabled, archivePrefix, otlpTarget };
 }

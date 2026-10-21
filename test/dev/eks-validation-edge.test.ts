@@ -42,7 +42,7 @@ function build(eksEnabled: boolean) {
   const reference = (name: string) => Secret.fromSecretCompleteArn(services, name,
     `arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:fixture-${name}-abcdef`);
   const eks = eksEnabled ? new DevEksStack(app, 'DevEksStack', {
-    env, vpc: network.vpc, config: { enabled: true, archivePrefix: 'eks_validation' },
+    env, vpc: network.vpc, config: { enabled: true, archivePrefix: 'eks_validation', otlpTarget: 'ingest' },
     dbEndpoint: 'db.example.invalid', dbSecret: reference('db'), tokenHashSecret: reference('hmac'),
     dashboardRdsSourceSecret: reference('rdsSource'), dashboardRdsCacheSecret: reference('rdsCache'),
     dashboardClickHouseSourceSecret: reference('chSource'), dashboardClickHouseCacheSecret: reference('chCache'),
@@ -72,7 +72,7 @@ describe('EKS dashboard 검증 edge', () => {
   test('기존 ECS 리소스·output을 보존하고 WAF 하나를 두 ALB에 연결한다', () => {
     for (const [id, resource] of Object.entries(before.Resources)) expect(after.Resources[id]).toEqual(resource);
     for (const [id, output] of Object.entries(before.Outputs)) expect(after.Outputs[id]).toEqual(output);
-    for (const [type, count] of [['LoadBalancer', 2], ['TargetGroup', 8]] as const) enabled.edge.resourceCountIs(`AWS::ElasticLoadBalancingV2::${type}`, count);
+    for (const [type, count] of [['LoadBalancer', 2], ['TargetGroup', 9]] as const) enabled.edge.resourceCountIs(`AWS::ElasticLoadBalancingV2::${type}`, count);
     enabled.edge.resourceCountIs('AWS::WAFv2::WebACL', 1);
     enabled.edge.resourceCountIs('AWS::WAFv2::WebACLAssociation', 2);
     const associations = Object.values(enabled.edge.findResources('AWS::WAFv2::WebACLAssociation')) as any[];
@@ -80,12 +80,13 @@ describe('EKS dashboard 검증 edge', () => {
     enabled.edge.resourceCountIs('AWS::EC2::SecurityGroupIngress', 0);
   });
 
-  test('검증 TG 네 개는 기존 두 Spring TG의 ID·포트를 유지하고 dashboard 30081을 추가한다', () => {
-    expect(groups).toHaveLength(4);
+  test('검증 TG 다섯 개는 기존 두 Spring TG의 ID·포트를 유지하고 dashboard 30081·gateway 30082를 추가한다', () => {
+    expect(groups).toHaveLength(5);
     for (const [name, prefix, port, type, path, delay] of [
       ['ingest', 'EksValidationIngestTg', 30416, 'instance', '/api/v1/healthz', '60'],
       ['enroll', 'EksValidationEnrollmentTg', 30080, 'instance', '/api/v1/healthz', '60'],
       ['dashboard', 'EksValidationDashboardTg', 30081, 'instance', '/api/v1/healthz', '60'],
+      ['gateway', 'EksValidationGatewayTg', 30082, 'instance', '/api/v1/healthz', '60'],
       ['ch', 'EksValidationClickhouseTg', 8123, 'ip', '/ping', '300'],
     ] as const) {
       const [id, resource] = group(name);
@@ -105,8 +106,11 @@ describe('EKS dashboard 검증 edge', () => {
   test('기존 output 이름을 유지하고 새 dashboard TG ARN을 별도 output으로 전달한다', () => {
     for (const [output, name] of [['ValidationTelemetryIngestTargetGroupArn', 'ingest'],
       ['ValidationEnrollmentApiTargetGroupArn', 'enroll'], ['ValidationDashboardApiTargetGroupArn', 'dashboard'],
-      ['ValidationClickhouseTargetGroupArn', 'ch']]) expect(after.Outputs[output].Value).toEqual({ Ref: group(name)[0] });
+      ['ValidationClickhouseTargetGroupArn', 'ch'], ['ValidationTelemetryGatewayTargetGroupArn', 'gateway']]) expect(after.Outputs[output].Value).toEqual({ Ref: group(name)[0] });
     for (const output of ['ValidationAlbArn', 'ValidationPublicBaseUrl', 'ValidationClickhouseUrl']) expect(after.Outputs[output]).toBeDefined();
+    expect(after.Outputs.ValidationOtlpTarget).toEqual({ Value: 'ingest' });
+    // 기존 Edge output은 그대로이며 EKS 활성화가 추가하는 output만 늘어난다.
+    expect(Object.keys(before.Outputs).every(key => after.Outputs[key])).toBe(true);
   });
 
   test('기존 ECS와 EKS의 priority 1 OTLP 규칙 ID를 보존해 업데이트 중 중복 생성을 막는다', () => {

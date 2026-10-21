@@ -88,6 +88,7 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     vpc: network.vpc,
     albSecurityGroup: network.albSecurityGroup,
     eksValidationAlbSecurityGroup: network.eksValidationAlbSecurityGroup,
+    eksOtlpTarget: config.eks.otlpTarget,
     telemetryIngestService: application.telemetryIngestService,
     enrollmentApiService: application.enrollmentApiService,
     dashboardApiService: application.dashboardApiService,

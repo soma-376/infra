@@ -173,3 +173,53 @@ describe('Pod Identity·MSK 역할 조립', () => {
     });
   });
 });
+
+describe('검증 ALB OTLP 대상 전환', () => {
+  const ingest = buildDevApp(EKS), gateway = buildDevApp({ ...EKS, devEksOtlpTarget: 'gateway' });
+  const edge = (built: typeof ingest) => Template.fromStack(built.edge).toJSON();
+  const before = edge(ingest), after = edge(gateway);
+  const tgId = (json: any, name: string) => Object.entries<any>(json.Resources)
+    .find(([, resource]) => resource.Type === 'AWS::ElasticLoadBalancingV2::TargetGroup' && resource.Properties.Name === name)![0];
+
+  test('gateway는 EKS priority 1 규칙의 대상만 Gateway TG로 바꾸고 ECS listener와 규칙 ID를 보존한다', () => {
+    const changed = Object.keys(before.Resources).filter(id => JSON.stringify(before.Resources[id]) !== JSON.stringify(after.Resources[id]));
+    expect(changed).toEqual(['EksValidationAlbHttpOtlpRule810EC07C']);
+    expect(Object.keys(after.Resources).sort()).toEqual(Object.keys(before.Resources).sort());
+    const rule = (json: any) => json.Resources.EksValidationAlbHttpOtlpRule810EC07C.Properties;
+    expect(rule(before).Actions).toEqual([{ Type: 'forward', TargetGroupArn: { Ref: tgId(before, 'soma-376-dev-eks-ingest-v') } }]);
+    expect(rule(after).Actions).toEqual([{ Type: 'forward', TargetGroupArn: { Ref: tgId(after, 'soma-376-dev-eks-gateway-v') } }]);
+    expect({ ...rule(after), Actions: undefined }).toEqual({ ...rule(before), Actions: undefined });
+    expect(after.Resources.DevAlbDevHttpListenerDevOtlpForwardRule79AA5238).toEqual(before.Resources.DevAlbDevHttpListenerDevOtlpForwardRule79AA5238);
+    expect(after.Outputs.ValidationOtlpTarget).toEqual({ Value: 'gateway' });
+    expect({ ...after.Outputs, ValidationOtlpTarget: undefined }).toEqual({ ...before.Outputs, ValidationOtlpTarget: undefined });
+  });
+
+  test('전환은 Edge 외 스택 템플릿을 바꾸지 않는다', () => {
+    for (const key of ['network', 'data', 'application', 'eks'] as const) {
+      expect(Template.fromStack(gateway[key]!).toJSON()).toEqual(Template.fromStack(ingest[key]!).toJSON());
+    }
+  });
+
+  test('Gateway TG는 CDK 소유 태그·instance·30082·healthz·60초이며 LBC 이름 접두사를 따른다', () => {
+    const tg = before.Resources[tgId(before, 'soma-376-dev-eks-gateway-v')].Properties;
+    expect('soma-376-dev-eks-gateway-v'.length).toBeLessThanOrEqual(32);
+    expect(tg).toMatchObject({ Port: 30082, Protocol: 'HTTP', TargetType: 'instance', HealthCheckPath: '/api/v1/healthz',
+      HealthCheckPort: 'traffic-port', Matcher: { HttpCode: '200' },
+      Tags: expect.arrayContaining([{ Key: 'pulsemetry:eks-cluster', Value: 'soma-376-dev-eks' }]),
+      TargetGroupAttributes: expect.arrayContaining([{ Key: 'deregistration_delay.timeout_seconds', Value: '60' }]) });
+    expect(before.Outputs.ValidationTelemetryGatewayTargetGroupArn).toEqual({ Value: { Ref: tgId(before, 'soma-376-dev-eks-gateway-v') } });
+  });
+
+  test.each([
+    [{ devEksOtlpTarget: 'Gateway' }, /devEksOtlpTarget은 ingest 또는 gateway/],
+    [{ ...EKS, devEksOtlpTarget: 'direct' }, /devEksOtlpTarget은 ingest 또는 gateway/],
+    [{ devEksOtlpTarget: 'gateway' }, /devEksEnabled=true/],
+  ])('잘못된 OTLP 대상 입력 %j를 거부한다', (context, message) => {
+    expect(() => buildDevApp(context)).toThrow(message);
+  });
+
+  test('EKS 비활성 구성은 명시적 ingest를 허용하고 ECS Edge를 바꾸지 않는다', () => {
+    const explicit = Template.fromStack(buildDevApp({ devEksOtlpTarget: 'ingest' }).edge).toJSON();
+    expect(explicit).toEqual(Template.fromStack(buildDevApp().edge).toJSON());
+  });
+});
