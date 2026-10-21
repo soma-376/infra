@@ -21,13 +21,33 @@
     "DashboardClickHouseSourceSecretArn": "arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:dashboard-ch-source-abc123",
     "DashboardClickHouseCacheSecretArn": "arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:dashboard-ch-cache-abc123",
     "UserJwtPrivateKeySecretArn": "arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:jwt-private-abc123",
-    "UserJwtPublicKeysSecretArn": "arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:jwt-public-abc123"
+    "UserJwtPublicKeysSecretArn": "arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:jwt-public-abc123",
+    "EksTelemetryGatewayNodePort": "30082",
+    "MskClusterArn": "arn:aws:kafka:ap-northeast-2:111111111111:cluster/soma-376-dev-telemetry/0123abcd-4567-89ef-0123-456789abcdef-2",
+    "MskClusterName": "soma-376-dev-telemetry",
+    "MskStage": "validation",
+    "MskTopicName": "pulsemetry-dev-telemetry-ingress-validation",
+    "MskConsumerGroupName": "pulsemetry-dev-telemetry-ingest-validation",
+    "MskGatewayRoleArn": "arn:aws:iam::111111111111:role/DevEksStack-RuntimeGatewayMskRole-fixture",
+    "MskIngestRoleArn": "arn:aws:iam::111111111111:role/DevEksStack-RuntimeIngestMskRole-fixture",
+    "MskTopicAdminRoleArn": "arn:aws:iam::111111111111:role/DevEksStack-RuntimeTopicAdminMskRole-fixture",
+    "MskOffsetAdminRoleArn": "arn:aws:iam::111111111111:role/DevEksStack-RuntimeOffsetAdminMskRole-fixture",
+    "MskGatewaySessionName": "pulsemetry-dev-telemetry-gateway",
+    "MskIngestSessionName": "pulsemetry-dev-telemetry-ingest",
+    "MskTopicAdminSessionName": "pulsemetry-dev-telemetry-kafka-admin",
+    "MskOffsetAdminSessionName": "pulsemetry-dev-telemetry-kafka-offsets"
   },
   "DevEdgeStack": {
     "ValidationPublicBaseUrl": "http://validation-alb.example.test",
     "ValidationEnrollmentApiTargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:111111111111:targetgroup/soma-376-dev-eks-enroll-v/0123456789abcdef",
     "ValidationTelemetryIngestTargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:111111111111:targetgroup/soma-376-dev-eks-ingest-v/0123456789abcdef",
     "ValidationClickhouseTargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:111111111111:targetgroup/soma-376-dev-eks-ch-v/0123456789abcdef",
-    "ValidationDashboardApiTargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:111111111111:targetgroup/soma-376-dev-eks-dashboard-v/0123456789abcdef"
+    "ValidationDashboardApiTargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:111111111111:targetgroup/soma-376-dev-eks-dashboard-v/0123456789abcdef",
+    "ValidationTelemetryGatewayTargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:111111111111:targetgroup/soma-376-dev-eks-gateway-v/0123456789abcdef",
+    "ValidationOtlpTarget": "ingest"
+  },
+  "DevDataStack": {
+    "TelemetryJwtPrivateKeySecretArn": "arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:soma-376/dev/telemetry-jwt/private-key-abc123",
+    "TelemetryJwtPublicKeysSecretArn": "arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:soma-376/dev/telemetry-jwt/public-keys-abc123"
   }
 }

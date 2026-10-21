@@ -10,6 +10,17 @@ userAuth:
   audience: pulsemetry-dev
   allowedOrigins:
     - https://dashboard.example.invalid
+# telemetry 전용 JWT 원본의 VersionId·kid 맵이다. issueEnabled는 공개키 선배포 뒤에만 true로 바꾼다.
+telemetryJwt:
+  privateVersionId: 33333333-3333-4333-8333-333333333333
+  publicVersionId: 44444444-4444-4444-8444-444444444444
+  activeKid: telemetry-2026.10
+  publicKeys:
+    - kid: telemetry-2026.10
+      alias: telemetry-2026-10.pem
+  issueEnabled: false
+# ValidationOtlpTarget output과 호환돼야 한다. ingest 대상이면 http|dual, gateway 대상이면 dual|kafka다.
+ingestMode: http
 dashboard:
   managementEnabled: false
   mailEnabled: false

@@ -11,11 +11,15 @@ const repository = '111111111111.dkr.ecr.ap-northeast-2.amazonaws.com/soma-376/'
 const enrollmentImage = repository + 'enrollment-api@' + digest;
 const ingestImage = repository + 'telemetry-ingest@' + digest;
 const dashboardImage = repository + 'dashboard-api@' + digest;
+const gatewayImage = repository + 'telemetry-gateway@' + digest;
+const bootstrapFile = resolve(__dirname, 'fixtures/msk-bootstrap.json');
+const brokers = [1, 2, 3].map(n => `b-${n}.soma-376-dev-telemetry.abc123.c2.kafka.ap-northeast-2.amazonaws.com:9098`).join(',');
+const mskRole = (name: string) => `arn:aws:iam::111111111111:role/DevEksStack-Runtime${name}MskRole-fixture`;
 const secret = (name: string) => `arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:${name}-abc123`;
 const tg = (name: string) => `arn:aws:elasticloadbalancing:ap-northeast-2:111111111111:targetgroup/soma-376-dev-eks-${name}/0123456789abcdef`;
 const helmTest = process.env.HELM_BIN ? test : test.skip;
 
-function outputs(prefix = 'eks_validation') {
+function outputs(prefix = 'eks_validation', otlpTarget = 'ingest') {
   return {
     DevEksStack: {
       EksDashboardApiNodePort: '30081',
@@ -27,6 +31,14 @@ function outputs(prefix = 'eks_validation') {
       DbEndpoint: 'database.example.test', DbSecretArn: secret('db'), TokenHashSecretArn: secret('hmac'),
       AdminApiTokenSecretArn: secret('admin'), RawSignalBucketName: 'fixture-raw-signals',
       ApplicationLogGroupName: '/eks/dev/application', ArchivePrefix: prefix,
+      EksTelemetryGatewayNodePort: '30082',
+      MskClusterArn: 'arn:aws:kafka:ap-northeast-2:111111111111:cluster/soma-376-dev-telemetry/0123abcd-4567-89ef-0123-456789abcdef-2',
+      MskClusterName: 'soma-376-dev-telemetry', MskStage: stage(prefix),
+      MskTopicName: `pulsemetry-dev-telemetry-ingress-${stage(prefix)}`, MskConsumerGroupName: `pulsemetry-dev-telemetry-ingest-${stage(prefix)}`,
+      MskGatewayRoleArn: mskRole('Gateway'), MskIngestRoleArn: mskRole('Ingest'),
+      MskTopicAdminRoleArn: mskRole('TopicAdmin'), MskOffsetAdminRoleArn: mskRole('OffsetAdmin'),
+      MskGatewaySessionName: 'pulsemetry-dev-telemetry-gateway', MskIngestSessionName: 'pulsemetry-dev-telemetry-ingest',
+      MskTopicAdminSessionName: 'pulsemetry-dev-telemetry-kafka-admin', MskOffsetAdminSessionName: 'pulsemetry-dev-telemetry-kafka-offsets',
     },
     DevEdgeStack: {
       ValidationPublicBaseUrl: 'http://validation-alb.example.test',
@@ -34,13 +46,24 @@ function outputs(prefix = 'eks_validation') {
       ValidationTelemetryIngestTargetGroupArn: tg('ingest-v'),
       ValidationClickhouseTargetGroupArn: tg('ch-v'),
       ValidationDashboardApiTargetGroupArn: tg('dashboard-v'),
+      ValidationTelemetryGatewayTargetGroupArn: tg('gateway-v'),
+      ValidationOtlpTarget: otlpTarget,
+    },
+    DevDataStack: {
+      TelemetryJwtPrivateKeySecretArn: secret('soma-376/dev/telemetry-jwt/private-key'),
+      TelemetryJwtPublicKeysSecretArn: secret('soma-376/dev/telemetry-jwt/public-keys'),
     },
   };
 }
 
+function stage(prefix: string) {
+  return prefix === 'eks' ? 'main' : 'validation';
+}
+
 const oidcArn = (key: string) => secret(`soma-376/dev/oidc/clients/${key}`);
 function oidcOutputs() {
-  return { ...outputs(), DevDataStack: { OidcClientSecretArns: JSON.stringify(Object.fromEntries(
+  const source = outputs();
+  return { ...source, DevDataStack: { ...source.DevDataStack, OidcClientSecretArns: JSON.stringify(Object.fromEntries(
     ['cognito-a', 'cognito-b', 'unused'].map(key => [key, oidcArn(key)]),
   )) } };
 }
@@ -55,16 +78,20 @@ function oidcRuntime(enabled = true, scheme: 'http' | 'https' = 'https') {
   return value;
 }
 
-function invoke(document: any, image = enrollmentImage, dashboard = dashboardImage, runtimeText = readFileSync(runtimeFile, 'utf8')) {
+function invoke(document: any, image = enrollmentImage, dashboard = dashboardImage, runtimeText = readFileSync(runtimeFile, 'utf8'),
+  extra: { gateway?: string; bootstrap?: string } = {}) {
   const temp = mkdtempSync(join(tmpdir(), 'eks-values-test-'));
   const source = join(temp, 'outputs.json');
   const dir = join(temp, 'values');
   writeFileSync(source, JSON.stringify(document));
   const runtime = join(temp, 'runtime.yaml');
   writeFileSync(runtime, runtimeText);
+  const bootstrap = join(temp, 'bootstrap.json');
+  writeFileSync(bootstrap, extra.bootstrap ?? readFileSync(bootstrapFile, 'utf8'));
   const result = spawnSync(process.execPath, [
     join(root, 'scripts/eks-values.mjs'), '--outputs', source, '--output-dir', dir,
-    '--enrollment-image', image, '--ingest-image', ingestImage, '--dashboard-image', dashboard, '--runtime-values', runtime,
+    '--enrollment-image', image, '--ingest-image', ingestImage, '--dashboard-image', dashboard,
+    '--gateway-image', extra.gateway ?? gatewayImage, '--runtime-values', runtime, '--msk-bootstrap', bootstrap,
   ], { cwd: root, encoding: 'utf8' });
   return { temp, dir, result, read: (file: string) => load(readFileSync(join(dir, file), 'utf8')) };
 }
@@ -72,12 +99,12 @@ function invoke(document: any, image = enrollmentImage, dashboard = dashboardIma
 describe('배포 output→values 변환', () => {
   const temps: string[] = [];
   afterEach(() => { for (const temp of temps.splice(0)) rmSync(temp, { recursive: true, force: true }); });
-  const run = (document: any, image?: string, dashboard?: string, runtimeText?: string) => { const output = invoke(document, image, dashboard, runtimeText); temps.push(output.temp); return output; };
+  const run = (document: any, image?: string, dashboard?: string, runtimeText?: string, extra?: { gateway?: string; bootstrap?: string }) => { const output = invoke(document, image, dashboard, runtimeText, extra); temps.push(output.temp); return output; };
 
   test.each(['eks_validation', 'eks'])('%s prefix가 IAM output과 일치하며 immutable image를 전달한다', prefix => {
     const output = run(outputs(prefix));
     expect(output.result.status).toBe(0);
-    expect(readdirSync(output.dir).sort()).toEqual(['ascp.yaml', 'base.yaml', 'clickhouse.yaml', 'dashboard-api.yaml', 'enrollment-api.yaml', 'fluent-bit.yaml', 'lbc.yaml', 'runtime.yaml', 'telemetry-ingest.yaml']);
+    expect(readdirSync(output.dir).sort()).toEqual(['ascp.yaml', 'base.yaml', 'clickhouse.yaml', 'dashboard-api.yaml', 'enrollment-api.yaml', 'fluent-bit.yaml', 'lbc.yaml', 'runtime.yaml', 'telemetry-gateway.yaml', 'telemetry-ingest.yaml', 'telemetry-kafka-admin.yaml']);
     expect(output.read('base.yaml')).toEqual({
       nodeRoleName: 'soma-376-dev-eks-node', subnetIds: ['subnet-0123456789abcdef0', 'subnet-0123456789abcdef1'],
       appNodeSecurityGroupId: 'sg-0123456789abcdef0', clickhouseNodeSecurityGroupId: 'sg-0123456789abcdef1', clickhouseAvailabilityZone: 'ap-northeast-2a',
@@ -108,7 +135,14 @@ describe('배포 output→values 변환', () => {
       expect(app.env.SPRING_CONFIG_IMPORT).toBeUndefined();
       expect(app.env.PULSEMETRY_ADMIN_API_TOKEN).toBeUndefined();
     }
-    expect(output.read('runtime.yaml').secrets).toEqual({ dbArn: secret('db'), tokenHashArn: secret('hmac'), adminApiTokenArn: secret('admin'), dashboardRdsSourceArn: secret('dashboard-rds-source'), dashboardRdsCacheArn: secret('dashboard-rds-cache'), dashboardClickHouseSourceArn: secret('dashboard-ch-source'), dashboardClickHouseCacheArn: secret('dashboard-ch-cache'), userJwtPrivateKeyArn: secret('jwt-private'), userJwtPublicKeysArn: secret('jwt-public') });
+    expect(output.read('runtime.yaml').secrets).toEqual({ dbArn: secret('db'), tokenHashArn: secret('hmac'), adminApiTokenArn: secret('admin'), dashboardRdsSourceArn: secret('dashboard-rds-source'), dashboardRdsCacheArn: secret('dashboard-rds-cache'), dashboardClickHouseSourceArn: secret('dashboard-ch-source'), dashboardClickHouseCacheArn: secret('dashboard-ch-cache'), userJwtPrivateKeyArn: secret('jwt-private'), userJwtPublicKeysArn: secret('jwt-public'),
+      telemetryJwtPrivateKeyArn: secret('soma-376/dev/telemetry-jwt/private-key'), telemetryJwtPublicKeysArn: secret('soma-376/dev/telemetry-jwt/public-keys') });
+    const kafkaAdmin = output.read('telemetry-kafka-admin.yaml');
+    expect(kafkaAdmin).toEqual({ region: 'ap-northeast-2', bootstrapServers: brokers, stage: stage(prefix),
+      topic: `pulsemetry-dev-telemetry-ingress-${stage(prefix)}`, consumerGroup: `pulsemetry-dev-telemetry-ingest-${stage(prefix)}`,
+      topicAdmin: { roleArn: mskRole('TopicAdmin'), sessionName: 'pulsemetry-dev-telemetry-kafka-admin' },
+      offsetAdmin: { roleArn: mskRole('OffsetAdmin'), sessionName: 'pulsemetry-dev-telemetry-kafka-offsets' } });
+    expect(output.read('telemetry-gateway.yaml').kafka.topic).toBe(kafkaAdmin.topic);
     expect(output.read('runtime.yaml').userAuth.publicVersionId).toBe(enrollment.jwt.publicVersionId);
     expect(output.read('runtime.yaml').userAuth.publicKeys).toEqual(dashboard.jwt.publicKeys);
     expect(enrollment.targetGroupBindings).toEqual([{ stage: 'validation', targetGroupARN: tg('enroll-v'), confirmExclusiveOwnership: true }]);
@@ -274,7 +308,7 @@ describe('배포 output→values 변환', () => {
     };
     const runtime = render('pulsemetry-runtime', 'helm/dev/runtime/chart', [join(output.dir, 'runtime.yaml')]);
     const documents = runtime.split(/^---\s*$/m).filter(text => text.trim()).map(text => load(text));
-    expect(documents).toHaveLength(5);
+    expect(documents).toHaveLength(8);
     const enrollment = documents.find(doc => doc.metadata.name === 'enrollment-api-runtime');
     const ingest = documents.find(doc => doc.metadata.name === 'telemetry-ingest-runtime');
     const objects = (doc: any) => load(doc.spec.parameters.objects);
@@ -369,7 +403,7 @@ describe('배포 output→values 변환', () => {
     const runtimeResult = rendered('helm/dev/runtime/chart', runtime);
     expect(runtimeResult.status).toBe(0);
     const spcs = documents(runtimeResult.stdout);
-    expect(spcs).toHaveLength(5);
+    expect(spcs).toHaveLength(8);
     const enrollmentSpc = spcs.find((doc: any) => doc.metadata.name === 'enrollment-api-runtime');
     const objects = load(enrollmentSpc.spec.parameters.objects);
     expect(objects.slice(-2)).toEqual(runtime.oidc.clients.map((client: any) => ({
@@ -396,7 +430,15 @@ describe('배포 output→values 변환', () => {
     } });
     expect(properties['user-auth']['public-key-files']).toEqual({ '[release-2026.10]': '/mnt/user-jwt/keys/release-2026-10.pem' });
     expect(pod.containers[0].env.some((item: any) => item.name.startsWith('PULSEMETRY_OIDC_CLIENT_SECRET_'))).toBe(false);
-    expect(pod.volumes).toHaveLength(2);
+    // 사용자 JWT·OIDC·telemetry JWT 맵이 하나의 SPRING_APPLICATION_JSON에 함께 남는다.
+    expect(Object.keys(properties).sort()).toEqual(['oidc', 'telemetry-jwt', 'user-auth']);
+    expect(properties['telemetry-jwt']).toEqual({
+      'public-key-files': { '[telemetry-2026.10]': '/mnt/telemetry-jwt/keys/telemetry-2026-10.pem' },
+      issuer: 'pulsemetry-enrollment', audience: 'pulsemetry-telemetry-ingest', 'active-kid': 'telemetry-2026.10',
+      'private-key-file': '/mnt/telemetry-jwt/keys/private.pem', 'issue-enabled': false,
+    });
+    expect(pod.containers[0].env.filter((item: any) => item.name === 'SPRING_APPLICATION_JSON')).toHaveLength(1);
+    expect(pod.volumes.map((volume: any) => volume.name)).toEqual(['secrets-store', 'user-jwt', 'telemetry-jwt']);
     for (const allowInsecureLocalhost of [undefined, false, true]) {
       const input = oidcRuntime();
       if (allowInsecureLocalhost !== undefined) input.oidc.allowInsecureLocalhost = allowInsecureLocalhost;
@@ -443,11 +485,13 @@ describe('배포 output→values 변환', () => {
       const next = documents(result.stdout).find((doc: any) => doc.kind === 'Deployment');
       expect(next.spec.template.metadata.annotations['pulsemetry.io/oidc-revision']).not.toBe(revision);
     }
-    const files = join(output.temp, 'oidc-configtree'), keys = join(output.temp, 'oidc-keys');
-    mkdirSync(files); mkdirSync(keys);
+    const files = join(output.temp, 'oidc-configtree'), keys = join(output.temp, 'oidc-keys'), telemetryKeys = join(output.temp, 'oidc-telemetry-keys');
+    mkdirSync(files); mkdirSync(keys); mkdirSync(telemetryKeys);
     for (const file of app.runtime.requiredFiles) writeFileSync(join(files, file), 'synthetic-oidc-fixture');
     for (const file of [...app.jwt.publicKeys.map((entry: any) => entry.alias), 'private.pem']) writeFileSync(join(keys, file), 'synthetic-key-fixture');
-    const command = pod.initContainers[0].args[0].replaceAll('/mnt/secrets-store', files).replaceAll('/mnt/user-jwt/keys', keys);
+    for (const file of [...app.telemetryJwt.publicKeys.map((entry: any) => entry.alias), 'private.pem']) writeFileSync(join(telemetryKeys, file), 'synthetic-key-fixture');
+    const command = pod.initContainers[0].args[0].replaceAll('/mnt/secrets-store', files).replaceAll('/mnt/user-jwt/keys', keys)
+      .replaceAll('/mnt/telemetry-jwt/keys', telemetryKeys);
     const check = () => spawnSync('/bin/sh', ['-ec', command], { encoding: 'utf8' });
     expect(check().status).toBe(0);
     for (const client of app.oidc.clients) {
@@ -546,4 +590,191 @@ describe('배포 output→values 변환', () => {
     rmSync(join(keys, 'release-2026-10.pem')); expect(check().status).not.toBe(0);
   });
 
+});
+
+describe('PROJ-246 Gateway·MSK·telemetry JWT values 생성', () => {
+  const temps: string[] = [];
+  afterEach(() => { for (const temp of temps.splice(0)) rmSync(temp, { recursive: true, force: true }); });
+  const run = (document: any, runtimeText = readFileSync(runtimeFile, 'utf8'), extra: { gateway?: string; bootstrap?: string } = {}) => {
+    const output = invoke(document, enrollmentImage, dashboardImage, runtimeText, extra); temps.push(output.temp); return output;
+  };
+  const runtime = (change: (value: any) => void = () => {}) => { const value = load(readFileSync(runtimeFile, 'utf8')); change(value); return dump(value); };
+  const telemetryKeys = [{ kid: 'telemetry-2026.10', alias: 'telemetry-2026-10.pem' }];
+  const publicTelemetry = (workload: string) => ({ enabled: true, secretProviderClass: `${workload}-telemetry-jwt`,
+    publicVersionId: '44444444-4444-4444-8444-444444444444', publicKeys: telemetryKeys,
+    issuer: 'pulsemetry-enrollment', audience: 'pulsemetry-telemetry-ingest' });
+
+  test('계약 상수는 CDK 상수와 같다', () => {
+    const { DEV_EKS_NODE_PORTS, DEV_EKS_TELEMETRY_SESSION_NAMES } = require('../../lib/dev/eks-config');
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e',
+      "import { TELEMETRY_CONTRACT } from './scripts/eks-values.mjs'; console.log(JSON.stringify(TELEMETRY_CONTRACT));"], { cwd: root, encoding: 'utf8' });
+    expect(result.status).toBe(0);
+    const contract = JSON.parse(result.stdout);
+    expect(contract.gatewayNodePort).toBe(String(DEV_EKS_NODE_PORTS.gateway));
+    expect(contract.sessions).toEqual({
+      MskGatewaySessionName: DEV_EKS_TELEMETRY_SESSION_NAMES.gateway, MskIngestSessionName: DEV_EKS_TELEMETRY_SESSION_NAMES.ingest,
+      MskTopicAdminSessionName: DEV_EKS_TELEMETRY_SESSION_NAMES.topicAdmin, MskOffsetAdminSessionName: DEV_EKS_TELEMETRY_SESSION_NAMES.offsetAdmin,
+    });
+  });
+
+  test('Gateway는 공개키·Kafka 발행·전용 TG만 받고 DB·HMAC·사용자 JWT·개인키 설정이 없다', () => {
+    const output = run(outputs());
+    expect(output.result.status).toBe(0);
+    expect(output.read('telemetry-gateway.yaml')).toEqual({
+      image: { repository: repository + 'telemetry-gateway', digest }, vpcId: 'vpc-0123456789abcdef0', nodePort: 30082,
+      telemetryJwt: publicTelemetry('telemetry-gateway'),
+      kafka: { enabled: true, bootstrapServers: brokers, topic: 'pulsemetry-dev-telemetry-ingress-validation',
+        iamRoleArn: mskRole('Gateway'), iamSessionName: 'pulsemetry-dev-telemetry-gateway' },
+      env: { AWS_REGION: 'ap-northeast-2' },
+      targetGroupBindings: [{ stage: 'validation', targetGroupARN: tg('gateway-v'), confirmExclusiveOwnership: true }],
+    });
+    const text = readFileSync(join(output.dir, 'telemetry-gateway.yaml'), 'utf8');
+    for (const forbidden of ['private', 'jdbc:', 'secretsmanager', 'TOKEN_HASH', 'ARCHIVE', 'userAuth', 'runtime:', 'consumerGroup']) expect(text).not.toContain(forbidden);
+    const enrollment = output.read('enrollment-api.yaml');
+    expect(enrollment.telemetryJwt).toEqual({ ...publicTelemetry('enrollment-api'), privateVersionId: '33333333-3333-4333-8333-333333333333',
+      activeKid: 'telemetry-2026.10', issueEnabled: false });
+    expect(enrollment.kafka).toBeUndefined();
+    expect(output.read('dashboard-api.yaml').telemetryJwt).toBeUndefined();
+    expect(output.read('runtime.yaml').telemetryJwt).toEqual({ privateVersionId: '33333333-3333-4333-8333-333333333333',
+      publicVersionId: '44444444-4444-4444-8444-444444444444', activeKid: 'telemetry-2026.10', publicKeys: telemetryKeys });
+  });
+
+  test.each([
+    ['ingest', 'http', false, 'NodePort'],
+    ['ingest', 'dual', true, 'NodePort'],
+    ['gateway', 'dual', true, 'NodePort'],
+    ['gateway', 'kafka', true, 'ClusterIP'],
+  ] as const)('OTLP 대상 %s에서 ingest %s 모드를 생성한다', (target, mode, consumer, service) => {
+    const output = run(outputs('eks_validation', target), runtime(value => { value.ingestMode = mode; }));
+    expect(output.result.status).toBe(0);
+    const ingest = output.read('telemetry-ingest.yaml');
+    expect(ingest.ingestMode).toBe(mode);
+    expect(ingest.telemetryJwt).toEqual(publicTelemetry('telemetry-ingest'));
+    expect(ingest.kafka).toEqual(consumer ? { enabled: true, bootstrapServers: brokers, topic: 'pulsemetry-dev-telemetry-ingress-validation',
+      consumerGroup: 'pulsemetry-dev-telemetry-ingest-validation', iamRoleArn: mskRole('Ingest'), iamSessionName: 'pulsemetry-dev-telemetry-ingest' } : undefined);
+    expect(ingest.service?.type ?? 'NodePort').toBe(service);
+    expect(ingest.targetGroupBindings).toEqual(service === 'ClusterIP' ? [] : [{ stage: 'validation', targetGroupARN: tg('ingest-v'), confirmExclusiveOwnership: true }]);
+    expect(ingest.runtime.requiredFiles).toEqual(['PULSEMETRY_DB_USERNAME', 'PULSEMETRY_DB_PASSWORD', 'PULSEMETRY_TOKEN_HASH_SECRET']);
+  });
+
+  test.each([['ingest', 'kafka'], ['gateway', 'http']] as const)('OTLP 대상 %s와 ingest %s 모드 조합은 수집이 끊기므로 거부한다', (target, mode) => {
+    const output = run(outputs('eks_validation', target), runtime(value => { value.ingestMode = mode; }));
+    expect(output.result.status).toBe(1);
+    expect(output.result.stderr).toContain('ValidationOtlpTarget');
+    expect(existsSync(output.dir)).toBe(false);
+  });
+
+  test('main stage는 eks prefix와 main topic/group으로만 생성한다', () => {
+    const output = run(outputs('eks'));
+    expect(output.result.status).toBe(0);
+    expect(output.read('telemetry-kafka-admin.yaml').stage).toBe('main');
+    expect(output.read('telemetry-gateway.yaml').kafka.topic).toBe('pulsemetry-dev-telemetry-ingress-main');
+    const mismatched = outputs('eks');
+    mismatched.DevEksStack.MskStage = 'validation';
+    expect(run(mismatched).result.status).toBe(1);
+  });
+
+  test.each([
+    ['public 주소 포함', JSON.stringify({ BootstrapBrokerStringSaslIam: brokers, BootstrapBrokerStringPublicSaslIam: brokers })],
+    ['평문 주소 포함', JSON.stringify({ BootstrapBrokerStringSaslIam: brokers, BootstrapBrokerString: brokers.replace(/9098/g, '9092') })],
+    ['TLS 주소만 있음', JSON.stringify({ BootstrapBrokerStringTls: brokers.replace(/9098/g, '9094') })],
+    ['broker 2대', JSON.stringify({ BootstrapBrokerStringSaslIam: brokers.split(',').slice(0, 2).join(',') })],
+    ['broker 중복', JSON.stringify({ BootstrapBrokerStringSaslIam: brokers.replace('b-3', 'b-1') })],
+    ['다른 cluster', JSON.stringify({ BootstrapBrokerStringSaslIam: brokers.replace(/soma-376-dev-telemetry/g, 'other-cluster') })],
+    ['다른 리전', JSON.stringify({ BootstrapBrokerStringSaslIam: brokers.replace(/ap-northeast-2/g, 'us-east-1') })],
+    ['다른 포트', JSON.stringify({ BootstrapBrokerStringSaslIam: brokers.replace(/9098/g, '9096') })],
+    ['서로 다른 cluster id', JSON.stringify({ BootstrapBrokerStringSaslIam: brokers.replace('b-3.soma-376-dev-telemetry.abc123', 'b-3.soma-376-dev-telemetry.zzz999') })],
+    ['중복 key', `{"BootstrapBrokerStringSaslIam":"${brokers}","BootstrapBrokerStringSaslIam":"${brokers}"}`],
+    ['빈 문서', '{}'],
+    ['JSON 아님', 'b-1:9098'],
+  ])('bootstrap JSON의 %s는 파일 생성 전에 거부한다', (_name, bootstrap) => {
+    const output = run(outputs(), undefined, { bootstrap });
+    expect(output.result.status).toBe(1);
+    expect(output.result.stderr).toContain('msk-bootstrap');
+    expect(existsSync(output.dir)).toBe(false);
+  });
+
+  test('MSK·Gateway output 누락·불일치와 이미지 누락을 거부한다', () => {
+    for (const change of [
+      (source: any) => { delete source.DevEksStack.MskClusterArn; },
+      (source: any) => { delete source.DevDataStack.TelemetryJwtPublicKeysSecretArn; },
+      (source: any) => { delete source.DevEdgeStack.ValidationTelemetryGatewayTargetGroupArn; },
+      (source: any) => { delete source.DevEdgeStack.ValidationOtlpTarget; },
+      (source: any) => { source.DevEdgeStack.ValidationOtlpTarget = 'direct'; },
+      (source: any) => { source.DevEksStack.EksTelemetryGatewayNodePort = '30081'; },
+      (source: any) => { source.DevEksStack.MskTopicName = 'pulsemetry-dev-telemetry-ingress-main'; },
+      (source: any) => { source.DevEksStack.MskConsumerGroupName = 'pulsemetry-dev-telemetry-ingest-main'; },
+      (source: any) => { source.DevEksStack.MskGatewaySessionName = 'pulsemetry-dev-telemetry-ingest'; },
+      (source: any) => { source.DevEksStack.MskClusterArn = source.DevEksStack.MskClusterArn.replace('soma-376-dev-telemetry', 'other'); },
+      (source: any) => { source.DevEksStack.MskGatewayRoleArn = source.DevEksStack.MskGatewayRoleArn.replace('111111111111', '222222222222'); },
+      (source: any) => { source.DevEksStack.MskOffsetAdminRoleArn = source.DevEksStack.MskTopicAdminRoleArn; },
+      (source: any) => { source.DevEksStack.MskIngestRoleArn = '*'; },
+      (source: any) => { source.DevEdgeStack.ValidationTelemetryGatewayTargetGroupArn = source.DevEdgeStack.ValidationTelemetryIngestTargetGroupArn; },
+      (source: any) => { source.DevDataStack.TelemetryJwtPublicKeysSecretArn = source.DevEksStack.UserJwtPublicKeysSecretArn; },
+      (source: any) => { source.DevDataStack.TelemetryJwtPrivateKeySecretArn = source.DevDataStack.TelemetryJwtPublicKeysSecretArn; },
+    ]) {
+      const source = outputs(); change(source);
+      const output = run(source);
+      expect(output.result.status).toBe(1);
+      expect(existsSync(output.dir)).toBe(false);
+    }
+    expect(run(outputs(), undefined, { gateway: 'registry.example/telemetry-gateway:latest' }).result.stderr).toContain('gateway image');
+  });
+
+  test('telemetry JWT·모드 runtime 입력의 비밀·override·잘못된 버전/alias/kid를 거부한다', () => {
+    for (const change of [
+      (value: any) => { delete value.telemetryJwt; },
+      (value: any) => { delete value.ingestMode; },
+      (value: any) => { value.ingestMode = 'consumer'; },
+      (value: any) => { value.telemetryJwt.publicVersionId = 'AWSCURRENT'; },
+      (value: any) => { value.telemetryJwt.privateVersionId = undefined; },
+      (value: any) => { value.telemetryJwt.publicKeys[0].alias = 'private.pem'; },
+      (value: any) => { value.telemetryJwt.publicKeys[0].alias = '../escape.pem'; },
+      (value: any) => { value.telemetryJwt.publicKeys.push({ ...value.telemetryJwt.publicKeys[0] }); },
+      (value: any) => { value.telemetryJwt.activeKid = 'missing'; },
+      (value: any) => { value.telemetryJwt.issueEnabled = 'true'; },
+      (value: any) => { value.telemetryJwt.privateKeyPem = 'forbidden-telemetry-value'; },
+      (value: any) => { value.telemetryJwt.secretArn = 'forbidden-telemetry-value'; },
+      (value: any) => { value.kafka = { topic: 'forbidden-telemetry-value' }; },
+    ]) {
+      const output = run(outputs(), runtime(change));
+      expect(output.result.status).toBe(1);
+      expect(existsSync(output.dir)).toBe(false);
+      expect(output.result.stderr).not.toContain('forbidden-telemetry-value');
+    }
+  });
+
+  test('ECS JSON 입력은 EKS 전용 telemetry 키를 받지 않는다', () => {
+    const { parseRuntimeInputs } = require('../../lib/dev/runtime-input.cjs');
+    const ecs = JSON.parse(readFileSync(resolve(__dirname, '../fixtures/dashboard-runtime.json'), 'utf8'));
+    expect(() => parseRuntimeInputs(ecs, { requireWriterImage: true })).not.toThrow();
+    const eks = load(readFileSync(runtimeFile, 'utf8'));
+    expect(() => parseRuntimeInputs({ ...ecs, telemetryJwt: eks.telemetryJwt }, { requireWriterImage: true })).toThrow('root');
+    expect(() => parseRuntimeInputs({ ...ecs, ingestMode: 'http' }, { requireWriterImage: true })).toThrow('root');
+  });
+
+  helmTest('생성한 Gateway·kafka 모드 ingest·관리 Job·runtime values를 chart와 함께 render한다', () => {
+    const output = run(outputs('eks_validation', 'gateway'), runtime(value => { value.ingestMode = 'kafka'; }));
+    expect(output.result.status).toBe(0);
+    const render = (release: string, chart: string, files: string[]) => {
+      const result = spawnSync(process.env.HELM_BIN!, ['template', release, chart, '--namespace', 'pulsemetry-dev', '--kube-version', '1.36.0',
+        ...files.flatMap(file => ['-f', file])], { cwd: root, encoding: 'utf8' });
+      expect(result.stderr).toBe('');
+      expect(result.status).toBe(0);
+      return result.stdout.split(/^---\s*$/m).filter(text => text.trim()).map(text => load(text)).filter(Boolean);
+    };
+    const gateway = render('telemetry-gateway', 'helm/dev/workloads/spring-app', ['helm/dev/workloads/telemetry-gateway.yaml', join(output.dir, 'telemetry-gateway.yaml')]);
+    expect(gateway.map((doc: any) => doc.kind).sort()).toEqual(['Deployment', 'Service', 'ServiceAccount', 'TargetGroupBinding']);
+    const ingest = render('telemetry-ingest', 'helm/dev/workloads/spring-app', ['helm/dev/workloads/telemetry-ingest.yaml', join(output.dir, 'telemetry-ingest.yaml')]);
+    expect(ingest.find((doc: any) => doc.kind === 'Service').spec.type).toBe('ClusterIP');
+    expect(ingest.some((doc: any) => doc.kind === 'TargetGroupBinding')).toBe(false);
+    const env = Object.fromEntries(ingest.find((doc: any) => doc.kind === 'Deployment').spec.template.spec.containers[0].env.map((item: any) => [item.name, item.value]));
+    expect(env.PULSEMETRY_INGEST_MODE).toBe('kafka');
+    expect(env.PULSEMETRY_KAFKA_CONSUMER_GROUP).toBe('pulsemetry-dev-telemetry-ingest-validation');
+    const admin = render('telemetry-kafka-admin', 'helm/dev/workloads/telemetry-kafka-admin', [join(output.dir, 'telemetry-kafka-admin.yaml')]);
+    expect(admin.filter((doc: any) => doc.kind === 'Job').map((doc: any) => doc.metadata.name)).toEqual(['telemetry-topic-init-r1']);
+    const spcs = render('runtime-config', 'helm/dev/runtime/chart', [join(output.dir, 'runtime.yaml')]);
+    expect(spcs.map((doc: any) => doc.metadata.name).sort()).toEqual(['dashboard-api-jwt', 'dashboard-api-runtime', 'enrollment-api-jwt',
+      'enrollment-api-runtime', 'enrollment-api-telemetry-jwt', 'telemetry-gateway-telemetry-jwt', 'telemetry-ingest-runtime', 'telemetry-ingest-telemetry-jwt']);
+  });
 });
