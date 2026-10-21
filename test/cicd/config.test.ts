@@ -102,13 +102,18 @@ describe('DEPLOY_TARGETS', () => {
     expect(ECR_REPOS.dashboardApi).toEqual('soma-376/dashboard-api');
   });
 
-  test('dev backend 역할은 세 앱의 이미지 공급과 ECS 재배포를 허용한다', () => {
+  test('telemetry-gateway ECR 이름은 EKS Gateway 이미지 계약이다', () => {
+    expect(ECR_REPOS.telemetryGateway).toEqual('soma-376/telemetry-gateway');
+  });
+
+  test('dev backend 역할은 세 앱과 Gateway 이미지 공급, 세 앱의 ECS 재배포를 허용한다', () => {
     expect(DEPLOY_TARGETS.dev[1]).toEqual({
       repo: GITHUB_REPOS.dashboard,
       ecrRepos: [
         ECR_REPOS.enrollmentApi,
         ECR_REPOS.telemetryIngest,
         ECR_REPOS.dashboardApi,
+        ECR_REPOS.telemetryGateway,
       ],
       services: [
         ECS_SERVICE_NAMES.enrollmentApi,
