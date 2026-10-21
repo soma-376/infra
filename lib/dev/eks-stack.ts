@@ -4,6 +4,7 @@ import { DevEksRuntime } from './eks-runtime';
 import { DevEksLbc } from './eks-lbc';
 import { DevEksRelay } from './eks-relay';
 import { DevEksMsk } from './eks-msk';
+import { DevEksTelemetryAlarms } from './eks-telemetry-alarms';
 import { CfnOutput, Stack, StackProps } from 'aws-cdk-lib/core';
 import { IVpc, ISecurityGroup, ISubnet } from 'aws-cdk-lib/aws-ec2';
 import { CfnAccessEntry, CfnCluster } from 'aws-cdk-lib/aws-eks';
@@ -106,7 +107,7 @@ export class DevEksStack extends Stack {
       subnets: props.mskSubnets, securityGroup: props.mskSecurityGroup,
       stage: devTelemetryStage(props.config.archivePrefix),
     });
-    new DevEksRuntime(this, 'Runtime', {
+    const runtime = new DevEksRuntime(this, 'Runtime', {
       clusterName: this.cluster.ref, dbSecret: props.dbSecret,
       tokenHashSecret: props.tokenHashSecret, adminApiTokenSecret: props.adminApiTokenSecret,
       dashboardRdsSourceSecret: props.dashboardRdsSourceSecret,
@@ -120,6 +121,10 @@ export class DevEksStack extends Stack {
       telemetryJwtPrivateKeySecret: props.telemetryJwtPrivateKeySecret,
       telemetryJwtPublicKeysSecret: props.telemetryJwtPublicKeysSecret,
       msk: { clusterArn: this.msk.cluster.attrArn, topicArn: this.msk.topicArn, consumerGroupArn: this.msk.consumerGroupArn },
+    });
+    new DevEksTelemetryAlarms(this, 'TelemetryAlarms', {
+      topicName: this.msk.topicName, consumerGroupName: this.msk.consumerGroupName,
+      applicationLogGroup: runtime.applicationLogGroup,
     });
 
     const outputs: Record<string, string> = {

@@ -223,3 +223,65 @@ describe('검증 ALB OTLP 대상 전환', () => {
     expect(explicit).toEqual(Template.fromStack(buildDevApp().edge).toJSON());
   });
 });
+
+describe('telemetry 관측 경보', () => {
+  const template = Template.fromStack(buildDevApp(EKS).eks!);
+  const alarms = Object.values(template.findResources('AWS::CloudWatch::Alarm')).map((alarm: any) => alarm.Properties) as any[];
+  const alarm = (name: string) => alarms.find(item => item.AlarmName === `soma-376-dev-telemetry-${name}`)!;
+  const logGroupId = Object.entries(template.findResources('AWS::Logs::LogGroup'))
+    .find(([, group]: [string, any]) => group.Properties.LogGroupName === '/eks/dev/application')![0];
+
+  test('MSK 공간·ISR·offline·consumer lag와 로그 이벤트 경보 10개는 알림 action 없이 상태만 남긴다', () => {
+    expect(alarms.map(item => item.AlarmName).sort()).toEqual([
+      'commit-failed', 'consumer-offset-lag', 'consumer-time-lag', 'gateway-rejected', 'msk-disk-used',
+      'msk-offline-partitions', 'msk-under-min-isr', 'permanent-failure', 'publish-failed', 'retry-exhausted',
+    ].map(name => `soma-376-dev-telemetry-${name}`));
+    for (const item of alarms) {
+      expect(item.AlarmActions).toBeUndefined();
+      expect(item.OKActions).toBeUndefined();
+      expect(item.ComparisonOperator).toBe('GreaterThanOrEqualToThreshold');
+      expect(item.AlarmDescription).toMatch(/^[\x20-\x7e]+$/);
+    }
+    template.resourceCountIs('AWS::SNS::Topic', 0);
+  });
+
+  test('broker 지표는 세 broker를 모아 디스크 80%·minISR 미달 1개 이상에서 경보한다', () => {
+    const brokerMetric = (item: any, name: string) => item.Metrics.filter((metric: any) => metric.MetricStat).map((metric: any) => {
+      expect(metric.MetricStat.Metric).toMatchObject({ Namespace: 'AWS/Kafka', MetricName: name });
+      return Object.fromEntries(metric.MetricStat.Metric.Dimensions.map((dimension: any) => [dimension.Name, dimension.Value]));
+    });
+    expect(alarm('msk-disk-used')).toMatchObject({ Threshold: 80, EvaluationPeriods: 2, DatapointsToAlarm: 2 });
+    expect(alarm('msk-disk-used').Metrics[0].Expression).toBe('MAX([b1, b2, b3])');
+    expect(brokerMetric(alarm('msk-disk-used'), 'KafkaDataLogsDiskUsed')).toEqual(['1', '2', '3']
+      .map(id => ({ 'Broker ID': id, 'Cluster Name': 'soma-376-dev-telemetry' })));
+    expect(alarm('msk-under-min-isr').Metrics[0].Expression).toBe('SUM([b1, b2, b3])');
+    expect(brokerMetric(alarm('msk-under-min-isr'), 'UnderMinIsrPartitionCount')).toHaveLength(3);
+    expect(alarm('msk-offline-partitions')).toMatchObject({ Namespace: 'AWS/Kafka', MetricName: 'OfflinePartitionsCount', Threshold: 1,
+      Dimensions: [{ Name: 'Cluster Name', Value: 'soma-376-dev-telemetry' }] });
+  });
+
+  test.each([['consumer-time-lag', 'EstimatedMaxTimeLag', 600], ['consumer-offset-lag', 'SumOffsetLag', 10000]] as const)(
+    '%s는 stage group·topic의 %s를 본다', (name, metric, threshold) => {
+      expect(alarm(name)).toMatchObject({ Namespace: 'AWS/Kafka', MetricName: metric, Threshold: threshold, TreatMissingData: 'notBreaching' });
+      expect(alarm(name).Dimensions).toEqual(expect.arrayContaining([
+        { Name: 'Cluster Name', Value: 'soma-376-dev-telemetry' },
+        { Name: 'Consumer Group', Value: 'pulsemetry-dev-telemetry-ingest-validation' },
+        { Name: 'Topic', Value: 'pulsemetry-dev-telemetry-ingress-validation' },
+      ]));
+    });
+
+  test.each([
+    ['telemetry_gateway_rejected', 'TelemetryGatewayRejected', 'gateway-rejected', 50],
+    ['telemetry_publish_failed', 'TelemetryPublishFailed', 'publish-failed', 1],
+    ['telemetry_permanent_failure', 'TelemetryPermanentFailure', 'permanent-failure', 1],
+    ['telemetry_retry_exhausted', 'TelemetryRetryExhausted', 'retry-exhausted', 1],
+    ['telemetry_commit_failed', 'TelemetryCommitFailed', 'commit-failed', 1],
+  ])('event=%s 평문 term을 /eks/dev/application에서 집계한다', (event, metric, name, threshold) => {
+    template.hasResourceProperties('AWS::Logs::MetricFilter', {
+      LogGroupName: { Ref: logGroupId }, FilterPattern: `"event=${event}"`,
+      MetricTransformations: [{ MetricNamespace: 'Pulsemetry/Dev/Telemetry', MetricName: metric, MetricValue: '1' }],
+    });
+    expect(alarm(name)).toMatchObject({ Namespace: 'Pulsemetry/Dev/Telemetry', MetricName: metric, Statistic: 'Sum', Period: 300,
+      Threshold: threshold, TreatMissingData: 'notBreaching' });
+  });
+});
