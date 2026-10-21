@@ -8,6 +8,8 @@ Accepted — 부분 대체: [ADR 0021](0021-dev-prod-environment-separation.md)�
 끝낸다. prod의 기존 이미지 목록과 선생성·`fromRepositoryName` 참조·`soma-376/` 네임스페이스 결정은
 그대로 유효하다.
 
+[ADR-0029](0029-dev-dashboard-api-ecs-and-eks-deployment.md)이 dashboard-api를 dev ECS/EKS의 공통 이미지 소비 대상으로 추가한다. 아래 PROJ-226 공급 준비 기록과 ECR 선생성·참조 원칙은 보존하며 실제 이미지 게시·pull은 별도 증거다.
+
 ## Context
 
 CDK 스택이 ECR 레포지토리를 함께 생성하도록 구성하면, 스택의 첫 배포 시점에는 아직 이미지가 push되지 않은 상태다. 이 상태에서 ECS 서비스가 이미지를 가져오지 못해 기동에 실패하고, 결과적으로 스택 전체가 롤백되는 닭-달걀 문제가 발생한다.
