@@ -33,7 +33,7 @@ try {
     run(helm, ['lint', chart, '--namespace', namespace, '--strict', '--kube-version', '1.36.0', ...files.flatMap(file => ['-f', file])]);
     return run(helm, ['template', ...args]);
   };
-  const kubeArgs = ['-strict', '-summary', '-kubernetes-version', '1.36.0', '-schema-location', schema ? join(resolve(schema), '{{.ResourceKind}}{{.KindSuffix}}.json') : 'default', '-schema-location', join(root, 'helm/dev/runtime/schemas/{{.ResourceKind}}_{{.Group}}_{{.ResourceAPIVersion}}.json')];
+  const kubeArgs = ['-strict', '-summary', '-kubernetes-version', '1.36.0', '-schema-location', join(root, 'helm/dev/runtime/schemas/{{.ResourceKind}}_{{.Group}}_{{.ResourceAPIVersion}}.json'), '-schema-location', schema ? join(resolve(schema), '{{.ResourceKind}}{{.KindSuffix}}.json') : 'default'];
   const runtimeText = render('runtime-config', 'helm/dev/runtime/chart', 'pulsemetry-dev', [join(temp, 'runtime.yaml')]);
   console.log('runtime-config ' + run(kubeconform, kubeArgs, runtimeText).trim());
   const spcs = loadAll(runtimeText).filter(Boolean);
@@ -59,6 +59,42 @@ try {
     const publicObject = objects.at(-1);
     check(publicObject.filePermission === '0400' && publicObject.jmesPath.every(item => item.filePermission === '0444'), 'JWT JSON/PEM 권한이 다르다');
     check(publicObject.jmesPath.every((item, index) => item.path === JSON.stringify(values['runtime.yaml'].userAuth.publicKeys[index].kid)), 'kid의 JMESPath quoted identifier를 보존한다');
+  }
+  // 비활성 bootstrap과 별도로 같은 CDK output에서 선택한 OIDC 원본만 활성화한다.
+  const oidcInput = parseRuntimeValues(readFileSync(join(root, 'test/fixtures/eks-runtime.yaml'), 'utf8'));
+  oidcInput.userAuth.allowedRedirectUris = ['https://dashboard.example.test/auth/callback'];
+  oidcInput.oidc = {
+    enabled: true, callbackBaseUrl: 'https://auth.example.test',
+    failureRedirectUri: oidcInput.userAuth.allowedRedirectUris[0],
+    clients: [{ key: 'cognito-b', versionId: 'b'.repeat(32) }, { key: 'cognito-a', versionId: 'a'.repeat(32) }],
+  };
+  const account = values['runtime.yaml'].secrets.dbArn.split(':')[4];
+  const oidcSource = { ...source, OidcFixtureDataStack: { OidcClientSecretArns: JSON.stringify(Object.fromEntries(
+    ['cognito-a', 'cognito-b', 'unused'].map(key => [key, `arn:aws:secretsmanager:ap-northeast-2:${account}:secret:soma-376/dev/oidc/clients/${key}-abc123`]),
+  )) } };
+  const oidcValues = generateValues(oidcSource, 'registry.example.test/soma-376/enrollment-api@' + digest, 'registry.example.test/soma-376/telemetry-ingest@' + digest, 'registry.example.test/soma-376/dashboard-api@' + digest, oidcInput);
+  const oidcRuntimeFile = join(temp, 'oidc-runtime.yaml'), oidcAppFile = join(temp, 'oidc-enrollment.yaml');
+  writeFileSync(oidcRuntimeFile, dump(oidcValues['runtime.yaml'], { noRefs: true }));
+  writeFileSync(oidcAppFile, dump(oidcValues['enrollment-api.yaml'], { noRefs: true }));
+  const oidcRuntimeText = render('oidc-runtime', 'helm/dev/runtime/chart', 'pulsemetry-dev', [oidcRuntimeFile]);
+  console.log('OIDC runtime-config ' + run(kubeconform, kubeArgs, oidcRuntimeText).trim());
+  const oidcSpcs = loadAll(oidcRuntimeText).filter(Boolean);
+  const oidcObjects = load(oidcSpcs.find(item => item.metadata.name === 'enrollment-api-runtime').spec.parameters.objects).slice(3);
+  check(oidcObjects.length === 2, 'OIDC는 선택한 client Secret 두 개만 소비한다');
+  for (const [index, object] of oidcObjects.entries()) {
+    const client = oidcValues['runtime.yaml'].oidc.clients[index];
+    check(object.objectName === client.secretArn && object.objectVersion === client.versionId && object.objectAlias === client.alias, 'OIDC 원본·버전·alias가 생성 입력과 같아야 한다');
+    check(object.filePermission === '0444' && !object.jmesPath && !object.objectVersionLabel, 'OIDC는 고정 버전 전체 문자열을 UID10001 파일로 전달한다');
+  }
+  check(oidcSpcs.filter(item => item.metadata.name !== 'enrollment-api-runtime').every(item => !JSON.stringify(item).includes('/oidc/clients/')), '다른 앱에는 OIDC 원본을 공급하지 않는다');
+  const oidcAppText = render('enrollment-api', 'helm/dev/workloads/spring-app', 'pulsemetry-dev', [join(root, 'helm/dev/workloads/enrollment-api.yaml'), oidcAppFile]);
+  const oidcDeployment = loadAll(oidcAppText).find(item => item?.kind === 'Deployment');
+  check(Boolean(oidcDeployment.spec.template.metadata.annotations['pulsemetry.io/oidc-revision']), 'OIDC 원본 변경이 Pod 교체를 유발해야 한다');
+  const oidcEnvironment = Object.fromEntries(oidcDeployment.spec.template.spec.containers[0].env.map(item => [item.name, item.value]));
+  const oidcMap = JSON.parse(oidcEnvironment.SPRING_APPLICATION_JSON).pulsemetry.oidc['client-secrets'];
+  for (const client of oidcValues['enrollment-api.yaml'].oidc.clients) {
+    check(oidcMap[`[${client.key}]`] === '${' + client.alias + '}', 'OIDC 비밀 맵은 원문 대신 정확한 key와 placeholder만 담는다');
+    check(oidcValues['enrollment-api.yaml'].runtime.requiredFiles.includes(client.alias), 'OIDC 파일을 init 필수 검사에 포함해야 한다');
   }
   const releaseData = [
     ['csiDriver', 'secrets-store-csi-driver', 'secrets-store-csi-driver', 'kube-system', ['csi-driver-values.yaml']],

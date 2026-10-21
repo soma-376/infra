@@ -9,6 +9,9 @@
 > PROJ-222의 공통 Secret 정의·수동 준비는 [준비 런북](dev-dashboard-prerequisites.md)과
 > [ADR-0031](../adr/0031-manage-dev-dashboard-and-jwt-secrets-with-cdk.md)을 따른다.
 > 기존 Secret 3개·configtree 검증 기록은 JWT writer·키 mount 구현·배포 증거를 포함하지 않는다.
+> 기존 Cognito 연결·빈 client Secret·VersionId 준비는 [OIDC 런북](dev-oidc-prerequisites.md)과
+> [ADR-0032](../adr/0032-dev-oidc-client-secret-runtime-supply.md)을 따른다. OIDC 비활성 bootstrap은
+> 해당 런북의 `DevDataStack` 단독 배포를 먼저 수행하며, 이 문서의 전체 배포보다 앞선다.
 
 ## 1. 실행 범위와 사전 조건
 
@@ -100,15 +103,16 @@ diff에서 기존 ECS·RDS·S3·실제 Secret·ALB/TG·WAF 정책의 삭제/교�
 포함되지 않았는지 확인한다. 사용자 정의 SG·규칙은 Network에 있고 EKS↔Edge 순환 의존은 없어야 한다.
 활성화 구성은 5스택이다. **첫 배포 후 이 context 전체를 운영 배포 설정에 보존한다.**
 특히 `devEksEnabled=false` 또는 키 누락 상태로 Network/Edge를 배포하면 EKS 전용 리소스를 제거한다.
-`--outputs-file`은 마지막 배포에 포함된 stack output만 담을 수 있으므로 조회 단계에서 필요한 두 스택을 합친다.
+`--outputs-file`은 마지막 배포에 포함된 stack output만 담을 수 있으므로 조회 단계에서 필요한 세 스택을 합친다.
+OIDC를 사용한다면 값 등록을 완료하고 client key/VersionId를 입력한 뒤 아래 전체 배포를 진행한다.
 
 ```bash
 npx cdk deploy --all "${EKS_CONTEXT[@]}" --outputs-file "$RUN_DIR/cdk-outputs.json"
-for stack in DevEksStack DevEdgeStack; do
+for stack in DevEksStack DevEdgeStack DevDataStack; do
   aws cloudformation describe-stacks --stack-name "$stack" --region "$AWS_REGION" \
     > "$RUN_DIR/$stack.json"
 done
-jq -s '{Stacks: [.[].Stacks[]]}' "$RUN_DIR/DevEksStack.json" "$RUN_DIR/DevEdgeStack.json" \
+jq -s '{Stacks: [.[].Stacks[]]}' "$RUN_DIR/DevEksStack.json" "$RUN_DIR/DevEdgeStack.json" "$RUN_DIR/DevDataStack.json" \
   > "$RUN_DIR/deployed-outputs.json"
 node scripts/eks-values.mjs --outputs "$RUN_DIR/deployed-outputs.json" \
   --output-dir "$RUN_DIR/generated" \
@@ -145,6 +149,7 @@ kubectl auth can-i create secretproviderclasses.secrets-store.csi.x-k8s.io --nam
 | ValidationPublicBaseUrl, ValidationTelemetryIngestTargetGroupArn, ValidationEnrollmentApiTargetGroupArn, ValidationClickhouseTargetGroupArn, ValidationDashboardApiTargetGroupArn | 검증 앱/TGB |
 | EksDashboardApiNodePort, DashboardRdsSourceSecretArn, DashboardRdsCacheSecretArn, DashboardClickHouseSourceSecretArn, DashboardClickHouseCacheSecretArn, UserJwtPrivateKeySecretArn, UserJwtPublicKeysSecretArn | dashboard 및 JWT runtime YAML |
 | ApplicationLogGroupName | Fluent Bit |
+| OidcClientSecretArns (`DevDataStack`) | key→ARN JSON 맵. EKS 입력에서 선택한 OIDC key의 ARN을 runtime/enrollment values에 주입 |
 | EksLbcRoleArn, RuntimeEnrollmentRoleArn, RuntimeTelemetryIngestRoleArn, RuntimeDashboardRoleArn, RuntimeFluentBitRoleArn | CDK Pod Identity 검증 증거 |
 
 NodeClass의 `role`에는 **role 이름**을 쓴다. ARN은 AccessEntry와 Pod Identity에 쓴다.
@@ -418,11 +423,16 @@ PROJ-223 구현의 schema/helpers/template에 실제로 지원되는지 먼저 l
 대조하고 실제 할당 충돌이 없음을 확인한 뒤 기록한다. 임의의 다음 번호를 빈 포트로 간주하지 않는다.
 기존 앱의 requests 250m/1Gi·limits 1 CPU/2Gi 기준과 apps NodePool의 실제 배치·여유를 확인한다.
 
-ECS JSON과 같은 릴리스의 `userAuth`·`dashboard`를 runtime YAML에 작성한다.
+ECS JSON과 같은 릴리스의 `userAuth`·`dashboard`와 선택적 `oidc`를 runtime YAML에 작성한다.
 `test/fixtures/eks-runtime.yaml`은 가짜 버전과 수치를 가진 검증 전용 예시다. writerImage는 EKS YAML에
 넣지 않는다. ARN·endpoint·TG·NodePort는 CDK output만 소유하며 입력 YAML의 덮어쓰기·원문·중복key·
 미지의 필드는 실패한다. managementEnabled/mailEnabled는 추가 Secret 공급이 없어 false만 허용한다.
 생성기는 한 번 읽은 버전·kid/alias 맵으로 runtime과 세 앱 YAML을 함께 생성한다.
+OIDC는 `oidc.enabled`, HTTP/HTTPS callback 입력, `clients[].key/versionId`, `userAuth.allowedRedirectUris`로 설정한다.
+key는 ECS JSON에 선언해 배포한 원본에서 선택한다. 생성기가 DataStack output의 ARN을 넣으므로
+generated env만 수정하거나 runtime 입력에 ARN·원문을 추가하지 않는다. 자세한 입력 예시는 [OIDC 런북](dev-oidc-prerequisites.md)을 따른다.
+HTTP 입력의 생성·렌더링은 허용하지만 backend의 외부 HTTP callback/복귀 거부와 Cognito의 HTTPS 정책은 유지된다.
+따라서 실제 원격 로그인 수락은 HTTPS로 수행한다.
 
 ```text
 CDK outputs JSON + 세 앱 digest + runtime 설정 YAML

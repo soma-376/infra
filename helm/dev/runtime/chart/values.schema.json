@@ -115,6 +115,86 @@
           }
         }
       }
+    },
+    "oidc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "callbackBaseUrl": {
+          "type": "string",
+          "pattern": "^https?://(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*\\.?(?::[0-9]{1,5})?|\\[[0-9A-Fa-f:.]+\\](?::[0-9]{1,5})?)/?$"
+        },
+        "callbackRegistrationId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "failureRedirectUri": {
+          "type": "string",
+          "maxLength": 256,
+          "pattern": "^https?://(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*\\.?(?::[0-9]{1,5})?|\\[[0-9A-Fa-f:.]+\\](?::[0-9]{1,5})?)(?:/(?:[-A-Za-z0-9._~!$&'()*+;=:@/]|%[A-Fa-f0-9]{2})*)?$"
+        },
+        "clients": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key",
+              "versionId",
+              "secretArn",
+              "alias"
+            ],
+            "properties": {
+              "key": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,64}$"
+              },
+              "versionId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9-]{32,64}$"
+              },
+              "secretArn": {
+                "type": "string",
+                "pattern": "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:soma-376/dev/oidc/clients/[A-Za-z0-9_-]{1,64}-[A-Za-z0-9]{6}$"
+              },
+              "alias": {
+                "type": "string",
+                "pattern": "^PULSEMETRY_OIDC_CLIENT_SECRET_([0-9]|[12][0-9]|3[01])$"
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "callbackBaseUrl",
+              "callbackRegistrationId",
+              "clients"
+            ]
+          },
+          "else": {
+            "maxProperties": 1
+          }
+        }
+      ]
     }
   }
 }

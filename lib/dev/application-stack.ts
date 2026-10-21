@@ -1,4 +1,5 @@
 import { DashboardDatabaseSecrets, dashboardEcsSettings, attachUserJwtKeyWriter } from './ecs-dashboard-runtime';
+import { oidcClientBindings } from './dashboard-runtime-config';
 import { RemovalPolicy, Stack, StackProps } from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
 import {
@@ -106,6 +107,7 @@ export interface DevApplicationStackProps extends StackProps {
   readonly tokenHashSecret: ISecret;
   readonly userJwtPrivateKeySecret: ISecret;
   readonly userJwtPublicKeysSecret: ISecret;
+  readonly oidcClientSecrets: Readonly<Record<string, ISecret>>;
   readonly dashboardDatabaseSecrets: DashboardDatabaseSecrets;
   readonly rawSignalBucket: IBucket;
   /** EC2 호스트 2대 공용 SG. ASG 에 붙는다. */
@@ -482,6 +484,12 @@ export class DevApplicationStack extends Stack {
     attachUserJwtKeyWriter(task, container, props.devConfig.dashboardRuntime,
       props.userJwtPublicKeysSecret, props.userJwtPrivateKeySecret,
       LogDriver.awsLogs({ streamPrefix: 'jwt-key-writer', logGroup }));
+    if (props.devConfig.dashboardRuntime.oidc?.enabled) {
+      for (const { key, versionId, alias } of oidcClientBindings(props.devConfig.dashboardRuntime.oidc)) {
+        if (!Object.hasOwn(props.oidcClientSecrets, key) || !versionId) throw new Error('OIDC 원본 또는 VersionId가 없다');
+        container.addSecret(alias, EcsSecret.fromSecretsManagerVersion(props.oidcClientSecrets[key], { versionId }));
+      }
+    }
 
     const service = new Ec2Service(this, 'DevEnrollmentApiService', {
       cluster: this.cluster,

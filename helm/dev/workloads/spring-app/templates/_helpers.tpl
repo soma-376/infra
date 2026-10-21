@@ -17,8 +17,27 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if ne .Release.Namespace "pulsemetry-dev" -}}
 {{- fail "namespace는 pulsemetry-dev여야 한다" -}}
 {{- end -}}
+{{- $oidc := .Values.oidc | default (dict "enabled" false) -}}
+{{- if and (hasKey .Values "oidc") (ne .Values.workload "enrollment-api") -}}
+{{- fail "OIDC 설정은 enrollment-api만 소비한다" -}}
+{{- end -}}
+{{- if $oidc.enabled -}}
+{{- if not (and .Values.runtime.enabled .Values.jwt.enabled) -}}{{- fail "OIDC에는 runtime과 JWT 공급이 함께 필요하다" -}}{{- end -}}
+{{- if not .Values.userAuth.allowedRedirectUris -}}{{- fail "OIDC에는 정확한 allowedRedirectUris가 필요하다" -}}{{- end -}}
+{{- if and $oidc.failureRedirectUri (not (has $oidc.failureRedirectUri .Values.userAuth.allowedRedirectUris)) -}}{{- fail "OIDC failure URI는 allowedRedirectUris에 있어야 한다" -}}{{- end -}}
+{{- $keys := list -}}
+{{- $arns := dict -}}
+{{- range $index, $client := $oidc.clients -}}
+{{- if or (has $client.key $keys) (hasKey $arns $client.secretArn) -}}{{- fail "OIDC client key·Secret ARN은 중복할 수 없다" -}}{{- end -}}
+{{- if ne $client.alias (printf "PULSEMETRY_OIDC_CLIENT_SECRET_%d" $index) -}}{{- fail "OIDC alias는 정렬한 client key의 순서와 같아야 한다" -}}{{- end -}}
+{{- if not (regexMatch (printf "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:soma-376/dev/oidc/clients/%s-[A-Za-z0-9]{6}$" $client.key) $client.secretArn) -}}{{- fail "OIDC Secret ARN의 client key가 다르다" -}}{{- end -}}
+{{- $keys = append $keys $client.key -}}
+{{- $_ := set $arns $client.secretArn true -}}
+{{- end -}}
+{{- if ne (toJson $keys) (toJson (sortAlpha $keys)) -}}{{- fail "OIDC client key는 정렬되어야 한다" -}}{{- end -}}
+{{- end -}}
 {{- range $name, $value := .Values.env -}}
-{{- if or (regexMatch "^PULSEMETRY_DASHBOARD_(RDS|CLICKHOUSE)_(SOURCE|CACHE)_(USERNAME|PASSWORD)$" $name) (has $name (list "PULSEMETRY_DB_USERNAME" "PULSEMETRY_DB_PASSWORD" "PULSEMETRY_TOKEN_HASH_SECRET" "PULSEMETRY_ADMIN_API_TOKEN" "SPRING_CONFIG_IMPORT" "SPRING_DATASOURCE_USERNAME" "SPRING_DATASOURCE_PASSWORD" "SPRING_APPLICATION_JSON" "SERVER_PORT" "PULSEMETRY_USER_AUTH_ENABLED" "PULSEMETRY_USER_AUTH_ISSUER" "PULSEMETRY_USER_AUTH_AUDIENCE" "PULSEMETRY_USER_AUTH_ALLOWED_ORIGINS" "PULSEMETRY_USER_AUTH_ACTIVE_KID" "PULSEMETRY_USER_AUTH_PRIVATE_KEY_FILE" "PULSEMETRY_USER_AUTH_PUBLIC_KEY_FILE")) -}}
+{{- if or (regexMatch "^PULSEMETRY_(OIDC|COGNITO_)" $name) (regexMatch "^PULSEMETRY_DASHBOARD_(RDS|CLICKHOUSE)_(SOURCE|CACHE)_(USERNAME|PASSWORD)$" $name) (has $name (list "PULSEMETRY_DB_USERNAME" "PULSEMETRY_DB_PASSWORD" "PULSEMETRY_TOKEN_HASH_SECRET" "PULSEMETRY_ADMIN_API_TOKEN" "SPRING_CONFIG_IMPORT" "SPRING_DATASOURCE_USERNAME" "SPRING_DATASOURCE_PASSWORD" "SPRING_APPLICATION_JSON" "SERVER_PORT" "PULSEMETRY_USER_AUTH_ENABLED" "PULSEMETRY_USER_AUTH_ISSUER" "PULSEMETRY_USER_AUTH_AUDIENCE" "PULSEMETRY_USER_AUTH_ALLOWED_ORIGINS" "PULSEMETRY_USER_AUTH_ALLOWED_REDIRECT_URIS" "PULSEMETRY_USER_AUTH_ACTIVE_KID" "PULSEMETRY_USER_AUTH_PRIVATE_KEY_FILE" "PULSEMETRY_USER_AUTH_PUBLIC_KEY_FILE")) -}}
 {{- fail (printf "%s는 env가 아닌 runtime configtree로 공급해야 한다" $name) -}}
 {{- end -}}
 {{- end -}}
@@ -33,6 +52,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $files := list "PULSEMETRY_DB_USERNAME" "PULSEMETRY_DB_PASSWORD" "PULSEMETRY_TOKEN_HASH_SECRET" -}}
 {{- if eq .Values.workload "enrollment-api" -}}
 {{- $files = append $files "PULSEMETRY_ADMIN_API_TOKEN" -}}
+{{- if $oidc.enabled -}}
+{{- range $oidc.clients -}}{{- $files = append $files .alias -}}{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- if eq .Values.workload "dashboard-api" -}}
 {{- $files = list "PULSEMETRY_DASHBOARD_RDS_SOURCE_USERNAME" "PULSEMETRY_DASHBOARD_RDS_SOURCE_PASSWORD" "PULSEMETRY_DASHBOARD_RDS_CACHE_USERNAME" "PULSEMETRY_DASHBOARD_RDS_CACHE_PASSWORD" "PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_USERNAME" "PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_PASSWORD" "PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_USERNAME" "PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_PASSWORD" -}}

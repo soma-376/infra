@@ -38,6 +38,23 @@ function outputs(prefix = 'eks_validation') {
   };
 }
 
+const oidcArn = (key: string) => secret(`soma-376/dev/oidc/clients/${key}`);
+function oidcOutputs() {
+  return { ...outputs(), DevDataStack: { OidcClientSecretArns: JSON.stringify(Object.fromEntries(
+    ['cognito-a', 'cognito-b', 'unused'].map(key => [key, oidcArn(key)]),
+  )) } };
+}
+function oidcRuntime(enabled = true, scheme: 'http' | 'https' = 'https') {
+  const value = load(readFileSync(runtimeFile, 'utf8'));
+  value.userAuth.allowedRedirectUris = [`${scheme}://dashboard.example.test/auth/callback`];
+  value.oidc = enabled ? {
+    enabled: true, callbackBaseUrl: `${scheme}://auth.example.test`,
+    failureRedirectUri: value.userAuth.allowedRedirectUris[0],
+    clients: [{ key: 'cognito-b', versionId: 'b'.repeat(32) }, { key: 'cognito-a', versionId: 'a'.repeat(32) }],
+  } : { enabled: false, clients: [{ key: 'cognito-a' }] };
+  return value;
+}
+
 function invoke(document: any, image = enrollmentImage, dashboard = dashboardImage, runtimeText = readFileSync(runtimeFile, 'utf8')) {
   const temp = mkdtempSync(join(tmpdir(), 'eks-values-test-'));
   const source = join(temp, 'outputs.json');
@@ -101,6 +118,93 @@ describe('배포 output→values 변환', () => {
     const source = outputs();
     const document = { Stacks: Object.entries(source).map(([StackName, values]) => ({ StackName, Outputs: Object.entries(values).map(([OutputKey, OutputValue]) => ({ OutputKey, OutputValue })) })) };
     expect(run(document).result.status).toBe(0);
+  });
+
+  test('OIDC는 CDK 원본의 부분집합을 정렬하고 enrollment에만 고정 버전·alias를 전달한다', () => {
+    const output = run(oidcOutputs(), enrollmentImage, dashboardImage, dump(oidcRuntime()));
+    expect(output.result.status).toBe(0);
+    const enrollment = output.read('enrollment-api.yaml');
+    const oidc = enrollment.oidc;
+    expect(oidc.callbackRegistrationId).toBe('oidc');
+    expect(oidc.clients).toEqual([
+      { key: 'cognito-a', versionId: 'a'.repeat(32), alias: 'PULSEMETRY_OIDC_CLIENT_SECRET_0', secretArn: oidcArn('cognito-a') },
+      { key: 'cognito-b', versionId: 'b'.repeat(32), alias: 'PULSEMETRY_OIDC_CLIENT_SECRET_1', secretArn: oidcArn('cognito-b') },
+    ]);
+    expect(output.read('runtime.yaml').oidc).toEqual(oidc);
+    expect(enrollment.userAuth.allowedRedirectUris).toEqual(oidcRuntime().userAuth.allowedRedirectUris);
+    expect(enrollment.runtime.requiredFiles.slice(-2)).toEqual(oidc.clients.map((client: any) => client.alias));
+    expect(JSON.stringify(enrollment)).not.toContain(oidcArn('unused'));
+    expect(Object.keys(enrollment.env).some(name => name.startsWith('PULSEMETRY_OIDC'))).toBe(false);
+    for (const app of ['dashboard-api', 'telemetry-ingest']) {
+      expect(output.read(`${app}.yaml`).oidc).toBeUndefined();
+      expect(JSON.stringify(output.read(`${app}.yaml`))).not.toContain('OIDC_CLIENT_SECRET');
+    }
+  });
+
+  test('비활성 OIDC는 빈 원본의 ARN output·VersionId 없이 기존 필수 파일을 유지한다', () => {
+    const output = run(outputs(), enrollmentImage, dashboardImage, dump(oidcRuntime(false)));
+    expect(output.result.status).toBe(0);
+    expect(output.read('runtime.yaml').oidc).toEqual({ enabled: false });
+    expect(output.read('enrollment-api.yaml').oidc).toEqual({ enabled: false });
+    expect(output.read('enrollment-api.yaml').runtime.requiredFiles).toHaveLength(4);
+    expect(JSON.stringify(output.read('runtime.yaml'))).not.toContain('cognito-a');
+  });
+
+  test('HTTP OIDC 입력을 그대로 전달하며 backend의 local 예외를 자동 활성화하지 않는다', () => {
+    const input = oidcRuntime(true, 'http');
+    const output = run(oidcOutputs(), enrollmentImage, dashboardImage, dump(input));
+    expect(output.result.status).toBe(0);
+    const runtime = output.read('runtime.yaml');
+    const enrollment = output.read('enrollment-api.yaml');
+    expect(runtime.oidc.callbackBaseUrl).toBe(input.oidc.callbackBaseUrl);
+    expect(runtime.oidc.failureRedirectUri).toBe(input.oidc.failureRedirectUri);
+    expect(enrollment.oidc).toEqual(runtime.oidc);
+    expect(enrollment.userAuth.allowedRedirectUris).toEqual(input.userAuth.allowedRedirectUris);
+    expect(enrollment.oidc).not.toHaveProperty('allowInsecureLocalhost');
+    expect(enrollment.env.PULSEMETRY_OIDC_ALLOW_INSECURE_LOCALHOST).toBeUndefined();
+    expect(enrollment.env.SPRING_PROFILES_ACTIVE).toBeUndefined();
+  });
+
+  helmTest('HTTP callback·실패 복귀·허용 복귀 주소로 runtime과 enrollment를 render한다', () => {
+    const output = run(oidcOutputs(), enrollmentImage, dashboardImage, dump(oidcRuntime(true, 'http')));
+    expect(output.result.status).toBe(0);
+    for (const app of ['runtime', 'enrollment-api']) {
+      const files = app === 'runtime' ? [join(output.dir, 'runtime.yaml')]
+        : ['helm/dev/workloads/enrollment-api.yaml', join(output.dir, 'enrollment-api.yaml')];
+      const result = spawnSync(process.env.HELM_BIN!, ['template', app,
+        app === 'runtime' ? 'helm/dev/runtime/chart' : 'helm/dev/workloads/spring-app',
+        '--namespace', 'pulsemetry-dev', '--kube-version', '1.36.0', ...files.flatMap(file => ['-f', file])], { cwd: root, encoding: 'utf8' });
+      expect(result.status).toBe(0);
+      expect(result.stdout).not.toContain('allow-insecure-localhost');
+      expect(result.stdout).not.toContain('PULSEMETRY_OIDC_ALLOW_INSECURE_LOCALHOST');
+      expect(result.stdout).not.toContain('SPRING_PROFILES_ACTIVE');
+      if (app === 'enrollment-api') {
+        const deployment = result.stdout.split(/^---\s*$/m).filter(text => text.trim()).map(text => load(text)).find((doc: any) => doc.kind === 'Deployment');
+        const env = Object.fromEntries(deployment.spec.template.spec.containers[0].env.map((item: any) => [item.name, item.value]));
+        expect(env.PULSEMETRY_OIDC_CALLBACK_BASE_URL).toBe('http://auth.example.test');
+        expect(env.PULSEMETRY_OIDC_FAILURE_REDIRECT_URI).toBe('http://dashboard.example.test/auth/callback');
+        expect(env.PULSEMETRY_USER_AUTH_ALLOWED_REDIRECT_URIS).toBe('http://dashboard.example.test/auth/callback');
+      }
+    }
+  });
+
+  test('OIDC output의 미선언 key·잘못된 계정/리전/소유 경로·중복·기존 Secret 충돌을 거부한다', () => {
+    for (const change of [
+      (source: any) => { delete source.DevDataStack.OidcClientSecretArns; },
+      (source: any) => { source.DevDataStack.OidcClientSecretArns = '[]'; },
+      (source: any) => { source.DevDataStack.OidcClientSecretArns = '{}'; },
+      (source: any) => { source.DevDataStack.OidcClientSecretArns = '{"cognito-a":"a","cognito-a":"b"}'; },
+      (source: any) => { source.DevDataStack.OidcClientSecretArns = source.DevDataStack.OidcClientSecretArns.replaceAll('111111111111', '222222222222'); },
+      (source: any) => { source.DevDataStack.OidcClientSecretArns = source.DevDataStack.OidcClientSecretArns.replaceAll('ap-northeast-2', 'us-east-1'); },
+      (source: any) => { source.DevDataStack.OidcClientSecretArns = source.DevDataStack.OidcClientSecretArns.replaceAll('/dev/', '/prod/'); },
+      (source: any) => { source.DevDataStack.OidcClientSecretArns = JSON.stringify({ 'cognito-a': oidcArn('cognito-b'), 'cognito-b': oidcArn('cognito-b') }); },
+      (source: any) => { source.DevEksStack.TokenHashSecretArn = oidcArn('cognito-a'); },
+    ]) {
+      const source = oidcOutputs(); change(source);
+      const output = run(source, enrollmentImage, dashboardImage, dump(oidcRuntime()));
+      expect(output.result.status).toBe(1);
+      expect(existsSync(output.dir)).toBe(false);
+    }
   });
 
   test.each(['registry.example/app:latest', 'registry.example/app@sha256:abcd'])('mutable 또는 잘못된 image %s는 파일 생성 전 거절한다', invalid => {
@@ -199,6 +303,153 @@ describe('배포 output→values 변환', () => {
       expect(existsSync(output.dir)).toBe(false);
       expect(output.result.stderr).not.toContain('forbidden');
     }
+  });
+
+  test('OIDC 원문·ARN override·누락 버전·지원하지 않는 callback scheme은 입력 단계에서 거부한다', () => {
+    for (const change of [
+      (value: any) => { value.oidc.clients[0].secretArn = oidcArn('cognito-b'); },
+      (value: any) => { value.oidc.clients[0].clientSecret = 'forbidden-oidc-value'; },
+      (value: any) => { delete value.oidc.clients[0].versionId; },
+      (value: any) => { value.oidc.clients[0].versionId = 'AWSCURRENT'; },
+      (value: any) => { value.oidc.clients.push({ ...value.oidc.clients[0] }); },
+      (value: any) => { value.oidc.callbackBaseUrl = 'ftp://validation-alb.example.test'; },
+      (value: any) => { value.oidc.callbackBaseUrl = 'https://auth.example.test?'; },
+      (value: any) => { value.oidc.callbackBaseUrl = 'https://auth.example.test#'; },
+      (value: any) => { value.oidc.callbackBaseUrl = 'https://auth..example.test'; },
+      (value: any) => { value.oidc.callbackBaseUrl = 'https://auth.-example.test'; },
+      (value: any) => { value.oidc.callbackBaseUrl = 'https://auth.example-.test'; },
+      (value: any) => { value.oidc.callbackBaseUrl = 'https://auth.example.test\\'; },
+      (value: any) => { value.oidc.failureRedirectUri = 'https://unlisted.example.test/callback'; },
+      (value: any) => { delete value.userAuth.allowedRedirectUris; },
+    ]) {
+      const value = oidcRuntime(); change(value);
+      const output = run(oidcOutputs(), enrollmentImage, dashboardImage, dump(value));
+      expect(output.result.status).toBe(1);
+      expect(existsSync(output.dir)).toBe(false);
+      expect(output.result.stderr).not.toContain('forbidden-oidc-value');
+    }
+  });
+
+  helmTest('OIDC 고정 버전 SPC와 정확한 맵·필수 파일·rollout 변경을 검증한다', () => {
+    const output = run(oidcOutputs(), enrollmentImage, dashboardImage, dump(oidcRuntime()));
+    expect(output.result.status).toBe(0);
+    const rendered = (chart: string, value: any, workload = 'enrollment-api') => {
+      const filename = join(output.temp, 'render-values.yaml');
+      writeFileSync(filename, dump(value));
+      return spawnSync(process.env.HELM_BIN!, ['template', workload, chart, '--namespace', 'pulsemetry-dev', '--kube-version', '1.36.0',
+        ...(chart.includes('spring-app') ? ['-f', `helm/dev/workloads/${workload}.yaml`] : []), '-f', filename], { cwd: root, encoding: 'utf8' });
+    };
+    const documents = (text: string) => text.split(/^---\s*$/m).filter(text => text.trim()).map(text => load(text));
+    const runtime = output.read('runtime.yaml');
+    const runtimeResult = rendered('helm/dev/runtime/chart', runtime);
+    expect(runtimeResult.status).toBe(0);
+    const spcs = documents(runtimeResult.stdout);
+    expect(spcs).toHaveLength(5);
+    const enrollmentSpc = spcs.find((doc: any) => doc.metadata.name === 'enrollment-api-runtime');
+    const objects = load(enrollmentSpc.spec.parameters.objects);
+    expect(objects.slice(-2)).toEqual(runtime.oidc.clients.map((client: any) => ({
+      objectName: client.secretArn, objectType: 'secretsmanager', objectVersion: client.versionId,
+      objectAlias: client.alias, filePermission: '0444',
+    })));
+    expect(enrollmentSpc.spec.secretObjects).toBeUndefined();
+    for (const spc of spcs.filter((doc: any) => doc.metadata.name !== 'enrollment-api-runtime')) {
+      expect(JSON.stringify(spc)).not.toContain('/oidc/clients/');
+    }
+    const app = output.read('enrollment-api.yaml');
+    const appResult = rendered('helm/dev/workloads/spring-app', app);
+    expect(appResult.status).toBe(0);
+    const deployment = documents(appResult.stdout).find((doc: any) => doc.kind === 'Deployment');
+    const pod = deployment.spec.template.spec;
+    const env = Object.fromEntries(pod.containers[0].env.map((item: any) => [item.name, item.value]));
+    expect(env.PULSEMETRY_OIDC_ENABLED).toBe('true');
+    expect(env.PULSEMETRY_OIDC_CALLBACK_BASE_URL).toBe(app.oidc.callbackBaseUrl);
+    expect(env.PULSEMETRY_OIDC_FAILURE_REDIRECT_URI).toBe(app.oidc.failureRedirectUri);
+    expect(env.PULSEMETRY_USER_AUTH_ALLOWED_REDIRECT_URIS).toBe(app.userAuth.allowedRedirectUris.join(','));
+    const properties = JSON.parse(env.SPRING_APPLICATION_JSON as string).pulsemetry;
+    expect(properties.oidc).toEqual({ 'callback-registration-id': 'oidc', 'client-secrets': {
+      '[cognito-a]': '${PULSEMETRY_OIDC_CLIENT_SECRET_0}', '[cognito-b]': '${PULSEMETRY_OIDC_CLIENT_SECRET_1}',
+    } });
+    expect(properties['user-auth']['public-key-files']).toEqual({ '[release-2026.10]': '/mnt/user-jwt/keys/release-2026-10.pem' });
+    expect(pod.containers[0].env.some((item: any) => item.name.startsWith('PULSEMETRY_OIDC_CLIENT_SECRET_'))).toBe(false);
+    expect(pod.volumes).toHaveLength(2);
+    const revision = deployment.spec.template.metadata.annotations['pulsemetry.io/oidc-revision'];
+    expect(revision).toMatch(/^[a-f0-9]{64}$/);
+    for (const change of [
+      (value: any) => { value.oidc.clients[0].versionId = 'c'.repeat(32); },
+      (value: any) => { value.oidc.clients[0].secretArn = value.oidc.clients[0].secretArn.replace('abc123', 'def456'); },
+      (value: any) => { value.oidc.clients[0].key = 'cognito-A'; value.oidc.clients[0].secretArn = oidcArn('cognito-A'); },
+    ]) {
+      const changed = JSON.parse(JSON.stringify(app)); change(changed);
+      const result = rendered('helm/dev/workloads/spring-app', changed);
+      expect(result.status).toBe(0);
+      const next = documents(result.stdout).find((doc: any) => doc.kind === 'Deployment');
+      expect(next.spec.template.metadata.annotations['pulsemetry.io/oidc-revision']).not.toBe(revision);
+    }
+    const files = join(output.temp, 'oidc-configtree'), keys = join(output.temp, 'oidc-keys');
+    mkdirSync(files); mkdirSync(keys);
+    for (const file of app.runtime.requiredFiles) writeFileSync(join(files, file), 'synthetic-oidc-fixture');
+    for (const file of [...app.jwt.publicKeys.map((entry: any) => entry.alias), 'private.pem']) writeFileSync(join(keys, file), 'synthetic-key-fixture');
+    const command = pod.initContainers[0].args[0].replaceAll('/mnt/secrets-store', files).replaceAll('/mnt/user-jwt/keys', keys);
+    const check = () => spawnSync('/bin/sh', ['-ec', command], { encoding: 'utf8' });
+    expect(check().status).toBe(0);
+    for (const client of app.oidc.clients) {
+      const path = join(files, client.alias);
+      writeFileSync(path, ''); expect(check().status).not.toBe(0);
+      rmSync(path); expect(check().status).not.toBe(0);
+      writeFileSync(path, 'synthetic-oidc-fixture');
+    }
+    for (const change of [
+      (value: any) => { value.env.PULSEMETRY_OIDC_CLIENT_SECRET_0 = 'forbidden'; },
+      (value: any) => { value.env.PULSEMETRY_OIDC_ENABLED = 'true'; },
+      (value: any) => { value.env.PULSEMETRY_OIDC_CLIENTSECRETS_COGNITOA = 'forbidden'; },
+      (value: any) => { value.env.PULSEMETRY_USER_AUTH_ALLOWED_REDIRECT_URIS = 'https://bypass.example.test'; },
+      (value: any) => { value.oidc.callbackBaseUrl = 'ftp://validation-alb.example.test'; },
+      (value: any) => { value.oidc.callbackBaseUrl = 'https://auth.example.test?'; },
+      (value: any) => { value.oidc.callbackBaseUrl = 'https://auth.example.test#'; },
+      (value: any) => { value.oidc.callbackBaseUrl = 'https://auth..example.test'; },
+      (value: any) => { value.oidc.callbackBaseUrl = 'https://auth.-example.test'; },
+      (value: any) => { value.oidc.callbackBaseUrl = 'https://auth.example-.test'; },
+      (value: any) => { value.oidc.callbackBaseUrl = 'https://auth.example.test\\'; },
+      (value: any) => { value.oidc.callbackBaseUrl = 'https://auth.example.test '; },
+      (value: any) => { value.oidc.failureRedirectUri = 'https://unlisted.example.test/callback'; },
+      (value: any) => { value.oidc.failureRedirectUri = 'https://dashboard.example.test/callback?'; value.userAuth.allowedRedirectUris = [value.oidc.failureRedirectUri]; },
+      (value: any) => { value.oidc.failureRedirectUri = 'https://dashboard.example.test/' + 'a'.repeat(256); value.userAuth.allowedRedirectUris = [value.oidc.failureRedirectUri]; },
+      (value: any) => { value.oidc.clients[0].secretArn = oidcArn('another-client'); },
+      (value: any) => { value.oidc.clients[0].alias = '../escape'; },
+      (value: any) => { value.oidc.clients[0].versionId = 'AWSCURRENT'; },
+      (value: any) => { value.oidc.clients[1].key = value.oidc.clients[0].key; },
+      (value: any) => { value.oidc.enabled = false; },
+      (value: any) => { value.runtime.enabled = false; },
+      (value: any) => { value.jwt.enabled = false; },
+      (value: any) => { value.runtime.requiredFiles.pop(); },
+    ]) {
+      const invalid = JSON.parse(JSON.stringify(app)); change(invalid);
+      expect(rendered('helm/dev/workloads/spring-app', invalid).status).not.toBe(0);
+    }
+    for (const workload of ['dashboard-api', 'telemetry-ingest']) {
+      const invalid = output.read(`${workload}.yaml`); invalid.oidc = app.oidc;
+      expect(rendered('helm/dev/workloads/spring-app', invalid, workload).status).not.toBe(0);
+    }
+    for (const change of [
+      (value: any) => { value.oidc.clients[0].secretArn = value.oidc.clients[0].secretArn.replace('111111111111', '222222222222'); },
+      (value: any) => { value.oidc.clients[0].secretArn = oidcArn('another-client'); },
+      (value: any) => { value.oidc.clients[1].alias = value.oidc.clients[0].alias; },
+      (value: any) => { value.oidc.clients[1].key = value.oidc.clients[0].key; },
+      (value: any) => { value.oidc.clients[0].versionId = 'AWSCURRENT'; },
+      (value: any) => { value.secrets.tokenHashArn = value.oidc.clients[0].secretArn; },
+      (value: any) => { value.oidc.enabled = false; },
+    ]) {
+      const invalid = JSON.parse(JSON.stringify(runtime)); change(invalid);
+      expect(rendered('helm/dev/runtime/chart', invalid).status).not.toBe(0);
+    }
+    const disabled = run(outputs(), enrollmentImage, dashboardImage, dump(oidcRuntime(false)));
+    const disabledResult = rendered('helm/dev/runtime/chart', disabled.read('runtime.yaml'));
+    expect(disabledResult.status).toBe(0);
+    expect(disabledResult.stdout).not.toContain('PULSEMETRY_OIDC_CLIENT_SECRET_');
+    const disabledApp = rendered('helm/dev/workloads/spring-app', disabled.read('enrollment-api.yaml'));
+    expect(disabledApp.status).toBe(0);
+    expect(disabledApp.stdout).not.toContain('pulsemetry.io/oidc-revision');
+    expect(disabledApp.stdout).not.toContain('client-secrets');
   });
 
   helmTest('인용이 필요한 kid의 추출 identifier와 파일 맵을 보존한다', () => {

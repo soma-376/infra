@@ -17,6 +17,7 @@ export interface DevEksRuntimeProps {
   readonly dashboardClickHouseCacheSecret: ISecret;
   readonly userJwtPrivateKeySecret: ISecret;
   readonly userJwtPublicKeysSecret: ISecret;
+  readonly oidcClientSecrets?: Readonly<Record<string, ISecret>>;
   readonly rawSignalBucket: IBucket;
   readonly archivePrefix: 'eks_validation' | 'eks';
 }
@@ -45,6 +46,8 @@ export class DevEksRuntime extends Construct {
     this.grantSecretRead(this.enrollmentRole, [
       props.dbSecret, props.tokenHashSecret, props.adminApiTokenSecret,
       props.userJwtPrivateKeySecret, props.userJwtPublicKeysSecret,
+      // EKS values의 활성화는 ECS enabled와 독립적이다. 선언된 원본만 미리 허용한다.
+      ...Object.values(props.oidcClientSecrets ?? {}),
     ]);
     this.grantSecretRead(this.telemetryIngestRole, [props.dbSecret, props.tokenHashSecret]);
 
