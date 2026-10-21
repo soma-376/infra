@@ -136,6 +136,8 @@ CRI/docker multiline parser는 런타임 분할 레코드를 결합한다. Java 
 
 **배포 전 관문.** 읽기 전용 `TestMetricFilter`로 5개 filter가 각각 기대 샘플만 일치하는지 확인한다.
 하나라도 다르면 Fluent Bit 적용을 멈춘다. 결과 파일은 덮어쓰지 않으며 실행 기록에 경로를 남긴다.
+응답은 `eventMessage`로 샘플에 대응시킨다. `eventNumber`가 0과 1 중 어디서 시작하는지는 AWS 문서 예시(0)로만
+알고 있어서, 결과 파일의 `awsEventNumbers`에 원본 번호를 남겨 첫 실행에서 확인한다.
 
 ```bash
 # 샘플은 합성 로그이며 비밀·payload가 없다. logs:TestMetricFilter 권한만 쓴다.

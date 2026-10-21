@@ -152,7 +152,7 @@ Backend scrape 사본 3개는 [provenance](tests/fixtures/provenance.json)에 �
 | `validate-helm-workloads.mjs` | Helm 3.22.0, kubeconform 0.8.0 | workload 147·platform 10 resource, 실패 입력 232 통과 |
 | `eks-values-check-runtime.mjs` | 고정 CSI 1.6.1·ASCP 3.1.4·Fluent Bit chart 0.58.3 archive SHA256 | 통과 |
 | `observability-log-envelope-smoke.py`·`observability-fluent-bit-smoke.py` | Fluent Bit 5.1.3 ARM64 | envelope 10건, runtime/Events dry-run 0 |
-| `observability-metric-filter-check.mjs` | 로컬 부분 문자열 | 5 filter 통과. CloudWatch engine(`--aws`)은 미실행 |
+| `observability-metric-filter-check.mjs` | 로컬 부분 문자열, 가짜 `aws` 응답(eventNumber 0·1 시작) | 5 filter 통과. CloudWatch engine(`--aws`)은 미실행 |
 
 AWS 배포·실제 scrape·로그 배송·TestMetricFilter는 실행하지 않았다.
 

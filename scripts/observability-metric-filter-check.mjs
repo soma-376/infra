@@ -25,6 +25,8 @@ const raw = readFileSync(options.samples, 'utf8');
 const samples = raw.split('\n').filter(Boolean).map(line => JSON.parse(line));
 const events = [...new Set(samples.map(sample => sample.expectedEvent).filter(Boolean))].sort();
 assert.ok(samples.some(sample => !sample.expectedEvent), '어떤 filter와도 일치하면 안 되는 음성 샘플이 필요하다');
+// AWS 응답은 eventMessage로 샘플에 대응시킨다. 같은 메시지가 둘이면 어느 샘플이 일치했는지 알 수 없다.
+assert.equal(new Set(samples.map(sample => sample.message)).size, samples.length, '샘플 message는 서로 달라야 한다');
 
 // CDK의 FilterPattern.literal(`"event=<code>"`)과 같은 문자열이다. 테스트가 합성 템플릿과 대조한다.
 const pattern = event => `"event=${event}"`;
@@ -35,19 +37,27 @@ function localMatches(event) {
   return samples.flatMap((sample, index) => sample.message.includes(`event=${event}`) ? [index + 1] : []);
 }
 
+// eventNumber가 0과 1 중 어디서 시작하는지는 문서 예시(0)뿐이고 실제 응답으로 확인하지 못했다. 번호 대신 eventMessage로
+// 샘플을 찾고, 원본 eventNumber는 증거 파일에 남겨 첫 실행에서 기준을 확인한다.
 function awsMatches(event) {
   const result = spawnSync('aws', ['logs', 'test-metric-filter', '--region', options.region, '--output', 'json',
     '--filter-pattern', pattern(event), '--log-event-messages', ...samples.map(sample => sample.message)],
   { encoding: 'utf8', timeout: 60_000 });
   assert.equal(result.status, 0, `aws logs test-metric-filter 실패: ${result.stderr || result.error}`);
-  return JSON.parse(result.stdout).matches.map(match => match.eventNumber).sort((a, b) => a - b);
+  const matches = JSON.parse(result.stdout).matches;
+  const matched = matches.map(match => {
+    const index = samples.findIndex(sample => sample.message === match.eventMessage);
+    assert.ok(index >= 0, `${pattern(event)}: 응답 eventMessage가 샘플에 없다 (eventNumber ${match.eventNumber})`);
+    return index + 1;
+  });
+  return { matched: matched.sort((a, b) => a - b), eventNumbers: matches.map(match => match.eventNumber).sort((a, b) => a - b) };
 }
 
 const results = {};
 for (const event of events) {
-  const matched = options.aws ? awsMatches(event) : localMatches(event);
+  const { matched, eventNumbers } = options.aws ? awsMatches(event) : { matched: localMatches(event) };
   assert.deepEqual(matched, expected(event), `${pattern(event)}: 일치 샘플 ${matched} ≠ 기대 ${expected(event)}`);
-  results[event] = { pattern: pattern(event), matchedSamples: matched.map(number => samples[number - 1].name) };
+  results[event] = { pattern: pattern(event), matchedSamples: matched.map(number => samples[number - 1].name), ...(eventNumbers && { awsEventNumbers: eventNumbers }) };
 }
 const engine = options.aws ? 'CloudWatch TestMetricFilter' : 'local substring (CloudWatch engine 미실행)';
 if (options.output) {
