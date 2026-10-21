@@ -7,12 +7,13 @@ import {
   IPeer,
   Peer,
   Port,
+  PrivateSubnet,
   SecurityGroup,
   SubnetType,
   Vpc,
 } from 'aws-cdk-lib/aws-ec2';
 import { PORTS } from '../common/config';
-import { DEV_EKS_NODE_PORTS } from './eks-config';
+import { DEV_EKS_MSK_IAM_PORT, DEV_EKS_MSK_SUBNETS, DEV_EKS_NODE_PORTS } from './eks-config';
 import {
   DEV_SUBNET_GROUP,
   DEV_VPC_CIDR,
@@ -59,6 +60,9 @@ export class DevNetworkStack extends Stack {
   public readonly eksClickhouseNodeSecurityGroup?: SecurityGroup;
   public readonly eksValidationAlbSecurityGroup?: SecurityGroup;
   public readonly eksRelaySecurityGroup?: SecurityGroup;
+  /** EKS 활성화 시 MSK broker 전용 isolated subnet 3개와 SG. (ADR-0035) */
+  public readonly mskSubnets?: readonly PrivateSubnet[];
+  public readonly mskSecurityGroup?: SecurityGroup;
   public readonly vpc: Vpc;
   public readonly albSecurityGroup: SecurityGroup;
   /** EC2 호스트 2대(앱 ASG + ClickHouse ASG) 공용 SG. */
@@ -182,6 +186,7 @@ export class DevNetworkStack extends Stack {
         apps.addIngressRule(alb, Port.tcp(30416), 'EKS ingest NodePort from ALB');
         apps.addIngressRule(alb, Port.tcp(30080), 'EKS enrollment NodePort from ALB');
         apps.addIngressRule(alb, Port.tcp(DEV_EKS_NODE_PORTS.dashboard), 'EKS dashboard NodePort from ALB');
+        apps.addIngressRule(alb, Port.tcp(DEV_EKS_NODE_PORTS.gateway), 'EKS telemetry gateway NodePort from ALB');
         ch.addIngressRule(alb, Port.tcp(8123), 'EKS ClickHouse HTTP from ALB');
       }
       this.forEachAllowedCidr((peer, cidr) => {
@@ -191,6 +196,17 @@ export class DevNetworkStack extends Stack {
           validation.addIngressRule(peer, Port.tcp(PORTS.https), `Validation HTTPS from ${cidr}`);
         }
       });
+      // VPC construct와 maxAzs: 2를 바꾸지 않고 MSK broker 전용 subnet만 추가한다. local route만 있으며
+      // IGW·NAT·S3 endpoint route를 연결하지 않는다. VPC의 subnet 선택에도 들어가지 않는다. (ADR-0035)
+      this.mskSubnets = DEV_EKS_MSK_SUBNETS.map((subnet, index) => new PrivateSubnet(this, `DevMskSubnet${index + 1}`, {
+        vpcId: this.vpc.vpcId, availabilityZone: subnet.availabilityZone,
+        cidrBlock: subnet.cidrBlock, mapPublicIpOnLaunch: false,
+      }));
+      // broker ENI는 연결을 시작하지 않는다. 앱 NodePool의 Gateway·Consumer·관리 Job만 9098로 접속한다.
+      this.mskSecurityGroup = new SecurityGroup(this, 'DevMskSg', {
+        vpc: this.vpc, description: 'dev MSK brokers', allowAllOutbound: false, disableInlineRules: true,
+      });
+      this.mskSecurityGroup.addIngressRule(apps, Port.tcp(DEV_EKS_MSK_IAM_PORT), 'MSK IAM from EKS applications');
       // 기존 SG의 inline properties를 바꾸지 않고 별도 규칙을 추가한다.
       new CfnSecurityGroupIngress(this, 'EksToRds', {
         groupId: this.rdsSecurityGroup.securityGroupId, sourceSecurityGroupId: apps.securityGroupId,

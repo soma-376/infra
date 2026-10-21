@@ -6,7 +6,20 @@ export const DEV_EKS_RELAY_INSTANCE_TYPE = 't4g.micro';
 export const DEV_EKS_RELAY_SESSION_DOCUMENT_NAME = 'soma-376-dev-eks-api-tunnel';
 export const DEV_EKS_NAMESPACE = 'pulsemetry-dev';
 export const DEV_EKS_VERSION = '1.36';
-export const DEV_EKS_NODE_PORTS = { ingest: 30416, enrollment: 30080, dashboard: 30081 } as const;
+export const DEV_EKS_NODE_PORTS = { ingest: 30416, enrollment: 30080, dashboard: 30081, gateway: 30082 } as const;
+
+/**
+ * MSK broker 전용 subnet. VPC의 `maxAzs: 2` public subnet과 별개로 EKS 활성화 시에만 만든다.
+ * local route만 가지며 VPC subnet 선택에 포함되지 않는다. (ADR-0035)
+ */
+export const DEV_EKS_MSK_SUBNETS = [
+  { cidrBlock: '10.1.32.0/24', availabilityZone: 'ap-northeast-2a' },
+  { cidrBlock: '10.1.33.0/24', availabilityZone: 'ap-northeast-2b' },
+  { cidrBlock: '10.1.34.0/24', availabilityZone: 'ap-northeast-2c' },
+] as const;
+
+/** MSK SASL/IAM over TLS의 VPC 내부 broker 포트다. (ADR-0035) */
+export const DEV_EKS_MSK_IAM_PORT = 9098;
 
 export interface DevEksConfig {
   readonly enabled: boolean;
