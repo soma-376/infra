@@ -1,0 +1,22 @@
+{
+  "url": "https://ops.java/unix/blocked.certs",
+  "advisory": "https://openjdk.org/groups/vulnerability/advisories/2026-10-21",
+  "retrievedAt": "2026-10-22T11:20:01.268260+00:00",
+  "verifiedAt": "2026-10-22T11:20:01.268260+00:00",
+  "sha256": "2596bb6dda83c66d96c5a252d7b2ae1f24cc1ae3f1890223b4f3591a8d52bf10",
+  "bytes": 5608,
+  "fingerprintCount": 86,
+  "provenance": "기존 브라우저 다운로드 원본을 편입했다. macOS 다운로드 출처 메타데이터의 공식 URL, 원본 파일의 생성·수정 시각, 파일 형식과 복사 전후 SHA-256을 확인했다. 원본의 다운로드 시각은 별도로 확인하지 않았다.",
+  "verificationLimit": "편입 시 ops.java 직접 다운로드는 HTTP 403이었다. ops.java 최신 응답과의 직접 대조 대신 아래 Oracle 공식 패치 JDK archive의 파일과 바이트 동일성을 독립 검증했다.",
+  "independentVerification": {
+    "url": "https://download.oracle.com/java/25/latest/jdk-25_linux-aarch64_bin.tar.gz",
+    "checksumUrl": "https://download.oracle.com/java/25/latest/jdk-25_linux-aarch64_bin.tar.gz.sha256",
+    "archiveSha256": "070ae2ee07120a5b0dafac4d40f68eec356f2c1707fba940676f0b358ca269c2",
+    "entry": "jdk-25.0.5.0.2/lib/security/blocked.certs",
+    "verifiedAt": "2026-10-22T11:20:37Z",
+    "result": "공식 archive의 게시 SHA-256을 검증하고 내부 파일이 편입한 원본과 바이트 단위로 동일함을 확인했다. JDK 설치·실행이나 앱 이미지 변경은 수행하지 않았다."
+  },
+  "retrievalMethod": "기존 브라우저 다운로드 파일의 로컬 편입 시각이며 새 HTTP 다운로드 시각이 아니다.",
+  "sourceFileCreatedAt": "2026-10-22T10:55:29.869954Z",
+  "sourceFileModifiedAt": "2026-10-22T10:55:29.870129Z"
+}

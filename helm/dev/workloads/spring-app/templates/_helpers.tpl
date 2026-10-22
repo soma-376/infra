@@ -17,6 +17,11 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "pulsemetry.app.grace" -}}
 {{- if and (eq .Values.workload "telemetry-ingest") (has .Values.ingestMode (list "dual" "kafka")) }}90{{ else }}60{{ end -}}
 {{- end -}}
+{{- define "pulsemetry.app.blockedCerts" -}}
+{{- $content := .Files.Get "files/blocked.certs" -}}
+{{- $_ := required "공식 files/blocked.certs가 없거나 비어 있다" (trim $content) -}}
+{{- $content -}}
+{{- end -}}
 {{- define "pulsemetry.app.validate" -}}
 {{- if ne .Release.Namespace "pulsemetry-dev" -}}
 {{- fail "namespace는 pulsemetry-dev여야 한다" -}}
