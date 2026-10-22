@@ -22,6 +22,7 @@ export interface DevAppRoute {
 export interface DevAppRouteTargets {
   readonly enrollment: IApplicationTargetGroup;
   readonly dashboard: IApplicationTargetGroup;
+  /** priority 1 OTLP 규칙의 대상. ECS는 ingest, EKS 검증 ALB는 ingest 또는 Gateway다. (ADR-0036) */
   readonly ingest: IApplicationTargetGroup;
 }
 

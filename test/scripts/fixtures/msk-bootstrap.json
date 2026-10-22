@@ -1,0 +1,3 @@
+{
+  "BootstrapBrokerStringSaslIam": "b-2.soma376devtelemetry.abc123.c2.kafka.ap-northeast-2.amazonaws.com:9098,b-3.soma376devtelemetry.abc123.c2.kafka.ap-northeast-2.amazonaws.com:9098,b-1.soma376devtelemetry.abc123.c2.kafka.ap-northeast-2.amazonaws.com:9098"
+}

@@ -1,0 +1,199 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "image",
+    "iamAuthJar",
+    "region",
+    "bootstrapServers",
+    "stage",
+    "topic",
+    "consumerGroup",
+    "topicAdmin",
+    "offsetAdmin",
+    "topicInit",
+    "offsets"
+  ],
+  "properties": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "digest"
+      ],
+      "properties": {
+        "repository": {
+          "const": "docker.io/apache/kafka"
+        },
+        "digest": {
+          "const": "sha256:05b4616e0702ef2729327705d54ad6b50ea70b271c4b730fabd2320789fb7b02"
+        }
+      }
+    },
+    "iamAuthJar": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "sha256"
+      ],
+      "properties": {
+        "url": {
+          "const": "https://github.com/aws/aws-msk-iam-auth/releases/download/v2.3.9/aws-msk-iam-auth-2.3.9-all.jar"
+        },
+        "sha256": {
+          "const": "922064f312ddc8a5f3dbe65fcef3d02ddbd588a02e3a6f0fca4b5a4dbec1ba43"
+        }
+      }
+    },
+    "region": {
+      "const": "ap-northeast-2"
+    },
+    "bootstrapServers": {
+      "type": "string",
+      "pattern": "^b-[0-9]+\\.[A-Za-z0-9-]+\\.[a-z0-9]+\\.c[0-9]+\\.kafka\\.ap-northeast-2\\.amazonaws\\.com:9098(,b-[0-9]+\\.[A-Za-z0-9-]+\\.[a-z0-9]+\\.c[0-9]+\\.kafka\\.ap-northeast-2\\.amazonaws\\.com:9098){0,2}$"
+    },
+    "stage": {
+      "enum": [
+        "validation",
+        "main"
+      ]
+    },
+    "topic": {
+      "type": "string",
+      "pattern": "^pulsemetry-dev-telemetry-ingress-(validation|main)$"
+    },
+    "consumerGroup": {
+      "type": "string",
+      "pattern": "^pulsemetry-dev-telemetry-ingest-(validation|main)$"
+    },
+    "topicAdmin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "roleArn",
+        "sessionName"
+      ],
+      "properties": {
+        "roleArn": {
+          "type": "string",
+          "pattern": "^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]{1,512}$"
+        },
+        "sessionName": {
+          "const": "pulsemetry-dev-telemetry-kafka-admin"
+        }
+      }
+    },
+    "offsetAdmin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "roleArn",
+        "sessionName"
+      ],
+      "properties": {
+        "roleArn": {
+          "type": "string",
+          "pattern": "^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]{1,512}$"
+        },
+        "sessionName": {
+          "const": "pulsemetry-dev-telemetry-kafka-offsets"
+        }
+      }
+    },
+    "topicInit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "offsets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "mode"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "mode": {
+          "enum": [
+            "plan",
+            "execute"
+          ]
+        },
+        "partition": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "toOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "toDatetime": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}(Z|[+-][0-9]{2}:[0-9]{2})$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "oneOf": [
+              {
+                "required": [
+                  "partition",
+                  "toOffset"
+                ],
+                "not": {
+                  "required": [
+                    "toDatetime"
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "toDatetime"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "partition"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "toOffset"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "else": {
+            "maxProperties": 2
+          }
+        }
+      ]
+    }
+  }
+}

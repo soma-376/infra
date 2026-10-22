@@ -12,6 +12,9 @@ resources:
     cpu: "1"
     memory: 2Gi
 env: {}
+# ClusterIP는 Kafka 전용 ingest의 내부 health Service에만 쓴다. TGB를 함께 선언할 수 없다.
+service:
+  type: NodePort
 # SecretProviderClass는 별도 runtime-config release가 소유한다.
 runtime:
   enabled: false
@@ -22,4 +25,10 @@ targetGroupBindings: []
 vpcId: ""
 # JWT는 configtree와 다른 CSI volume에 고정 버전의 PEM으로 공급한다.
 jwt:
+  enabled: false
+# telemetry JWT는 사용자 JWT와 별도 SPC·mount를 쓴다. (ADR-0036)
+telemetryJwt:
+  enabled: false
+# Kafka 접속값은 CDK output과 bootstrap 조회 JSON에서 생성기가 채운다. (ADR-0036)
+kafka:
   enabled: false

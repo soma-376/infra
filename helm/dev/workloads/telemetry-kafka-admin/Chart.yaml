@@ -1,0 +1,6 @@
+apiVersion: v2
+name: pulsemetry-dev-telemetry-kafka-admin
+description: dev telemetry MSK topic 초기화와 수동 offset 재처리 Job
+type: application
+version: 0.1.0
+kubeVersion: ">=1.36.0-0 <1.37.0-0"

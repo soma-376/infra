@@ -1,4 +1,6 @@
 workload: telemetry-ingest
+# 생성기가 http|dual|kafka를 덮어쓴다. kafka는 ClusterIP·TGB 없음과 함께만 렌더링된다.
+ingestMode: http
 env:
   PULSEMETRY_INGEST_PORT: "4316"
   PULSEMETRY_ARCHIVE_TYPE: s3

@@ -8,6 +8,7 @@
     "image",
     "resources",
     "env",
+    "service",
     "runtime",
     "targetGroupBindings",
     "vpcId"
@@ -17,11 +18,15 @@
       "enum": [
         "telemetry-ingest",
         "enrollment-api",
-        "dashboard-api"
+        "dashboard-api",
+        "telemetry-gateway"
       ]
     },
     "nodePort": {
-      "const": 30081
+      "enum": [
+        30081,
+        30082
+      ]
     },
     "replicaCount": {
       "const": 1
@@ -94,6 +99,28 @@
       "additionalProperties": {
         "type": "string"
       }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "NodePort",
+            "ClusterIP"
+          ]
+        }
+      }
+    },
+    "ingestMode": {
+      "enum": [
+        "http",
+        "dual",
+        "kafka"
+      ]
     },
     "runtime": {
       "type": "object",
@@ -369,6 +396,146 @@
           }
         }
       ]
+    },
+    "telemetryJwt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "secretProviderClass": {
+          "type": "string",
+          "enum": [
+            "enrollment-api-telemetry-jwt",
+            "telemetry-gateway-telemetry-jwt",
+            "telemetry-ingest-telemetry-jwt"
+          ]
+        },
+        "publicVersionId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9-]{32,64}$"
+        },
+        "privateVersionId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9-]{32,64}$"
+        },
+        "activeKid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\[\\]\\x00-\\x1f\\x7f]+$"
+        },
+        "publicKeys": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kid",
+              "alias"
+            ],
+            "properties": {
+              "kid": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\\[\\]\\x00-\\x1f\\x7f]+$"
+              },
+              "alias": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*\\.pem$"
+              }
+            }
+          }
+        },
+        "issueEnabled": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "secretProviderClass",
+              "publicVersionId",
+              "publicKeys"
+            ]
+          },
+          "else": {
+            "maxProperties": 1
+          }
+        }
+      ]
+    },
+    "kafka": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "bootstrapServers": {
+          "type": "string",
+          "pattern": "^b-[0-9]+\\.[A-Za-z0-9-]+\\.[a-z0-9]+\\.c[0-9]+\\.kafka\\.ap-northeast-2\\.amazonaws\\.com:9098(,b-[0-9]+\\.[A-Za-z0-9-]+\\.[a-z0-9]+\\.c[0-9]+\\.kafka\\.ap-northeast-2\\.amazonaws\\.com:9098){0,2}$"
+        },
+        "topic": {
+          "type": "string",
+          "pattern": "^pulsemetry-dev-telemetry-ingress-(validation|main)$"
+        },
+        "consumerGroup": {
+          "type": "string",
+          "pattern": "^pulsemetry-dev-telemetry-ingest-(validation|main)$"
+        },
+        "iamRoleArn": {
+          "type": "string",
+          "pattern": "^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]{1,512}$"
+        },
+        "iamSessionName": {
+          "enum": [
+            "pulsemetry-dev-telemetry-gateway",
+            "pulsemetry-dev-telemetry-ingest"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "bootstrapServers",
+              "topic",
+              "iamRoleArn",
+              "iamSessionName"
+            ]
+          },
+          "else": {
+            "maxProperties": 1
+          }
+        }
+      ]
     }
   },
   "allOf": [
@@ -383,12 +550,71 @@
       "then": {
         "required": [
           "nodePort"
+        ],
+        "properties": {
+          "nodePort": {
+            "const": 30081
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "workload": {
+            "const": "telemetry-gateway"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "nodePort",
+          "telemetryJwt",
+          "kafka"
+        ],
+        "properties": {
+          "nodePort": {
+            "const": 30082
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "workload": {
+            "enum": [
+              "telemetry-ingest",
+              "enrollment-api"
+            ]
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "required": [
+            "nodePort"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "workload": {
+            "const": "telemetry-ingest"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "ingestMode"
         ]
       },
       "else": {
         "not": {
           "required": [
-            "nodePort"
+            "ingestMode"
           ]
         }
       }

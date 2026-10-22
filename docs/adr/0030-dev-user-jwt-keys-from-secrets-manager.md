@@ -9,6 +9,9 @@ Accepted (공급 결정 채택, 키 준비·전달 구현과 AWS 배포·기능 
 JWT 공급 범위에서 부분 대체한다. 기존 DB·HMAC·관리자 Secret, prod, EKS 기반 구성과 배포 소유 경계는 유지한다.
 키 생성·형식·수명·교체 공통 계약은 [허브 ADR-0022](../../../docs/adr/0022-user-jwt-key-provisioning.md)가 소유한다.
 
+telemetry 전용 JWT 키 원본·SPC·mount는 이 ADR이 아니라 [ADR-0036](0036-dev-telemetry-gateway-workload-and-msk-iam.md)을 따른다.
+"ingest에는 JWT 권한이 없다"는 사용자 로그인 JWT에 한정한다.
+
 ## Context
 
 backend `UserAuthConfig.userJwt()`와 `SecurityConfig.dashboardAuthenticator()`는 기동 시 파일을 읽는다.

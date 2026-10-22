@@ -10,7 +10,15 @@ secrets:
   dashboardClickHouseCacheArn: ""
   userJwtPrivateKeyArn: ""
   userJwtPublicKeysArn: ""
+  telemetryJwtPrivateKeyArn: ""
+  telemetryJwtPublicKeysArn: ""
 userAuth:
+  privateVersionId: ""
+  publicVersionId: ""
+  activeKid: ""
+  publicKeys: []
+# telemetry JWT는 사용자 JWT와 다른 원본·VersionId·kid 맵이다. (ADR-0036)
+telemetryJwt:
   privateVersionId: ""
   publicVersionId: ""
   activeKid: ""

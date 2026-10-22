@@ -37,6 +37,8 @@ export const ECR_REPOS = {
   telemetryIngest: `${ECR_NAMESPACE}/telemetry-ingest`,
   // ECS와 EKS가 공유할 dashboard-api 이미지 산출물의 레포 이름. (PROJ-226)
   dashboardApi: `${ECR_NAMESPACE}/dashboard-api`,
+  // EKS 전용 telemetry Gateway 이미지. ECS service는 없고 이미지 공급만 한다. (ADR-0036)
+  telemetryGateway: `${ECR_NAMESPACE}/telemetry-gateway`,
 } as const;
 
 /**

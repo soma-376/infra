@@ -17,7 +17,7 @@ BFF 단일 프로세스에 맞춰 서비스 desired=1/min=0/max=100이다. 앱 �
 기존 CDK 전용 테스트 규칙은 그대로 유지하고, 새 Terraform은 fmt·validate·mock test로 검증한다.
 기존 CDK 리소스를 Terraform에 import하거나 같은 리소스를 두 도구가 수정하지 않는다.
 실제 apply는 리뷰·머지 후 보호된 CI에서 수행한다. 최초 bootstrap과 이후 bootstrap 변경은 관리자 작업이다.
-다음 미사용 ADR은 **0035**다.
+다음 미사용 ADR은 **0037**다.
 
 ---
 
@@ -33,9 +33,9 @@ backend-dev의 dashboard ECS 재배포 권한은 PROJ-221에서 구현한다. �
 사용자 JWT 키 공급은 [허브 ADR-0022](../docs/adr/0022-user-jwt-key-provisioning.md)와
 [infra ADR-0030](docs/adr/0030-dev-user-jwt-keys-from-secrets-manager.md)을 따른다.
 원본의 CDK 소유·보존은 [ADR-0031](docs/adr/0031-manage-dev-dashboard-and-jwt-secrets-with-cdk.md)을 따른다.
-`DevDataStack`은 기존 Secret 3개와 dashboard DB 계정 Secret 4개·값 없는 JWT 원본 2개, 총 9개를 정의한다.
+`DevDataStack`은 기존 Secret 3개와 dashboard DB 계정 Secret 4개·값 없는 JWT 원본 2개, 총 9개를 정의한다(PROJ-246의 telemetry JWT 원본 2개를 더해 현재 11개).
 새 6개는 삭제·교체 시 보존하며 DB 사용자 생성·JWT 초기화·CDK writer·EKS 키 mount는 후속 작업이다.
-enrollment는 두 JWT 원본, dashboard는 공개키만 읽으며 ingest에는 JWT 권한을 추가하지 않는다.
+enrollment는 두 JWT 원본, dashboard는 공개키만 읽으며 ingest에는 사용자 JWT 권한을 추가하지 않는다(PROJ-246의 telemetry JWT 공개키는 별도).
 기존 실제 Secret 3개와 과거 검증 수치는 당시 기록이다. 신규 리소스의 AWS 존재·키 등록·DB 권한은 미검증이다.
 [공통 준비 런북](docs/runbooks/dev-dashboard-prerequisites.md)에 수동 적용과 PROJ-230·231 인계를 정리한다.
 목표는 dev 네 서비스와 같은 ARM64 artifact의 ECS/EKS 소비다. dashboard는 포트 8081, ECS bridge·동적 host port·
@@ -72,7 +72,7 @@ prod 리소스·권한과 OIDC trust는 보존하며 cicd 변경은 PROJ-221의 
 ## PROJ-223·231·224 EKS 로컬 구현 보충
 
 기존 EKS 누적 tip `f36ccc8`과 PROJ-221을 merge해 두 계보를 보존했다. Helm은 기존 generated YAML 방식을 따른다.
-`scripts/eks-values.mjs`는 CDK output·세 앱 digest·`--runtime-values` YAML을 받아 runtime과 앱별 YAML을 함께 만든다.
+`scripts/eks-values.mjs`는 CDK output·앱 digest(PROJ-246부터 Gateway 포함 네 개)·`--runtime-values` YAML을 받아 runtime과 앱별 YAML을 함께 만든다.
 Helm 입력 순서는 정적 workload YAML → generated 앱 YAML이다. runtime 입력 YAML은 생성기에만 전달하고
 runtime release에는 generated/runtime.yaml을 사용한다. ARN/endpoint/TG/NodePort를 runtime 입력에서 덮어쓸 수 없다.
 dashboard NodePort는 30081이며 Network SG·전용 TG·CDK output·generated YAML·Helm Service/TGB를 연결한다. 실제 점유는 미검증이다. 231은 dashboard Pod Identity·설정 SPC와 앱별 JWT SPC를 추가한다.
@@ -85,7 +85,7 @@ JWT 버전은 고정하고 별도 RO 디렉터리에 mount하며 정확한 kid �
 
 [ADR-0032](docs/adr/0032-dev-oidc-client-secret-runtime-supply.md)는 기존 Cognito의 client secret을
 enrollment ECS/EKS에 공급한다. ECS runtime JSON의 client key마다 `DevDataStack`이 초기 버전 없는
-빈 Retain 원본을 만들며 `OidcClientSecretArns`로 key→ARN을 출력한다. 기존 기본 9개에 선언 key 수만큼 추가된다.
+빈 Retain 원본을 만들며 `OidcClientSecretArns`로 key→ARN을 출력한다. 기본 Secret 정의(현재 11개)에 선언 key 수만큼 추가된다.
 OIDC 입력 생략은 비활성이고 비활성 key 선언만으로 bootstrap할 수 있다. 값은 운영자가 수동 등록한다.
 ECS execution role의 `secrets`와 EKS enrollment Pod Identity·SPC는 활성 입력의 VersionId를 고정하며
 JWT writer는 바꾸지 않는다. EKS 생성기는 DataStack output까지 모아 ARN을 채운다. runtime 입력의 ARN·원문
@@ -126,11 +126,27 @@ NetworkStack은 릴레이 SG(인바운드 없음·TCP 443 아웃바운드)와 co
 public IPv4는 NAT 없는 기존 public subnet의 SSM egress용이다. 기존 SG 속성·ECS/prod/cicd는 보존한다.
 CDK 소유 `soma-376-dev-eks-api-tunnel` 문서는 해당 EKS hostname·443을 고정하고 로컬 포트만 받는다.
 기존 operator 역할이 전용 터널과 Kubernetes 전체 관리를 담당하며 EC2에는 EKS 권한을 부여하지 않는다.
-기존 node/operator AccessEntry는 2개, EKS 활성 구성은 5스택·사용자 정의 SG 9개다.
+기존 node/operator AccessEntry는 2개, EKS 활성 구성은 5스택·사용자 정의 SG 9개다(PROJ-246의 `DevMskSg`로 10개).
 `EksRelayInstanceId`·`EksRelaySessionDocumentName` output과 별도 로컬 kubeconfig를 사용한다.
 CA·원래 hostname TLS 검증을 유지하고 operator 프로필의 중복 AssumeRole을 피한다.
 구현·합성 결과는 SSM Online·터널·TLS·Kubernetes 접속 성공을 증명하지 않는다.
 배포·전환·복구와 live 수락 관문은 [EKS 런북](docs/runbooks/dev-eks-manual-deployment.md)을 따른다.
+
+---
+
+## PROJ-246 telemetry Gateway·MSK 로컬 구현 보충
+
+[ADR-0035](docs/adr/0035-dev-msk-isolated-subnets-under-eks-stack.md)와 [ADR-0036](docs/adr/0036-dev-telemetry-gateway-workload-and-msk-iam.md)을 따른다.
+EKS 활성화 시에만 Network가 MSK 전용 isolated subnet 3개(`10.1.32~34.0/24`, 2a·2b·2c)와 `DevMskSg`를 만든다. VPC construct·`maxAzs: 2`·NAT 0은 그대로다.
+DevEksStack 하위 `DevEksMsk`가 Kafka `3.9.x.kraft` broker 3대·IAM 전용 MSK를 소유하며 EKS 비활성화나 스택 삭제는 MSK와 backlog를 지운다.
+bootstrap은 Lambda 없이 운영자가 조회한 `get-bootstrap-brokers` JSON을 생성기 `--msk-bootstrap`으로 받는다.
+앱은 enrollment·ingest·dashboard·**telemetry-gateway** 네 개다. Gateway는 8082/NodePort 30082·전용 TG를 쓰며 DB·HMAC·사용자 JWT·S3가 없다.
+ingest는 `http|dual|kafka` 모드이고 kafka 모드만 ClusterIP·TGB 없음이다. "모든 앱 NodePort"는 더 이상 참이 아니다.
+MSK 데이터 권한은 workload별 MSK 전용 역할(대응 Pod 역할만 고정 세션 이름으로 assume, `sts:TagSession` 포함)에 있다.
+`DevDataStack`은 값 없는 telemetry JWT 원본 2개를 RETAIN으로 더해 기본 Secret 정의 11개다. 개인키는 enrollment만, 공개키는 enrollment·Gateway·ingest가 읽는다.
+runtime SPC는 기존 5개에 `<app>-telemetry-jwt` 3개를 더한 8개다. 검증 ALB의 OTLP 대상은 `devEksOtlpTarget=ingest|gateway`(기본 ingest)이며 ECS listener는 바뀌지 않는다.
+backend-dev 배포 역할은 `soma-376/telemetry-gateway` ECR push만 추가로 받는다. 경보는 SNS 없이 상태만 남고 Pod 재시작·OOM 경보는 후속이다.
+설치·전환·복구·offset 재처리와 backend 인계표는 [telemetry Kafka 런북](docs/runbooks/dev-telemetry-kafka.md)을 따른다. AWS 적용·MSK 접속은 미검증이다.
 
 ---
 
@@ -149,7 +165,7 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 
 **ADR 우선 원칙은 이 레포의 기존 규칙과 같다** — 1장의 "코드와 ADR이 어긋나면 ADR이 기준이다"가
 전 레포 공통 규칙이며, 크로스레포 결정만 `../docs/adr/`가 소유한다. 스코프 판정은 `adr-new` 스킬이 안내한다.
-단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0035`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
+단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0037`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
 기존 병행 브랜치의 ADR `0028`·`0029`·`0030`은 번호가 겹치므로 파일명과 링크를 보존한다.
 프론트엔드 Terraform 절은 프론트엔드 ADR을, dashboard·EKS·기존 CDK 절은 해당 백엔드 ADR을 가리킨다.
 인용할 때는 번호와 함께 범위·제목 또는 파일 링크를 사용하며, 전체 목록은 [ADR 인덱스](docs/adr/README.md)를 따른다.
@@ -263,7 +279,7 @@ Network/Data/Edge 뒤 Application 순서가 될 수 있다. PROJ-144 delete에�
 | 스택 | 파일 | 주요 리소스 |
 |---|---|---|
 | `DevNetworkStack` | `lib/dev/network-stack.ts` | 전용 VPC (`10.1.0.0/16`, 2 AZ × public 1 티어, NAT 0개), S3 Gateway Endpoint, **ALB/AppHost/ClickHouse/RDS SG 4개 + 모든 cross-SG 룰** |
-| `DevDataStack` | `lib/dev/data-stack.ts` | RDS PostgreSQL 16.13 `db.t4g.micro` (`controlplane`, gp3 20GB, `publiclyAccessible`), Secret 정의 9개(기존 3개·dashboard DB 계정 4개·빈 JWT 원본 2개), Raw Signal S3(7일 만료) |
+| `DevDataStack` | `lib/dev/data-stack.ts` | RDS PostgreSQL 16.13 `db.t4g.micro` (`controlplane`, gp3 20GB, `publiclyAccessible`), Secret 정의 11개(기존 3개·dashboard DB 계정 4개·빈 사용자 JWT 원본 2개·빈 telemetry JWT 원본 2개), Raw Signal S3(7일 만료) |
 | `DevApplicationStack` | `lib/dev/application-stack.ts` | ECS 클러스터, Cloud Map `obs.local`, 앱/ClickHouse ASG와 capacity provider, `Ec2Service` 3개 |
 | `DevEdgeStack` | `lib/dev/edge-stack.ts` | internet-facing ALB (`:80`, `:8123`), 신규 앱 target group 2개, dev REGIONAL WAF와 탐지 로그, `AlbDnsName`·`OtlpEndpoint`·`ClickhouseDebugUrl`·`RdsEndpoint`·`RdsSecretArn`·`TokenHashSecretArn`·`AdminApiTokenSecretArn` output 7개. Cognito·CloudFront·프론트엔드 S3 없음 |
 
@@ -355,8 +371,8 @@ URI·헤더 공격은 OTLP에도 Block한다. 정확한 OTLP 세 경로의 본�
 | **`lib/prod/`와 `lib/dev/`는 서로 import 하지 않는다** | 의존은 `prod → common`, `dev → common` 단방향뿐이다. dev에 필요한 값이 prod에 있으면 common으로 올리거나 dev에 둔다. (ADR-0021) |
 | **dev 네트워크 모드는 bridge / bridge / awsvpc다** | telemetry-ingest와 enrollment-api는 dynamic host port를 쓰는 instance target이다. ClickHouse만 A 레코드 등록을 위해 awsvpc/ip target을 쓴다. |
 | **두 Spring 이미지는 `linux/arm64`다** | 앱 호스트가 `AmiHardwareType.ARM`인 t4g라 amd64 이미지는 pull 뒤 실행되지 않는다. synth와 template assertion만으로 이미지 manifest architecture를 증명할 수 없다. |
-| **기존 Secret 3개와 신규 원본 6개의 수명을 구분한다** | RDS master·관리자 API token·공유 token hash의 construct ID·속성·주입은 보존한다. `DevAuthProxyTokenHashSecret`의 legacy ID도 유지한다. ADR-0031의 dashboard DB 계정 4개와 빈 JWT 원본 2개는 삭제·교체 시 `Retain`이며 총 Secret 정의는 9개다. 비밀번호는 배포 시 생성하고 실제 DB 사용자·권한은 운영자가 수동 적용한다. 신규 원본의 runtime 주입·IAM은 PROJ-230·231 범위다. 파생 libpq DSN·Postgres URI Secret은 만들지 않으며 합성·output에 비밀 원문을 남기지 않는다. |
-| **사용자 JWT 키 수명과 앱 배포를 분리한다** | 초기 키 생성·두 Secret 등록·키쌍 검증은 명시적인 작업이다. 일반 배포에서 생성하지 않으며 고정 ARN·VersionId·active-kid·파일 맵으로 ECS/EKS가 같은 원본을 소비한다. enrollment는 두 키, dashboard는 공개키만 받고 ingest에는 JWT 권한이 없다. PEM은 설정값 대신 파일로 공급하고, 교체는 전체 verifier → signer → 마지막 구 발급 후 330초 이상 → 구 공개키 제거다. ECS task role은 writer와 앱이 공유한다. 문서 채택을 코드·AWS 배포 완료로 보지 않는다. (허브 ADR-0022, infra ADR-0030) |
+| **기존 Secret 3개와 신규 원본 6개의 수명을 구분한다** | RDS master·관리자 API token·공유 token hash의 construct ID·속성·주입은 보존한다. `DevAuthProxyTokenHashSecret`의 legacy ID도 유지한다. ADR-0031의 dashboard DB 계정 4개와 빈 JWT 원본 2개, ADR-0036의 빈 telemetry JWT 원본 2개는 삭제·교체 시 `Retain`이며 총 Secret 정의는 11개다. 비밀번호는 배포 시 생성하고 실제 DB 사용자·권한은 운영자가 수동 적용한다. 신규 원본의 runtime 주입·IAM은 PROJ-230·231 범위다. 파생 libpq DSN·Postgres URI Secret은 만들지 않으며 합성·output에 비밀 원문을 남기지 않는다. |
+| **사용자 JWT 키 수명과 앱 배포를 분리한다** | 초기 키 생성·두 Secret 등록·키쌍 검증은 명시적인 작업이다. 일반 배포에서 생성하지 않으며 고정 ARN·VersionId·active-kid·파일 맵으로 ECS/EKS가 같은 원본을 소비한다. enrollment는 두 키, dashboard는 공개키만 받고 ingest에는 사용자 JWT 권한이 없다(telemetry JWT 공개키는 ADR-0036). PEM은 설정값 대신 파일로 공급하고, 교체는 전체 verifier → signer → 마지막 구 발급 후 330초 이상 → 구 공개키 제거다. ECS task role은 writer와 앱이 공유한다. 문서 채택을 코드·AWS 배포 완료로 보지 않는다. (허브 ADR-0022, infra ADR-0030) |
 | **두 앱은 기존 token hash Secret 하나를 공유한다** | telemetry-ingest의 인증과 enrollment-api의 token 발급/검증이 같은 HMAC key를 써야 한다. 새 Secret을 만들거나 header로 legacy identity를 전파하지 않는다. |
 | **public base URL은 ALB DNS에서 late binding한다** | `PULSEMETRY_PUBLIC_BASE_URL=http://<ALB DNS>`를 수동 context나 고정값으로 복제하지 않는다. weak reference는 export 잠금만 완화하므로 배포 순서는 별도 런북을 따른다. |
 | **`PULSEMETRY_BINARIES_DIR=/app/binaries`를 유지한다** | `/windows`, `/unix`, `/bin/*`는 enrollment-api로 라우팅한다. 이 레포는 URL/라우팅만 제공하며 이미지 안 실제 바이너리 공급은 별도 책임이다. |
@@ -425,7 +441,7 @@ DeployStack, 앱 workflow가 공유한다. prod의 `ENRICHMENT_ENV`와 Collector
 |---|---|
 | 이미지 URI | `<account>.dkr.ecr.ap-northeast-2.amazonaws.com/soma-376/<app>:<tag>` |
 | 이미지 태그 | dev=`dev`, prod=`prod`; workflow는 같은 immutable commit SHA tag도 함께 push |
-| 역할 | backend-dev는 `telemetry-ingest`, `enrollment-api` ECR push와 두 ECS service 재배포. pipeline-dev는 trust와 ARN output만 유지하고 permission statement 0개 |
+| 역할 | backend-dev는 `telemetry-ingest`, `enrollment-api`, `dashboard-api` ECR push와 세 ECS service 재배포, EKS 전용 `telemetry-gateway`는 ECR push만. pipeline-dev는 trust와 ARN output만 유지하고 permission statement 0개 |
 | prod 역할 | pipeline-prod는 `collector`, backend-prod는 `dashboard`; prod 대상은 이 전환에서 불변 |
 | 금지 권한 | `iam:PassRole`, `ecs:RegisterTaskDefinition` |
 | ECS 이름 | cluster `soma-376-dev` / `soma-376-prod`; service 이름은 `lib/common/deploy-targets.ts`가 단일 출처 |
@@ -583,7 +599,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0035`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급, `0033`은 외부 ACM 기반 dev HTTPS, `0034`는 dev EKS SSM 릴레이 접근으로 이미 쓰였다. `0020`은 프론트엔드 로그 정책이며, 프론트엔드 `0028`·`0029`·`0030`은 각각 Terraform 실행 환경·외부 DNS와 기존 인증서·독립 기반 상태를 다룬다. 중복 번호는 [ADR 인덱스](docs/adr/README.md)의 제목과 파일 링크로 구분하고, 기존 CDK 로그 정책 미결 사항은 위 (F)를 따른다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0037`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급, `0033`은 외부 ACM 기반 dev HTTPS, `0034`는 dev EKS SSM 릴레이 접근, `0035`는 MSK 배치·네트워크, `0036`은 telemetry Gateway workload·MSK IAM으로 이미 쓰였다. `0020`은 프론트엔드 로그 정책이며, 프론트엔드 `0028`·`0029`·`0030`은 각각 Terraform 실행 환경·외부 DNS와 기존 인증서·독립 기반 상태를 다룬다. 중복 번호는 [ADR 인덱스](docs/adr/README.md)의 제목과 파일 링크로 구분하고, 기존 CDK 로그 정책 미결 사항은 위 (F)를 따른다.
    형식은 `docs/adr/0000-adr-template.md`를 따른다.
 3. 상수는 **"이 값이 dev에서 달라야 할 이유가 있는가"**로 위치를 정한다 — 없으면 `lib/common/config.ts`, 운영 전용이면 `lib/prod/config.ts`, dev 전용이면 `lib/dev/config.ts`. 스택에서는 import만 한다 (4장).
 4. `test/prod/*.test.ts` / `test/dev/*.test.ts` / `test/cicd/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`(prod), `buildDevApp()`(dev), `buildCicdApp()`(cicd)를 재사용한다.
@@ -731,7 +747,7 @@ npx cdk diff --all -c env=dev -c devAllowedCidr=<내 IP>/32
 ```
 
 배포 전 `telemetry-ingest`, `enrollment-api`, `clickhouse` 세 service, 두 새 instance target group, dev SG 4개,
-Secret 정의 9개(기존 3개·DB 계정 4개·빈 JWT 원본 2개), 앱 ASG `maxCapacity: 1`, ingest grace 240초,
+Secret 정의 11개(기존 3개·DB 계정 4개·빈 사용자 JWT 원본 2개·빈 telemetry JWT 원본 2개), 앱 ASG `maxCapacity: 1`, ingest grace 240초,
 enrollment grace 60초 기본값을 template에서
 확인한다. Edge output은 `AlbDnsName`, `OtlpEndpoint`, `ClickhouseDebugUrl`, `RdsEndpoint`, `RdsSecretArn`,
 `TokenHashSecretArn`, `AdminApiTokenSecretArn` 7개여야 하고 prod template은 기준선과 같아야 한다.
@@ -914,7 +930,7 @@ diff /tmp/before/NetworkStack.template.json /tmp/after/NetworkStack.template.jso
 | 계약 | 왜 |
 |---|---|
 | trust `sub`가 immutable org/repo ID와 branch까지 `StringEquals` | wildcard나 name-only subject를 막는다 |
-| backend-dev가 신규 ECR/service 두 개만 대상으로 함 | 물리 이름과 workflow 계약 drift를 잡는다 |
+| backend-dev가 ECR 네 개(Gateway 포함)·ECS service 세 개만 대상으로 함 | 물리 이름과 workflow 계약 drift를 잡는다 |
 | pipeline-dev role의 permission statement 0개, trust/output 유지 | ECR login 포함 권한 회수를 보장한다 |
 | prod 역할의 ECR/service policy가 기준선과 같음 | dev cleanup이 prod 권한을 바꾸지 않게 한다 |
 | `iam:PassRole`, `ecs:RegisterTaskDefinition`, wildcard action 부재 | 권한 상승 경로를 막는다 |

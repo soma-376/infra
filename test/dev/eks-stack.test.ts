@@ -28,6 +28,7 @@ test('API CIDR 입력 없이 기존 endpoint 속성을 보존하고 private Auto
     KubernetesNetworkConfig: { IpFamily: 'ipv4', ElasticLoadBalancing: { Enabled: true } },
   });
   template.hasOutput('EksDashboardApiNodePort', { Value: '30081' });
+  template.hasOutput('EksTelemetryGatewayNodePort', { Value: '30082' });
   template.resourceCountIs('AWS::EKS::AccessEntry', 2);
   template.hasResourceProperties('AWS::EKS::AccessEntry', {
     Type: 'EC2', AccessPolicies: [{ AccessScope: { Type: 'cluster' }, PolicyArn: 'arn:aws:eks::aws:cluster-access-policy/AmazonEKSAutoNodePolicy' }],
@@ -89,8 +90,9 @@ test('추가 SG 규칙은 Network에만 생기고 기존 리소스 속성은 보
     if (key !== 'network') expect(Object.values(changed.Resources).filter((r: any) => r.Type.startsWith('AWS::EC2::SecurityGroup'))).toEqual([]);
   }
   const network = Template.fromStack(after.network);
-  network.resourceCountIs('AWS::EC2::SecurityGroup', 9);
-  for (const port of [30416, 30080, 8123, 5432, 9443, 10250]) {
+  // ADR-0035의 DevMskSg를 더해 EKS 활성 구성은 사용자 정의 SG 10개다.
+  network.resourceCountIs('AWS::EC2::SecurityGroup', 10);
+  for (const port of [30416, 30080, 30082, 8123, 5432, 9443, 10250, 9098]) {
     network.hasResourceProperties('AWS::EC2::SecurityGroupIngress', { FromPort: port, ToPort: port, SourceSecurityGroupId: Match.anyValue() });
   }
 });

@@ -1,0 +1,58 @@
+{{- /* telemetry JWT는 사용자 JWT와 다른 원본이다. 개인키는 enrollment SPC에만 둔다. (ADR-0036) */ -}}
+{{- $kids := dict -}}
+{{- $aliases := dict -}}
+{{- range .Values.telemetryJwt.publicKeys -}}
+{{- if or (hasKey $kids .kid) (hasKey $aliases .alias) (eq .alias "private.pem") -}}
+{{- fail "telemetry JWT kid·alias는 중복하거나 개인키 파일과 충돌할 수 없다" -}}
+{{- end -}}
+{{- $_ := set $kids .kid true -}}
+{{- $_ := set $aliases .alias true -}}
+{{- end -}}
+{{- if not (hasKey $kids .Values.telemetryJwt.activeKid) -}}
+{{- fail "telemetry JWT active-kid가 공개키 파일 맵에 없다" -}}
+{{- end -}}
+{{- $telemetryArns := list .Values.secrets.telemetryJwtPrivateKeyArn .Values.secrets.telemetryJwtPublicKeysArn -}}
+{{- range $name, $arn := .Values.secrets -}}
+{{- if and (not (has $name (list "telemetryJwtPrivateKeyArn" "telemetryJwtPublicKeysArn"))) (has $arn $telemetryArns) -}}
+{{- fail "telemetry JWT 원본은 다른 Secret과 같을 수 없다" -}}
+{{- end -}}
+{{- end -}}
+{{- if eq .Values.secrets.telemetryJwtPrivateKeyArn .Values.secrets.telemetryJwtPublicKeysArn -}}
+{{- fail "telemetry JWT 개인키와 공개키 원본은 달라야 한다" -}}
+{{- end -}}
+{{- range $app := list "enrollment-api" "telemetry-gateway" "telemetry-ingest" }}
+---
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: {{ $app }}-telemetry-jwt
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $app }}
+    app.kubernetes.io/part-of: pulsemetry
+spec:
+  provider: aws
+  parameters:
+    region: {{ $.Values.region | quote }}
+    usePodIdentity: "true"
+    preferredAddressType: ipv4
+    objects: |
+{{- if eq $app "enrollment-api" }}
+      - objectName: {{ $.Values.secrets.telemetryJwtPrivateKeyArn | quote }}
+        objectType: secretsmanager
+        objectVersion: {{ $.Values.telemetryJwt.privateVersionId | quote }}
+        objectAlias: private.pem
+        filePermission: "0444"
+{{- end }}
+      - objectName: {{ $.Values.secrets.telemetryJwtPublicKeysArn | quote }}
+        objectType: secretsmanager
+        objectVersion: {{ $.Values.telemetryJwt.publicVersionId | quote }}
+        objectAlias: _source_telemetry_public_keys_json
+        filePermission: "0400"
+        jmesPath:
+{{- range $.Values.telemetryJwt.publicKeys }}
+          - path: {{ .kid | toJson | quote }}
+            objectAlias: {{ .alias | quote }}
+            filePermission: "0444"
+{{- end }}
+{{- end }}

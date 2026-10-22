@@ -17,6 +17,7 @@ import {
 import { DevWaf } from './waf';
 import { DevEksValidationEdge } from './eks-validation-edge';
 import { DevEdgeConfig } from './edge-config';
+import { DevEksOtlpTarget } from './eks-config';
 import { addDevAppListener } from './app-listener';
 
 export interface DevEdgeStackProps extends StackProps {
@@ -25,6 +26,8 @@ export interface DevEdgeStackProps extends StackProps {
   readonly albSecurityGroup: ISecurityGroup;
   /** EKS 활성화 때만 별도 검증 ALB를 만든다. SG 소유자는 Network다. */
   readonly eksValidationAlbSecurityGroup?: ISecurityGroup;
+  /** EKS 검증 ALB의 OTLP 규칙 대상. 기본 ingest. (ADR-0036) */
+  readonly eksOtlpTarget?: DevEksOtlpTarget;
   /** 정확한 OTLP 세 경로의 타깃. */
   readonly telemetryIngestService: Ec2Service;
   /** 등록·인증·관리 API와 bootstrap 경로가 공유하는 타깃. */
@@ -81,6 +84,7 @@ export class DevEdgeStack extends Stack {
         webAclArn: waf.webAcl.attrArn,
         certificateArn: props.edge?.eksCertificateArn,
         httpRedirectEnabled: props.edge?.httpRedirectEnabled,
+        otlpTarget: props.eksOtlpTarget,
       });
     }
 

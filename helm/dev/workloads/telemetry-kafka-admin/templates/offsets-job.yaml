@@ -1,0 +1,30 @@
+{{- include "kafkaAdmin.validate" . -}}
+{{- if .Values.offsets.enabled }}
+{{- $script := .Files.Get "scripts/offsets.sh" }}
+{{- $env := dict "OFFSETS_MODE" .Values.offsets.mode -}}
+{{- if hasKey .Values.offsets "toOffset" }}
+{{- $_ := set $env "OFFSETS_PARTITION" (toString .Values.offsets.partition) -}}
+{{- $_ := set $env "OFFSETS_TO_OFFSET" (toString .Values.offsets.toOffset) -}}
+{{- else }}
+{{- $_ := set $env "OFFSETS_TO_DATETIME" .Values.offsets.toDatetime -}}
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: telemetry-offsets-{{ .Values.offsets.mode }}-r{{ .Release.Revision }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kafkaAdmin.labels" . | nindent 4 }}
+    pulsemetry.io/job: offsets-{{ .Values.offsets.mode }}
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "kafkaAdmin.labels" . | nindent 8 }}
+        pulsemetry.io/job: offsets-{{ .Values.offsets.mode }}
+    spec:
+      {{- include "kafkaAdmin.podSpec" (dict "root" . "serviceAccount" "telemetry-kafka-offsets" "configMap" "telemetry-kafka-offsets-client" "container" "offsets" "script" $script "env" $env) | nindent 6 }}
+{{- end }}

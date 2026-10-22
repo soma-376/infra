@@ -5,7 +5,8 @@
   "required": [
     "region",
     "secrets",
-    "userAuth"
+    "userAuth",
+    "telemetryJwt"
   ],
   "properties": {
     "region": {
@@ -23,7 +24,9 @@
         "dashboardClickHouseSourceArn",
         "dashboardClickHouseCacheArn",
         "userJwtPrivateKeyArn",
-        "userJwtPublicKeysArn"
+        "userJwtPublicKeysArn",
+        "telemetryJwtPrivateKeyArn",
+        "telemetryJwtPublicKeysArn"
       ],
       "properties": {
         "dbArn": {
@@ -61,10 +64,70 @@
         "userJwtPublicKeysArn": {
           "type": "string",
           "pattern": "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:.+$"
+        },
+        "telemetryJwtPrivateKeyArn": {
+          "type": "string",
+          "pattern": "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:.+$"
+        },
+        "telemetryJwtPublicKeysArn": {
+          "type": "string",
+          "pattern": "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:.+$"
         }
       }
     },
     "userAuth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "privateVersionId",
+        "publicVersionId",
+        "activeKid",
+        "publicKeys"
+      ],
+      "properties": {
+        "privateVersionId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9-]{32,64}$"
+        },
+        "publicVersionId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9-]{32,64}$"
+        },
+        "activeKid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\[\\]\\x00-\\x1f\\x7f]+$"
+        },
+        "publicKeys": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kid",
+              "alias"
+            ],
+            "properties": {
+              "kid": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\\[\\]\\x00-\\x1f\\x7f]+$"
+              },
+              "alias": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*\\.pem$"
+              }
+            }
+          }
+        }
+      }
+    },
+    "telemetryJwt": {
       "type": "object",
       "additionalProperties": false,
       "required": [

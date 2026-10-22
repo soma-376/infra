@@ -4,6 +4,10 @@
 
 Accepted (구현·로컬 검증 대상, AWS 배포 증거 대기; JWT Secret 참조 목록은 [ADR-0030](0030-dev-user-jwt-keys-from-secrets-manager.md)이 부분 대체)
 
+[ADR-0035](0035-dev-msk-isolated-subnets-under-eks-stack.md)와 [ADR-0036](0036-dev-telemetry-gateway-workload-and-msk-iam.md)이
+DevEksStack에 MSK·telemetry 관측 리소스를, workload에 telemetry-gateway와 ingest Kafka 모드를 추가한다.
+"앱 세 종류·모든 앱 NodePort" 전제는 이 두 ADR이 부분 대체한다.
+
 [ADR-0034](0034-dev-eks-private-api-via-ssm-relay.md)가 public+private API·필수 API CIDR과
 operator의 IAM을 `eks:DescribeCluster`로 한정한 결정을 부분 대체한다. 현재 접근은 private API와
 SSM 릴레이 터널이며 기존 node/operator AccessEntry와 역할 식별자는 유지한다.

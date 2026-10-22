@@ -17,6 +17,9 @@
 > `devHttpRedirectEnabled`를 유지한다. 인증서 연결은 기존 endpoint output·Helm 생성값을 바꾸지 않는다.
 > PROJ-244의 private API와 SSM 릴레이 접근은 [ADR-0034](../adr/0034-dev-eks-private-api-via-ssm-relay.md)와
 > §2를 따른다. 문서의 터널·TLS·권한 검증 명령도 아직 실행한 증거가 아니다.
+> PROJ-246의 MSK·telemetry Gateway·ingest Kafka 모드·Kafka 관리 Job은 [ADR-0035](../adr/0035-dev-msk-isolated-subnets-under-eks-stack.md)·
+> [ADR-0036](../adr/0036-dev-telemetry-gateway-workload-and-msk-iam.md)과 [telemetry Kafka 런북](dev-telemetry-kafka.md)을 따른다.
+> 이 문서의 공통 설치 순서와 생성기 입력은 그 런북의 키 등록·bootstrap 조회를 전제로 한다.
 
 ## 1. 실행 범위와 사전 조건
 
@@ -25,7 +28,8 @@
 실행 checkout은 PROJ-230·221·223·231의 ECS·Helm·runtime과 PROJ-224의 dashboard 검증 경로를 모두 포함해야 한다.
 실제 DB·키·이미지 준비는 PROJ-222 런북의 운영 관문이며 아직 실행한 것으로 보지 않는다.
 PROJ-212에서 가져온 문서와 과거 로컬 검증 기록만으로 실행 전제가 충족됐다고 보지 않는다.
-생성기는 `--dashboard-image`를 포함한 세 앱 digest와 `--runtime-values` YAML을 받는다.
+생성기는 `--dashboard-image`·`--gateway-image`를 포함한 네 앱 digest, `--runtime-values` YAML,
+운영자가 조회한 MSK bootstrap JSON(`--msk-bootstrap`)을 받는다.
 입력 YAML은 생성기에만 전달하며 Helm에는 정적 workload YAML 다음 generated 앱 YAML을 사용한다.
 
 운영자가 별도로 배포를 승인받은 뒤 이 순서를 실행한다. 기존 ECS 경로와 prod 리소스·권한, OIDC trust는 보존한다.
@@ -46,7 +50,7 @@ PROJ-213~215의 실제 병행 운영·데이터 이관·Canary·ECS 제거는 �
   인바운드 없이 TCP 443 아웃바운드만 허용하며, SSM 전용 EC2 역할에는 EKS AccessEntry가 없다.
   로컬 AWS CLI v2·Session Manager plugin과 릴레이 SSM Agent 3.1.1374.0 이상이 필요하다.
   [원격 호스트 터널 요구사항](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-sessions-start.html#sessions-remote-port-forwarding)을 따른다.
-- backend와 호환되는 Flyway migration, immutable ARM64 앱 이미지 digest 3개,
+- backend와 호환되는 Flyway migration, immutable ARM64 앱 이미지 digest 4개(enrollment·ingest·dashboard·Gateway),
   `/api/v1/healthz`의 200 응답, init 검사용 `/bin/sh`·`head -c`, UID 10001 및 바이너리 공급을 확인한다.
 - 별도 검증 tenant/token과 검증 event ID 집합을 준비한다. 공유 RDS에는 기존 ECS와 호환되지 않는
   DDL·이미지를 사용하지 않는다. 검증 prefix는 `eks_validation`이고 기존 객체 7일 expiration을 유지한다.
@@ -71,6 +75,8 @@ PROJ-213~215의 실제 병행 운영·데이터 이관·Canary·ECS 제거는 �
 | enrollment | immutable digest | pulsemetry-dev / enrollment-api | workloads/enrollment-api.yaml + generated/enrollment-api.yaml |
 | ingest | immutable digest | pulsemetry-dev / telemetry-ingest | workloads/telemetry-ingest.yaml + generated/telemetry-ingest.yaml |
 | dashboard | immutable digest | pulsemetry-dev / dashboard-api | workloads/dashboard-api.yaml + generated/dashboard-api.yaml |
+| telemetry Gateway | immutable digest | pulsemetry-dev / telemetry-gateway | workloads/telemetry-gateway.yaml + generated/telemetry-gateway.yaml |
+| Kafka 관리 Job | apache/kafka 3.9.2 digest·MSK IAM 2.3.9 | pulsemetry-dev / telemetry-kafka-admin | generated/telemetry-kafka-admin.yaml |
 
 Helm 3.22.0·kubectl 1.36 계열을 사용한다. 로컬 schema 검증은 kubeconform 0.8.0이다.
 LBC archive/CRD/checksum은 레포에 있으며 runtime upstream archive URL·checksum은
@@ -92,6 +98,7 @@ export AWS_PROFILE="$DEPLOY_PROFILE"
 : "${ENROLLMENT_IMAGE:?registry/repository@sha256:digest}"
 : "${INGEST_IMAGE:?registry/repository@sha256:digest}"
 : "${DASHBOARD_IMAGE:?ECS와 같은 registry/repository@sha256:digest}"
+: "${GATEWAY_IMAGE:?telemetry-gateway registry/repository@sha256:digest}"
 : "${ECS_RUNTIME_JSON:?devDashboardRuntimeFile 입력 절대 경로}"
 : "${RUNTIME_VALUES:?비밀 없는 runtime 설정 YAML 절대 경로}"
 : "${RUN_DIR:?실행 증거 디렉터리 절대 경로}"
@@ -100,7 +107,8 @@ chmod 700 "$RUN_DIR"
 EKS_CONTEXT=(-c env=dev -c devEksEnabled=true
   -c "devAllowedCidr=$DEV_ALLOWED_CIDRS"
   -c "devDashboardRuntimeFile=$ECS_RUNTIME_JSON"
-  -c devEksArchivePrefix=eks_validation)
+  -c devEksArchivePrefix=eks_validation
+  -c devEksOtlpTarget=ingest)
 printf '%s\n' "${EKS_CONTEXT[@]}" > "$RUN_DIR/cdk-context-args.txt"
 git rev-parse HEAD > "$RUN_DIR/infra-commit.txt"
 npm run build
@@ -192,10 +200,16 @@ for stack in DevEksStack DevEdgeStack DevDataStack; do
 done
 jq -s '{Stacks: [.[].Stacks[]]}' "$RUN_DIR/DevEksStack.json" "$RUN_DIR/DevEdgeStack.json" "$RUN_DIR/DevDataStack.json" \
   > "$RUN_DIR/deployed-outputs.json"
+# CFN에는 bootstrap attribute가 없다. 운영자가 조회한 JSON을 생성기가 9098·리전·같은 cluster 주소와 대조한다(ADR-0035).
+MSK_CLUSTER_ARN=$(jq -er '.Stacks[].Outputs[] | select(.OutputKey=="MskClusterArn") | .OutputValue' \
+  "$RUN_DIR/deployed-outputs.json")
+aws kafka get-bootstrap-brokers --cluster-arn "$MSK_CLUSTER_ARN" --region "$AWS_REGION" --output json \
+  > "$RUN_DIR/msk-bootstrap.json"
 node scripts/eks-values.mjs --outputs "$RUN_DIR/deployed-outputs.json" \
   --output-dir "$RUN_DIR/generated" \
   --enrollment-image "$ENROLLMENT_IMAGE" --ingest-image "$INGEST_IMAGE" \
-  --dashboard-image "$DASHBOARD_IMAGE" --runtime-values "$RUNTIME_VALUES"
+  --dashboard-image "$DASHBOARD_IMAGE" --gateway-image "$GATEWAY_IMAGE" \
+  --runtime-values "$RUNTIME_VALUES" --msk-bootstrap "$RUN_DIR/msk-bootstrap.json"
 EKS_CLUSTER_NAME=$(jq -er '.Stacks[].Outputs[] | select(.OutputKey=="EksClusterName") | .OutputValue' \
   "$RUN_DIR/deployed-outputs.json")
 EKS_OPERATOR_ROLE_ARN=$(jq -er '.Stacks[].Outputs[] | select(.OutputKey=="EksOperatorRoleArn") | .OutputValue' \
@@ -310,8 +324,13 @@ TLS·Kubernetes 권한 성공을 기록하지 않는다. live 수락 기록에�
 | ValidationPublicBaseUrl, ValidationTelemetryIngestTargetGroupArn, ValidationEnrollmentApiTargetGroupArn, ValidationClickhouseTargetGroupArn, ValidationDashboardApiTargetGroupArn | 검증 앱/TGB |
 | EksDashboardApiNodePort, DashboardRdsSourceSecretArn, DashboardRdsCacheSecretArn, DashboardClickHouseSourceSecretArn, DashboardClickHouseCacheSecretArn, UserJwtPrivateKeySecretArn, UserJwtPublicKeysSecretArn | dashboard 및 JWT runtime YAML |
 | ApplicationLogGroupName | Fluent Bit |
+| TelemetryJwtPrivateKeySecretArn, TelemetryJwtPublicKeysSecretArn (`DevDataStack`) | telemetry JWT runtime SPC 3개 |
+| MskClusterArn, MskClusterName, MskStage, MskTopicName, MskConsumerGroupName | bootstrap 조회와 Gateway·ingest·관리 Job values |
+| MskGatewayRoleArn, MskIngestRoleArn, MskTopicAdminRoleArn, MskOffsetAdminRoleArn, Msk*SessionName | `PULSEMETRY_KAFKA_IAM_*`와 관리 Job client.properties |
+| EksTelemetryGatewayNodePort, ValidationTelemetryGatewayTargetGroupArn, ValidationOtlpTarget | Gateway Service/TGB와 ingest 모드 호환 검사 |
+| MskBrokerLogGroupName | broker 로그 조회 |
 | OidcClientSecretArns (`DevDataStack`) | key→ARN JSON 맵. EKS 입력에서 선택한 OIDC key의 ARN을 runtime/enrollment values에 주입 |
-| EksLbcRoleArn, RuntimeEnrollmentRoleArn, RuntimeTelemetryIngestRoleArn, RuntimeDashboardRoleArn, RuntimeFluentBitRoleArn | CDK Pod Identity 검증 증거 |
+| EksLbcRoleArn, RuntimeEnrollmentRoleArn, RuntimeTelemetryIngestRoleArn, RuntimeDashboardRoleArn, RuntimeFluentBitRoleArn, RuntimeTelemetryGatewayRoleArn, RuntimeTelemetryKafkaAdminRoleArn, RuntimeTelemetryKafkaOffsetsRoleArn | CDK Pod Identity 검증 증거 |
 
 NodeClass의 `role`에는 **role 이름**을 쓴다. ARN은 AccessEntry와 Pod Identity에 쓴다.
 
@@ -400,6 +419,8 @@ ClickHouse PVC가 `pulsemetry-dev-gp3`·50Gi·Retain·첫 AZ를 쓰는지 확인
 앱의 필수 Secret 파일 검사가 실패하면 원문을 읽지 않고 association·권한·SPC alias·CSI 이벤트를 점검한다.
 기존 DB·HMAC Secret 변경은 enrollment부터 명시적으로 재시작하고 ready를 확인한 다음 ingest를 재시작한다.
 JWT 변경에는 이 순서를 적용하지 않고 §11의 모든 verifier → signer 전환을 따른다.
+telemetry-ingest는 생성기의 `ingestMode`(기본 http)대로 설치된다. topic 초기화 Job·Gateway·dual/kafka 전환과
+telemetry JWT 공개키 선배포는 [telemetry Kafka 런북](dev-telemetry-kafka.md)의 순서를 따른다.
 
 ## 5. 검증 ALB와 실제 데이터 확인
 
@@ -589,7 +610,7 @@ ECS JSON과 같은 릴리스의 `userAuth`·`dashboard`와 선택적 `oidc`를 r
 `test/fixtures/eks-runtime.yaml`은 가짜 버전과 수치를 가진 검증 전용 예시다. writerImage는 EKS YAML에
 넣지 않는다. ARN·endpoint·TG·NodePort는 CDK output만 소유하며 입력 YAML의 덮어쓰기·원문·중복key·
 미지의 필드는 실패한다. managementEnabled/mailEnabled는 추가 Secret 공급이 없어 false만 허용한다.
-생성기는 한 번 읽은 버전·kid/alias 맵으로 runtime과 세 앱 YAML을 함께 생성한다.
+생성기는 한 번 읽은 버전·kid/alias 맵으로 runtime과 앱 YAML을 함께 생성한다(PROJ-246부터 Gateway·관리 Job 포함).
 OIDC는 `oidc.enabled`, HTTP/HTTPS callback 입력, `clients[].key/versionId`, `userAuth.allowedRedirectUris`로 설정한다.
 key는 ECS JSON에 선언해 배포한 원본에서 선택한다. 생성기가 DataStack output의 ARN을 넣으므로
 generated env만 수정하거나 runtime 입력에 ARN·원문을 추가하지 않는다. 자세한 입력 예시는 [OIDC 런북](dev-oidc-prerequisites.md)을 따른다.
@@ -597,9 +618,10 @@ HTTP 입력의 생성·렌더링은 허용하지만 backend의 외부 HTTP callb
 따라서 실제 원격 로그인 수락은 HTTPS로 수행한다.
 
 ```text
-CDK outputs JSON + 세 앱 digest + runtime 설정 YAML
+CDK outputs JSON + 앱 digest(Gateway 포함 네 개) + runtime 설정 YAML + MSK bootstrap JSON
   -> scripts/eks-values.mjs
   -> generated/runtime.yaml + enrollment-api.yaml + telemetry-ingest.yaml + dashboard-api.yaml
+     + telemetry-gateway.yaml + telemetry-kafka-admin.yaml
   -> Helm --values
 ```
 
@@ -724,9 +746,9 @@ ECS 입력은 [runtime 런북](dev-dashboard-ecs-runtime.md), EKS 입력은 [run
 |---|---|
 | ECS 조회·게시 | ARM64 일회성 SDK writer의 지정 ARN·VersionId 조회, PEM/맵 검증, 파일 완성·권한 검사 후 exit 0 |
 | ECS 시작 제어 | writer `essential: false`, 앱 `SUCCESS` 의존성; 조회·부분 쓰기·권한 실패 시 앱이 시작하지 않음 |
-| ECS 역할 | enrollment task role 두 JWT ARN, dashboard 공개키 ARN만, ingest JWT 추가 없음; writer와 앱의 role 공유를 검토 |
+| ECS 역할 | enrollment task role 두 JWT ARN, dashboard 공개키 ARN만, ingest 사용자 JWT 추가 없음; writer와 앱의 role 공유를 검토 |
 | ECS 파일·메모리 | task별 공유 volume·앱 읽기 전용 mount, UID 10001 읽기·directory 접근, host 잔존/정리와 writer peak·OOM·placement 검증 |
-| EKS 권한 | enrollment와 dashboard 전용 Pod Identity 역할·SPC, dashboard 개인키 접근 불가·ingest JWT 참조 없음 |
+| EKS 권한 | enrollment와 dashboard 전용 Pod Identity 역할·SPC, dashboard 개인키 접근 불가·ingest 사용자 JWT 참조 없음(telemetry JWT는 [telemetry Kafka 런북](dev-telemetry-kafka.md)) |
 | EKS 버전·추출 | 각각 `objectVersion=VersionId`, 공개키 JSON의 kid별 jmesPath 인용·alias·파일 맵 일치; 이동 label과 버전 selector를 섞지 않음 |
 | EKS mount | 기존 configtree 설정과 별도 키 파일 mount, 경로 설정만 전달, UID 10001로 전체 필수 파일을 원문 출력 없이 검사 |
 | 앱 기동 | 파일 누락·빈 내용·읽기 불가·PEM 오류·RSA 규격 거부; enrollment의 활성 kid·modulus 검사와 공급자의 시험 서명/검증을 구별 |

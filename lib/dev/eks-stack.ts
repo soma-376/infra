@@ -3,12 +3,14 @@ import { IBucket } from 'aws-cdk-lib/aws-s3';
 import { DevEksRuntime } from './eks-runtime';
 import { DevEksLbc } from './eks-lbc';
 import { DevEksRelay } from './eks-relay';
+import { DevEksMsk } from './eks-msk';
+import { DevEksTelemetryAlarms } from './eks-telemetry-alarms';
 import { CfnOutput, Stack, StackProps } from 'aws-cdk-lib/core';
-import { IVpc, ISecurityGroup } from 'aws-cdk-lib/aws-ec2';
+import { IVpc, ISecurityGroup, ISubnet } from 'aws-cdk-lib/aws-ec2';
 import { CfnAccessEntry, CfnCluster } from 'aws-cdk-lib/aws-eks';
 import { AccountPrincipal, ManagedPolicy, PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
-import { DEV_EKS_CLUSTER_NAME, DEV_EKS_NODE_PORTS, DEV_EKS_OPERATOR_ROLE_NAME, DEV_EKS_VERSION, DevEksConfig } from './eks-config';
+import { DEV_EKS_CLUSTER_NAME, DEV_EKS_NODE_PORTS, DEV_EKS_OPERATOR_ROLE_NAME, DEV_EKS_VERSION, DevEksConfig, devTelemetryStage } from './eks-config';
 
 export interface DevEksStackProps extends StackProps {
   readonly dbEndpoint: string;
@@ -21,6 +23,8 @@ export interface DevEksStackProps extends StackProps {
   readonly dashboardClickHouseCacheSecret: ISecret;
   readonly userJwtPrivateKeySecret: ISecret;
   readonly userJwtPublicKeysSecret: ISecret;
+  readonly telemetryJwtPrivateKeySecret: ISecret;
+  readonly telemetryJwtPublicKeysSecret: ISecret;
   readonly oidcClientSecrets?: Readonly<Record<string, ISecret>>;
   readonly rawSignalBucket: IBucket;
   readonly vpc: IVpc;
@@ -28,6 +32,9 @@ export interface DevEksStackProps extends StackProps {
   readonly appNodeSecurityGroup: ISecurityGroup;
   readonly clickhouseNodeSecurityGroup: ISecurityGroup;
   readonly relaySecurityGroup: ISecurityGroup;
+  /** ADR-0035의 MSK 전용 subnet 3개와 broker SG. Network가 소유한다. */
+  readonly mskSubnets: readonly ISubnet[];
+  readonly mskSecurityGroup: ISecurityGroup;
   readonly config: DevEksConfig;
 }
 
@@ -36,6 +43,7 @@ export class DevEksStack extends Stack {
   public readonly cluster: CfnCluster;
   public readonly nodeRole: Role;
   public readonly operatorRole: Role;
+  public readonly msk: DevEksMsk;
 
   constructor(scope: Construct, id: string, props: DevEksStackProps) {
     super(scope, id, props);
@@ -95,7 +103,11 @@ export class DevEksStack extends Stack {
       clusterEndpoint: this.cluster.attrEndpoint, operatorRole: this.operatorRole,
     });
     new DevEksLbc(this, 'Lbc', { clusterName: this.cluster.ref });
-    new DevEksRuntime(this, 'Runtime', {
+    this.msk = new DevEksMsk(this, 'Msk', {
+      subnets: props.mskSubnets, securityGroup: props.mskSecurityGroup,
+      stage: devTelemetryStage(props.config.archivePrefix),
+    });
+    const runtime = new DevEksRuntime(this, 'Runtime', {
       clusterName: this.cluster.ref, dbSecret: props.dbSecret,
       tokenHashSecret: props.tokenHashSecret, adminApiTokenSecret: props.adminApiTokenSecret,
       dashboardRdsSourceSecret: props.dashboardRdsSourceSecret,
@@ -106,6 +118,13 @@ export class DevEksStack extends Stack {
       userJwtPublicKeysSecret: props.userJwtPublicKeysSecret,
       oidcClientSecrets: props.oidcClientSecrets,
       rawSignalBucket: props.rawSignalBucket, archivePrefix: props.config.archivePrefix,
+      telemetryJwtPrivateKeySecret: props.telemetryJwtPrivateKeySecret,
+      telemetryJwtPublicKeysSecret: props.telemetryJwtPublicKeysSecret,
+      msk: { clusterArn: this.msk.cluster.attrArn, topicArn: this.msk.topicArn, consumerGroupArn: this.msk.consumerGroupArn },
+    });
+    new DevEksTelemetryAlarms(this, 'TelemetryAlarms', {
+      topicName: this.msk.topicName, consumerGroupName: this.msk.consumerGroupName,
+      applicationLogGroup: runtime.applicationLogGroup,
     });
 
     const outputs: Record<string, string> = {
@@ -122,6 +141,7 @@ export class DevEksStack extends Stack {
       EksClusterName: this.cluster.ref, EksClusterEndpoint: this.cluster.attrEndpoint,
       EksRegion: this.region, EksVpcId: props.vpc.vpcId,
       EksDashboardApiNodePort: String(DEV_EKS_NODE_PORTS.dashboard),
+      EksTelemetryGatewayNodePort: String(DEV_EKS_NODE_PORTS.gateway),
       EksSubnetIds: props.vpc.publicSubnets.map(subnet => subnet.subnetId).join(','),
       EksClickhouseAvailabilityZone: props.vpc.publicSubnets[0].availabilityZone,
       EksAppNodeSecurityGroupId: props.appNodeSecurityGroup.securityGroupId,

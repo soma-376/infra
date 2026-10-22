@@ -1,0 +1,24 @@
+{{- include "kafkaAdmin.validate" . -}}
+{{- if .Values.topicInit.enabled }}
+{{- $script := .Files.Get "scripts/topic-init.sh" }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Job template은 변경할 수 없으므로 release revision마다 새 이름으로 만든다.
+  name: telemetry-topic-init-r{{ .Release.Revision }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kafkaAdmin.labels" . | nindent 4 }}
+    pulsemetry.io/job: topic-init
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "kafkaAdmin.labels" . | nindent 8 }}
+        pulsemetry.io/job: topic-init
+    spec:
+      {{- include "kafkaAdmin.podSpec" (dict "root" . "serviceAccount" "telemetry-kafka-admin" "configMap" "telemetry-kafka-admin-client" "container" "topic-init" "script" $script "env" (dict)) | nindent 6 }}
+{{- end }}

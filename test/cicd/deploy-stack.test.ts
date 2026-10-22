@@ -340,6 +340,7 @@ describe('DeployStack', () => {
           ECR_REPOS.enrollmentApi,
           ECR_REPOS.telemetryIngest,
           ECR_REPOS.dashboardApi,
+          ECR_REPOS.telemetryGateway,
         ],
       ],
       [
@@ -350,10 +351,11 @@ describe('DeployStack', () => {
           ECR_REPOS.enrollmentApi,
           ECR_REPOS.telemetryIngest,
           ECR_REPOS.dashboardApi,
+          ECR_REPOS.telemetryGateway,
         ],
       ],
       [DASHBOARD_DEV, [ECR_REPOS.postProcessor, RETIRED_AUTH_PROXY_REPO]],
-      [DASHBOARD_PROD, [ECR_REPOS.postProcessor, RETIRED_AUTH_PROXY_REPO]],
+      [DASHBOARD_PROD, [ECR_REPOS.postProcessor, RETIRED_AUTH_PROXY_REPO, ECR_REPOS.telemetryGateway]],
     ])('%s 는 다른 레포의 ECR 레포를 건드릴 수 없다', (roleName, foreign) => {
       const text = resourceTextFor(roleName);
       for (const repo of foreign) {
@@ -370,14 +372,23 @@ describe('DeployStack', () => {
       ]);
     });
 
-    test('backend dev 역할은 dashboard-api를 포함한 이미지 공급 대상 셋만 허용한다', () => {
+    test('backend dev 역할은 dashboard-api·telemetry-gateway를 포함한 이미지 공급 대상 넷만 허용한다', () => {
       expect(ecrRepositoriesFor(DASHBOARD_DEV)).toEqual(
         [
           ECR_REPOS.enrollmentApi,
           ECR_REPOS.telemetryIngest,
           ECR_REPOS.dashboardApi,
+          ECR_REPOS.telemetryGateway,
         ].sort(),
       );
+    });
+
+    test('telemetry-gateway는 ECR push만 받고 ECS service 권한이 없다', () => {
+      for (const role of ALL_ROLES) {
+        expect(resourceTextFor(role)).not.toContain(':service/soma-376-dev/telemetry-gateway');
+        if (role !== DASHBOARD_DEV) expect(resourceTextFor(role)).not.toContain(`:repository/${ECR_REPOS.telemetryGateway}`);
+      }
+      expect(resourceTextFor(DASHBOARD_DEV)).toContain(`:repository/${ECR_REPOS.telemetryGateway}`);
     });
 
     test('backend dev 역할의 ECS 재배포 대상은 dashboard를 포함한 세 앱이다', () => {

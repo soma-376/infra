@@ -88,6 +88,7 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     vpc: network.vpc,
     albSecurityGroup: network.albSecurityGroup,
     eksValidationAlbSecurityGroup: network.eksValidationAlbSecurityGroup,
+    eksOtlpTarget: config.eks.otlpTarget,
     telemetryIngestService: application.telemetryIngestService,
     enrollmentApiService: application.enrollmentApiService,
     dashboardApiService: application.dashboardApiService,
@@ -112,12 +113,15 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     dashboardClickHouseCacheSecret: data.dashboardClickHouseCacheSecret,
     userJwtPrivateKeySecret: data.userJwtPrivateKeySecret,
     userJwtPublicKeysSecret: data.userJwtPublicKeysSecret,
+    telemetryJwtPrivateKeySecret: data.telemetryJwtPrivateKeySecret,
+    telemetryJwtPublicKeysSecret: data.telemetryJwtPublicKeysSecret,
     oidcClientSecrets: data.oidcClientSecrets,
     rawSignalBucket: data.rawSignalBucket,
     controlPlaneSecurityGroup: network.eksControlPlaneSecurityGroup!,
     appNodeSecurityGroup: network.eksAppNodeSecurityGroup!,
     clickhouseNodeSecurityGroup: network.eksClickhouseNodeSecurityGroup!,
     relaySecurityGroup: network.eksRelaySecurityGroup!,
+    mskSubnets: network.mskSubnets!, mskSecurityGroup: network.mskSecurityGroup!,
   }) : undefined;
 
   return { network, data, application, edge, ...(eks ? { eks } : {}) };

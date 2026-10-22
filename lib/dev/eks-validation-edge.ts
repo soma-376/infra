@@ -5,7 +5,7 @@ import { CfnWebACLAssociation } from 'aws-cdk-lib/aws-wafv2';
 import { Construct } from 'constructs';
 import { DEV_DEREGISTRATION_DELAY } from './config';
 import { installDevAppRoutes } from './app-routing';
-import { DEV_EKS_CLUSTER_NAME, DEV_EKS_NODE_PORTS } from './eks-config';
+import { DEV_EKS_CLUSTER_NAME, DEV_EKS_NODE_PORTS, DevEksOtlpTarget } from './eks-config';
 import { DEV_EKS_TARGET_GROUP_CLUSTER_TAG } from './eks-lbc';
 import { addDevAppListener, DevAppListenerOptions } from './app-listener';
 
@@ -13,6 +13,8 @@ export interface DevEksValidationEdgeProps extends DevAppListenerOptions {
   readonly vpc: IVpc;
   readonly securityGroup: ISecurityGroup;
   readonly webAclArn: string;
+  /** 기본 ingest. gateway는 priority 1 OTLP 규칙의 대상만 바꾼다. (ADR-0036) */
+  readonly otlpTarget?: DevEksOtlpTarget;
 }
 
 /** ECS의 기존 construct ID/forwarding은 그대로 두고 별도 검증 자리를 추가한다. */
@@ -38,9 +40,12 @@ export class DevEksValidationEdge extends Construct {
     const enrollment = tg('EnrollmentTg', 'enroll', DEV_EKS_NODE_PORTS.enrollment, '/api/v1/healthz', TargetType.INSTANCE);
     const dashboard = tg('DashboardTg', 'dashboard', DEV_EKS_NODE_PORTS.dashboard, '/api/v1/healthz', TargetType.INSTANCE);
     const clickhouse = tg('ClickhouseTg', 'ch', 8123, '/ping', TargetType.IP);
+    // Gateway TG는 대상과 무관하게 항상 둔다. TGB가 미리 node를 등록하고 전환은 규칙 대상만 바꾼다.
+    const gateway = tg('GatewayTg', 'gateway', DEV_EKS_NODE_PORTS.gateway, '/api/v1/healthz', TargetType.INSTANCE);
+    const otlpTarget = props.otlpTarget ?? 'ingest';
     const http = addDevAppListener(alb, 'Http', props);
-    // ECS와 EKS는 같은 path/method/preflight 계약을 서로 독립된 TG에 연결한다.
-    installDevAppRoutes(this, http, { enrollment, dashboard, ingest }, 'Otlp');
+    // ECS와 EKS는 같은 path/method/preflight 계약을 서로 독립된 TG에 연결한다. OTLP 규칙 ID는 대상과 무관하다.
+    installDevAppRoutes(this, http, { enrollment, dashboard, ingest: otlpTarget === 'gateway' ? gateway : ingest }, 'Otlp');
     alb.addListener('Clickhouse', { port: 8123, protocol: ApplicationProtocol.HTTP, open: false, defaultAction: ListenerAction.forward([clickhouse]) });
     new CfnWebACLAssociation(this, 'WafAssociation', { resourceArn: alb.loadBalancerArn, webAclArn: props.webAclArn });
     for (const [name, value] of Object.entries({
@@ -51,6 +56,9 @@ export class DevEksValidationEdge extends Construct {
       ValidationEnrollmentApiTargetGroupArn: enrollment.targetGroupArn,
       ValidationDashboardApiTargetGroupArn: dashboard.targetGroupArn,
       ValidationClickhouseTargetGroupArn: clickhouse.targetGroupArn,
+      ValidationTelemetryGatewayTargetGroupArn: gateway.targetGroupArn,
+      // values 생성기가 ingest 모드와 현재 OTLP 대상의 호환을 검사한다.
+      ValidationOtlpTarget: otlpTarget,
     })) new CfnOutput(this, name, { value }).overrideLogicalId(name);
   }
 }
