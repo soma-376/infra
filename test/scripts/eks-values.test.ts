@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync, rmSync, readdirSync, existsSync, mkdirSync, chmodSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { cpSync, mkdtempSync, readFileSync, writeFileSync, rmSync, readdirSync, existsSync, mkdirSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -342,9 +343,9 @@ describe('배포 output→values 변환', () => {
     expect(dashboard).not.toContain('PULSEMETRY_ADMIN_API_TOKEN');
     const pod = dashboard.split(/^---\s*$/m).filter(text => text.trim()).map(text => load(text)).find((doc: any) => doc?.kind === 'Deployment').spec.template.spec;
     expect(pod.securityContext.runAsUser).toBe(10001);
-    expect(pod.volumes).toHaveLength(2);
+    expect(pod.volumes).toHaveLength(3);
     expect(pod.containers[0].volumeMounts.every((mount: any) => mount.readOnly)).toBe(true);
-    expect(pod.initContainers[0].volumeMounts).toEqual(pod.containers[0].volumeMounts);
+    expect(pod.initContainers[0].volumeMounts).toEqual(pod.containers[0].volumeMounts.filter((mount: any) => mount.name !== 'blocked-certs'));
     expect(pod.initContainers[0].args[0]).toContain('head -c 1');
     const authEnv = pod.containers[0].env.find((env: any) => env.name === 'SPRING_APPLICATION_JSON');
     expect(JSON.parse(authEnv.value).pulsemetry['user-auth']['public-key-files']).toEqual({ '[release-2026.10]': '/mnt/user-jwt/keys/release-2026-10.pem' });
@@ -446,7 +447,24 @@ describe('배포 output→values 변환', () => {
       'private-key-file': '/mnt/telemetry-jwt/keys/private.pem', 'issue-enabled': false,
     });
     expect(pod.containers[0].env.filter((item: any) => item.name === 'SPRING_APPLICATION_JSON')).toHaveLength(1);
-    expect(pod.volumes.map((volume: any) => volume.name)).toEqual(['secrets-store', 'user-jwt', 'telemetry-jwt']);
+    expect(pod.volumes.map((volume: any) => volume.name)).toEqual(['secrets-store', 'user-jwt', 'telemetry-jwt', 'blocked-certs']);
+    expect(pod.initContainers[0].volumeMounts).toEqual(pod.containers[0].volumeMounts.filter((mount: any) => mount.name !== 'blocked-certs'));
+    const blockedContents = readFileSync(join(root, 'helm/dev/workloads/spring-app/files/blocked.certs'), 'utf8');
+    const annotations = deployment.spec.template.metadata.annotations;
+    expect(annotations['pulsemetry.io/blocked-certs-revision']).toBe(createHash('sha256').update(blockedContents).digest('hex'));
+    const copiedChart = join(output.temp, 'spring-app');
+    cpSync(join(root, 'helm/dev/workloads/spring-app'), copiedChart, { recursive: true });
+    // 임시 복사본의 주석만 바꿔 사용자 JWT·OIDC·telemetry JWT revision 보존을 확인한다.
+    const updatedContents = `${blockedContents}# PROJ-253 rollout fixture\n`;
+    writeFileSync(join(copiedChart, 'files/blocked.certs'), updatedContents);
+    const changedFileResult = rendered(copiedChart, app);
+    expect(changedFileResult.status).toBe(0);
+    const changedFileDocuments = documents(changedFileResult.stdout);
+    const changedFile = changedFileDocuments.find((doc: any) => doc.kind === 'Deployment');
+    expect(changedFile.spec.template.metadata.annotations).toEqual({
+      ...annotations, 'pulsemetry.io/blocked-certs-revision': createHash('sha256').update(updatedContents).digest('hex'),
+    });
+    expect(changedFileDocuments.find((doc: any) => doc.kind === 'ConfigMap').data['blocked.certs']).toBe(updatedContents);
     for (const allowInsecureLocalhost of [undefined, false, true]) {
       const input = oidcRuntime();
       if (allowInsecureLocalhost !== undefined) input.oidc.allowInsecureLocalhost = allowInsecureLocalhost;
@@ -796,7 +814,17 @@ describe('PROJ-246 Gateway·MSK·telemetry JWT values 생성', () => {
       return result.stdout.split(/^---\s*$/m).filter(text => text.trim()).map(text => load(text)).filter(Boolean);
     };
     const gateway = render('telemetry-gateway', 'helm/dev/workloads/spring-app', ['helm/dev/workloads/telemetry-gateway.yaml', join(output.dir, 'telemetry-gateway.yaml')]);
-    expect(gateway.map((doc: any) => doc.kind).sort()).toEqual(['Deployment', 'Service', 'Service', 'ServiceAccount', 'TargetGroupBinding']);
+    expect(gateway.map((doc: any) => doc.kind).sort()).toEqual(['ConfigMap', 'Deployment', 'Service', 'Service', 'ServiceAccount', 'TargetGroupBinding']);
+    const gatewayDeployment = gateway.find((doc: any) => doc.kind === 'Deployment');
+    const gatewayPod = gatewayDeployment.spec.template.spec;
+    const blockedContents = readFileSync(join(root, 'helm/dev/workloads/spring-app/files/blocked.certs'), 'utf8');
+    expect(gateway.find((doc: any) => doc.kind === 'ConfigMap').data['blocked.certs']).toBe(blockedContents);
+    expect(gatewayDeployment.spec.template.metadata.annotations['pulsemetry.io/blocked-certs-revision'])
+      .toBe(createHash('sha256').update(blockedContents).digest('hex'));
+    expect(gatewayDeployment.spec.template.metadata.annotations['pulsemetry.io/telemetry-jwt-revision']).toMatch(/^[a-f0-9]{64}$/);
+    expect(gatewayPod.containers[0].volumeMounts.map((mount: any) => mount.name)).toEqual(['telemetry-jwt', 'blocked-certs']);
+    expect(gatewayPod.initContainers[0].volumeMounts.map((mount: any) => mount.name)).toEqual(['telemetry-jwt']);
+    expect(gatewayPod.containers[0].ports).toContainEqual({ name: 'metrics', containerPort: 9404, protocol: 'TCP' });
     const ingest = render('telemetry-ingest', 'helm/dev/workloads/spring-app', ['helm/dev/workloads/telemetry-ingest.yaml', join(output.dir, 'telemetry-ingest.yaml')]);
     expect(ingest.find((doc: any) => doc.kind === 'Service').spec.type).toBe('ClusterIP');
     expect(ingest.some((doc: any) => doc.kind === 'TargetGroupBinding')).toBe(false);
