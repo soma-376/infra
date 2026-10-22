@@ -1,5 +1,7 @@
 # dev dashboard ECS runtime 입력과 로컬 검증
 
+> **역사적 기록:** ADR-0035·PROJ-248 이후 dev 백엔드는 EKS 전용이다. 아래 ECS 구성·명령·검증 수치는 당시 기록이며 현재 실행 절차가 아니다. 현재 운영은 [EKS 런북](dev-eks-manual-deployment.md), 기존 ECS 철거는 [철거 런북](dev-ecs-retirement.md)을 따른다.
+
 PROJ-230은 네 DB 연결 helper와 enrollment JWT writer를 제공한다. PROJ-221은 dashboard
 서비스·공개키 writer·전용 TG·backend dev 재배포 권한을 연결한다. 원본은 `DevDataStack`의 기존 `ISecret`이며 실제 키 생성·등록·DB 계정 준비는
 [공통 준비 런북](dev-dashboard-prerequisites.md)과 ADR-0030·0031의 수동 절차를 따른다.

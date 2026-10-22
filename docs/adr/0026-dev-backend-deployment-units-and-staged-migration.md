@@ -2,6 +2,8 @@
 
 ## Status
 
+[ADR-0035](0035-dev-backend-eks-only.md)가 dev 백엔드의 ECS 실행·병행 유지·입력·배포 권한 가정을 부분 대체한다. prod·frontend Terraform과 이 문서의 나머지 계약은 유지한다. 아래 ECS 구성은 당시 결정 기록이다.
+
 Accepted — 애플리케이션 API 경로와 health check는 [허브 ADR 0016](../../../docs/adr/0016-use-api-v1-for-application-http-routes.md)이 부분 대체한다. OTLP 경로와 서비스 토폴로지는 유효하다.
 
 [ADR-0033](0033-dev-alb-https-with-external-acm.md)이 인증서 context가 있는 dev ALB의 HTTP 전용

@@ -1,5 +1,7 @@
 # PROJ-206~212 로컬 검증 기록
 
+> **역사적 기록:** ADR-0035·PROJ-248 이후 dev 백엔드는 EKS 전용이다. 아래 ECS 구성·명령·검증 수치는 당시 기록이며 현재 실행 절차가 아니다. 현재 운영은 [EKS 런북](dev-eks-manual-deployment.md), 기존 ECS 철거는 [철거 런북](dev-ecs-retirement.md)을 따른다.
+
 검증일은 2026-10-12(KST)다. `develop`의 `2a382e0`을 기준으로 이슈별 stacked 브랜치에 구현했다.
 이 기록은 AWS 배포·Kubernetes API server 승인·실제 데이터 통신 결과가 아니다.
 실행 절차는 [수동 런북](dev-eks-manual-deployment.md), 결정은 [ADR-0028](../adr/0028-dev-eks-auto-mode-transition.md)을 따른다.

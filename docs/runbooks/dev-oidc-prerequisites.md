@@ -1,6 +1,7 @@
 # 기존 Cognito 연결을 위한 dev OIDC 준비·배포·복구
 
-> PROJ-237이 구현하는 [ADR-0032](../adr/0032-dev-oidc-client-secret-runtime-supply.md)의 ECS·EKS 공급 절차다.
+> [ADR-0032](../adr/0032-dev-oidc-client-secret-runtime-supply.md)의 OIDC 공급을
+> [ADR-0035](../adr/0035-dev-backend-eks-only.md)의 EKS 전용 입력으로 운영하는 절차다.
 > 이 문서의 AWS·DB·Helm 명령은 이번 구현에서 실행하지 않았다. 로컬 검증은 실제 Secret 등록,
 > CSI 접근, Cognito 로그인 성공을 증명하지 않는다. Cognito 생성·HTTPS 구축·DB 변경은 별도 운영 작업이다.
 
@@ -8,26 +9,27 @@
 
 기존 Cognito 사용자 풀·앱 클라이언트를 사용한다. 동료의 생성 커밋이나 local Spring 프로필은 필요하지
 않지만 배포 이미지에 backend `OidcLoginConfig`·`TenantOidcClients`가 포함돼 있어야 한다.
-사용자 JWT·DB·이미지 준비는 [공통 준비](dev-dashboard-prerequisites.md), runtime별 배포는
-[ECS 입력](dev-dashboard-ecs-runtime.md)과 [EKS 수동 런북](dev-eks-manual-deployment.md)을 함께 따른다.
+사용자 JWT·DB·이미지 준비는 [공통 준비](dev-dashboard-prerequisites.md), 배포는
+[EKS 수동 런북](dev-eks-manual-deployment.md)을 따른다. 기존 ECS가 남아 있으면 먼저 [철거 런북](dev-ecs-retirement.md)을 완료한다.
 
 | 설정 | 소유·입력 위치 | 조건 |
 |---|---|---|
-| `oidc.enabled` | ECS JSON / EKS runtime YAML | `oidc` 생략은 비활성. 활성화는 `true` |
-| `oidc.allowInsecureLocalhost` | 각 runtime 입력, 선택 | boolean만 허용, 기본값 `false`. 명시적 `true`는 backend의 HTTP loopback 예외 활성화 |
-| `oidc.clients[].key` | ECS JSON이 원본 선언, EKS YAML이 소비할 key 선택 | `[A-Za-z0-9_-]{1,64}`, 최대 32개, 조직 DB의 `config:<key>`와 정확히 일치, 중복 금지 |
-| `oidc.clients[].versionId` | 각 runtime 입력 | 활성화 시 `[A-Za-z0-9-]{32,64}`인 실제 VersionId 필수. 이동 label을 넣지 않음 |
-| `oidc.callbackBaseUrl` | 각 runtime 입력 | HTTP/HTTPS enrollment origin. 선택적 끝 `/` 외 path·query·fragment·userinfo 금지 |
-| `oidc.callbackRegistrationId` | 각 runtime 입력 | 기본값 `oidc`, `[A-Za-z0-9_-]+`. Cognito callback 마지막 경로와 일치 |
-| `oidc.failureRedirectUri` | 각 runtime 입력, 선택 | HTTP/HTTPS이며 아래 허용 복귀 주소 목록에 정확히 포함, query·fragment 금지 |
-| `userAuth.allowedRedirectUris` | 각 runtime 입력 | 활성화 시 정확한 HTTP/HTTPS 프론트 복귀 URL 목록, 각 256자 이하. 중복·userinfo·query·fragment·쉼표 금지 |
+| `oidc.enabled` | EKS runtime YAML | `oidc` 생략은 비활성. 활성화는 `true` |
+| `oidc.allowInsecureLocalhost` | EKS runtime YAML, 선택 | boolean만 허용, 기본값 `false`. 명시적 `true`는 backend의 HTTP loopback 예외 활성화 |
+| `devOidcClientKeys` / `oidc.clients[].key` | CDK 배열이 전체 원본 선언, EKS YAML이 소비할 key 선택 | `[A-Za-z0-9_-]{1,64}`, 최대 32개, 조직 DB의 `config:<key>`와 정확히 일치, 중복 금지 |
+| `oidc.clients[].versionId` | EKS runtime YAML | 활성화 시 `[A-Za-z0-9-]{32,64}`인 실제 VersionId 필수. 이동 label을 넣지 않음 |
+| `oidc.callbackBaseUrl` | EKS runtime YAML | HTTP/HTTPS enrollment origin. 선택적 끝 `/` 외 path·query·fragment·userinfo 금지 |
+| `oidc.callbackRegistrationId` | EKS runtime YAML | 기본값 `oidc`, `[A-Za-z0-9_-]+`. Cognito callback 마지막 경로와 일치 |
+| `oidc.failureRedirectUri` | EKS runtime YAML, 선택 | HTTP/HTTPS이며 아래 허용 복귀 주소 목록에 정확히 포함, query·fragment 금지 |
+| `userAuth.allowedRedirectUris` | EKS runtime YAML | 활성화 시 정확한 HTTP/HTTPS 프론트 복귀 URL 목록, 각 256자 이하. 중복·userinfo·query·fragment·쉼표 금지 |
 | `userAuth.allowedOrigins` | 기존 runtime 입력 | 브라우저/BFF 구성에 맞는 정확한 origin. 복귀 URL 목록과 구분 |
 | `oidc_issuer`, `oidc_client_id`, `oidc_client_secret_ref`, `sso_enabled` | 조직 DB | 기존 Cognito 정보와 `config:<key>`, 준비 후 SSO 활성화 |
 | client secret 원문 | CDK가 만든 Secrets Manager 원본 | JSON 포장 없는 문자열, enrollment만 소비 |
 | Secret ARN | `DevDataStack.OidcClientSecretArns` output | JSON key→ARN 맵. 생성기가 generated values에 넣음 |
 
-ECS `devDashboardRuntimeFile`은 `writerImage`·`userAuth`·`dashboard`를 포함한 기존 JSON에 `oidc`를
-추가한다. EKS `--runtime-values` YAML에는 같은 구조를 쓰되 `writerImage`를 넣지 않는다.
+CDK에는 필수 `devOidcClientKeys` 배열만 전달한다. 기존 원본의 전체 key 집합을 그대로 유지하며
+원본이 없을 때만 `[]`를 명시한다. EKS `--runtime-values` YAML에는 `userAuth`·`dashboard`·선택적 `oidc`를
+넣으며 `writerImage`를 넣지 않는다. 폐기된 `devDashboardRuntimeFile` 입력은 오류다.
 EKS는 선언된 client key의 부분집합을 선택할 수 있다. 입력 파일에 ARN·client secret·client ID·issuer를
 임의로 추가하지 않는다. Cognito issuer는 조직 DB, Pulsemetry 자체 JWT issuer는 `userAuth.issuer`다.
 배포 코드는 `PULSEMETRY_OIDC_ENABLED`·`PULSEMETRY_OIDC_CALLBACK_BASE_URL`·선택적
@@ -42,7 +44,7 @@ dev 입력·Helm schema는 인증서 준비 전 HTTP 값도 받는다. 이는 �
 예외를 자동 활성화하지 않는다. HTTP 값도 runtime 입력 파일에서 변경한 뒤 재생성하며 generated YAML은 직접 수정하지 않는다.
 
 localhost callback 테스트에서는 **기존 `oidc` 객체에** `allowInsecureLocalhost: true`를 추가한다.
-ECS JSON은 `"allowInsecureLocalhost": true`, EKS YAML은 아래처럼 지정하며 기존 client key·VersionId를 유지한다.
+EKS YAML에서 아래처럼 지정하며 기존 client key·VersionId를 유지한다.
 
 ```yaml
 # 기존 EKS runtime 입력의 oidc 객체에 반영할 항목이다. clients와 나머지 설정은 유지한다.
@@ -62,36 +64,30 @@ HTTP 예외만 켠다. 원격 HTTP 주소는 계속 거부하며 local Spring �
 
 운영자는 다음을 먼저 확인한다.
 
-- 기존 dev Network/Data 스택과 승인된 전체 CDK context를 확보한다. EKS 활성화 상태, API/ALB CIDR,
-  archive prefix와 이미지 선택을 유지한다. 이미 배포한 EKS에서 `devEksEnabled=true`를 누락하지 않는다.
+- 기존 dev Network/Data 스택과 승인된 전체 CDK context를 확보한다. OIDC 전체 key 목록·ALB CIDR·인증서·
+  archive prefix를 유지한다. `devEksEnabled`는 생략/true만 허용하고 false는 오류다.
 - Cognito의 사용자 풀 issuer, confidential app client ID, client secret, 사용자 풀 로그인 domain을 확인한다.
   backend가 요청하는 `openid`·`profile`·`email`, Authorization Code와 S256 PKCE를 사용할 수 있어야 한다.
   issuer에는 로그인 domain이 아닌 해당 사용자 풀의 정확한 issuer URL을 사용한다.
 - 실제 HTTPS 진입점에서 enrollment의 `/api/v1/auth/*` 경로가 동작해야 한다. 프론트/BFF도 해당 runtime의
   로그인 시작·코드 교환 경로를 사용한다. HTTP 검증 ALB나 localhost 허용으로 배포 검증을 대체하지 않는다.
 - Cognito에 등록할 callback은 `<callbackBaseUrl>/api/v1/auth/oidc/callback/<callbackRegistrationId>`다.
-  예: `https://auth.example.com/api/v1/auth/oidc/callback/oidc`. ECS/EKS의 주소가 다르면 각각 등록한다.
+  예: `https://auth.example.com/api/v1/auth/oidc/callback/oidc`. 사용 중인 EKS 공개 주소를 등록한다.
   `https://dashboard.example.com/auth/callback`은 Pulsemetry의 프론트 복귀 주소이며 Cognito callback과 다르다.
-- ECS EC2 container agent는 고정 Secret 버전을 지원하는 1.37.0 이상이어야 한다. EKS의 CSI·ASCP·Pod Identity는
-  기존 런북대로 설치한다. 필요한 Secrets Manager 접근과 IdP discovery/token endpoint egress를 확인한다.
+- EKS의 CSI·ASCP·Pod Identity는 기존 런북대로 설치한다. 필요한 Secrets Manager 접근과 IdP discovery/token endpoint egress를 확인한다.
 
 Cognito의 웹 callback은 사전 등록된 HTTPS URL이어야 하며 HTTP 예외는 `http://localhost` 테스트용이다.
 fragment를 허용하지 않는다. HTTP 입력의 synth·render 성공을 실제 로그인 성공으로 기록하지 않는다.
-[AWS Cognito 문서](https://docs.aws.amazon.com/cognito/latest/developerguide/authorization-endpoint.html),
-[ECS Secret 버전 주입 조건](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/secrets-envvar-secrets-manager.html)을 따른다.
+[AWS Cognito 문서](https://docs.aws.amazon.com/cognito/latest/developerguide/authorization-endpoint.html)를 따른다.
 
-## 2. OIDC 비활성 입력으로 빈 원본만 생성
+## 2. CDK의 key 목록으로 빈 원본만 생성
 
-아래는 **기존 ECS JSON에 추가할 조각**이다. 기존 JWT·dashboard·writerImage 설정을 지우지 않는다.
-처음 사용할 모든 client key를 선언하되 VersionId 없이 OIDC를 비활성화한다.
+처음 사용할 모든 client key를 CDK context에 선언한다. OIDC 활성 여부·VersionId·callback은 CDK 입력이 아니다.
+CLI는 JSON 배열 문자열, `cdk.json`은 배열을 받는다. 기존 원본이 있으면 일부만 골라 선언하지 않는다.
 
-```json
-{
-  "oidc": {
-    "enabled": false,
-    "clients": [{"key": "cognito-a"}, {"key": "cognito-b"}]
-  }
-}
+```bash
+# 구조 예시다. 운영에서는 기존 전체 key 집합을 확인해 설정한다.
+DEV_OIDC_CLIENT_KEYS='["cognito-a","cognito-b"]'
 ```
 
 client key마다 `soma-376/dev/oidc/clients/<key>`가 생성된다. CDK는 `SecretString`과
@@ -101,7 +97,8 @@ client key마다 `soma-376/dev/oidc/clients/<key>`가 생성된다. CDK는 `Secr
 
 기존 배포 기록의 `cdk-context-args.txt`처럼 **인자 하나당 한 줄**인 전체 context 파일을 사용한다.
 처음 기록한다면 기존 배포에 사용한 인자 배열을 `printf '%s\n' "${EKS_CONTEXT[@]}"`와 같은 방식으로 저장한다.
-아래 Bash 명령은 `eval`·`source`로 기록을 실행하지 않는다. 기록의 runtime 경로가 준비한 JSON과 같아야 한다.
+아래 Bash 명령은 `eval`·`source`로 기록을 실행하지 않는다. 기록의 `devOidcClientKeys`가 전체 원본 목록과 같아야 한다.
+과거 ECS context가 남은 파일은 먼저 현재 입력으로 전환하고 인증서·CIDR·prefix를 보존한다.
 
 ```bash
 set -euo pipefail
@@ -109,7 +106,7 @@ umask 077
 : "${CDK_DEFAULT_ACCOUNT:?대상 계정}"
 export CDK_DEFAULT_REGION=ap-northeast-2
 export AWS_REGION=ap-northeast-2
-: "${ECS_RUNTIME_JSON:?기존 필수 설정과 비활성 oidc를 담은 JSON 절대 경로}"
+: "${DEV_OIDC_CLIENT_KEYS:?전체 OIDC 원본 key의 JSON 배열}"
 : "${CDK_CONTEXT_FILE:?현재 배포의 전체 context 인자를 보존한 파일}"
 : "${RUN_DIR:?새 배포 기록 디렉터리 절대 경로}"
 mkdir -p "$RUN_DIR"
@@ -118,7 +115,7 @@ while IFS= read -r arg || [ -n "$arg" ]; do
   OIDC_CDK_CONTEXT+=("$arg")
 done < "$CDK_CONTEXT_FILE"
 printf '%s\n' "${OIDC_CDK_CONTEXT[@]}" | rg -Fx -- "env=dev"
-printf '%s\n' "${OIDC_CDK_CONTEXT[@]}" | rg -Fx -- "devDashboardRuntimeFile=$ECS_RUNTIME_JSON"
+printf '%s\n' "${OIDC_CDK_CONTEXT[@]}" | rg -Fx -- "devOidcClientKeys=$DEV_OIDC_CLIENT_KEYS"
 printf '%s\n' "${OIDC_CDK_CONTEXT[@]}" > "$RUN_DIR/cdk-context-args.txt"
 npx cdk synth DevDataStack "${OIDC_CDK_CONTEXT[@]}" --output "$RUN_DIR/cdk.out"
 npx cdk diff DevDataStack --exclusively "${OIDC_CDK_CONTEXT[@]}"
@@ -138,8 +135,9 @@ jq -er '.Stacks[].Outputs[] | select(.OutputKey=="OidcClientSecretArns") | .Outp
 ```
 
 ARN output은 DataStack에서 직접 나오므로 EdgeStack 배포가 필요 없다. ARN에는 account ID가 있으므로
-출력 파일은 제한된 기록에 보관한다. 비활성 상태에서 ECS 주입과 EKS OIDC object·필수 파일 검사는 없다.
-EKS enrollment role의 선언된 원본 권한은 ECS 활성화 여부와 독립적이며 실제 값 조회는 활성화 이후에 발생한다.
+출력 파일은 제한된 기록에 보관한다. EKS runtime YAML에서 OIDC를 비활성화하면 object·필수 파일 검사는 없다.
+EKS enrollment role의 원본 권한은 CDK 전체 key 선언으로 정해지고 runtime 활성 여부와 독립적이다.
+새 key를 추가한 경우 DevDataStack 뒤 DevEksStack의 IAM diff와 갱신도 완료한 후 Helm에서 활성화한다.
 
 ## 3. Cognito 원문 수동 등록과 버전 보존
 
@@ -161,7 +159,7 @@ aws secretsmanager list-secret-version-ids --secret-id "$OIDC_SECRET_ARN" --regi
 ```
 
 활성·다음 배포·승인된 rollback 버전에 별도 보존 label을 유지한다. VersionId를 파일에 적는 것만으로는
-오래된 무라벨 버전의 정리를 막지 못한다. `AWSCURRENT` 이동은 이미 고정한 ECS/EKS 버전을 바꾸지 않는다.
+오래된 무라벨 버전의 정리를 막지 못한다. `AWSCURRENT` 이동은 이미 고정한 EKS 버전을 바꾸지 않는다.
 [Secrets Manager 버전 수명](https://docs.aws.amazon.com/secretsmanager/latest/userguide/whats-in-a-secret.html)을 따른다.
 비밀 값 조회 명령과 mount 내용·프로세스 환경 출력은 검증 절차에 넣지 않는다.
 
@@ -200,9 +198,9 @@ ROLLBACK;
 중지하고 기존 회원 sub의 신원 확인과 해당 회사의 서비스 세션·단회 코드 폐기를 포함한 절차를 수립한다.
 상세 권한·로그 마스킹·회원 연결 계약은 [backend 인증 운영](../../../pulsemetry-backend/docs/user-auth-operations.md)을 따른다.
 
-## 5. 활성화 입력과 ECS·EKS 적용
+## 5. EKS 활성화 입력과 적용
 
-아래는 기존 입력에 병합할 **비밀 없는 YAML 조각**이다. JSON은 같은 필드 구조로 표현한다.
+아래는 기존 입력에 병합할 **비밀 없는 YAML 조각**이다.
 기존 `userAuth`의 JWT 버전·kid·issuer·audience·origin과 `dashboard` 설정을 모두 유지한다.
 `<등록한 VersionId>`는 §3에서 기록한 실제 값으로 바꾼다.
 
@@ -223,25 +221,10 @@ userAuth:
     - https://dashboard.example.com/auth/callback
 ```
 
-ECS JSON의 `clients`는 전체 원본 선언이기도 하다. EKS에서 사용하는 key를 ECS에서 당장 로그인에
-쓰지 않는다는 이유로 제거하지 않는다. ECS 전체 OIDC를 끄더라도 `enabled:false`와 key 목록은 유지할 수 있다.
-EKS는 이 선언의 일부만 선택하고 ECS와 다른 callback·VersionId를 사용할 수 있다. 비교 검증 시에는
-실제로 선택한 버전과 주소를 각각 기록한다.
-
-**ECS:** 활성화된 JSON으로 합성·전체 diff를 검토하고 기존 context를 그대로 사용해 배포한다.
-enrollment execution role과 task definition의 `secrets`가 선택한 전체 SecretString·VersionId를 공급한다.
-정렬된 key별 내부 변수와 bracket map placeholder가 기존 `SPRING_APPLICATION_JSON`의 JWT 맵에 병합된다.
-JWT writer·task role·이미지·volume에는 OIDC 공급 책임을 추가하지 않는다.
-
-```bash
-npx cdk synth --all "${OIDC_CDK_CONTEXT[@]}" --output "$RUN_DIR/cdk-active.out"
-npx cdk diff --all "${OIDC_CDK_CONTEXT[@]}"
-npx cdk deploy --all "${OIDC_CDK_CONTEXT[@]}" --outputs-file "$RUN_DIR/cdk-active-outputs.json"
-```
-
-위 명령은 dev의 전체 context다. 다른 변경이 섞인 diff를 그대로 적용하지 않는다. VersionId 변경은
-CDK task definition 갱신과 새 task 시작이 필요하며 기존 definition의 force-new-deployment만으로는
-다른 버전으로 전환되지 않는다. [ECS runtime 런북](dev-dashboard-ecs-runtime.md)의 기존 검증도 수행한다.
+CDK `devOidcClientKeys`는 전체 원본 선언이다. runtime에서 당장 로그인에 사용하지 않는다는 이유로
+key를 제거하지 않는다. EKS YAML은 선언한 원본의 일부만 선택할 수 있고 활성 key에 고정 VersionId를 지정한다.
+새 key를 선언했다면 Data 원본·output과 EKS enrollment Pod Identity IAM을 먼저 배포한다.
+VersionId/callback 변경만으로 CDK를 다시 배포할 필요는 없으며 아래 runtime/app values를 함께 갱신한다.
 
 **EKS:** [EKS 런북 §2](dev-eks-manual-deployment.md#2-eks-활성화-설정과-cdk-배포)처럼
 `DevEksStack`·`DevEdgeStack`·`DevDataStack`의 **배포된 output을 모두** 모은다. `--outputs-file` 하나가
@@ -275,29 +258,28 @@ Kubernetes Secret 복제나 자동 reload는 없고 dashboard·ingest에는 OIDC
 
 ## 6. 수락·오류·교체·복구
 
-ECS task 시작·EKS Ready와 함께 다음을 각각 확인한다. 실행 기록에는 commit·이미지 digest·task revision/
-Helm revision·key/ARN/VersionId·성공/실패만 남긴다. 로그인 URL의 code/state/login_hint, 쿠키·JWT·원문을
+EKS Ready와 함께 다음을 각각 확인한다. 실행 기록에는 commit·이미지 digest·Helm revision·key/ARN/VersionId·성공/실패만 남긴다. 로그인 URL의 code/state/login_hint, 쿠키·JWT·원문을
 로그·스크린샷·HAR·증거 파일에 남기지 않는다.
 
 | 관문 | 실제 확인 |
 |---|---|
-| 공급 | enrollment만 고정 버전 참조, ECS execution role / EKS enrollment Pod Identity, 파일 검사 통과 |
+| 공급 | enrollment만 고정 버전 참조, EKS enrollment Pod Identity, 파일 검사 통과 |
 | 로그인 | 사전 등록 회원의 회사 탐색 → Cognito authorize → 등록된 HTTPS callback → 프론트 복귀 |
 | 서비스 인증 | 단회 코드 교환·자체 JWT 발급, dashboard의 현재 세션·회원/회사 상태 검증, 갱신·로그아웃 |
 | 실패 | 미등록 회원·허용되지 않은 redirect 거부, 잘못된/만료된 흐름 실패, 다른 회사로 연결되지 않음 |
-| 배포 비교 | ECS/EKS 각각의 주소·이미지·버전으로 위 검증 수행. 한쪽 성공을 다른 쪽의 증거로 쓰지 않음 |
+| 배포 증거 | 사용한 EKS 주소·이미지·버전을 기록하고 기능별 성공·실패를 구분 |
 
-원본에 버전을 등록하기 전에 `enabled:true`로 배포하면 ECS Secret 주입 또는 EKS CSI mount가 실패한다.
+원본에 버전을 등록하기 전에 `enabled:true`로 배포하면 EKS CSI mount가 실패한다.
 key/VersionId 누락·부적합 URL은 입력 단계에서 거부하지만 **입력 검증은 AWS 버전 존재를 확인하지 않는다**.
 SPC만 바꾸면 기존 앱이 새 값을 읽지 않는다. 공급은 성공해도 DB `config:<key>` 불일치·discovery 장애는
 로그인 단계에서 `auth_unavailable`이 될 수 있다. callback 불일치·Cognito scope·회원 이메일 검증을 구분한다.
 원문을 출력해 진단하지 않는다.
 
 교체는 Cognito에서 새 값의 유효성을 확인 → 같은 원본에 새 버전 등록·label 보존 → runtime 입력의 VersionId
-갱신 → ECS task 및 EKS runtime/앱 재배포 → 실제 로그인 수락 순서다. 새 버전 등록만으로 앱은 갱신되지 않는다.
+갱신 → EKS runtime/앱 재배포 → 실제 로그인 수락 순서다. 새 버전 등록만으로 앱은 갱신되지 않는다.
 원본 값이 Cognito와 다르면 재기동을 반복해도 해결되지 않는다.
 
-복구 시 ECS는 이전 승인 입력·버전으로 CDK를 다시 배포한다. EKS는 이전 실행 디렉터리의
+복구 시 이전 실행 디렉터리의
 `generated/runtime.yaml`을 **먼저**, 같은 기록의 `generated/enrollment-api.yaml`을 **그다음** 적용하고
 rollout·로그인을 다시 확인한다. `helm rollback enrollment-api`만 실행해 SPC를 새 버전에 남기지 않는다.
 같은 runtime release의 JWT·dashboard 설정도 돌아가므로 다른 변경이 있었다면 이전 OIDC 선택만 복구한
@@ -310,13 +292,13 @@ Secrets Manager에 구 버전이 남아 있어도 Cognito가 구 값을 폐기�
 
 로컬 검증은 `npm run build`, `npm test -- --runInBand`, 기존 Helm/schema 검사와
 `python3 scripts/test-oidc-config.py`를 수행한다. 마지막 fixture는 실제 backend `OidcProperties`·
-`UserAuthProperties`와 Spring Boot에서 ECS 환경변수·EKS configtree의 synthetic 값 및 기존 JWT 맵을
+`UserAuthProperties`와 Spring Boot에서 EKS configtree의 synthetic 값 및 기존 JWT 맵을
 검사하며 `allowInsecureLocalhost`의 생략·false·true 바인딩도 확인한다.
 backend 위치는 `--backend`, Helm 경로는 `HELM_BIN`으로 지정할 수 있다.
 이 결과는 실제 Secrets Manager 조회·Cognito 인증 성공과 구분한다.
 
 ## 참조
 
-- [ADR-0032](../adr/0032-dev-oidc-client-secret-runtime-supply.md), [ECS runtime](dev-dashboard-ecs-runtime.md), [EKS runtime](../../helm/dev/runtime/README.md)
+- [ADR-0032](../adr/0032-dev-oidc-client-secret-runtime-supply.md), [EKS runtime](../../helm/dev/runtime/README.md)
 - [backend 인증 운영](../../../pulsemetry-backend/docs/user-auth-operations.md), [Cognito 로컬 안내](../../../pulsemetry-backend/docs/cognito-dev.md) — local callback·시딩 절차는 이 배포에 그대로 적용하지 않는다.
 - [CloudFormation 빈 Secret](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-secretsmanager-secret.html)

@@ -2,6 +2,8 @@
 
 ## Status
 
+[ADR-0035](0035-dev-backend-eks-only.md)가 dev 백엔드의 ECS 실행·병행 유지·입력·배포 권한 가정을 부분 대체한다. prod·frontend Terraform과 이 문서의 나머지 계약은 유지한다. 아래 ECS 구성은 당시 결정 기록이다.
+
 Accepted (로컬 구현·검증 대상, 실제 AWS 배포·TLS 접속·애플리케이션 E2E 검증 별도)
 
 ADR-0022·0026·0028의 dev HTTP 전용 listener 결정을 인증서 입력이 있는 ALB에 한해 부분 대체한다.
