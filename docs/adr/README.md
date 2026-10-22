@@ -44,11 +44,13 @@
 | 0032 | [dev OIDC client secret은 CDK 원본의 고정 버전을 ECS와 EKS에 공급](0032-dev-oidc-client-secret-runtime-supply.md) | Accepted (선택적 localhost HTTP 허용 입력 포함; 로컬 구현·검증, AWS 배포·값 등록·Cognito 로그인 증거 별도); dev ECS 제거는 [ADR 0035](0035-dev-backend-eks-only.md)로 부분 대체 |
 | 0033 | [dev ALB는 외부 ACM 인증서를 context로 참조해 선택적으로 HTTPS를 제공](0033-dev-alb-https-with-external-acm.md) | Accepted (로컬 구현·검증; AWS 배포·TLS·애플리케이션 E2E 증거 별도); dev ECS 제거는 [ADR 0035](0035-dev-backend-eks-only.md)로 부분 대체 |
 | 0034 | [dev EKS API는 SSM 릴레이 터널을 통해 private endpoint로 접근](0034-dev-eks-private-api-via-ssm-relay.md) | Accepted (로컬 구현·검증 대상; AWS 배포·SSM·Kubernetes 접속 증거 별도) |
-| 0035 | [dev EKS 경로의 MSK는 전용 3 AZ isolated subnet과 DevEksStack 하위 리소스로 둔다](0035-dev-msk-isolated-subnets-under-eks-stack.md) | Accepted (PROJ-246 로컬 구현·검증 대상; AWS 배포·MSK 접속 증거 별도) |
-| 0036 | [telemetry Gateway는 Pod Identity와 workload별 MSK 전용 역할로 dev EKS에 배포하고 OTLP 대상은 context로 전환한다](0036-dev-telemetry-gateway-workload-and-msk-iam.md) | Accepted (PROJ-246 로컬 구현·검증 대상; AWS 배포·MSK IAM·ALB 전환 증거 별도) |
+| 0035 (MSK) | [dev EKS 경로의 MSK는 전용 3 AZ isolated subnet과 DevEksStack 하위 리소스로 둔다](0035-dev-msk-isolated-subnets-under-eks-stack.md) | Accepted (PROJ-246 로컬 구현·검증 대상; AWS 배포·MSK 접속 증거 별도) |
+| 0036 (telemetry Gateway) | [telemetry Gateway는 Pod Identity와 workload별 MSK 전용 역할로 dev EKS에 배포하고 OTLP 대상은 context로 전환한다](0036-dev-telemetry-gateway-workload-and-msk-iam.md) | Accepted (PROJ-246 로컬 구현·검증 대상; AWS 배포·MSK IAM·ALB 전환 증거 별도) |
 | 0037 | [dev EKS 관측은 독립 노드의 Prometheus·Grafana와 CloudWatch 시스템 로그를 사용한다](0037-dev-observability-and-system-diagnostics.md) | Accepted (PROJ-191 로컬 구현; 0028의 NodePool·로그 수집 범위 부분 대체; 실환경 검증 별도) |
-
 | 0035 (dev EKS 전용) | [dev 백엔드의 ECS를 제거하고 기존 EKS를 단독 실행 환경으로 사용](0035-dev-backend-eks-only.md) | Accepted (PROJ-248 코드·문서·로컬 검증; 실제 철거·Snapshot·기능 검증 별도) |
+| 0036 (JVM 차단 목록) | [dev JVM의 임시 인증서 차단 목록을 Helm ConfigMap으로 공급한다](0036-dev-jvm-blocked-certs-configmap.md) | Accepted (PROJ-253 임시 대응; Gateway 포함 네 앱, 실제 배포 별도, 패치 이미지 검증 후 제거) |
+
+병행 작업에서 사용한 `0035`·`0036`은 각각 파일명·제목·링크를 보존한다. 번호만으로 대상을 식별하지 않는다.
 
 새 ADR을 작성할 때는 다음 미사용 번호(`0038-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
 
