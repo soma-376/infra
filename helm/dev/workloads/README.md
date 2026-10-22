@@ -63,7 +63,7 @@ TCP liveness는 외부 DB 실패만으로 프로세스를 재시작하지 않는
 ClickHouse는 `24.8-alpine`과 기존 default user 설정, 50Gi PVC를 유지한다.
 StatefulSet의 PVC retention은 삭제·축소 모두 `Retain`이고 기반 StorageClass도
 `ebs.csi.eks.amazonaws.com`·`WaitForFirstConsumer`·`Retain`을 사용한다. release 삭제나 Helm
-rollback은 PVC 데이터 복원을 수행하지 않는다. 기존 ECS EBS 이관은 후속 런북을 따른다.
+rollback은 PVC 데이터 복원을 수행하지 않는다. PROJ-248은 기존 ECS EBS를 수동 Snapshot으로 보존하고 PVC로 이관하지 않는다. [철거 런북](../../../docs/runbooks/dev-ecs-retirement.md)을 따른다.
 
 로컬 검증은 `HELM_BIN=<Helm 3.22.0 경로> KUBECONFORM_BIN=<kubeconform 0.8.0 경로>`를
 지정해 `node scripts/validate-helm-workloads.mjs`로 실행한다. 무해한 fixture로 lint/render·표준

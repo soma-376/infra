@@ -4,18 +4,16 @@ import { applyCommonTags } from '../common/config';
 import { DevConfig, DEV_COMMON_TAGS } from './config';
 import { DevNetworkStack } from './network-stack';
 import { DevDataStack } from './data-stack';
-import { DevApplicationStack } from './application-stack';
 import { DevEdgeStack } from './edge-stack';
 import { validateDevEdgeEnvironment } from './edge-config';
 
 /**
- * 기본 dev 4스택과 선택적 EKS 스택. CLI와 테스트가 같은 조립 결과를 공유한다.
+ * EKS 전용 dev 4스택. CLI와 테스트가 같은 조립 결과를 공유한다.
  */
 export interface DevStacks {
-  readonly eks?: DevEksStack;
+  readonly eks: DevEksStack;
   readonly network: DevNetworkStack;
   readonly data: DevDataStack;
-  readonly application: DevApplicationStack;
   readonly edge: DevEdgeStack;
 }
 
@@ -25,7 +23,7 @@ export interface SynthDevProps {
 }
 
 /**
- * dev 환경의 기본 4스택과 활성화된 EKS 스택을 주어진 App에 조립한다.
+ * dev 환경의 Network·Data·Edge·EKS 네 스택을 주어진 App에 조립한다.
  *
  * bin/infra.ts(CLI)와 후속 커밋의 테스트 픽스처가 모두 이 함수를 거치므로 양쪽
  * 산출물이 갈라질 수 없다. 스택 ID 와 props 전달 순서는 합성 산출물에 그대로
@@ -52,8 +50,6 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
   const network = new DevNetworkStack(app, 'DevNetworkStack', {
     env,
     allowedCidrs: config.allowedCidrs,
-    eksEnabled: config.eks.enabled,
-    httpsEnabled: config.edge.certificateArn !== undefined,
     eksHttpsEnabled: config.edge.eksCertificateArn !== undefined,
   });
 
@@ -61,49 +57,22 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     env,
     vpc: network.vpc,
     rdsSecurityGroup: network.rdsSecurityGroup,
-    oidcClientKeys: config.dashboardRuntime.oidc?.clients.map(client => client.key),
-  });
-
-  const application = new DevApplicationStack(app, 'DevApplicationStack', {
-    env,
-    vpc: network.vpc,
-    devConfig: config,
-    dbEndpoint: data.dbEndpoint,
-    dbSecret: data.dbSecret,
-    adminApiTokenSecret: data.adminApiTokenSecret,
-    tokenHashSecret: data.tokenHashSecret,
-    userJwtPrivateKeySecret: data.userJwtPrivateKeySecret,
-    userJwtPublicKeysSecret: data.userJwtPublicKeysSecret,
-    oidcClientSecrets: data.oidcClientSecrets,
-    dashboardDatabaseSecrets: { rdsSource: data.dashboardRdsSourceSecret, rdsCache: data.dashboardRdsCacheSecret,
-      clickhouseSource: data.dashboardClickHouseSourceSecret, clickhouseCache: data.dashboardClickHouseCacheSecret },
-    rawSignalBucket: data.rawSignalBucket,
-    appHostSecurityGroup: network.appHostSecurityGroup,
-    clickhouseSecurityGroup: network.clickhouseSecurityGroup,
+    oidcClientKeys: config.oidcClientKeys,
   });
 
   const edge = new DevEdgeStack(app, 'DevEdgeStack', {
     env,
     edge: config.edge,
     vpc: network.vpc,
-    albSecurityGroup: network.albSecurityGroup,
     eksValidationAlbSecurityGroup: network.eksValidationAlbSecurityGroup,
     eksOtlpTarget: config.eks.otlpTarget,
-    telemetryIngestService: application.telemetryIngestService,
-    enrollmentApiService: application.enrollmentApiService,
-    dashboardApiService: application.dashboardApiService,
-    clickhouseService: application.clickhouseService,
     dbEndpoint: data.dbEndpoint,
     dbSecretArn: data.dbSecretArn,
     tokenHashSecretArn: data.tokenHashSecretArn,
     adminApiTokenSecretArn: data.adminApiTokenSecretArn,
   });
 
-  // enrollment-api가 응답에 넣는 설치 URL은 실제 ALB DNS와 같아야 한다. Edge가 ALB를
-  // 만든 뒤 application의 컨테이너 정의에 weak cross-stack reference로 연결한다.
-  application.bindEnrollmentPublicBaseUrl(edge.publicBaseUrl);
-
-  const eks = config.eks.enabled ? new DevEksStack(app, 'DevEksStack', {
+  const eks = new DevEksStack(app, 'DevEksStack', {
     env, vpc: network.vpc, config: config.eks,
     dbEndpoint: data.dbEndpoint, dbSecret: data.dbSecret,
     tokenHashSecret: data.tokenHashSecret, adminApiTokenSecret: data.adminApiTokenSecret,
@@ -117,13 +86,13 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     telemetryJwtPublicKeysSecret: data.telemetryJwtPublicKeysSecret,
     oidcClientSecrets: data.oidcClientSecrets,
     rawSignalBucket: data.rawSignalBucket,
-    controlPlaneSecurityGroup: network.eksControlPlaneSecurityGroup!,
-    appNodeSecurityGroup: network.eksAppNodeSecurityGroup!,
-    clickhouseNodeSecurityGroup: network.eksClickhouseNodeSecurityGroup!,
-    relaySecurityGroup: network.eksRelaySecurityGroup!,
-    observabilityNodeSecurityGroup: network.eksObservabilityNodeSecurityGroup!,
-    mskSubnets: network.mskSubnets!, mskSecurityGroup: network.mskSecurityGroup!,
-  }) : undefined;
+    controlPlaneSecurityGroup: network.eksControlPlaneSecurityGroup,
+    appNodeSecurityGroup: network.eksAppNodeSecurityGroup,
+    clickhouseNodeSecurityGroup: network.eksClickhouseNodeSecurityGroup,
+    relaySecurityGroup: network.eksRelaySecurityGroup,
+    observabilityNodeSecurityGroup: network.eksObservabilityNodeSecurityGroup,
+    mskSubnets: network.mskSubnets, mskSecurityGroup: network.mskSecurityGroup,
+  });
 
-  return { network, data, application, edge, ...(eks ? { eks } : {}) };
+  return { network, data, edge, eks };
 }

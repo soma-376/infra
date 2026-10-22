@@ -112,7 +112,7 @@ const ENROLLMENT_EXISTING_ROUTES: readonly [string, AppMethod, boolean][] = [
 ];
 
 /**
- * ECS와 EKS 검증 ALB가 함께 소비하는 공개 업무 경로다. Origin 허용·인증·CORS 응답은
+ * dev EKS ALB가 소비하는 공개 업무 경로다. Origin 허용·인증·CORS 응답은
  * 앱이 판단하고, edge는 명시한 path/method/preflight만 전달한다. (ADR-0029)
  */
 export const DEV_APP_ROUTES: readonly DevAppRoute[] = [

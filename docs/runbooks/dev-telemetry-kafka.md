@@ -72,15 +72,18 @@ backend(PROJ-245)는 아래 이름을 그대로 읽는다. backend 브랜치 `fe
 ## 4. CDK 적용
 
 [EKS 런북](dev-eks-manual-deployment.md) §2의 `EKS_CONTEXT`에 `-c devEksOtlpTarget=ingest`를 포함한다.
-MSK 생성은 수십 분이 걸리고 실패하면 EKS 스택 업데이트 전체가 롤백된다. 다른 변경 없이 이 기능만 담은 배포를 먼저 수행한다.
+MSK 생성은 수십 분이 걸리고 실패하면 EKS 스택 업데이트 전체가 롤백된다. 기존 ECS가 남아 있으면
+[철거 런북](dev-ecs-retirement.md)의 선행 조건과 순서를 먼저 확인하며 최종 코드로 `deploy --all`을 먼저 실행하지 않는다.
+ECS 철거가 완료됐거나 신규 환경일 때 아래 전체 배포를 사용한다.
 
 ```bash
 npx cdk diff --all "${EKS_CONTEXT[@]}" > "$RUN_DIR/cdk-diff-telemetry.txt"
 npx cdk deploy --all "${EKS_CONTEXT[@]}" --outputs-file "$RUN_DIR/cdk-outputs.json"
 ```
 
-diff에서 확인할 것: Network에 subnet 3·route table 3·`DevMskSg`·ingress 3(9098, 30082×2)만 추가되고 기존 subnet·SG 속성은 그대로다.
-Data에 Secret 2개와 output 2개, Edge에 Gateway TG와 output 2개, EKS에 MSK·역할·association·경보가 추가된다. 삭제·교체는 없어야 한다.
+diff에서 확인할 것: Network에 subnet 3·route table 3·`DevMskSg`·Gateway NodePort 30082와 MSK IAM 9098, 관측 exporter 11001·11002 ingress가 있으며 기존 subnet·SG 속성은 그대로다.
+Data에 telemetry JWT Secret 2개와 output 2개, Edge에 Gateway TG와 output, EKS에 MSK·역할·association·경보가 추가된다.
+관측 변경은 [관측 런북](dev-observability.md)의 SG·Secret·로그·진단 S3와 대조한다. 기존 EKS/Data 리소스의 삭제·교체는 없어야 한다.
 이후 EKS 런북 §2-2로 output을 모으고 `aws kafka get-bootstrap-brokers` JSON을 저장한다. JSON에는 `BootstrapBrokerStringSaslIam`만 있어야 한다.
 
 ## 5. telemetry JWT 키 등록

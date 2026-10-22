@@ -1,5 +1,7 @@
 # PROJ-218 후속 로컬 구현·검증 기록
 
+> **역사적 기록:** ADR-0035·PROJ-248 이후 dev 백엔드는 EKS 전용이다. 아래 ECS 구성·명령·검증 수치는 당시 기록이며 현재 실행 절차가 아니다. 현재 운영은 [EKS 런북](dev-eks-manual-deployment.md), 기존 ECS 철거는 [철거 런북](dev-ecs-retirement.md)을 따른다.
+
 2026-10-17에 PROJ-230·221·223·231·224를 구현하고 티켓별 로컬 브랜치에 커밋했다.
 PROJ-225는 보류한다. CDK/Helm 배포, 이미지·Git push, PR 생성, Jira 변경은 수행하지 않았다.
 실제 Secret을 조회하거나 DB 계정·키를 등록하지 않았고 모든 입력은 fixture다.

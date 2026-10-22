@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""실제 ECS 설정·Helm 출력과 backend OIDC DTO를 로컬 JVM에서 검증한다."""
+"""실제 EKS 생성기·Helm 출력과 backend OIDC DTO를 로컬 JVM에서 검증한다."""
 import argparse
 import hashlib
 import json
@@ -20,15 +20,14 @@ SYNTHETIC = {
     "Cognito_B": "fixture-B-only-with-hyphen_and_underscore",
 }
 
-# TypeScript의 실제 ECS 설정 함수와 EKS 생성기를 사용한다. Secret 값은 이 입력에 없다.
+# 실제 EKS runtime YAML과 생성기를 사용한다. Secret 값은 이 입력에 없다.
 GENERATE = r"""
 const fs = require('node:fs');
 const path = require('node:path');
-const { dump } = require('js-yaml');
-const { parseDashboardRuntimeConfig, userAuthEnvironment } = require('./lib/dev/dashboard-runtime-config.ts');
+const { dump, load } = require('js-yaml');
 (async () => {
   const { generateValues } = await import('./scripts/eks-values.mjs');
-  const input = JSON.parse(fs.readFileSync('test/fixtures/dashboard-runtime.json', 'utf8'));
+  const input = load(fs.readFileSync('test/fixtures/eks-runtime.yaml', 'utf8'));
   const scenario = process.argv[2];
   const local = scenario === 'true';
   const callbackBaseUrl = local ? 'http://localhost:8080' : 'https://auth.example.invalid';
@@ -45,8 +44,6 @@ const { parseDashboardRuntimeConfig, userAuthEnvironment } = require('./lib/dev/
     ],
   };
   if (scenario !== 'omitted') input.oidc.allowInsecureLocalhost = local;
-  const ecs = userAuthEnvironment(parseDashboardRuntimeConfig(input), true);
-  delete input.writerImage;
   const secret = name => `arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:${name}-abc123`;
   const tg = name => `arn:aws:elasticloadbalancing:ap-northeast-2:111111111111:targetgroup/soma-376-dev-eks-${name}/0123456789abcdef`;
   const outputs = {
@@ -73,7 +70,7 @@ const { parseDashboardRuntimeConfig, userAuthEnvironment } = require('./lib/dev/
   const image = name => `111111111111.dkr.ecr.ap-northeast-2.amazonaws.com/soma-376/${name}@sha256:${'a'.repeat(64)}`;
   const values = generateValues(outputs, image('enrollment-api'), image('telemetry-ingest'), image('dashboard-api'), input);
   for (const [name, value] of Object.entries(values)) fs.writeFileSync(path.join(process.argv[1], name), dump(value));
-  process.stdout.write(JSON.stringify({ ecs, values, oidc: input.oidc }));
+  process.stdout.write(JSON.stringify({ values }));
 })().catch(error => { console.error(error.message); process.exitCode = 1; });
 """
 
@@ -127,7 +124,7 @@ def validate_case(args, classpath, scenario):
         temp = Path(directory)
         generated = temp / "generated"
         generated.mkdir()
-        emitted = json.loads(run([args.node, "--import", "tsx", "-e", GENERATE, str(generated), scenario], cwd=ROOT))
+        emitted = json.loads(run([args.node, "-e", GENERATE, str(generated), scenario], cwd=ROOT))
         local = scenario == "true"
         callback = "http://localhost:8080" if local else "https://auth.example.invalid"
         failure_redirect = "http://localhost:3000/auth/callback" if local else "https://dashboard.example.invalid/auth/callback"
@@ -141,14 +138,13 @@ def validate_case(args, classpath, scenario):
         eks_environment = {entry["name"]: entry["value"] for entry in pod["containers"][0]["env"]}
         aliases = {key: "PULSEMETRY_OIDC_CLIENT_SECRET_" + str(index) for index, key in enumerate(sorted(SYNTHETIC))}
         expected_map = {"[" + key + "]": "${" + alias + "}" for key, alias in aliases.items()}
-        for kind, environment in (("ECS", emitted["ecs"]), ("EKS", eks_environment)):
-            spring = json.loads(environment["SPRING_APPLICATION_JSON"])["pulsemetry"]
-            if spring["oidc"]["client-secrets"] != expected_map:
-                raise RuntimeError(kind + "의 실제 출력에 OIDC map key/alias가 일치하지 않는다")
-            if spring["oidc"].get("allow-insecure-localhost") is not local:
-                raise RuntimeError(kind + "/" + scenario + "의 localhost 예외 boolean이 일치하지 않는다")
-            if any(value in json.dumps(environment) for value in SYNTHETIC.values()):
-                raise RuntimeError(kind + " 설정에 synthetic Secret 원문이 포함됐다")
+        spring = json.loads(eks_environment["SPRING_APPLICATION_JSON"])["pulsemetry"]
+        if spring["oidc"]["client-secrets"] != expected_map:
+            raise RuntimeError("EKS의 실제 출력에 OIDC map key/alias가 일치하지 않는다")
+        if spring["oidc"].get("allow-insecure-localhost") is not local:
+            raise RuntimeError("EKS/" + scenario + "의 localhost 예외 boolean이 일치하지 않는다")
+        if any(value in json.dumps(eks_environment) for value in SYNTHETIC.values()):
+            raise RuntimeError("EKS 설정에 synthetic Secret 원문이 포함됐다")
 
         objects = load_yaml_documents(args.node, runtime["spec"]["parameters"]["objects"])[0]
         clients = {entry["key"]: entry for entry in emitted["values"]["runtime.yaml"]["oidc"]["clients"]}
@@ -207,13 +203,9 @@ def validate_case(args, classpath, scenario):
             "FIXTURE_EXPECT_CALLBACK": callback,
             "FIXTURE_EXPECT_FAILURE_REDIRECT": failure_redirect,
         })
-        for kind, actual in (("ECS", emitted["ecs"]), ("EKS", eks_environment)):
-            environment = {**base, **actual}
-            if kind == "ECS":
-                environment.update({alias: SYNTHETIC[key] for key, alias in aliases.items()})
-            else:
-                environment["SPRING_CONFIG_IMPORT"] = "configtree:" + str(mount) + "/"
-            print(run(["java", "-cp", classpath, "OidcConfigFixture", str(yaml), kind + "/" + scenario], env=environment))
+        environment = {**base, **eks_environment}
+        environment["SPRING_CONFIG_IMPORT"] = "configtree:" + str(mount) + "/"
+        print(run(["java", "-cp", classpath, "OidcConfigFixture", str(yaml), "EKS/" + scenario], env=environment))
 
 
 def validate(args):
@@ -221,7 +213,7 @@ def validate(args):
         classpath = compile_backend_dtos(args, Path(directory))
         for scenario in ("omitted", "false", "true"):
             validate_case(args, classpath, scenario)
-    print("PASS: localhost 예외 생략/false/true의 실제 ECS 설정 함수·EKS 생성기/Helm 출력·Spring Boot " + BOOT + "·backend DTO 로컬 검증. 실제 Secret/CSI/UID 10001/Cognito 로그인은 검증하지 않았다.")
+    print("PASS: localhost 예외 생략/false/true의 실제 EKS 생성기/Helm 출력·Spring Boot " + BOOT + "·backend DTO 로컬 검증. 실제 Secret/CSI/UID 10001/Cognito 로그인은 검증하지 않았다.")
 
 
 def main():

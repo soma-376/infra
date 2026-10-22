@@ -1,6 +1,6 @@
 import { DevEksConfig, loadDevEksConfig } from './eks-config';
 import { DevEdgeConfig, loadDevEdgeConfig } from './edge-config';
-import { DashboardRuntimeConfig, loadDashboardRuntimeConfig } from './dashboard-runtime-config';
+import { loadDevOidcClientKeys } from './oidc-config';
 import { Annotations, App, Duration } from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
 import { InstanceClass, InstanceSize, InstanceType } from 'aws-cdk-lib/aws-ec2';
@@ -121,20 +121,6 @@ export const DEV_SUBNET_GROUP = {
 } as const;
 
 /**
- * dev CloudWatch Logs 로그 그룹 접두사 (ADR-0022 10번).
- *
- * **이걸 빼면 첫 `cdk deploy` 가 실패한다.** 운영 `ApplicationStack` 은
- * `logGroupName` 에 `/ecs/collector` 같은 물리 이름을 명시하고, 로그 그룹 이름은
- * 계정 + 리전 스코프에서 유일해야 한다. 접두사 없이 같은 이름을 쓰면
- * `Resource of type 'AWS::Logs::LogGroup' with identifier '/ecs/collector'
- * already exists` 로 스택이 통째로 롤백된다. (ADR-0021 Constraints)
- *
- * 최종 두 Spring 앱은 dev 전용 basename을 쓰고, ClickHouse는 운영과 같은
- * basename을 쓴다. 세 로그 그룹 모두 이 접두사 아래에 둔다.
- */
-export const DEV_LOG_GROUP_PREFIX = '/ecs/dev';
-
-/**
  * dev ALB 타깃의 deregistration delay (ADR-0025).
  *
  * 교체 배포에서는 AWS 기본값 300초의 connection draining이 먼저 끝난 뒤 새 태스크를
@@ -144,43 +130,6 @@ export const DEV_LOG_GROUP_PREFIX = '/ecs/dev';
  * 관측 이후 결정한다.
  */
 export const DEV_DEREGISTRATION_DELAY = Duration.seconds(60);
-
-/**
- * telemetry-ingest 전용 ECS health check 기동 유예 (ADR-0026).
- *
- * ClickHouse 스키마 준비가 응답 헤더 timeout과 재시도를 모두 소진하면 약
- * 160초가 걸릴 수 있다. 로드 밸런서를 쓰면 CDK 기본 60초로는 기동 중인
- * 태스크를 ECS scheduler가 조기 교체할 수 있어 ingest 서비스에만 240초를 둔다.
- * healthy 전환을 지연하는 대기 시간이 아니며, 배포 후 실제 기동 시간을 관측한다.
- */
-export const DEV_TELEMETRY_INGEST_HEALTH_CHECK_GRACE = Duration.seconds(240);
-
-/**
- * 앱 호스트 ASG 인스턴스 타입 (ClickHouse 외 모든 dev 앱 태스크).
- *
- * ARM64 로 고정한다 - 비용이 아니라 **운영과 같은 이미지를 쓰기 위해서**다.
- * dev 가 x86 이면 앱 레포가 두 아키텍처를 빌드해야 하고, 그러면 "dev 에서
- * 검증했다"가 운영에 대해 아무것도 보장하지 못한다. (ADR-0015, ADR-0022 3번)
- */
-export const DEV_APP_INSTANCE_TYPE = InstanceType.of(
-  InstanceClass.T4G,
-  InstanceSize.MEDIUM,
-);
-
-/**
- * ClickHouse 호스트 ASG 인스턴스 타입. 운영과 같은 t4g.small 이다.
- *
- * 앱 호스트와 ASG 를 나누는 이유는 두 가지다 (ADR-0022 3번). ClickHouse 쿼리
- * 하나가 가용 메모리를 크게 잡아먹어 앱 태스크를 OOM 으로 밀어내는 것을 막고,
- * 데이터 디렉터리를 비울 때 앱 호스트를 함께 내리지 않아도 되게 한다.
- */
-export const DEV_CLICKHOUSE_INSTANCE_TYPE = InstanceType.of(
-  InstanceClass.T4G,
-  InstanceSize.SMALL,
-);
-
-/** ClickHouse 데이터 볼륨(`/dev/xvdb`) 크기. 운영과 같은 값이다. */
-export const DEV_CLICKHOUSE_DATA_VOLUME_GIB = 50;
 
 /** RDS 할당 스토리지. gp3 최소 과금 구간이자 dev 스키마 검증에 충분한 크기다. */
 export const DEV_RDS_ALLOCATED_STORAGE_GIB = 20;
@@ -235,15 +184,6 @@ export const DEV_RDS_INSTANCE_TYPE = InstanceType.of(
 export const DEV_RAW_SIGNAL_EXPIRATION_DAYS = 7;
 
 /**
- * telemetry-ingest의 S3 archive key prefix. 앱 고유 object key 레이아웃을 그대로 쓰며
- * dev 전용 상위 prefix 계약은 아직 없으므로 빈 문자열을 명시한다. (ADR-0026)
- */
-export const DEV_TELEMETRY_ARCHIVE_PREFIX = '';
-
-/** enrollment-api 이미지 안에서 bootstrap 바이너리를 서빙할 디렉터리. (ADR-0026) */
-export const DEV_ENROLLMENT_BINARIES_DIR = '/app/binaries';
-
-/**
  * `devAllowedCidr` 미지정 시의 기본 인바운드 소스 (ADR-0022 9번).
  *
  * **안전한 기본값이 아니다.** 팀원 IP 가 유동적인 개발 단계에서 CIDR 갱신
@@ -253,67 +193,29 @@ export const DEV_ENROLLMENT_BINARIES_DIR = '/app/binaries';
 export const DEV_OPEN_CIDR = '0.0.0.0/0';
 
 /**
- * `devAppAsgMaxCapacity` 기본값. 구 서비스 정리 후 앱 호스트 소프트 예약은
- * telemetry-ingest와 enrollment-api 합 2048 MiB다. 기본 호스트를 한 대로
- * 되돌리고, 부하 검증이 필요하면 context로 늘린다. (ADR-0026)
- */
-const DEV_DEFAULT_APP_ASG_MAX_CAPACITY = 1;
-
-/**
- * `devImageTag` 기본값. dev/prod 가 같은 ECR 레포를 공유하고 태그로만 갈린다
- * (ADR-0021 5번).
- *
- * **예전 값은 `latest` 였고 운영도 태그를 주지 않아 `latest` 를 읽었다** - 그래서 dev 빌드가
- * 곧 운영 이미지가 됐다. ADR-0021 이 Negative 로 남겨 둔 그 구멍을 ADR-0024 가 두 환경에
- * 서로 다른 고정 태그를 주어 닫았다. 운영 쪽 상수는 `lib/prod/config.ts` 의 `PROD_IMAGE_TAG` 다.
- *
- * 태그가 갈렸다고 규율이 강제되는 것은 아니다. ECR 은 이미지 태그 기반 IAM 조건 키를 주지
- * 않으므로, dev 배포 역할이 `prod` 태그를 push 하는 것을 인프라가 막을 수단이 없다.
- * 방어선은 여전히 앱 레포 워크플로우다 (ADR-0024 Negative).
- *
- * `-c devImageTag=pr-42` 로 갈아탈 수 있다. 이 손잡이는 dev 에만 있다.
- */
-const DEV_DEFAULT_IMAGE_TAG = 'dev';
-
-/**
- * dev 배포별 가변값. 앱 runtime, EKS, ALB 입력을 같은 context에서 읽는다.
+ * dev 배포별 가변값. AWS 원본 선언과 EKS·ALB 입력만 읽는다.
  */
 export interface DevConfig {
   readonly eks: DevEksConfig;
   readonly edge: DevEdgeConfig;
   /** ALB(80/선택적 443/8123)와 RDS(5432)의 인바운드 허용 소스. 항상 1개 이상이다. */
   readonly allowedCidrs: readonly string[];
-  /** 앱 호스트 ASG 의 최대 용량. 부하 테스트 확장 손잡이다 (ADR-0022 11번). */
-  readonly appAsgMaxCapacity: number;
-  /** ECR 이미지 태그. */
-  readonly imageTag: string;
-  readonly dashboardRuntime: DashboardRuntimeConfig;
+  /** 원본이 없는 경우에도 빈 배열을 명시한다. */
+  readonly oidcClientKeys: readonly string[];
 }
 
-/**
- * CDK context 에서 dev 설정을 로드한다.
- * context 키: devAllowedCidr, devAppAsgMaxCapacity, devImageTag, devDashboardRuntimeFile.
- * ALB: devCertificateArn, devEksCertificateArn, devHttpRedirectEnabled. (ADR-0033)
- *
- * `devAllowedCidr` 은 쉼표로 여러 개를 줄 수 있다.
- *   npx cdk deploy --all -c env=dev -c devAllowedCidr=203.0.113.10/32,198.51.100.0/24
- */
+/** EKS 전용 dev 설정. 폐기된 ECS 입력을 조용히 무시하지 않는다. (ADR-0035) */
 export function loadDevConfig(app: App): DevConfig {
-  const eks = loadDevEksConfig(app);
+  for (const key of ['devAppAsgMaxCapacity', 'devImageTag', 'devCertificateArn', 'devDashboardRuntimeFile']) {
+    if (app.node.tryGetContext(key) !== undefined) {
+      throw new Error(`${key}는 ECS 제거로 폐기되었습니다. OIDC 원본 key는 devOidcClientKeys로, 앱 설정은 EKS runtime YAML로 이전하세요. EKS 인증서는 devEksCertificateArn을 사용하세요`);
+    }
+  }
   return {
-    eks,
-    edge: loadDevEdgeConfig(app, eks.enabled),
-    dashboardRuntime: loadDashboardRuntimeConfig(app),
-    allowedCidrs: parseAllowedCidrs(
-      app.node.tryGetContext('devAllowedCidr') as string | undefined,
-    ),
-    appAsgMaxCapacity: parseAppAsgMaxCapacity(
-      app.node.tryGetContext('devAppAsgMaxCapacity'),
-    ),
-    imageTag:
-      (
-        (app.node.tryGetContext('devImageTag') as string | undefined) ?? ''
-      ).trim() || DEV_DEFAULT_IMAGE_TAG,
+    eks: loadDevEksConfig(app),
+    edge: loadDevEdgeConfig(app),
+    oidcClientKeys: loadDevOidcClientKeys(app),
+    allowedCidrs: parseAllowedCidrs(app.node.tryGetContext('devAllowedCidr') as string | undefined),
   };
 }
 
@@ -328,28 +230,6 @@ function parseAllowedCidrs(raw: string | undefined): readonly string[] {
     .filter((cidr) => cidr.length > 0);
 
   return parsed.length > 0 ? parsed : [DEV_OPEN_CIDR];
-}
-
-/**
- * ASG 최대 용량을 파싱한다. CLI `-c` 는 문자열, `cdk.json` context 는 숫자로
- * 들어오므로 양쪽을 받는다.
- *
- * **파싱 실패나 1 미만이면 즉시 던진다.** 조용히 기본값으로 폴백하면 오타
- * (`-c devAppAsgMaxCapacity=3대`)가 "왜 안 늘어나지"로만 드러난다.
- */
-function parseAppAsgMaxCapacity(raw: unknown): number {
-  if (raw === undefined || raw === null || String(raw).trim() === '') {
-    return DEV_DEFAULT_APP_ASG_MAX_CAPACITY;
-  }
-
-  const text = String(raw).trim();
-  const value = Number(text);
-  if (!Number.isInteger(value) || value < 1) {
-    throw new Error(
-      `devAppAsgMaxCapacity 는 1 이상의 정수여야 한다: ${text}`,
-    );
-  }
-  return value;
 }
 
 /**

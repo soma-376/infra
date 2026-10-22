@@ -1,10 +1,8 @@
 import {
   DevConfig,
   DEV_OPEN_CIDR,
-  DEV_TELEMETRY_INGEST_HEALTH_CHECK_GRACE,
   loadDevConfig,
 } from '../../lib/dev/config';
-import { PROD_IMAGE_TAG } from '../../lib/prod/config';
 import { buildDevApp } from '../helpers';
 
 // loadDevConfig 는 CDK 리소스를 만들지 않고 context 만 읽는 순수 로직이라 template
@@ -18,10 +16,6 @@ import { buildDevApp } from '../helpers';
 // 이미 고정한다. 여기서 중복하지 않는다.
 const devConfig = (context: Record<string, unknown> = {}): DevConfig =>
   loadDevConfig(buildDevApp(context).app);
-
-test('telemetry-ingest health check 기동 유예는 240초다', () => {
-  expect(DEV_TELEMETRY_INGEST_HEALTH_CHECK_GRACE.toSeconds()).toBe(240);
-});
 
 describe('loadDevConfig - devAllowedCidr', () => {
   // 기본값이 열려 있다는 사실 자체가 계약이다. 여기가 바뀌면 warnOnOpenIngress 의
@@ -58,48 +52,43 @@ describe('loadDevConfig - devAllowedCidr', () => {
   });
 });
 
-describe('loadDevConfig - devAppAsgMaxCapacity', () => {
-  test('최종 구성에서는 미지정 기본값이 1이다', () => {
-    expect(devConfig().appAsgMaxCapacity).toBe(1);
-  });
-
-  // CLI `-c` 는 문자열, cdk.json context 는 숫자로 들어오므로 양쪽을 받아야 한다.
-  test('문자열과 숫자를 모두 받는다', () => {
-    expect(devConfig({ devAppAsgMaxCapacity: '3' }).appAsgMaxCapacity).toBe(3);
-    expect(devConfig({ devAppAsgMaxCapacity: 3 }).appAsgMaxCapacity).toBe(3);
-  });
-
-  // 조용히 기본값으로 폴백하면 오타(`-c devAppAsgMaxCapacity=3대`)가 "왜 안 늘어나지"
-  // 로만 드러난다. 키 이름을 메시지에 넣어 어느 손잡이가 틀렸는지 바로 보이게 한다.
-  test.each(['0', 'abc', '-1', '1.5'])(
-    '%j 는 키 이름을 담은 에러로 즉시 던진다',
-    (raw) => {
-      expect(() => devConfig({ devAppAsgMaxCapacity: raw })).toThrow(
-        /devAppAsgMaxCapacity/,
-      );
+describe('EKS 전용 context', () => {
+  test.each(['devAppAsgMaxCapacity', 'devImageTag', 'devCertificateArn', 'devDashboardRuntimeFile'])(
+    '폐기된 %s 입력은 값과 무관하게 거부한다', key => {
+      for (const value of ['', null, false, 'legacy']) {
+        expect(() => devConfig({ [key]: value })).toThrow(new RegExp(key + '.*폐기'));
+      }
     },
   );
+  test.each([undefined, true, 'true'])('EKS 활성 입력 %j는 항상 EKS를 유지한다', value => {
+    expect(devConfig({devEksEnabled: value}).eks.enabled).toBe(true);
+  });
+  test.each([false, 'false', null, '', 0, 1, 'TRUE', {}, []].map(value => [value]))('EKS 비활성·잘못된 입력 %j를 거부한다', value => {
+    expect(() => devConfig({devEksEnabled: value})).toThrow(/devEksEnabled/);
+  });
 });
 
-describe('loadDevConfig - devImageTag', () => {
-  // dev/prod 가 같은 ECR 레포를 공유하고 태그로만 갈린다 (ADR-0021 5번).
-  // **기본값이 `latest` 이면 안 된다** - 운영도 태그 없이 `latest` 를 읽던 시절에는
-  // dev 빌드가 곧 운영 이미지였다. ADR-0024 가 두 환경에 서로 다른 고정 태그를 줘서
-  // 그 경로를 닫았고, 이 어서션이 되돌아가는 것을 막는다.
-  test('미지정이면 dev 다', () => {
-    expect(devConfig().imageTag).toBe('dev');
+describe('OIDC 원본 선언', () => {
+  test.each([[], '[]'].map(value => [value]))('빈 원본을 명시할 수 있다: %j', value => {
+    expect(devConfig({devOidcClientKeys: value}).oidcClientKeys).toEqual([]);
   });
-
-  test('지정한 태그를 그대로 쓴다', () => {
-    expect(devConfig({ devImageTag: 'pr-42' }).imageTag).toBe('pr-42');
+  test.each([['cognito-b', 'Cognito_A'], '["cognito-b","Cognito_A"]'].map(value => [value]))(
+    '배열과 CLI JSON 목록의 대소문자를 보존하고 정렬한다: %j', value => {
+      expect(devConfig({devOidcClientKeys: value}).oidcClientKeys).toEqual(['Cognito_A', 'cognito-b']);
+    },
+  );
+  test('최대 key 수와 길이를 허용한다', () => {
+    const keys = Array.from({length:32}, (_, i) => String(i).padEnd(64, 'a'));
+    expect(devConfig({devOidcClientKeys:keys}).oidcClientKeys).toHaveLength(32);
   });
-
-  test('빈 문자열이면 기본값으로 폴백한다', () => {
-    expect(devConfig({ devImageTag: '  ' }).imageTag).toBe('dev');
-  });
-
-  // 운영 태그와 절대 겹치면 안 된다. 겹치는 순간 ADR-0024 7번이 무의미해진다.
-  test('기본 태그가 운영 태그와 다르다', () => {
-    expect(devConfig().imageTag).not.toBe(PROD_IMAGE_TAG);
-  });
+  test.each([undefined, null, '', 'invalid-json', '"key"', '{}', 'null', false,
+    [1], [''], ['../escape'], [' a'], ['a'.repeat(65)], ['a', 'a'], ['cognito.a'],
+    Array.from({length:33}, (_,i) => `key-${i}`), [{key:'a',secret:'sensitive-marker'}]].map(value => [value]))(
+    '누락·형식·중복 오류를 입력 원문 없이 거부한다: %j', value => {
+      expect(() => devConfig({devOidcClientKeys:value})).toThrow(/devOidcClientKeys/);
+      try { devConfig({devOidcClientKeys:value}); } catch (error) {
+        expect(String(error)).not.toContain('sensitive-marker');
+      }
+    },
+  );
 });

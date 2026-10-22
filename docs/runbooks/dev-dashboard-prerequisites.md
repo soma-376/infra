@@ -4,13 +4,13 @@
 > 이번 작업에서 실행하지 않았다. Secret 정의·로컬 합성과 실제 리소스 생성·계정 준비·인증 성공은 다르다.
 > 원본 소유·보존은 [ADR-0031](../adr/0031-manage-dev-dashboard-and-jwt-secrets-with-cdk.md),
 > JWT 파일 공급은 [ADR-0030](../adr/0030-dev-user-jwt-keys-from-secrets-manager.md)을 따른다.
-> 기존 Cognito client secret 원본·수동 등록·ECS/EKS 연결은 [OIDC 준비 런북](dev-oidc-prerequisites.md)과
+> 기존 Cognito client secret 원본·수동 등록·EKS 연결은 [OIDC 준비 런북](dev-oidc-prerequisites.md)과
 > [ADR-0032](../adr/0032-dev-oidc-client-secret-runtime-supply.md)의 추가 범위다.
 
 ## 1. 실행 범위와 사전 조건
 
-이 절차는 dev ECS와 dev EKS가 공유할 계정·키 원본·배포 입력을 준비한다. 실제 runtime 주입·IAM·키 파일
-공급은 PROJ-230(ECS)·PROJ-231(EKS), 배포·기능·복구 확인은 PROJ-221·225가 담당한다.
+이 절차는 dev EKS의 계정·키 원본·배포 입력을 준비한다. ADR-0035 이후 ECS runtime은 제거됐다.
+기존 원본·계정은 보존하며 EKS runtime 주입·기능·복구 확인은 [EKS 런북](dev-eks-manual-deployment.md)을 따른다.
 prod·기존 enrollment/ingest의 자격증명은 변경하지 않는다.
 
 - 대상 리전은 `ap-northeast-2`다. 운영자는 별도 승인된 배포로 CDK 원본이 생성됐는지 먼저 확인한다.
@@ -47,8 +47,8 @@ Secrets Manager가 32자 영숫자로 생성한다. Secret 생성 자체가 DB �
 운영자가 DB에 수동 접속해 각 Secret과 같은 username/password로 계정을 만든 뒤 §3의 권한을 적용한다.
 기존 계정이 있으면 현재 소유·권한·사용자를 먼저 확인하고 암호나 소유권을 임의로 덮어쓰지 않는다.
 
-각 참조에는 같은 이름 뒤에 `Arn`을 붙인 getter도 있다. PROJ-230은 `synthDev()`의 반환값 `data`에서
-`ISecret`을 받아 기존 props 방식으로 전달한다. 이 단계에서는 앱 IAM·ECS secrets·writer·mount를 추가하지 않는다.
+각 참조에는 같은 이름 뒤에 `Arn`을 붙인 getter도 있다. `synthDev()`는 반환값 `data`의
+`ISecret`을 기존 props 방식으로 EKS runtime에 전달한다. Secret 원문은 합성 시 읽지 않는다.
 DB username/password는 후속 runtime에서 JSON 필드를 선택하고, JWT는 지정 버전을 파일로 공급한다.
 
 운영자는 원문 없이 원본 메타데이터를 확인할 수 있다. 나머지 이름에도 같은 검사를 적용한다.
@@ -113,7 +113,7 @@ GRANT SELECT ON TABLES TO dashboard_rds_source;
 ```
 
 default privileges는 같은 역할이 이후 생성하는 모든 테이블에 적용된다. 신규 원천 테이블 migration은
-해당 계정을 쓰는 ECS/EKS dashboard 전체를 중지하고 활성 DB 연결이 없는 점검 구간에서 수행한다.
+해당 계정을 쓰는 EKS dashboard 전체를 중지하고 활성 DB 연결이 없는 점검 구간에서 수행한다.
 migration 뒤 source의 두 schema SELECT를 모두 회수하고 현재 backend reader의 위 허용 목록만 재부여한 뒤
 effective privileges를 검사하고 dashboard를 재개한다. 실행 중인 구 replica를 남긴 채 사후 회수하지 않는다.
 `user_refresh_tokens`·`user_authorization_codes`·`auth_attempts`·`installation_credentials`는 현재 허용 목록이 아니다.
@@ -167,7 +167,7 @@ REVOKE CREATE ON DATABASE controlplane FROM dashboard_rds_cache;
 
 준비 단계에서는 owner·role 상속·PUBLIC 권한·default privileges와 아래 결과를 함께 확인한다.
 권한 부재를 확인하려고 실제 원천 데이터를 수정하지 않는다. cache table이 아직 없으면 그 검사는
-DDL 이후 PROJ-221·225의 후속 검사로 남긴다.
+DDL 이후 EKS 운영 검증의 후속 검사로 남긴다.
 
 ```sql
 SELECT has_schema_privilege('dashboard_rds_source', 'enrollment', 'USAGE');
@@ -281,7 +281,7 @@ DB Secret은 username/password만 가지며 URL 등 비밀이 아닌 설정은 �
 `pulsemetry.user-auth.public-key-files`의 명시적 맵을 쓴다. 공개키 JSON 자체를 PEM 파일로 설정하지 않는다.
 JWT 원문·PEM은 environment/values/configtree 설정에 넣지 않고 별도 파일의 경로만 전달한다.
 
-PROJ-230은 네 DB Secret의 ECS 참조와 JWT task role·writer·공유 volume·SUCCESS 의존성을, PROJ-231은
+과거 PROJ-230의 ECS writer는 ADR-0035로 제거됐으며, 현재 EKS는
 Pod Identity·SPC·개별 VersionId·kid 추출 alias·별도 mount를 연결한다. enrollment는 JWT 두 원본,
 dashboard는 공개키만, ingest는 JWT 권한 없음으로 제한한다. 실제 UID 10001 접근도 각 runtime에서 확인한다.
 
@@ -293,7 +293,7 @@ raw S3 권한을 dashboard에 공유하지 않는다. 상세는 [backend 인증 
 
 JWT 변경은 [기존 운영 절차 §11](dev-eks-manual-deployment.md)과
 [ADR-0030 §5](../adr/0030-dev-user-jwt-keys-from-secrets-manager.md#5-교체와-복구)를 따른다.
-전체 ECS/EKS enrollment/dashboard verifier에 신·구 공개키 → 전체 signer의 개인키/active-kid 전환 →
+전체 EKS enrollment/dashboard verifier에 신·구 공개키 → 전체 signer의 개인키/active-kid 전환 →
 마지막 구 키 발급 후 330초 이상 → 구 공개키 제거 순서다. 마지막 발급 시각이 불명확하면 제거하지 않는다.
 rollback도 verifier를 먼저 복구하고 신 키 AT가 남아 있는 동안 신 공개키를 유지한다.
 
@@ -305,9 +305,9 @@ VersionId 기록만으로 버전이 보존되지는 않는다. 활성·교체·�
 |---|---|
 | CDK 정의 | 기본 Secret 9개, 기존 3개 연속성, 신규 6개의 Retain, DB 생성 설정, JWT 값 없음을 로컬 test/synth로 확인. 선언한 OIDC key마다 별도 빈 Retain 원본 추가 |
 | DB 준비 | 운영자가 Secret과 같은 계정을 만들고 owner·grant·허용 SELECT·쓰기 금지를 확인. 이번에는 미실행 |
-| cache DDL | RDS→CH 성공, alerts grant, snapshot 복사·재사용·삭제. PROJ-221·225에서 실행 |
+| cache DDL | RDS→CH 성공, alerts grant, snapshot 복사·재사용·삭제. EKS 운영 검증에서 실행 |
 | JWT 초기화 | 선택한 두 버전의 형식·kid·서명/검증, 부분 등록 복구·보존 label. 이번에는 미실행 |
-| runtime | UID 접근·명시적 버전 소비·신구 AT와 현재 세션 판정·교체/rollback. PROJ-221·225에서 실행 |
+| runtime | UID 접근·명시적 버전 소비·신구 AT와 현재 세션 판정·교체/rollback. EKS 운영 검증에서 실행 |
 
 health 200·Running/Ready·template 성공은 DB 권한·인증·snapshot 기능의 증거가 아니다.
 실행 결과에는 checkout·설정 참조·exit code·성공/실패와 미검증 항목만 남기고 비밀이나 실제 account ID를 포함하지 않는다.

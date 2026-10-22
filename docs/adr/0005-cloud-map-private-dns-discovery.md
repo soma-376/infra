@@ -2,6 +2,8 @@
 
 ## Status
 
+[ADR-0035](0035-dev-backend-eks-only.md)가 dev 백엔드의 ECS 실행·병행 유지·입력·배포 권한 가정을 부분 대체한다. prod·frontend Terraform과 이 문서의 나머지 계약은 유지한다. 아래 ECS 구성은 당시 결정 기록이다.
+
 Accepted — 부분 대체: [ADR 0026](0026-dev-backend-deployment-units-and-staged-migration.md)이 dev Collector와
 `collector.obs.local` 등록을 제거한다. ClickHouse의 `clickhouse.obs.local` A 레코드와 이 ADR의
 디스커버리 메커니즘은 그대로 유효하다.

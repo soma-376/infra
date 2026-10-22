@@ -127,7 +127,7 @@ function buildRoutingFixture() {
   });
   const listenerIds: Record<string, string> = {};
   const owners = new Map<string, Owner>();
-  for (const runtime of ['Ecs', 'Eks']) {
+  for (const runtime of ['Eks']) {
     const alb = new ApplicationLoadBalancer(stack, `${runtime}Alb`, { vpc, internetFacing: true });
     const listener = alb.addListener('Http', {
       port: 80, protocol: ApplicationProtocol.HTTP, open: false,
@@ -171,10 +171,10 @@ function buildRoutingFixture() {
   return { template, runtimeRules, evaluate };
 }
 
-describe('dev ECS/EKS 공유 앱 라우팅', () => {
+describe('dev EKS 앱 라우팅', () => {
   const { template, runtimeRules, evaluate } = buildRoutingFixture();
 
-  test.each(['Ecs', 'Eks'])('%s는 공개 경로의 모든 허용·미지원 method와 preflight 소유자를 구분한다', (runtime) => {
+  test.each(['Eks'])('%s는 공개 경로의 모든 허용·미지원 method와 preflight 소유자를 구분한다', (runtime) => {
     const methods = ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'HEAD', 'TRACE'];
     for (const path of new Set(FIXTURES.map((fixture) => fixture.path))) {
       for (const method of methods) {
@@ -191,7 +191,7 @@ describe('dev ECS/EKS 공유 앱 라우팅', () => {
     }
   });
 
-  test.each(['Ecs', 'Eks'])('%s는 미등록 경로·빈 parameter·추가 segment·public health를 전달하지 않는다', (runtime) => {
+  test.each(['Eks'])('%s는 미등록 경로·빈 parameter·추가 segment·public health를 전달하지 않는다', (runtime) => {
     const invalidPaths = [
       '/api/v1/healthz', '/v1/healthz', '/v1/traces/', '/v1/unknown',
       '/api/v1/auth/login', '/api/v1/auth/authorize', '/api/v1/auth/unknown', '/api/v1/auth/me/extra',
@@ -216,16 +216,16 @@ describe('dev ECS/EKS 공유 앱 라우팅', () => {
   });
 
   test('공유 URI의 OPTIONS는 요청 method header로 소유자를 고르고 일반 GET은 실제 method를 사용한다', () => {
-    expect(evaluate('Ecs', 'OPTIONS', `${ORGANIZATION}/teams`, 'GET')).toBe('dashboard');
-    expect(evaluate('Ecs', 'OPTIONS', `${ORGANIZATION}/teams`, 'POST')).toBe('enrollment');
-    expect(evaluate('Ecs', 'GET', `${ORGANIZATION}/teams`, 'POST')).toBe('dashboard');
-    expect(evaluate('Ecs', 'OPTIONS', `${ORGANIZATION}/vendors/vendor-4`, 'PATCH')).toBe('enrollment');
-    expect(evaluate('Ecs', 'OPTIONS', `${ORGANIZATION}/vendors/vendor-4`, 'DELETE')).toBe('enrollment');
-    expect(evaluate('Ecs', 'OPTIONS', `${ORGANIZATION}/vendors/vendor-4`, 'PUT')).toBeUndefined();
+    expect(evaluate('Eks', 'OPTIONS', `${ORGANIZATION}/teams`, 'GET')).toBe('dashboard');
+    expect(evaluate('Eks', 'OPTIONS', `${ORGANIZATION}/teams`, 'POST')).toBe('enrollment');
+    expect(evaluate('Eks', 'GET', `${ORGANIZATION}/teams`, 'POST')).toBe('dashboard');
+    expect(evaluate('Eks', 'OPTIONS', `${ORGANIZATION}/vendors/vendor-4`, 'PATCH')).toBe('enrollment');
+    expect(evaluate('Eks', 'OPTIONS', `${ORGANIZATION}/vendors/vendor-4`, 'DELETE')).toBe('enrollment');
+    expect(evaluate('Eks', 'OPTIONS', `${ORGANIZATION}/vendors/vendor-4`, 'PUT')).toBeUndefined();
   });
 
   test('OTLP는 priority 1의 정확한 세 경로와 기존 method 동작을 유지한다', () => {
-    for (const runtime of ['Ecs', 'Eks']) {
+    for (const runtime of ['Eks']) {
       const first = runtimeRules(runtime)[0];
       expect(first.Priority).toBe(1);
       expect(first.Conditions).toEqual([{
@@ -238,7 +238,7 @@ describe('dev ECS/EKS 공유 앱 라우팅', () => {
   });
 
   test('조건당 평가 3개·규칙당 평가 5개·ALB당 규칙 100개와 regex 길이 128자 안에 든다', () => {
-    for (const runtime of ['Ecs', 'Eks']) {
+    for (const runtime of ['Eks']) {
       const rules = runtimeRules(runtime);
       expect(rules.length).toBeLessThanOrEqual(100);
       expect(new Set(rules.map((rule) => rule.Priority)).size).toBe(rules.length);
@@ -256,13 +256,12 @@ describe('dev ECS/EKS 공유 앱 라우팅', () => {
     }
   });
 
-  test('두 listener의 default는 404이며 전달 규칙은 runtime별 독립 TG를 사용한다', () => {
+  test('listener의 default는 404이며 앱 TG 세 개로 전달한다', () => {
     const listeners = Object.values(template.findResources('AWS::ElasticLoadBalancingV2::Listener')) as any[];
-    listeners.forEach((listener) => expect(listener.Properties.DefaultActions[0].FixedResponseConfig.StatusCode).toBe('404'));
-    const refs = (runtime: string) => new Set(runtimeRules(runtime).map((rule) => rule.Actions[0].TargetGroupArn.Ref));
-    expect([...refs('Ecs')].some((ref) => refs('Eks').has(ref))).toBe(false);
-    expect(refs('Ecs').size).toBe(3);
-    expect(refs('Eks').size).toBe(3);
+    expect(listeners).toHaveLength(1);
+    expect(listeners[0].Properties.DefaultActions[0].FixedResponseConfig.StatusCode).toBe('404');
+    const refs = new Set(runtimeRules('Eks').map((rule) => rule.Actions[0].TargetGroupArn.Ref));
+    expect(refs.size).toBe(3);
   });
 
   test('WAF 추가 범위는 기존 org prefix 밖의 명시 vendor-catalog URI다', () => {

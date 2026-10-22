@@ -1,14 +1,11 @@
 import { Template } from 'aws-cdk-lib/assertions';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildDevApp } from '../helpers';
-import { parseDashboardRuntimeConfig, userAuthEnvironment } from '../../lib/dev/dashboard-runtime-config';
+const { load } = require('js-yaml');
+const { parseRuntimeInputs } = require('../../lib/dev/runtime-input.cjs');
 
-const directory = mkdtempSync(join(tmpdir(), 'oidc-runtime-test-'));
-let sequence = 0;
-afterAll(() => rmSync(directory, { recursive: true, force: true }));
-const fixture = () => JSON.parse(readFileSync(join(__dirname, '../fixtures/dashboard-runtime.json'), 'utf8'));
+const fixture = () => load(readFileSync(join(__dirname, '../fixtures/eks-runtime.yaml'), 'utf8'));
 const version = '11111111-1111-4111-8111-111111111111';
 function active() {
   const value = fixture();
@@ -18,80 +15,45 @@ function active() {
     clients: [{ key: 'cognito-b', versionId: version }, { key: 'cognito-a', versionId: version }] };
   return value;
 }
-function build(value: any) {
-  const filename = join(directory, `runtime-${sequence++}.json`);
-  writeFileSync(filename, JSON.stringify(value));
-  return buildDevApp({ devDashboardRuntimeFile: filename, devEksEnabled: true });
-}
-function appTask(template: any, name: string) {
-  return (Object.values(template.Resources) as any[]).find(r => r.Type === 'AWS::ECS::TaskDefinition' &&
-    r.Properties.ContainerDefinitions.some((c: any) => c.Name === name)).Properties;
-}
-function policyFor(template: any, role: any) {
-  return (Object.values(template.Resources) as any[]).filter(r => r.Type === 'AWS::IAM::Policy' &&
-    r.Properties.Roles.some((entry: any) => entry.Ref === role['Fn::GetAtt'][0])).flatMap(r => r.Properties.PolicyDocument.Statement);
+function build(keys: string[]) {
+  return buildDevApp({ devOidcClientKeys: keys });
 }
 
-describe('OIDC 입력과 Spring 설정 맵', () => {
+describe('EKS OIDC runtime 입력', () => {
   test('기존 입력은 OIDC 없이 유지하고 활성 입력을 정렬·기본값 처리한다', () => {
-    expect(parseDashboardRuntimeConfig(fixture()).oidc).toBeUndefined();
-    const parsed = parseDashboardRuntimeConfig(active());
+    expect(parseRuntimeInputs(fixture()).oidc).toBeUndefined();
+    const parsed = parseRuntimeInputs(active());
     expect(parsed.oidc?.callbackRegistrationId).toBe('oidc');
     expect(parsed.oidc?.allowInsecureLocalhost).toBe(false);
-    expect(parsed.oidc?.clients.map(c => c.key)).toEqual(['cognito-a', 'cognito-b']);
-    const env = userAuthEnvironment(parsed, true);
-    const json = JSON.parse(env.SPRING_APPLICATION_JSON).pulsemetry;
-    expect(json.oidc).toEqual({ 'callback-registration-id': 'oidc', 'allow-insecure-localhost': false, 'client-secrets': {
-      '[cognito-a]': '${PULSEMETRY_OIDC_CLIENT_SECRET_0}', '[cognito-b]': '${PULSEMETRY_OIDC_CLIENT_SECRET_1}',
-    } });
-    expect(json['user-auth']['public-key-files']).toEqual(JSON.parse(userAuthEnvironment(parseDashboardRuntimeConfig(fixture()), true).SPRING_APPLICATION_JSON).pulsemetry['user-auth']['public-key-files']);
-    expect(env.PULSEMETRY_USER_AUTH_ALLOWED_REDIRECT_URIS).toBe(parsed.userAuth.allowedRedirectUris![0]);
-    const verifier = userAuthEnvironment(parsed, false);
-    expect(JSON.stringify(verifier)).not.toMatch(/OIDC|client-secrets|allowed-redirect|ALLOWED_REDIRECT/);
+    expect(parsed.oidc?.clients.map((c: any) => c.key)).toEqual(['cognito-a', 'cognito-b']);
+    expect(parsed.userAuth.publicKeys).toEqual(parseRuntimeInputs(fixture()).userAuth.publicKeys);
   });
-  test.each(['http', 'https'])('%s callback·복귀 주소를 ECS 설정에 그대로 전달한다', scheme => {
+  test.each(['http', 'https'])('%s callback·복귀 주소를 정규화하며 localhost 예외를 자동 활성화하지 않는다', scheme => {
     const value = active();
     value.oidc.callbackBaseUrl = `${scheme}://validation-alb.example.invalid:8080`;
     value.oidc.failureRedirectUri = `${scheme}://dashboard.example.invalid:3000/auth/callback`;
     value.userAuth.allowedRedirectUris = [value.oidc.failureRedirectUri];
-    const parsed = parseDashboardRuntimeConfig(value);
-    const env = userAuthEnvironment(parsed, true);
-    expect(env.PULSEMETRY_OIDC_CALLBACK_BASE_URL).toBe(value.oidc.callbackBaseUrl);
-    expect(env.PULSEMETRY_OIDC_FAILURE_REDIRECT_URI).toBe(value.oidc.failureRedirectUri);
-    expect(env.PULSEMETRY_USER_AUTH_ALLOWED_REDIRECT_URIS).toBe(value.oidc.failureRedirectUri);
-    expect(JSON.parse(env.SPRING_APPLICATION_JSON).pulsemetry.oidc['allow-insecure-localhost']).toBe(false);
+    const parsed = parseRuntimeInputs(value);
+    expect(parsed.oidc.callbackBaseUrl).toBe(value.oidc.callbackBaseUrl);
+    expect(parsed.oidc.failureRedirectUri).toBe(value.oidc.failureRedirectUri);
+    expect(parsed.userAuth.allowedRedirectUris).toEqual([value.oidc.failureRedirectUri]);
+    expect(parsed.oidc.allowInsecureLocalhost).toBe(false);
   });
-  test.each([undefined, false, true])('localhost 허용 입력 %j를 enrollment ECS task에 boolean으로 전달한다', flag => {
+  test.each([undefined, false, true])('localhost 허용 입력 %j를 boolean으로 유지한다', flag => {
     const value = active();
     value.oidc.callbackBaseUrl = 'http://localhost:8080';
     value.oidc.failureRedirectUri = 'http://localhost:3000/auth/callback';
     value.userAuth.allowedRedirectUris = [value.oidc.failureRedirectUri];
     if (flag !== undefined) value.oidc.allowInsecureLocalhost = flag;
-    const parsed = parseDashboardRuntimeConfig(value);
+    const parsed = parseRuntimeInputs(value);
     expect(parsed.oidc?.allowInsecureLocalhost).toBe(flag ?? false);
-    const template = Template.fromStack(build(value).application).toJSON();
-    const task = appTask(template, 'enrollment-api');
-    const app = task.ContainerDefinitions.find((c: any) => c.Name === 'enrollment-api');
-    const env = Object.fromEntries(app.Environment.map((entry: any) => [entry.Name, entry.Value]));
-    const properties = JSON.parse(env.SPRING_APPLICATION_JSON).pulsemetry;
-    expect(properties.oidc['allow-insecure-localhost']).toBe(flag ?? false);
-    expect(properties.oidc['client-secrets']['[cognito-a]']).toBe('${PULSEMETRY_OIDC_CLIENT_SECRET_0}');
-    expect(properties['user-auth']['public-key-files']).toEqual(
-      JSON.parse(userAuthEnvironment(parsed, true).SPRING_APPLICATION_JSON).pulsemetry['user-auth']['public-key-files'],
-    );
-    expect(env.PULSEMETRY_OIDC_CALLBACK_BASE_URL).toBe(value.oidc.callbackBaseUrl);
-    expect(env.PULSEMETRY_OIDC_FAILURE_REDIRECT_URI).toBe(value.oidc.failureRedirectUri);
-    expect(env.PULSEMETRY_USER_AUTH_ALLOWED_REDIRECT_URIS).toBe(value.oidc.failureRedirectUri);
-    for (const name of ['dashboard-api', 'telemetry-ingest']) {
-      expect(JSON.stringify(appTask(template, name))).not.toMatch(/allow-insecure-localhost|ALLOW_INSECURE_LOCALHOST/);
-    }
   });
   test.each(['true', 'false', 0, 1, null, [], {}])('localhost 허용 입력의 잘못된 타입 %j를 활성·비활성 모두 거부한다', flag => {
     for (const enabled of [true, false]) {
       const value = active();
       value.oidc.enabled = enabled;
       value.oidc.allowInsecureLocalhost = flag;
-      expect(() => parseDashboardRuntimeConfig(value)).toThrow('oidc.allowInsecureLocalhost');
+      expect(() => parseRuntimeInputs(value)).toThrow('oidc.allowInsecureLocalhost');
     }
   });
   test.each([
@@ -117,8 +79,8 @@ describe('OIDC 입력과 Spring 설정 맵', () => {
     (v: any) => { v.userAuth.allowedRedirectUris = ['https://dashboard.example.invalid/#fragment']; },
   ])('잘못된 입력·비밀·ARN override를 비밀 없는 오류로 거부한다 #%#', mutate => {
     const value = active(); mutate(value);
-    expect(() => parseDashboardRuntimeConfig(value)).toThrow('runtime 입력 오류');
-    try { parseDashboardRuntimeConfig(value); } catch (error) { expect(String(error)).not.toContain('sensitive-marker'); }
+    expect(() => parseRuntimeInputs(value)).toThrow('runtime 입력 오류');
+    try { parseRuntimeInputs(value); } catch (error) { expect(String(error)).not.toContain('sensitive-marker'); }
   });
   test.each([
     'https://dashboard.example.invalid/auth/callback?source=cognito',
@@ -137,20 +99,16 @@ describe('OIDC 입력과 Spring 설정 맵', () => {
   ])('backend에서 거부하는 복귀 URL을 배포 전에 차단한다 #%#', uri => {
     const value = active();
     value.userAuth.allowedRedirectUris = [uri]; value.oidc.failureRedirectUri = uri;
-    expect(() => parseDashboardRuntimeConfig(value)).toThrow('runtime 입력 오류');
+    expect(() => parseRuntimeInputs(value)).toThrow('runtime 입력 오류');
     const callback = active(); callback.oidc.callbackBaseUrl = uri;
-    expect(() => parseDashboardRuntimeConfig(callback)).toThrow('runtime 입력 오류');
+    expect(() => parseRuntimeInputs(callback)).toThrow('runtime 입력 오류');
   });
 });
 
 describe('빈 원본 bootstrap과 소비자 권한', () => {
-  const input = active();
-  const enabled = build(input);
+  const enabled = build(['cognito-b', 'cognito-a']);
   const data = Template.fromStack(enabled.data).toJSON();
-  const ecs = Template.fromStack(enabled.application).toJSON();
-  const eks = Template.fromStack(enabled.eks!).toJSON();
-  const enrollment = appTask(ecs, 'enrollment-api');
-  const app = enrollment.ContainerDefinitions.find((c: any) => c.Name === 'enrollment-api');
+  const eks = Template.fromStack(enabled.eks).toJSON();
   const sources = Object.fromEntries(Object.entries(data.Resources).filter(([, r]: any) =>
     r.Type === 'AWS::SecretsManager::Secret' && r.Properties.Name?.startsWith('soma-376/dev/oidc/clients/')));
 
@@ -168,41 +126,38 @@ describe('빈 원본 bootstrap과 소비자 권한', () => {
     for (const [id, resource] of Object.entries(baseline.Resources)) expect(data.Resources[id]).toEqual(resource);
   });
   test('재정렬·다른 client 추가가 기존 logical ID와 속성을 바꾸지 않는다', () => {
-    const changed = active(); changed.oidc.clients.reverse();
-    changed.oidc.clients.unshift({ key: 'Cognito_C', versionId: version });
-    const after = Template.fromStack(build(changed).data).toJSON();
+    const after = Template.fromStack(build(['Cognito_C', 'cognito-a', 'cognito-b']).data).toJSON();
     for (const [id, source] of Object.entries(sources)) expect(after.Resources[id]).toEqual(source);
   });
-  test('enrollment execution role만 고정 버전의 값을 주입하고 JWT writer는 보존한다', () => {
-    const injected = app.Secrets.filter((s: any) => s.Name.startsWith('PULSEMETRY_OIDC_'));
-    expect(injected.map((s: any) => s.Name)).toEqual(['PULSEMETRY_OIDC_CLIENT_SECRET_0', 'PULSEMETRY_OIDC_CLIENT_SECRET_1']);
-    for (const item of injected) expect(JSON.stringify(item.ValueFrom)).toContain(':::' + version);
-    expect(JSON.stringify(policyFor(ecs, enrollment.ExecutionRoleArn))).toContain('OidcClientSecret');
-    expect(JSON.stringify(policyFor(ecs, enrollment.TaskRoleArn))).not.toContain('OidcClientSecret');
-    for (const name of ['dashboard-api', 'telemetry-ingest']) {
-      const task = appTask(ecs, name);
-      expect(JSON.stringify(task)).not.toMatch(/OIDC|OidcClientSecret|client-secrets/);
-      expect(JSON.stringify(policyFor(ecs, task.ExecutionRoleArn))).not.toContain('OidcClientSecret');
-      expect(JSON.stringify(policyFor(ecs, task.TaskRoleArn))).not.toContain('OidcClientSecret');
-    }
-    const before = appTask(Template.fromStack(buildDevApp().application).toJSON(), 'enrollment-api');
-    expect(enrollment.ContainerDefinitions.find((c: any) => c.Name === 'jwt-key-writer')).toEqual(before.ContainerDefinitions.find((c: any) => c.Name === 'jwt-key-writer'));
-    expect(enrollment.Volumes).toEqual(before.Volumes);
-  });
-  test('EKS는 enrollment에만 선언 원본을 허용한다', () => {
+  test('enrollment Pod Identity만 선언 원본을 읽으며 다른 역할은 접근하지 못한다', () => {
+    const associations = Object.values(eks.Resources).filter((r: any) =>
+      r.Type === 'AWS::EKS::PodIdentityAssociation' && r.Properties.ServiceAccount === 'enrollment-api') as any[];
+    expect(associations).toHaveLength(1);
+    expect(associations[0].Properties.Namespace).toBe('pulsemetry-dev');
+    const enrollmentRole = associations[0].Properties.RoleArn['Fn::GetAtt'][0];
+    let enrollmentPolicies = 0;
     for (const [id, policy] of Object.entries(eks.Resources) as [string, any][]) {
       if (policy.Type !== 'AWS::IAM::Policy') continue;
-      if (id.includes('RuntimeEnrollment')) expect(JSON.stringify(policy)).toContain('OidcClientSecret');
-      else expect(JSON.stringify(policy)).not.toContain('OidcClientSecret');
+      if (policy.Properties.Roles.some((role: any) => role.Ref === enrollmentRole)) {
+        enrollmentPolicies++;
+        const read = policy.Properties.PolicyDocument.Statement.find((statement: any) =>
+          statement.Action.includes('secretsmanager:GetSecretValue'));
+        expect(read.Action).toEqual(['secretsmanager:DescribeSecret', 'secretsmanager:GetSecretValue']);
+        expect(read.Condition).toEqual({ Bool: { 'aws:SecureTransport': 'true' } });
+        expect(read.Resource).toHaveLength(9);
+        for (const key of ['cognitoa', 'cognitob']) expect(JSON.stringify(read.Resource)).toContain(`DevOidcClientSecret${key}`);
+      } else {
+        expect(JSON.stringify(policy)).not.toContain('OidcClientSecret');
+      }
     }
+    expect(enrollmentPolicies).toBe(1);
   });
-  test('disabled key 목록은 빈 원본만 준비하고 ECS 조회 없이 EKS 독립 활성화를 허용한다', () => {
+  test('CDK key 선언은 runtime 활성 여부·버전 입력 없이 빈 원본과 EKS 권한을 준비한다', () => {
     const value = fixture(); value.oidc = { enabled: false, allowInsecureLocalhost: true, clients: [{ key: 'cognito-a' }] };
-    const stacks = build(value);
-    const off = Template.fromStack(stacks.application).toJSON();
-    const baseline = Template.fromStack(buildDevApp().application).toJSON();
-    expect(off).toEqual(baseline);
+    expect(parseRuntimeInputs(value).oidc.enabled).toBe(false);
+    const stacks = build(['cognito-a']);
     expect(JSON.stringify(Template.fromStack(stacks.data).toJSON())).toContain('soma-376/dev/oidc/clients/cognito-a');
-    expect(JSON.stringify(Template.fromStack(stacks.eks!).toJSON())).toContain('OidcClientSecret');
+    expect(JSON.stringify(Template.fromStack(stacks.eks).toJSON())).toContain('OidcClientSecret');
+    expect(Template.fromStack(build([]).data).findOutputs('OidcClientSecretArns')).toEqual({});
   });
 });

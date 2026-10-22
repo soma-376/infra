@@ -2,6 +2,8 @@
 
 ## Status
 
+[ADR-0035](0035-dev-backend-eks-only.md)가 dev 백엔드의 ECS 실행·병행 유지·입력·배포 권한 가정을 부분 대체한다. prod·frontend Terraform과 이 문서의 나머지 계약은 유지한다. 아래 ECS 구성은 당시 결정 기록이다.
+
 Accepted — 부분 대체: [ADR 0026](0026-dev-backend-deployment-units-and-staged-migration.md)이 dev backend의
 배포 대상을 `enrollment-api`·`telemetry-ingest`로 바꾸고, 기존 pipeline dev 역할은 신뢰 정책과 output만
 유지한 채 permission statement를 0개로 만든다. 역할 4개 구조, prod 대상, OIDC 신뢰 경계와

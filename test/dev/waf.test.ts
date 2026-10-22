@@ -293,7 +293,7 @@ describe('dev ALB WAF 정책 합성', () => {
       matchesCustomStatement(value.Statement, path, labels),
     );
 
-  test('기본 Allow의 REGIONAL Web ACL 하나를 기존 ALB ARN에 연결한다', () => {
+  test('기본 Allow의 REGIONAL Web ACL 하나를 기존 EKS ALB ARN에 연결한다', () => {
     template.resourceCountIs('AWS::WAFv2::WebACL', 1);
     template.resourceCountIs('AWS::WAFv2::WebACLAssociation', 1);
     expect(webAcl().Properties).toMatchObject({

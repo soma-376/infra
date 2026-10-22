@@ -35,7 +35,7 @@ export const ECR_REPOS = {
   batchProcessor: `${ECR_NAMESPACE}/batch-processor`,
   enrollmentApi: `${ECR_NAMESPACE}/enrollment-api`,
   telemetryIngest: `${ECR_NAMESPACE}/telemetry-ingest`,
-  // ECS와 EKS가 공유할 dashboard-api 이미지 산출물의 레포 이름. (PROJ-226)
+  // dev EKS가 소비하는 dashboard-api 이미지 산출물의 레포 이름. (PROJ-226·248)
   dashboardApi: `${ECR_NAMESPACE}/dashboard-api`,
   // EKS 전용 telemetry Gateway 이미지. ECS service는 없고 이미지 공급만 한다. (ADR-0036)
   telemetryGateway: `${ECR_NAMESPACE}/telemetry-gateway`,
@@ -163,62 +163,8 @@ export const CONTROL_DB_NAME = 'controlplane';
  */
 export const CONTROL_DB_SSLMODE = 'require';
 
-/**
- * enrollment-api 가 실제로 읽는 환경변수/시크릿 이름.
- *
- * 권위 소스는 `pulsemetry-backend` 의
- * `apps/enrollment-api/src/main/resources/application.yaml` 이다. 토큰 해시 키는
- * telemetry-ingest 의 `PULSEMETRY_TOKEN_HASH_SECRET` 과 같은 Secrets Manager Secret 을
- * 가리켜야 한다 (`../docs/contracts/enrollment-api.md`, ADR-0026).
- */
-export const ENROLLMENT_ENV = {
-  dbUrl: 'PULSEMETRY_DB_URL',
-  dbUsername: 'PULSEMETRY_DB_USERNAME',
-  dbPassword: 'PULSEMETRY_DB_PASSWORD',
-  adminApiToken: 'PULSEMETRY_ADMIN_API_TOKEN',
-  tokenHashSecret: 'PULSEMETRY_TOKEN_HASH_SECRET',
-  publicBaseUrl: 'PULSEMETRY_PUBLIC_BASE_URL',
-  binariesDir: 'PULSEMETRY_BINARIES_DIR',
-} as const;
-
-/**
- * telemetry-ingest가 실제로 읽는 환경변수/시크릿 이름 (ADR-0026).
- *
- * 권위 소스는 `pulsemetry-backend`의
- * `apps/telemetry-ingest/src/main/resources/application.yaml`이다. 이름이 틀리면
- * 로컬 기본값으로 폴백하거나 필수 token hash가 비어 기동에 실패할 수 있지만 CDK
- * synth는 이를 알 수 없으므로 이 상수와 합성 테스트가 배포 경계의 방어선이다.
- */
-export const INGEST_ENV = {
-  port: 'PULSEMETRY_INGEST_PORT',
-  dbUrl: 'PULSEMETRY_DB_URL',
-  dbUsername: 'PULSEMETRY_DB_USERNAME',
-  dbPassword: 'PULSEMETRY_DB_PASSWORD',
-  tokenHashSecret: 'PULSEMETRY_TOKEN_HASH_SECRET',
-  clickhouseUrl: 'PULSEMETRY_CLICKHOUSE_URL',
-  clickhouseDatabase: 'PULSEMETRY_CLICKHOUSE_DATABASE',
-  archiveType: 'PULSEMETRY_ARCHIVE_TYPE',
-  archiveBucket: 'PULSEMETRY_ARCHIVE_BUCKET',
-  archivePrefix: 'PULSEMETRY_ARCHIVE_PREFIX',
-} as const;
-
 /** 관리자 토큰 Secret 의 JSON 필드 이름. */
 export const ENROLLMENT_ADMIN_API_TOKEN_SECRET_KEY = 'token';
-
-export interface JdbcUrlParts {
-  readonly host: string;
-  readonly port: number;
-  readonly dbname: string;
-  readonly sslmode: string;
-}
-
-/** Spring Boot enrollment-api 용 PostgreSQL JDBC URL 을 만든다. */
-export function buildJdbcUrl(parts: JdbcUrlParts): string {
-  return (
-    `jdbc:postgresql://${parts.host}:${parts.port}/${parts.dbname}` +
-    `?sslmode=${parts.sslmode}`
-  );
-}
 
 /**
  * post-processor 컨테이너가 실제로 읽는 환경변수/시크릿 이름 (ADR-0018).

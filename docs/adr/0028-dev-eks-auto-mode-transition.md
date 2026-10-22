@@ -2,6 +2,8 @@
 
 ## Status
 
+[ADR-0035](0035-dev-backend-eks-only.md)가 dev 백엔드의 ECS 실행·병행 유지·입력·배포 권한 가정을 부분 대체한다. prod·frontend Terraform과 이 문서의 나머지 계약은 유지한다. 아래 ECS 구성은 당시 결정 기록이다.
+
 Accepted (구현·로컬 검증 대상, AWS 배포 증거 대기; JWT Secret 참조 목록은 [ADR-0030](0030-dev-user-jwt-keys-from-secrets-manager.md)이 부분 대체)
 
 [ADR-0035](0035-dev-msk-isolated-subnets-under-eks-stack.md)와 [ADR-0036](0036-dev-telemetry-gateway-workload-and-msk-iam.md)이

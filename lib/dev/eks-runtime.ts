@@ -63,7 +63,7 @@ export class DevEksRuntime extends Construct {
     this.grantSecretRead(this.enrollmentRole, [
       props.dbSecret, props.tokenHashSecret, props.adminApiTokenSecret,
       props.userJwtPrivateKeySecret, props.userJwtPublicKeysSecret,
-      // EKS values의 활성화는 ECS enabled와 독립적이다. 선언된 원본만 미리 허용한다.
+      // EKS runtime YAML의 활성화와 CDK key 선언은 독립적이다. 선언된 원본만 미리 허용한다.
       ...Object.values(props.oidcClientSecrets ?? {}),
       // telemetry JWT 서명은 enrollment만 한다. 개인키 원본은 이 역할에만 연결한다. (ADR-0036)
       props.telemetryJwtPrivateKeySecret, props.telemetryJwtPublicKeysSecret,

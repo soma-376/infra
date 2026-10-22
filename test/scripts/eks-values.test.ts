@@ -778,13 +778,11 @@ describe('PROJ-246 Gateway·MSK·telemetry JWT values 생성', () => {
     }
   });
 
-  test('ECS JSON 입력은 EKS 전용 telemetry 키를 받지 않는다', () => {
+  test('EKS runtime은 telemetry 설정을 받고 폐기된 ECS writer 입력은 거부한다', () => {
     const { parseRuntimeInputs } = require('../../lib/dev/runtime-input.cjs');
-    const ecs = JSON.parse(readFileSync(resolve(__dirname, '../fixtures/dashboard-runtime.json'), 'utf8'));
-    expect(() => parseRuntimeInputs(ecs, { requireWriterImage: true })).not.toThrow();
     const eks = load(readFileSync(runtimeFile, 'utf8'));
-    expect(() => parseRuntimeInputs({ ...ecs, telemetryJwt: eks.telemetryJwt }, { requireWriterImage: true })).toThrow('root');
-    expect(() => parseRuntimeInputs({ ...ecs, ingestMode: 'http' }, { requireWriterImage: true })).toThrow('root');
+    expect(() => parseRuntimeInputs(eks)).not.toThrow();
+    expect(() => parseRuntimeInputs({ ...eks, writerImage: 'removed-ecs-writer' })).toThrow('root');
   });
 
   helmTest('생성한 Gateway·kafka 모드 ingest·관리 Job·runtime values를 chart와 함께 render한다', () => {

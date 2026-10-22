@@ -1,5 +1,10 @@
 # dev EKS 수동 설치·검증·복구 런북
 
+> **현재 기준은 ADR-0035·PROJ-248의 EKS 전용 구성이다.** 기존 ECS가 있는 환경은 먼저
+> [수동 철거 런북](dev-ecs-retirement.md)을 완료한다. 이 문서의 전체 배포는 신규 환경 또는 철거 완료 후의 절차다.
+> backend ECS 검사/재배포 종료와 허브 배포 계약 정합화는 PROJ-249 선행 작업이다.
+
+
 > PROJ-206~212 구현 인터페이스를 반영한 런북이다. 이 문서의 AWS/Kubernetes 명령은 이번 작업에서
 > 실행하지 않았다. 로컬 synth·렌더링·fixture 통과와 실제 배포 성공은 다르다.
 > PROJ-206~212 기준은 [ADR-0028](../adr/0028-dev-eks-auto-mode-transition.md), dashboard 확장은
@@ -13,7 +18,7 @@
 > [ADR-0032](../adr/0032-dev-oidc-client-secret-runtime-supply.md)을 따른다. OIDC 비활성 bootstrap은
 > 해당 런북의 `DevDataStack` 단독 배포를 먼저 수행하며, 이 문서의 전체 배포보다 앞선다.
 > 외부 ACM 기반 HTTPS는 [dev ALB HTTPS 런북](dev-alb-https.md)을 따른다. 기존 HTTPS 배포에 아래 명령을
-> 적용할 때는 `EKS_CONTEXT`에 기존 `devCertificateArn`·`devEksCertificateArn`과
+> 적용할 때는 `EKS_CONTEXT`에 기존 `devEksCertificateArn`과
 > `devHttpRedirectEnabled`를 유지한다. 인증서 연결은 기존 endpoint output·Helm 생성값을 바꾸지 않는다.
 > PROJ-244의 private API와 SSM 릴레이 접근은 [ADR-0034](../adr/0034-dev-eks-private-api-via-ssm-relay.md)와
 > §2를 따른다. 문서의 터널·TLS·권한 검증 명령도 아직 실행한 증거가 아니다.
@@ -23,19 +28,12 @@
 
 ## 1. 실행 범위와 사전 조건
 
-**실행 checkout 조건:** PROJ-223은 기존 EKS 누적 tip `f36ccc8`과 PROJ-221을 merge해 양쪽 구현을 보존한다.
-실제 실행에는 아래 운영 사전 조건과 별도의 배포 승인이 필요하다.
-실행 checkout은 PROJ-230·221·223·231의 ECS·Helm·runtime과 PROJ-224의 dashboard 검증 경로를 모두 포함해야 한다.
-실제 DB·키·이미지 준비는 PROJ-222 런북의 운영 관문이며 아직 실행한 것으로 보지 않는다.
-PROJ-212에서 가져온 문서와 과거 로컬 검증 기록만으로 실행 전제가 충족됐다고 보지 않는다.
-생성기는 `--dashboard-image`·`--gateway-image`를 포함한 네 앱 digest, `--runtime-values` YAML,
-운영자가 조회한 MSK bootstrap JSON(`--msk-bootstrap`)과 전체 broker 목록(`--msk-nodes`)을 받는다.
-PROJ-191 관측 스택과 시스템 로그 검증은 [관측 런북](dev-observability.md)을 함께 따른다.
-입력 YAML은 생성기에만 전달하며 Helm에는 정적 workload YAML 다음 generated 앱 YAML을 사용한다.
-
-운영자가 별도로 배포를 승인받은 뒤 이 순서를 실행한다. 기존 ECS 경로와 prod 리소스·권한, OIDC trust는 보존한다.
-PROJ-221이 backend-dev 역할에 dashboard ECS 재배포 대상을 추가한 것은 cicd의 명시적 예외다.
-PROJ-213~215의 실제 병행 운영·데이터 이관·Canary·ECS 제거는 이 문서의 초기 설치와 별도 실행이다.
+**실행 checkout 조건:** ADR-0035의 EKS 전용 코드와 기존 dashboard·JWT·OIDC·SSM relay 구현을 포함한다.
+로컬 합성은 AWS 배포 증거가 아니다. 운영자가 별도 실행 범위를 확정한 뒤 아래 절차를 수행한다.
+prod·frontend Terraform·기존 EKS/Data 식별자와 OIDC trust를 유지한다. 과거 ECS 병행·Canary·데이터 이관
+계획은 ADR-0035로 대체됐으며 이 런북에서 실행하지 않는다.
+생성기는 네 앱 digest와 `--runtime-values`, `--msk-bootstrap`, 전체 `--msk-nodes`를 필수로 받는다.
+관측 설치·검증은 [관측 런북](dev-observability.md)을 함께 따른다.
 
 - 원래 배포 주체에 infra 배포와 CloudFormation output 조회 권한이 있어야 한다. CDK가 생성하는
   `soma-376-dev-eks-operator` role은 해당 클러스터의 `eks:DescribeCluster`와 AccessEntry 기반
@@ -53,8 +51,8 @@ PROJ-213~215의 실제 병행 운영·데이터 이관·Canary·ECS 제거는 �
   [원격 호스트 터널 요구사항](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-sessions-start.html#sessions-remote-port-forwarding)을 따른다.
 - backend와 호환되는 Flyway migration, immutable ARM64 앱 이미지 digest 4개(enrollment·ingest·dashboard·Gateway),
   `/api/v1/healthz`의 200 응답, init 검사용 `/bin/sh`·`head -c`, UID 10001 및 바이너리 공급을 확인한다.
-- 별도 검증 tenant/token과 검증 event ID 집합을 준비한다. 공유 RDS에는 기존 ECS와 호환되지 않는
-  DDL·이미지를 사용하지 않는다. 검증 prefix는 `eks_validation`이고 기존 객체 7일 expiration을 유지한다.
+- 별도 검증 tenant/token과 검증 event ID 집합을 준비한다. 공유 RDS의 현재 스키마와 호환되는
+  DDL·이미지를 사용한다. archive prefix는 기존 배포의 `eks_validation` 또는 `eks`를 유지하며 기존 객체 7일 expiration도 유지한다.
 - Secret ARN만 다룬다. Secret 원문 조회·출력, `kubectl get secret`으로 값 열람,
   CSI mount 내용 출력, shell `set -x`를 검증 절차에 넣지 않는다. 앱 인증 요청은 승인된 런타임
   credential 주입 경로를 사용하고 토큰을 명령 이력·로그·증거 파일에 남기지 않는다.
@@ -98,18 +96,27 @@ export AWS_PROFILE="$DEPLOY_PROFILE"
 : "${DEV_ALLOWED_CIDRS:?ALB와 RDS에 접근할 IPv4 CIDR 목록}"
 : "${ENROLLMENT_IMAGE:?registry/repository@sha256:digest}"
 : "${INGEST_IMAGE:?registry/repository@sha256:digest}"
-: "${DASHBOARD_IMAGE:?ECS와 같은 registry/repository@sha256:digest}"
+: "${DASHBOARD_IMAGE:?registry/repository@sha256:digest}"
 : "${GATEWAY_IMAGE:?telemetry-gateway registry/repository@sha256:digest}"
-: "${ECS_RUNTIME_JSON:?devDashboardRuntimeFile 입력 절대 경로}"
+: "${DEV_EKS_OTLP_TARGET:?기존 ingest 또는 gateway 값, 신규는 ingest}"
+: "${DEV_OIDC_CLIENT_KEYS:?기존 OIDC 원본 전체 key의 JSON 배열, 없으면 []}"
+: "${DEV_EKS_ARCHIVE_PREFIX:?기존 eks_validation 또는 eks 값}"
 : "${RUNTIME_VALUES:?비밀 없는 runtime 설정 YAML 절대 경로}"
+: "${HELM_BIN:?Helm 3.22.0 실행 파일 경로}"
+: "${KUBECONFORM_BIN:?kubeconform 0.8.0 실행 파일 경로}"
+export HELM_BIN KUBECONFORM_BIN
 : "${RUN_DIR:?실행 증거 디렉터리 절대 경로}"
 mkdir -p "$RUN_DIR/generated" "$RUN_DIR/charts"
 chmod 700 "$RUN_DIR"
 EKS_CONTEXT=(-c env=dev -c devEksEnabled=true
   -c "devAllowedCidr=$DEV_ALLOWED_CIDRS"
-  -c "devDashboardRuntimeFile=$ECS_RUNTIME_JSON"
-  -c devEksArchivePrefix=eks_validation
-  -c devEksOtlpTarget=ingest)
+  -c "devOidcClientKeys=$DEV_OIDC_CLIENT_KEYS"
+  -c "devEksArchivePrefix=$DEV_EKS_ARCHIVE_PREFIX"
+  -c "devEksOtlpTarget=$DEV_EKS_OTLP_TARGET")
+if [[ -n "${DEV_EKS_CERTIFICATE_ARN:-}" ]]; then
+  EKS_CONTEXT+=(-c "devEksCertificateArn=$DEV_EKS_CERTIFICATE_ARN")
+fi
+EKS_CONTEXT+=(-c "devHttpRedirectEnabled=${DEV_HTTP_REDIRECT_ENABLED:-true}")
 printf '%s\n' "${EKS_CONTEXT[@]}" > "$RUN_DIR/cdk-context-args.txt"
 git rev-parse HEAD > "$RUN_DIR/infra-commit.txt"
 npm run build
@@ -131,12 +138,13 @@ ALB/RDS 접근 범위이므로 계속 유지하며 EKS API 접근 허용 목록�
 합성·diff한 뒤 §2-1 순서로 재배포한다. rollback이 실패 상태라면 먼저 해당 실패 이벤트를 해결한다.
 [AWS 업데이트 제약](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-properties-eks-cluster-resourcesvpcconfig.html)을 따른다.
 
-diff에서 기존 ECS·RDS·S3·실제 Secret·ALB/TG·WAF 정책의 삭제/교체가 없고 prod/cicd가
+diff에서 RDS·S3·실제 Secret·EKS ALB/TG·WAF 정책의 삭제/교체가 없고 prod/cicd가
 포함되지 않았는지 확인한다. 사용자 정의 SG·규칙은 Network에 있고 EKS↔Edge 순환 의존은 없어야 한다.
-활성화 구성은 5스택이다. **첫 배포 후 이 context 전체를 운영 배포 설정에 보존한다.**
-특히 `devEksEnabled=false` 또는 키 누락 상태로 Network/Edge를 배포하면 EKS 전용 리소스를 제거한다.
+EKS 전용 구성은 4스택이다. **첫 배포 후 이 context 전체를 운영 배포 설정에 보존한다.**
+`devEksEnabled=false`는 오류이며 생략은 EKS 생성이다. `devOidcClientKeys` 누락도 오류다.
+폐기된 ECS 입력을 모두 제거하고 OIDC 원본 목록은 빠짐없이 이전한다.
 `--outputs-file`은 마지막 배포에 포함된 stack output만 담을 수 있으므로 조회 단계에서 필요한 세 스택을 합친다.
-OIDC를 사용한다면 값 등록을 완료하고 client key/VersionId를 입력한 뒤 아래 전체 배포를 진행한다.
+OIDC 원본 key는 CDK에 선언하고, 값 등록·VersionId 선택은 runtime YAML과 Helm 적용 전에 준비한다.
 
 ### 2-1. 기존 EKS의 API 접근 전환과 복구 준비
 
@@ -443,10 +451,10 @@ curl --path-as-is -sS -o /dev/null -w '%{http_code}\n' "$VALIDATION_URL:8123/pin
 
 두 첫 요청은 public routing상 404, ClickHouse ping은 200이어야 한다. healthz는 TG health check 전용이며
 public rule로 추가하지 않는다. 앱 TG는 NodePort 30416/30080의 instance target, CH는 Pod IP:8123이어야 한다.
-기존 ECS TG의 target 목록과 healthy 상태를 배포 전후 비교한다. 같은 TG를 양쪽이 소유하면 중단한다.
+기존 EKS TG의 target 목록과 healthy 상태를 배포 전후 비교한다. `Validation*` output과 TGB ARN을 보존한다.
 같은 Web ACL을 공유하므로 검증 요청도 같은 rate rule 집계에 영향을 줄 수 있다. 이는 [AWS의
 rule 인스턴스별 집계 설명](https://docs.aws.amazon.com/waf/latest/developerguide/waf-rule-statement-type-rate-based.html)에
-따른 운영상 추론이며, 부하 검증 전 ECS 트래픽과 공유 NAT/IP 영향을 확인한다.
+따른 운영상 추론이며, 부하 검증 전 동일 출발지 IP를 공유하는 트래픽 영향을 확인한다.
 
 아래는 실행 결과를 반드시 남길 검증이다. API별 실제 payload는 backend 계약과 검증 tenant를 기준으로 한다.
 
@@ -464,12 +472,13 @@ S3 object 개수는 batch 크기 때문에 이벤트 개수와 다르다. 검증
 S3 조회·정리는 운영자 권한이며 ingest role에 List/Get/Delete를 추가하지 않는다. 공유 RDS와 bucket prefix는
 완전한 데이터 격리가 아니다. 실제 AWS 통신·파일 권한·WAF signature와 로그 보호·메모리 안정성은 별도 증거다.
 
-## 6. 검증 완료 후 병행 운영 prefix 전환
+## 6. 별도 작업으로 archive prefix 전환
 
-검증용 객체는 이동하지 않는다. EKS가 새로 받는 데이터부터 `eks/`에 쓴다. 기존 ECS prefix와 권한은 유지한다.
+PROJ-248은 prefix를 변경하지 않는다. 아래는 별도로 prefix 전환을 선택한 경우의 절차다.
+기존 객체는 이동하지 않고 EKS가 새로 받는 데이터부터 `eks/`에 쓴다.
 PutObject IAM과 Helm values가 한쪽만 바뀐 상태에서 ingest가 계속 수신하면 S3 쓰기가 실패하므로 다음 순서다.
 
-1. 검증 트래픽을 멈추고 처리 완료를 확인한다. 아직 기존 ALB는 ECS만 향한다.
+1. 수신 트래픽을 멈추고 처리 완료를 확인한다.
 2. EKS ingest를 0 replica로 내려 쓰기를 멈춘다. 직접 scale은 임시 운영 조치이고 Helm 선언은 replica 1을 유지한다.
 3. 영속 CDK 설정의 `devEksArchivePrefix=eks`를 반영하고 EKS stack의 IAM을 배포한다. `devEksEnabled=true`를 유지한다.
 4. 배포 output을 다시 조회해 generator를 실행한다. generated ingest prefix가 `eks`, IAM Resource가 `eks/*`인지 대조한다.
@@ -478,9 +487,11 @@ PutObject IAM과 Helm values가 한쪽만 바뀐 상태에서 ingest가 계속 �
 ```bash
 kubectl -n pulsemetry-dev scale deployment/telemetry-ingest --replicas=0
 # EKS_CONTEXT의 기존 prefix 인자를 변경한다. 서로 다른 prefix 인자를 중복 전달하지 않는다.
-EKS_CONTEXT=(-c env=dev -c devEksEnabled=true
-  -c "devAllowedCidr=$DEV_ALLOWED_CIDRS"
-  -c "devDashboardRuntimeFile=$ECS_RUNTIME_JSON" -c devEksArchivePrefix=eks)
+for index in "${!EKS_CONTEXT[@]}"; do
+  if [[ "${EKS_CONTEXT[$index]}" == devEksArchivePrefix=* ]]; then
+    EKS_CONTEXT[$index]=devEksArchivePrefix=eks
+  fi
+done
 printf '%s\n' "${EKS_CONTEXT[@]}" > "$RUN_DIR/cdk-context-args.txt"
 npx cdk diff DevEksStack "${EKS_CONTEXT[@]}"
 npx cdk deploy DevEksStack "${EKS_CONTEXT[@]}" --outputs-file "$RUN_DIR/cdk-outputs.json"
@@ -490,22 +501,12 @@ npx cdk deploy DevEksStack "${EKS_CONTEXT[@]}" --outputs-file "$RUN_DIR/cdk-outp
 수신 중단 → IAM 변경 → output/values 재생성 → Helm 재개 순서다. `eks_validation/*`은 7일 expiration으로
 정리하며 이동·복사하지 않는다. prefix 전환 자체가 Canary 승격은 아니다.
 
-## 7. 후속 Canary와 최종 이관 경계
+## 7. 과거 Canary·데이터 이관 계획의 대체
 
-PROJ-213~215에서 실행한다. 먼저 기존 ECS ClickHouse를 양쪽 ingest가 보는지 확인하고, **검증 TG와
-다른 Canary TG ARN**을 CDK로 생성한다. apps values `targetGroupBindings`의 별도 `canary` 항목을 사용한다.
-기존 ECS TG ARN은 입력하지 않는다. backend 변경·인증 identity header 전파·ArgoCD 도입은 하지 않는다.
-
-승격 초기가설은 EKS 1→10→50→100%, 단계별 최소 30분과 서비스별 성공 요청 100건, 100% 24시간이다.
-예상 밖 인증 실패·검증 event ID 유실은 0건, 5xx≤1% 및 ECS 대비 증가≤0.5%p, p95≤기준선120%다.
-초과하면 승격을 중단하고 저장된 기존 ALB ECS 비중으로 복구한다. **수치는 실측·AWS 권장값·확정 SLO가
-아니다.** 실행 전 관찰 기준선과 트래픽 표본에 맞춰 재승인한다.
-
-최종 CH 전환은 쓰기 차단·처리 완료 확인·CH 정지·EBS snapshot·동일 AZ 복원·PVC 복사·event ID 정합성
-확인·재개 순서다. 수락·저장 완료 데이터 기준 RPO 0/RTO 30분도 초기 가설이며 리허설로 확인한다.
-이 문서는 snapshot 식별자나 데이터 복사 명령을 추정하지 않는다. 리허설에서 확정한 원본 볼륨·AZ·PV와
-복구 snapshot을 고정한 뒤 별도 실행한다. 데이터 전환 후 구 CH로 되돌릴 때는 전환 이후 쓰기의 보존을
-먼저 해결하며, ALB 비중만 되돌려 서로 다른 저장소에 쓰지 않는다.
+ADR-0028의 Canary와 ECS 데이터 PVC 이관은 ADR-0035의 조기 철거 결정으로 대체됐다.
+기존 ECS의 데이터를 계속 쓰는 설정이나 구 TG를 이 런북에서 만들지 않는다. 실제 철거는 수동 Snapshot 후
+Application → Edge → Network → cicd 순서이며 [철거 런북](dev-ecs-retirement.md)을 따른다.
+과거 RPO/RTO·Canary 수치는 검증된 운영 SLO가 아니고 ECS 복귀를 현재 복구 수단으로 가정하지 않는다.
 
 ## 8. 장애 유형별 복구
 
@@ -515,8 +516,7 @@ PROJ-213~215에서 실행한다. 먼저 기존 ECS ClickHouse를 양쪽 ingest�
 | Helm 앱 설정·이미지 | 기록된 마지막 검증 revision으로 해당 release rollback, rollout/health 확인 | DB migration·PVC 내용 |
 | JWT 키 참조 | §11의 공개키 버전·맵 선행 적용 후 개인키 VersionId·active-kid 복구 | 이미지·Helm rollback만으로 키 버전·label 보존 복구 |
 | LBC·CSI·ASCP | controller 로그/이벤트·association·버전을 확인하고 호환 release 복구 | CRD 자동 다운그레이드·CRD 삭제 |
-| 검증 경로 장애 | 검증 트래픽 중단, 기존 ECS healthy 확인 후 원인 분석 | 기존 ALB를 검증 TG로 임의 변경 |
-| Canary 지표 초과 | 기록한 ALB 가중치를 ECS 쪽으로 복구 | 이미 저장된 데이터의 자동 복구 |
+| EKS 경로 장애 | 수신 중단, 마지막 정상 Helm 입력·TG/권한 상태 대조 | 삭제된 ECS로 자동 복귀 |
 | 데이터 손상·이관 실패 | 쓰기 차단 후 검증한 snapshot/PV 복구 절차 | Helm rollback만으로 데이터 복구 |
 
 ```bash
@@ -577,12 +577,12 @@ PROJ-206~212 당시의 로컬 검증 결과와 미검증 경계는 [역사적 �
 
 ## 10. dashboard 추가 설치·기능·복구 검증
 
-이 절은 PROJ-220에서 채택한 후속 절차다. PROJ-221·223·224·230·231의 구현과 PROJ-222의 계정·설정 준비,
-PROJ-226의 최초 이미지 공급 증거가 없으면 실행하지 않는다. 경로·method·OPTIONS와 전체 설정 식별자는
+이 절은 기존 dashboard 구현을 EKS에서 운영하는 절차다. 공통 계정·설정·키 준비와
+세 ARM64 이미지 공급 증거가 없으면 실행하지 않는다. 경로·method·OPTIONS와 전체 설정 식별자는
 [허브 dashboard 계약](../../../docs/contracts/dashboard-api.md), backend 기동 조건은
 [dashboard 운영 명세](../../../pulsemetry-backend/docs/dashboard-server-spec.md)를 따른다.
 
-### 10-1. 최초 이미지와 ECS 준비
+### 10-1. 최초 이미지와 공통 저장소 준비
 
 1. `soma-376/dashboard-api`의 ARM64 manifest, commit 태그·`dev` 태그·digest와 pull 접근을 확인한다.
    최초 공급은 아직 없는 서비스의 ACTIVE 검사에 종속시키지 않는다.
@@ -592,13 +592,9 @@ PROJ-226의 최초 이미지 공급 증거가 없으면 실행하지 않는다. 
    RDS cache와 source는 같은 논리 DB, ClickHouse cache와 source는 원천 분석 테이블을 함께 볼 수 있는 서버여야 한다.
 3. §11의 별도 Secrets Manager 원본·VersionId·파일 공급·보존 label을 준비하고 공개키 파일·실제 kid 맵·issuer·audience·허용 origin, 현재 사용자·세션·tenant 조회 권한을 확인한다.
    dashboard에 HMAC·관리자 token·개인 서명키·raw S3 권한을 전달하지 않는다.
-4. PROJ-221에서 준비한 CDK TaskDefinition·Service·ECS 전용 TG·method/OPTIONS 라우팅·IAM diff를 검토하고
-   수동 배포한다. ECS stable과 target healthy 뒤 실제 인증·조회·snapshot·기존 앱 회귀를 따로 확인한다.
-5. 초기 서비스 생성 뒤 기존 ECS CD는 세 ECR·서비스를 모두 preflight하고 enrollment → ingest → dashboard
-   순서로 각 승격·배포·stable을 확인한다. 앞 단계 실패 시 후속을 중단한다.
-
-앱 ASG의 세 Spring 앱 소프트 예약 합계는 3072 MiB이며 writer 두 개의 128 MiB를 더하면 3200 MiB다.
-실제 placement·host 여유·메모리·OOM·교체 시간은 후속 배포에서 확인한다. 이 숫자나 기본 health check만으로 안정성을 수락하지 않는다.
+4. EKS 전용 TG·method/OPTIONS·Pod Identity와 runtime 설정을 확인한다.
+5. enrollment의 원천 migration 준비 뒤 ingest·dashboard 순서로 Helm 배포하고 각 기동·기능을 검증한다.
+   이미지 build/push는 PROJ-249 이후 ECS 서비스 상태에 의존하지 않는다.
 
 ### 10-2. EKS 입력과 설치
 
@@ -611,13 +607,13 @@ PROJ-223 구현의 schema/helpers/template에 실제로 지원되는지 먼저 l
 대조하고 실제 할당 충돌이 없음을 확인한 뒤 기록한다. 임의의 다음 번호를 빈 포트로 간주하지 않는다.
 기존 앱의 requests 250m/1Gi·limits 1 CPU/2Gi 기준과 apps NodePool의 실제 배치·여유를 확인한다.
 
-ECS JSON과 같은 릴리스의 `userAuth`·`dashboard`와 선택적 `oidc`를 runtime YAML에 작성한다.
+선택한 앱 릴리스의 `userAuth`·`dashboard`와 선택적 `oidc`를 runtime YAML에 작성한다.
 `test/fixtures/eks-runtime.yaml`은 가짜 버전과 수치를 가진 검증 전용 예시다. writerImage는 EKS YAML에
 넣지 않는다. ARN·endpoint·TG·NodePort는 CDK output만 소유하며 입력 YAML의 덮어쓰기·원문·중복key·
 미지의 필드는 실패한다. managementEnabled/mailEnabled는 추가 Secret 공급이 없어 false만 허용한다.
 생성기는 한 번 읽은 버전·kid/alias 맵으로 runtime과 앱 YAML을 함께 생성한다(PROJ-246부터 Gateway·관리 Job 포함).
 OIDC는 `oidc.enabled`, HTTP/HTTPS callback 입력, `clients[].key/versionId`, `userAuth.allowedRedirectUris`로 설정한다.
-key는 ECS JSON에 선언해 배포한 원본에서 선택한다. 생성기가 DataStack output의 ARN을 넣으므로
+key는 CDK `devOidcClientKeys`에 선언해 배포한 원본에서 선택한다. 생성기가 DataStack output의 ARN을 넣으므로
 generated env만 수정하거나 runtime 입력에 ARN·원문을 추가하지 않는다. 자세한 입력 예시는 [OIDC 런북](dev-oidc-prerequisites.md)을 따른다.
 HTTP 입력의 생성·렌더링은 허용하지만 backend의 외부 HTTP callback/복귀 거부와 Cognito의 HTTPS 정책은 유지된다.
 따라서 실제 원격 로그인 수락은 HTTPS로 수행한다.
@@ -662,13 +658,13 @@ kubectl -n pulsemetry-dev get pods -l app.kubernetes.io/instance=dashboard-api \
   -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.containerStatuses[*].imageID}{"\n"}{end}'
 ```
 
-실제 Pod imageID와 ECS task imageDigest를 같은 릴리스의 ECR ARM64 manifest digest에 대조한다.
+실제 Pod imageID를 같은 릴리스의 ECR ARM64 manifest digest에 대조한다.
 multi-platform image index를 썼다면 index digest와 ARM64 하위 manifest digest의 관계까지 기록한다.
 Pod Ready·전용 target healthy, 로그 전달·재시작·노드 배치·파일 접근은 설치 증거이며 아래 기능 검증과 구분한다.
 
 ### 10-3. 두 ALB의 method/CORS와 기능 검증표
 
-아래 표를 ECS 기존 ALB와 EKS 검증 ALB 각각에 적용한다. `{org}`·`{id}`는 전용 검증 데이터다.
+아래 표를 EKS ALB에 적용한다. `{org}`·`{id}`는 전용 검증 데이터다.
 요청에는 상관관계 ID를 사용하고 target/app 확인 근거를 남긴다. 401/403 응답만으로 올바른 앱에 전달됐다고 판단하지 않는다.
 인증 요청의 토큰은 승인된 런타임 주입으로만 전달하고 명령 이력·응답 파일·로그에 원문을 남기지 않는다.
 
@@ -692,7 +688,7 @@ Pod Ready·전용 target healthy, 로그 전달·재시작·노드 배치·파�
 CORS 응답만 확인하는 다음 예시는 토큰을 사용하지 않는다. 성공 판단에는 위 소유 앱과 실제 요청 검증을 함께 쓴다.
 
 ```bash
-: "${PUBLIC_BASE_URL:?검증할 ECS 또는 EKS ALB URL}"
+: "${PUBLIC_BASE_URL:?검증할 EKS ALB URL}"
 : "${ALLOWED_ORIGIN:?앱에 설정한 검증 origin}"
 : "${VERIFY_ORG_ID:?전용 검증 조직 ID}"
 for requested_method in GET POST; do
@@ -707,12 +703,12 @@ done
 
 ### 10-4. 증거와 복구
 
-기존 §9 증거 양식에 dashboard 릴리스의 backend/infra commit·ECR 태그/digest·ECS task imageDigest·Pod imageID,
+기존 §9 증거 양식에 dashboard 릴리스의 backend/infra commit·ECR 태그/digest·Pod imageID,
 실제 NodePort·전용 TG/설정 참조·Helm revision, 검사별 기대/실제 결과와 기존 앱 회귀를 추가한다.
 계정 ID·비밀 원문·인증 헤더·전체 요청/응답 본문은 공개 증거에 남기지 않는다.
 
 - Helm/이미지 실패: 호환되는 마지막 검증 dashboard revision으로 해당 release만 rollback하고 rollout·target·기능을 확인한다.
-- ECS 이미지 실패: 마지막 검증 artifact로 `dev` 태그를 되돌리고 기존 CD/운영 절차로 dashboard를 재배포한다.
+- 이미지 실패: 마지막 검증 digest와 함께 기록한 runtime/workload values로 dashboard를 재배포한다.
 - 라우팅 실패: 새 dashboard method/OPTIONS 규칙을 해당 변경 절차로 복구하고 enrollment GET·쓰기·OTLP 회귀를 다시 확인한다.
 - 설정·권한 실패: 준비된 참조와 최소 권한을 복구한 뒤 dashboard를 명시적으로 재시작한다. 기존 앱 Secret을 공유해 우회하지 않는다.
 - DDL·데이터 실패: 앱/Helm rollback과 DB/PVC 복구를 구분한다. 호환성이 확인되지 않으면 후속 승격을 중단하고 원인부터 확인한다.
@@ -723,9 +719,9 @@ done
 ## 11. 사용자 JWT 키 최초 공급·교체·복구
 
 이 절은 [ADR-0030](../adr/0030-dev-user-jwt-keys-from-secrets-manager.md)의 **구현 이후 운영 수락 절차**다.
-PROJ-230·231은 ECS writer와 EKS JWT SPC/mount·YAML 생성 입력을 구현한다.
+현재는 EKS JWT SPC/mount·YAML 생성 입력을 사용한다. ECS writer는 ADR-0035에서 제거했다.
 키 초기화는 [공통 준비 런북](dev-dashboard-prerequisites.md)의 수동 절차이며 이 작업에서 실행하지 않았다.
-ECS 입력은 [runtime 런북](dev-dashboard-ecs-runtime.md), EKS 입력은 [runtime README](../../helm/dev/runtime/README.md)를 따른다.
+EKS 입력은 [runtime README](../../helm/dev/runtime/README.md)를 따른다.
 기존 Secret 3개 및 [과거 로컬 검증 기록](dev-eks-local-validation.md)은 이 절의 완료 증거가 아니다.
 
 ### 11-1. 최초 원본과 배포 참조 준비
@@ -733,7 +729,7 @@ ECS 입력은 [runtime 런북](dev-dashboard-ecs-runtime.md), EKS 입력은 [run
 1. [공통 준비 런북](dev-dashboard-prerequisites.md)에 따라 CDK 원본의 존재를 확인한 뒤,
    명시적인 초기화 작업에서 RSA 2048bit 이상 키쌍과 `kid`를 생성한다. 앱 시작·일반 재배포는 생성하지 않는다.
 2. 개인키 PKCS8 PEM과 `kid → X.509 PEM` 공개키 JSON 키링을 별도 Secrets Manager 원본 두 개에 등록한다.
-   암호화는 AWS 관리형 `aws/secretsmanager`다. dev ECS/EKS는 같은 고정 ARN 원본을 사용한다.
+   암호화는 AWS 관리형 `aws/secretsmanager`다. dev EKS는 기존 고정 ARN 원본을 사용한다.
 3. 두 등록 버전의 규격·시험 서명/검증·활성 kid 정합을 원문 출력 없이 확인한다. 한쪽 등록 실패 시
    배포 참조 확정을 중단하고 준비한 같은 키쌍으로 복구한다. 재시도로 새 키쌍을 만들지 않는다.
 4. 개인키·공개키 VersionId, enrollment active-kid, 공개키 파일 맵과 issuer·audience를 하나의 배포 입력으로
@@ -745,14 +741,10 @@ ECS 입력은 [runtime 런북](dev-dashboard-ecs-runtime.md), EKS 입력은 [run
 승인된 운영자 환경의 수동 초기화·검증 절차 안에서 값을 다루며 원문을 에이전트 문맥으로 가져오는 조회 명령을 사용하지 않는다.
 아래 검사는 준비된 참조·exit code·버전·키 식별자·성공/실패만 기록한다.
 
-### 11-2. ECS writer와 EKS 키 mount 수락
+### 11-2. EKS 키 mount 수락
 
 | 확인 대상 | 실행 전에 갖출 구현과 실제 수락 증거 |
 |---|---|
-| ECS 조회·게시 | ARM64 일회성 SDK writer의 지정 ARN·VersionId 조회, PEM/맵 검증, 파일 완성·권한 검사 후 exit 0 |
-| ECS 시작 제어 | writer `essential: false`, 앱 `SUCCESS` 의존성; 조회·부분 쓰기·권한 실패 시 앱이 시작하지 않음 |
-| ECS 역할 | enrollment task role 두 JWT ARN, dashboard 공개키 ARN만, ingest 사용자 JWT 추가 없음; writer와 앱의 role 공유를 검토 |
-| ECS 파일·메모리 | task별 공유 volume·앱 읽기 전용 mount, UID 10001 읽기·directory 접근, host 잔존/정리와 writer peak·OOM·placement 검증 |
 | EKS 권한 | enrollment와 dashboard 전용 Pod Identity 역할·SPC, dashboard 개인키 접근 불가·ingest 사용자 JWT 참조 없음(telemetry JWT는 [telemetry Kafka 런북](dev-telemetry-kafka.md)) |
 | EKS 버전·추출 | 각각 `objectVersion=VersionId`, 공개키 JSON의 kid별 jmesPath 인용·alias·파일 맵 일치; 이동 label과 버전 selector를 섞지 않음 |
 | EKS mount | 기존 configtree 설정과 별도 키 파일 mount, 경로 설정만 전달, UID 10001로 전체 필수 파일을 원문 출력 없이 검사 |
@@ -768,12 +760,12 @@ dashboard에는 개인키·HMAC·관리자 token·raw S3 권한을 제공하지 
 ### 11-3. 전체 인스턴스 교체와 롤백
 
 1. 새 키 버전을 등록·검증하고 구·신 공개키가 함께 있는 공개키 버전과 파일 맵을 준비한다.
-2. **ECS/EKS의 모든 enrollment·dashboard verifier**를 새 공개키 버전·맵으로 재생성한다.
+2. **EKS의 모든 enrollment·dashboard verifier**를 새 공개키 버전·맵으로 재생성한다.
    신·구 토큰 검증이 모두 성공할 때까지 signer는 구 개인키·kid를 사용한다.
 3. 모든 enrollment signer의 개인키 VersionId·active-kid를 함께 전환한다. 일부 인스턴스가 실패하면
    후속 제거를 중단하고 구·신 공개키를 유지한다. 전체 signer 중 마지막 구 키 발급 시각을 확인한다.
 4. **마지막 구 키 발급 후 330초 이상** 대기한 뒤 구 공개키를 제거한 버전·맵으로 모든 verifier를 재생성한다.
-   AT 300초와 skew 30초가 바뀌면 대기 계약도 개정한다. 일반 ECS CD/Helm 설치 순서는 이 절차를 대체하지 않는다.
+   AT 300초와 skew 30초가 바뀌면 대기 계약도 개정한다. 일반 Helm 설치 순서는 이 절차를 대체하지 않는다.
 
 Secret 값·label·mount 변경만으로 실행 중인 앱의 키가 바뀌지 않는다. 자동 회전·자동 reload는 도입하지 않는다.
 각 단계의 참조 버전·인스턴스 전파·실제 검증·마지막 발급 시각·대기·제거 결과를 별도로 남긴다.
@@ -781,5 +773,5 @@ Secret 값·label·mount 변경만으로 실행 중인 앱의 키가 바뀌지 �
 롤백은 모든 verifier에 복구 signer의 공개키를 **먼저** 적용·검증한 뒤 개인키 VersionId와 active-kid를 복구한다.
 구 공개키가 이미 제거됐다면 보존 버전으로 신·구 키를 다시 제공한다. 신 키 토큰이 발급됐으면
 마지막 신 키 발급 후 330초 이상까지 신 공개키를 유지한다. `AWSPREVIOUS`나 최신 값으로 복구 버전을 추측하지 않는다.
-이미지·ECS task definition·Helm revision만 되돌리고 Secret 참조·파일 맵·label도 복구됐다고 판단하지 않는다.
+이미지·Helm revision만 되돌리고 Secret 참조·파일 맵·label도 복구됐다고 판단하지 않는다.
 키 누락·잘못된 PEM·키쌍/kid 불일치·등록 부분 실패·인스턴스 일부 실패·제거 후 롤백을 리허설 수락 조건에 포함한다.
