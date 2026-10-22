@@ -41,13 +41,13 @@ export interface DeployStackProps extends StackProps {
 /**
  * 앱 레포의 GitHub Actions 가 맡을 배포 역할 스택 (ADR-0024).
  *
- * GitHub OIDC 공급자 1개 + 배포 역할 4개(레포 × 환경)를 만든다. 역할이 할 수 있는 일은
- * **이미지 push 와 서비스 강제 재배포 둘뿐**이며, 태스크 정의는 여전히 dev/prod 스택이
- * 소유한다 (ADR-0009).
+ * GitHub OIDC 공급자 1개 + 배포 역할 4개(레포 × 환경)를 만든다.
+ * prod는 이미지 push와 ECS 강제 재배포, dev backend는 이미지 push만 허용한다.
+ * prod 태스크 정의는 ApplicationStack이 소유하고 dev EKS 배포는 수동 Helm을 쓴다.
  *
  * **이 스택은 `lib/prod/` 도 `lib/dev/` 도 import 하지 않는다.** 여기서 양쪽을 끌어오면
- * ADR-0021 2번의 `prod <-> dev` 금지 규칙이 이 폴더를 경유해 우회된다. 두 환경의 물리
- * 이름은 `lib/common/deploy-targets.ts` 에서만 온다.
+ * ADR-0021 2번의 `prod <-> dev` 금지 규칙이 이 폴더를 경유해 우회된다.
+ * prod ECS 이름은 `lib/common/deploy-targets.ts` 에서만 온다.
  *
  * **CloudFormation 은 IAM 정책에 적힌 리소스 ARN 의 실존을 검증하지 않는다.** 여기 조립한
  * 클러스터/서비스 이름이 실제 스택과 어긋나도 배포는 전부 성공하고 GitHub Actions 만
@@ -120,7 +120,7 @@ export class DeployStack extends Stack {
     oidcProvider: IOidcProvider,
   ): Role {
     const branch = DEPLOY_BRANCHES[env];
-    const clusterName = ECS_CLUSTER_NAMES[env];
+    const clusterName = env === 'prod' ? ECS_CLUSTER_NAMES.prod : undefined;
     const constructId = `${toPascalCase(target.repo.name)}${toPascalCase(env)}DeployRole`;
 
     const role = new Role(this, constructId, {
@@ -180,6 +180,9 @@ export class DeployStack extends Stack {
     }
 
     if (target.services.length > 0) {
+      if (!clusterName) {
+        throw new Error('dev 배포 역할에는 ECS 서비스 권한을 부여할 수 없다 (ADR-0035)');
+      }
       role.addToPolicy(
         new PolicyStatement({
           sid: 'EcsForceDeploy',
@@ -206,7 +209,9 @@ export class DeployStack extends Stack {
     // 앱 레포 워크플로우의 `role-to-assume` 에 그대로 들어가는 값 (PROJ-65 핸드오프).
     new CfnOutput(this, `${constructId}Arn`, {
       value: role.roleArn,
-      description: `${GITHUB_ORG.name}/${target.repo.name} @ ${branch} -> cluster ${clusterName}`,
+      description: `${GITHUB_ORG.name}/${target.repo.name} @ ${branch} -> ${clusterName
+        ? `cluster ${clusterName}`
+        : target.ecrRepos.length > 0 ? 'dev image supply' : 'dev (no permissions)'}`,
     });
 
     return role;

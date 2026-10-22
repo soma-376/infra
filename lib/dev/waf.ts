@@ -1,6 +1,6 @@
 import { DEV_DASHBOARD_WAF_EXACT_PATHS, DEV_DASHBOARD_WAF_REGEX_PATHS } from './app-routing';
 import { Construct } from 'constructs';
-import { CfnLoggingConfiguration, CfnWebACL, CfnWebACLAssociation } from 'aws-cdk-lib/aws-wafv2';
+import { CfnLoggingConfiguration, CfnWebACL } from 'aws-cdk-lib/aws-wafv2';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { ArnFormat, RemovalPolicy, Stack } from 'aws-cdk-lib/core';
 import {
@@ -18,10 +18,6 @@ import {
   DEV_WAF_RETRY_AFTER_SECONDS,
   DEV_WAF_WEB_ACL_NAME,
 } from './config';
-
-export interface DevWafProps {
-  readonly loadBalancerArn: string;
-}
 
 type Statement = CfnWebACL.StatementProperty;
 type RuleLabel = readonly [ruleName: string, labelSuffix: string];
@@ -79,7 +75,7 @@ export class DevWaf extends Construct {
   /** 후속 로그 설정이 같은 Web ACL을 참조한다. */
   public readonly webAcl: CfnWebACL;
 
-  constructor(scope: Construct, id: string, props: DevWafProps) {
+  constructor(scope: Construct, id: string) {
     super(scope, id);
 
     this.webAcl = new CfnWebACL(this, 'WebAcl', {
@@ -109,10 +105,7 @@ export class DevWaf extends Construct {
         ],
       },
     });
-    new CfnWebACLAssociation(this, 'Association', {
-      resourceArn: props.loadBalancerArn,
-      webAclArn: this.webAcl.attrArn,
-    });
+    // ALB 연결은 기존 EksValidation/WafAssociation이 소유한다. (ADR-0035)
     this.configureLogging();
   }
 

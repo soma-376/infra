@@ -1,5 +1,6 @@
 import { DEV_APP_ROUTES } from '../../lib/dev/app-routing';
 import { Match, Template } from 'aws-cdk-lib/assertions';
+import { DEV_EKS_NODE_PORTS } from '../../lib/dev/eks-config';
 import { PORTS } from '../../lib/common/config';
 import { buildDevApp } from '../helpers';
 
@@ -35,6 +36,7 @@ describe('DevEdgeStack', () => {
   };
 
   test('internet-facing ALB 하나를 만든다', () => {
+    template.resourceCountIs('AWS::ElasticLoadBalancingV2::LoadBalancer', 1);
     template.hasResourceProperties(
       'AWS::ElasticLoadBalancingV2::LoadBalancer',
       { Scheme: 'internet-facing' },
@@ -75,8 +77,8 @@ describe('DevEdgeStack', () => {
 
   test('공통 path/method/preflight가 실제 앱 전용 TG에 연결된다', () => {
     const targets = {
-      enrollment: targetGroupByPrefix('DevEnrollmentApiTg')[0],
-      dashboard: targetGroupByPrefix('DevDashboardApiTg')[0],
+      enrollment: targetGroupByPrefix('EksValidationEnrollmentTg')[0],
+      dashboard: targetGroupByPrefix('EksValidationDashboardTg')[0],
     };
     const resolve = (path: string, method: string, requested?: string) => listenerRules()
       .sort((a: any, b: any) => a.Properties.Priority - b.Properties.Priority)
@@ -103,16 +105,16 @@ describe('DevEdgeStack', () => {
     expect(listenerRules().length).toBeLessThanOrEqual(100);
   });
 
-  // bridge 앱 태스크는 동적 host port를 인스턴스 타깃으로 등록하고,
-  // ClickHouse만 태스크 ENI IP를 타깃으로 등록한다.
-  test('최종 네 타깃 그룹의 타입과 포트가 네트워크 모드에 맞는다', () => {
-    expect(Object.keys(targetGroups())).toHaveLength(4);
+  // EKS 앱은 NodePort, ClickHouse는 Pod IP를 타깃으로 등록한다.
+  test('최종 다섯 타깃 그룹의 타입과 포트가 네트워크 모드에 맞는다', () => {
+    expect(Object.keys(targetGroups())).toHaveLength(5);
 
     for (const [prefix, targetType, port] of [
-      ['DevTelemetryIngestTg', 'instance', PORTS.telemetryIngest],
-      ['DevEnrollmentApiTg', 'instance', PORTS.enrollmentApi],
-      ['DevDashboardApiTg', 'instance', PORTS.dashboardApi],
-      ['DevClickhouseTg', 'ip', PORTS.clickhouseHttp],
+      ['EksValidationIngestTg', 'instance', DEV_EKS_NODE_PORTS.ingest],
+      ['EksValidationEnrollmentTg', 'instance', DEV_EKS_NODE_PORTS.enrollment],
+      ['EksValidationDashboardTg', 'instance', DEV_EKS_NODE_PORTS.dashboard],
+      ['EksValidationGatewayTg', 'instance', DEV_EKS_NODE_PORTS.gateway],
+      ['EksValidationClickhouseTg', 'ip', PORTS.clickhouseHttp],
     ] as const) {
       expect(targetGroupByPrefix(prefix)[1].Properties).toMatchObject({
         TargetType: targetType,
@@ -123,9 +125,9 @@ describe('DevEdgeStack', () => {
 
   test('세 앱만 deregistration delay를 60초로 둔다', () => {
     for (const prefix of [
-      'DevTelemetryIngestTg',
-      'DevEnrollmentApiTg',
-      'DevDashboardApiTg',
+      'EksValidationIngestTg',
+      'EksValidationEnrollmentTg',
+      'EksValidationDashboardTg',
     ]) {
       expect(
         targetGroupByPrefix(prefix)[1].Properties.TargetGroupAttributes,
@@ -142,9 +144,9 @@ describe('DevEdgeStack', () => {
 
   test('세 앱은 /api/v1/healthz의 200만 healthy로 판정한다', () => {
     for (const prefix of [
-      'DevTelemetryIngestTg',
-      'DevEnrollmentApiTg',
-      'DevDashboardApiTg',
+      'EksValidationIngestTg',
+      'EksValidationEnrollmentTg',
+      'EksValidationDashboardTg',
     ]) {
       expect(targetGroupByPrefix(prefix)[1].Properties).toMatchObject({
         TargetType: 'instance',
@@ -155,19 +157,15 @@ describe('DevEdgeStack', () => {
   });
 
   test('ClickHouse 타깃 그룹은 ip/8123, /ping, 기본 drain을 유지한다', () => {
-    const clickhouse = targetGroupByPrefix('DevClickhouseTg')[1].Properties;
+    const clickhouse = targetGroupByPrefix('EksValidationClickhouseTg')[1].Properties;
     expect(clickhouse).toMatchObject({
       Port: PORTS.clickhouseHttp,
       TargetType: 'ip',
       HealthCheckPath: '/ping',
     });
-    expect(clickhouse.TargetGroupAttributes ?? []).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          Key: 'deregistration_delay.timeout_seconds',
-        }),
-      ]),
-    );
+    expect(clickhouse.TargetGroupAttributes).toEqual(expect.arrayContaining([
+      { Key: 'deregistration_delay.timeout_seconds', Value: '300' },
+    ]));
   });
 
   test('Cognito 와 CloudFront 를 하나도 만들지 않는다', () => {
@@ -181,11 +179,15 @@ describe('DevEdgeStack', () => {
     }
   });
 
-  test('구 디버그·API 주소를 제외한 출력 7개를 노출한다', () => {
+  test('기존 Validation·공유 데이터 output만 유지한다', () => {
     for (const outputName of [
-      'AlbDnsName',
-      'OtlpEndpoint',
-      'ClickhouseDebugUrl',
+      'ValidationAlbArn',
+      'ValidationPublicBaseUrl',
+      'ValidationClickhouseUrl',
+      'ValidationTelemetryIngestTargetGroupArn',
+      'ValidationEnrollmentApiTargetGroupArn',
+      'ValidationDashboardApiTargetGroupArn',
+      'ValidationClickhouseTargetGroupArn',
       'RdsEndpoint',
       'RdsSecretArn',
       'TokenHashSecretArn',
@@ -193,7 +195,9 @@ describe('DevEdgeStack', () => {
     ]) {
       template.hasOutput(outputName, {});
     }
-    expect(template.findOutputs('OtlpDebugEndpoint')).toEqual({});
+    for (const name of ['AlbDnsName', 'OtlpEndpoint', 'ClickhouseDebugUrl', 'OtlpDebugEndpoint']) {
+      expect(template.findOutputs(name)).toEqual({});
+    }
     expect(template.findOutputs('ApiEndpoint')).toEqual({});
   });
 

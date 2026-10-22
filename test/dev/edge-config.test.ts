@@ -1,4 +1,3 @@
-import * as path from 'path';
 import { App, Aws } from 'aws-cdk-lib/core';
 import { loadDevConfig } from '../../lib/dev/config';
 import { synthDev } from '../../lib/dev/app';
@@ -10,7 +9,7 @@ const EKS_CONTEXT = { devEksEnabled: true };
 // 리소스를 만들지 않는 context 파싱과 생성 전 실패만 직접 App으로 검증한다.
 function configApp(context: Record<string, unknown> = {}): App {
   return new App({ context: {
-    devDashboardRuntimeFile: path.join(__dirname, '../fixtures/dashboard-runtime.json'),
+    devOidcClientKeys: [],
     ...context,
   } });
 }
@@ -18,7 +17,6 @@ function configApp(context: Record<string, unknown> = {}): App {
 describe('dev HTTPS context 입력', () => {
   test('인증서 생략 시 비활성이며 redirect 기본값은 true다', () => {
     const edge = loadDevConfig(configApp()).edge;
-    expect(edge.certificateArn).toBeUndefined();
     expect(edge.eksCertificateArn).toBeUndefined();
     expect(edge.httpRedirectEnabled).toBe(true);
   });
@@ -32,10 +30,10 @@ describe('dev HTTPS context 입력', () => {
     expect(() => loadDevConfig(configApp({ devHttpRedirectEnabled: raw }))).toThrow(/devHttpRedirectEnabled/);
   });
 
-  describe.each(['devCertificateArn', 'devEksCertificateArn'])('%s', key => {
+  describe.each(['devEksCertificateArn'])('%s', key => {
     test('서울 ACM certificate ARN을 그대로 보존한다', () => {
       const edge = loadDevConfig(configApp({ ...EKS_CONTEXT, [key]: CERTIFICATE_ARN })).edge;
-      expect(key === 'devCertificateArn' ? edge.certificateArn : edge.eksCertificateArn).toBe(CERTIFICATE_ARN);
+      expect(edge.eksCertificateArn).toBe(CERTIFICATE_ARN);
     });
 
     test.each([
@@ -60,9 +58,9 @@ describe('dev HTTPS context 입력', () => {
     });
   });
 
-  test('EKS 비활성에서 EKS 인증서 입력을 거부한다', () => {
-    expect(() => loadDevConfig(configApp({ devEksCertificateArn: CERTIFICATE_ARN })))
-      .toThrow(/devEksCertificateArn/);
+  test('EKS 비활성 입력은 인증서 여부와 무관하게 거부한다', () => {
+    expect(() => loadDevConfig(configApp({ devEksEnabled: false, devEksCertificateArn: CERTIFICATE_ARN })))
+      .toThrow(/devEksEnabled/);
   });
 
   test.each([
@@ -72,9 +70,9 @@ describe('dev HTTPS context 입력', () => {
     { account: TEST_ENV.account, region: Aws.REGION },
     { account: TEST_ENV.account, region: 'us-east-1' },
   ])('인증서가 있으면 미확정·불일치 배포 env를 리소스 생성 전에 거부한다: %j', env => {
-    const app = configApp({ devCertificateArn: CERTIFICATE_ARN });
+    const app = configApp({ devEksCertificateArn: CERTIFICATE_ARN });
     const config = loadDevConfig(app);
-    expect(() => synthDev(app, { env, config })).toThrow(/devCertificateArn/);
+    expect(() => synthDev(app, { env, config })).toThrow(/devEksCertificateArn/);
     expect(app.node.children).toHaveLength(0);
   });
 });

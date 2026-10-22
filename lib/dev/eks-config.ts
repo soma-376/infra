@@ -76,7 +76,7 @@ export const DEV_EKS_TELEMETRY_SERVICE_ACCOUNTS = {
 } as const;
 
 export interface DevEksConfig {
-  readonly enabled: boolean;
+  readonly enabled: true;
   readonly archivePrefix: 'eks_validation' | 'eks';
   /** 검증 ALB의 OTLP 규칙 대상. ECS listener와 규칙 ID·우선순위는 바뀌지 않는다. (ADR-0036) */
   readonly otlpTarget: DevEksOtlpTarget;
@@ -84,28 +84,22 @@ export interface DevEksConfig {
 
 export type DevEksOtlpTarget = 'ingest' | 'gateway';
 
-/** 무인자 synth는 기존 ECS만 유지한다. 활성화 입력 오타는 조용히 기본값으로 바꾸지 않는다. */
+/** dev는 항상 EKS다. 기존 true 입력만 호환하며 false로 클러스터를 제거할 수 없다. */
 export function loadDevEksConfig(app: App): DevEksConfig {
   if (app.node.tryGetContext('devEksApiAllowedCidrs') !== undefined) {
     throw new Error('devEksApiAllowedCidrs는 제거되었습니다. 해당 context를 삭제하고 SSM 릴레이 터널로 private EKS API에 접근하세요');
   }
   const raw = app.node.tryGetContext('devEksEnabled');
-  if (raw !== undefined && ![true, false, 'true', 'false'].includes(raw)) {
-    throw new Error('devEksEnabled는 true 또는 false여야 한다');
+  if (raw !== undefined && raw !== true && raw !== 'true') {
+    throw new Error('devEksEnabled는 생략 또는 true만 허용한다. dev는 EKS 전용이며 false로 비활성화할 수 없다');
   }
-  const enabled = raw === true || raw === 'true';
   const otlpTarget = app.node.tryGetContext('devEksOtlpTarget') ?? 'ingest';
   if (otlpTarget !== 'ingest' && otlpTarget !== 'gateway') {
     throw new Error('devEksOtlpTarget은 ingest 또는 gateway여야 한다');
-  }
-  if (!enabled) {
-    // Gateway 전환은 EKS 검증 ALB에만 존재한다. 비활성 구성에서 조용히 무시하지 않는다.
-    if (otlpTarget === 'gateway') throw new Error('devEksOtlpTarget=gateway는 devEksEnabled=true일 때만 사용할 수 있다');
-    return { enabled: false, archivePrefix: 'eks_validation', otlpTarget: 'ingest' };
   }
   const archivePrefix = app.node.tryGetContext('devEksArchivePrefix') ?? 'eks_validation';
   if (archivePrefix !== 'eks_validation' && archivePrefix !== 'eks') {
     throw new Error('devEksArchivePrefix는 eks_validation 또는 eks여야 한다');
   }
-  return { enabled, archivePrefix, otlpTarget };
+  return { enabled: true, archivePrefix, otlpTarget };
 }

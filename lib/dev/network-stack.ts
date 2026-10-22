@@ -13,63 +13,35 @@ import {
   Vpc,
 } from 'aws-cdk-lib/aws-ec2';
 import { PORTS } from '../common/config';
-import { DEV_EKS_MSK_IAM_PORT, DEV_EKS_MSK_SUBNETS, DEV_EKS_NODE_PORTS } from './eks-config';
+import { DEV_EKS_NODE_PORTS, DEV_EKS_MSK_SUBNETS, DEV_EKS_MSK_IAM_PORT } from './eks-config';
 import {
   DEV_SUBNET_GROUP,
   DEV_VPC_CIDR,
   warnOnOpenIngress,
 } from './config';
 
-/**
- * ECS bridge 모드에서 `hostPort` 를 지정하지 않으면 ECS 가 이 범위에서 호스트 포트를
- * 골라 컨테이너 포트에 매핑한다(ephemeral port range). ALB 인스턴스 타깃은 그 동적
- * 포트로 등록되므로, ALB 와 운영자가 호스트에 닿으려면 이 범위 전체를 열어야 한다.
- *
- * telemetry-ingest 와 enrollment-api 가 bridge 인 한 이 상수는 지울 수 없다.
- * (ADR-0026)
- */
-const EPHEMERAL_PORT_MIN = 32768;
-const EPHEMERAL_PORT_MAX = 65535;
-
 export interface DevNetworkStackProps extends StackProps {
-  readonly eksEnabled?: boolean;
-  readonly httpsEnabled?: boolean;
   readonly eksHttpsEnabled?: boolean;
   /**
-   * ALB(80/선택적 443/8123)와 RDS(5432), 호스트 동적 포트의 인바운드 허용 소스.
+   * EKS ALB(80/선택적 443/8123)와 RDS(5432)의 인바운드 허용 소스.
    */
   readonly allowedCidrs: readonly string[];
 }
 
 /**
- * DevNetworkStack: dev 전용 VPC(퍼블릭 서브넷 전용, NAT 없음) + S3 게이트웨이
- * 엔드포인트 + SG 4개 전부.
- *
- * **SG 4개와 모든 cross-SG 룰을 이 스택에만 둔다.** `AGENTS.md` 3장의 불변 규칙을
- * dev 에 그대로 계승한 것이다 - SG 간 참조가 스택 내부 참조가 되어 스택 간 순환
- * 의존을 원천 차단하고, 하류 스택(`DevDataStack`, `DevApplicationStack`,
- * `DevEdgeStack`)은 props 로 주입만 받는다. 이 성질은 환경과 무관하다. (ADR-0022 2번)
- *
- * 하류 스택에서 `connections.allowFrom(...)` 이 같은 규칙을 다시 요청해도 CDK 가
- * 같은 construct ID 로 dedup 하므로 추가 리소스가 생기지 않는다 - 여기에 미리
- * 정의해 두는 것이 그 dedup 의 전제다. 운영도 같은 구조다.
+ * dev VPC·RDS/EKS SG 여덟 개와 모든 cross-SG 규칙을 소유한다.
+ * 기존 EKS construct ID와 GroupDescription을 보존한다. (ADR-0035)
  */
 export class DevNetworkStack extends Stack {
-  public readonly eksControlPlaneSecurityGroup?: SecurityGroup;
-  public readonly eksAppNodeSecurityGroup?: SecurityGroup;
-  public readonly eksClickhouseNodeSecurityGroup?: SecurityGroup;
-  public readonly eksValidationAlbSecurityGroup?: SecurityGroup;
-  public readonly eksRelaySecurityGroup?: SecurityGroup;
-  public readonly eksObservabilityNodeSecurityGroup?: SecurityGroup;
-  /** EKS 활성화 시 MSK broker 전용 isolated subnet 3개와 SG. (ADR-0035) */
-  public readonly mskSubnets?: readonly PrivateSubnet[];
-  public readonly mskSecurityGroup?: SecurityGroup;
+  public readonly eksControlPlaneSecurityGroup: SecurityGroup;
+  public readonly eksAppNodeSecurityGroup: SecurityGroup;
+  public readonly eksClickhouseNodeSecurityGroup: SecurityGroup;
+  public readonly eksValidationAlbSecurityGroup: SecurityGroup;
+  public readonly eksRelaySecurityGroup: SecurityGroup;
+  public readonly eksObservabilityNodeSecurityGroup: SecurityGroup;
+  public readonly mskSubnets: readonly PrivateSubnet[];
+  public readonly mskSecurityGroup: SecurityGroup;
   public readonly vpc: Vpc;
-  public readonly albSecurityGroup: SecurityGroup;
-  /** EC2 호스트 2대(앱 ASG + ClickHouse ASG) 공용 SG. */
-  public readonly appHostSecurityGroup: SecurityGroup;
-  /** ClickHouse 태스크 ENI(awsvpc)용 SG. */
-  public readonly clickhouseSecurityGroup: SecurityGroup;
   public readonly rdsSecurityGroup: SecurityGroup;
 
   private readonly allowedCidrs: readonly string[];
@@ -104,212 +76,92 @@ export class DevNetworkStack extends Stack {
       ],
     });
 
-    // 게이트웨이 엔드포인트는 요금이 없다. 그리고 awsvpc ClickHouse 태스크의
-    // ENI 에는 퍼블릭 IP 가 붙지 않고 NAT 도 없으므로, 이것이 태스크가 S3 에 닿는
-    // **유일한 경로**다. (ADR-0022 1번/5(a))
+    // 기존 S3 Gateway endpoint를 보존한다.
     this.vpc.addGatewayEndpoint('S3Endpoint', {
       service: GatewayVpcEndpointAwsService.S3,
     });
 
-    // **이 `description` 문자열을 다시는 건드리지 않는다.**
-    //
-    // `AWS::EC2::SecurityGroup` 의 `GroupDescription` 은 CloudFormation 상
-    // `Update requires: Replacement` 다. 한 글자만 고쳐도 CFN 이 새 SG 를 만들고
-    // 기존 SG 를 지우려 하는데, **ALB 는 `DevEdgeStack` 에 있어 같은 배포에서 함께
-    // 갱신되지 않는다.** 그 사이 ALB 가 옛 SG 를 계속 쓰고 있으므로 삭제가
-    // `DependencyViolation: resource sg-... has a dependent object` 로 실패하고,
-    // CFN 은 이를 스택 실패로 처리하지 않고 **"Update successful. One or more
-    // resources could not be deleted." 로 UPDATE_COMPLETE 를 낸다** - 즉 조용히
-    // 고아 SG 하나가 남는다.
-    //
-    // **ADR-0023 구현 때 여기에 4318 을 추가했다가 실제로 이렇게 깨졌다**
-    // (sg-085990faedba1dbd2 가 고아로 남음). 그래서 이 문자열은 현재 배포된 값과
-    // 일치시켜 두는 것이 유일하게 안전한 상태다 - 지금 와서 "정확하게" 고치려 들면
-    // 교체가 한 번 더 일어나 고아가 하나 더 생긴다.
-    //
-    // 포트 구성이 바뀌면 설명이 아니라 아래 `wireSecurityGroupRules()` 의 주석으로
-    // 남긴다. 실제 인바운드는 그쪽이 권위다.
-    this.albSecurityGroup = new SecurityGroup(this, 'DevAlbSg', {
-      vpc: this.vpc,
-      description: 'dev ALB - inbound 80/4318/8123 from allowed CIDRs',
-      allowAllOutbound: true,
-    });
-    this.appHostSecurityGroup = new SecurityGroup(this, 'DevAppHostSg', {
-      vpc: this.vpc,
-      description: 'dev ECS EC2 hosts (app ASG + ClickHouse ASG)',
-      allowAllOutbound: true,
-    });
-    this.clickhouseSecurityGroup = new SecurityGroup(this, 'DevClickhouseSg', {
-      vpc: this.vpc,
-      description: 'dev ClickHouse task ENI (awsvpc)',
-      allowAllOutbound: true,
-    });
+    // GroupDescription은 교체 속성이므로 기존 문자열을 유지한다.
     this.rdsSecurityGroup = new SecurityGroup(this, 'DevRdsSg', {
       vpc: this.vpc,
       description: 'dev RDS PostgreSQL (publicly accessible)',
       allowAllOutbound: true,
     });
 
-    this.wireSecurityGroupRules();
-    if (props.httpsEnabled) {
-      this.forEachAllowedCidr((peer, cidr) => {
-        this.albSecurityGroup.addIngressRule(peer, Port.tcp(PORTS.https), `HTTPS from ${cidr}`);
-      });
+    this.forEachAllowedCidr((peer, cidr) => {
+      this.rdsSecurityGroup.addIngressRule(peer, Port.tcp(PORTS.aurora), `Postgres from ${cidr}`);
+    });
+    const sg = (name: string, description: string) => new SecurityGroup(this, name, {
+      vpc: this.vpc, description, allowAllOutbound: true, disableInlineRules: true,
+    });
+    this.eksControlPlaneSecurityGroup = sg('DevEksControlPlaneSg', 'dev EKS control plane');
+    this.eksAppNodeSecurityGroup = sg('DevEksAppNodeSg', 'dev EKS application nodes');
+    this.eksClickhouseNodeSecurityGroup = sg('DevEksClickhouseNodeSg', 'dev EKS ClickHouse nodes');
+    this.eksObservabilityNodeSecurityGroup = sg('DevEksObservabilityNodeSg', 'dev EKS observability nodes');
+    this.eksValidationAlbSecurityGroup = sg('DevEksValidationAlbSg', 'dev EKS validation ALB');
+    this.eksRelaySecurityGroup = new SecurityGroup(this, 'DevEksRelaySg', {
+      vpc: this.vpc, description: 'dev EKS API SSM relay',
+      allowAllOutbound: false, disableInlineRules: true,
+    });
+    // NAT 없는 public subnet에서 SSM과 private Kubernetes API의 HTTPS만 사용한다.
+    this.eksRelaySecurityGroup.addEgressRule(Peer.anyIpv4(), Port.tcp(443), 'HTTPS to SSM and EKS API');
+    this.eksControlPlaneSecurityGroup.addIngressRule(this.eksRelaySecurityGroup, Port.tcp(443), 'Kubernetes API from SSM relay');
+    const cp = this.eksControlPlaneSecurityGroup;
+    const apps = this.eksAppNodeSecurityGroup;
+    const ch = this.eksClickhouseNodeSecurityGroup;
+    const validation = this.eksValidationAlbSecurityGroup;
+    const obs = this.eksObservabilityNodeSecurityGroup;
+    for (const nodes of [apps, ch, obs]) {
+      cp.addIngressRule(nodes, Port.tcp(443), 'Kubernetes API from nodes');
+      nodes.addIngressRule(cp, Port.tcp(10250), 'Kubelet from control plane');
+      nodes.addIngressRule(nodes, Port.allTraffic(), 'Same node pool communication');
     }
-    if (props.eksEnabled) {
-      const sg = (name: string, description: string) => new SecurityGroup(this, name, {
-        vpc: this.vpc, description, allowAllOutbound: true, disableInlineRules: true,
-      });
-      this.eksControlPlaneSecurityGroup = sg('DevEksControlPlaneSg', 'dev EKS control plane');
-      this.eksAppNodeSecurityGroup = sg('DevEksAppNodeSg', 'dev EKS application nodes');
-      this.eksClickhouseNodeSecurityGroup = sg('DevEksClickhouseNodeSg', 'dev EKS ClickHouse nodes');
-      this.eksObservabilityNodeSecurityGroup = sg('DevEksObservabilityNodeSg', 'dev EKS observability nodes');
-      this.eksValidationAlbSecurityGroup = sg('DevEksValidationAlbSg', 'dev EKS validation ALB');
-      this.eksRelaySecurityGroup = new SecurityGroup(this, 'DevEksRelaySg', {
-        vpc: this.vpc, description: 'dev EKS API SSM relay',
-        allowAllOutbound: false, disableInlineRules: true,
-      });
-      // NAT 없는 public subnet에서 SSM과 private Kubernetes API의 HTTPS만 사용한다.
-      this.eksRelaySecurityGroup.addEgressRule(Peer.anyIpv4(), Port.tcp(443), 'HTTPS to SSM and EKS API');
-      this.eksControlPlaneSecurityGroup.addIngressRule(this.eksRelaySecurityGroup, Port.tcp(443), 'Kubernetes API from SSM relay');
-      const cp = this.eksControlPlaneSecurityGroup;
-      const apps = this.eksAppNodeSecurityGroup;
-      const ch = this.eksClickhouseNodeSecurityGroup;
-      const validation = this.eksValidationAlbSecurityGroup;
-      const obs = this.eksObservabilityNodeSecurityGroup;
-      for (const nodes of [apps, ch, obs]) {
-        cp.addIngressRule(nodes, Port.tcp(443), 'Kubernetes API from nodes');
-        nodes.addIngressRule(cp, Port.tcp(10250), 'Kubelet from control plane');
-        nodes.addIngressRule(nodes, Port.allTraffic(), 'Same node pool communication');
-      }
-      apps.addIngressRule(cp, Port.tcp(9443), 'LBC admission webhook');
-      obs.addIngressRule(cp, Port.tcp(10250), 'Prometheus operator admission webhook');
-      for (const nodes of [apps, ch]) {
-        nodes.addIngressRule(obs, Port.tcp(10250), 'Kubelet metrics from observability');
-        nodes.addIngressRule(obs, Port.tcp(2020), 'Fluent Bit metrics from observability');
-        nodes.addIngressRule(obs, Port.tcp(9100), 'Node exporter metrics from observability');
-      }
-      apps.addIngressRule(obs, Port.tcp(9404), 'Application metrics from observability');
-      ch.addIngressRule(obs, Port.tcp(9363), 'ClickHouse metrics from observability');
-      // kube-dns가 앱 노드에 배치되어도 관측 Pod의 이름 조회가 동작한다.
-      apps.addIngressRule(obs, Port.udp(53), 'Cluster DNS from observability');
-      apps.addIngressRule(obs, Port.tcp(53), 'Cluster DNS TCP from observability');
-      ch.addIngressRule(apps, Port.tcp(8123), 'ClickHouse HTTP from EKS applications');
-      ch.addIngressRule(apps, Port.tcp(9000), 'ClickHouse native from EKS applications');
-      for (const alb of [validation, this.albSecurityGroup]) {
-        apps.addIngressRule(alb, Port.tcp(30416), 'EKS ingest NodePort from ALB');
-        apps.addIngressRule(alb, Port.tcp(30080), 'EKS enrollment NodePort from ALB');
-        apps.addIngressRule(alb, Port.tcp(DEV_EKS_NODE_PORTS.dashboard), 'EKS dashboard NodePort from ALB');
-        apps.addIngressRule(alb, Port.tcp(DEV_EKS_NODE_PORTS.gateway), 'EKS telemetry gateway NodePort from ALB');
-        ch.addIngressRule(alb, Port.tcp(8123), 'EKS ClickHouse HTTP from ALB');
-      }
-      this.forEachAllowedCidr((peer, cidr) => {
-        validation.addIngressRule(peer, Port.tcp(80), `Validation HTTP from ${cidr}`);
-        validation.addIngressRule(peer, Port.tcp(8123), `Validation ClickHouse from ${cidr}`);
-        if (props.eksHttpsEnabled) {
-          validation.addIngressRule(peer, Port.tcp(PORTS.https), `Validation HTTPS from ${cidr}`);
-        }
-      });
-      // VPC construct와 maxAzs: 2를 바꾸지 않고 MSK broker 전용 subnet만 추가한다. local route만 있으며
-      // IGW·NAT·S3 endpoint route를 연결하지 않는다. VPC의 subnet 선택에도 들어가지 않는다. (ADR-0035)
-      this.mskSubnets = DEV_EKS_MSK_SUBNETS.map((subnet, index) => new PrivateSubnet(this, `DevMskSubnet${index + 1}`, {
-        vpcId: this.vpc.vpcId, availabilityZone: subnet.availabilityZone,
-        cidrBlock: subnet.cidrBlock, mapPublicIpOnLaunch: false,
-      }));
-      // broker ENI는 연결을 시작하지 않는다. 앱 NodePool의 Gateway·Consumer·관리 Job만 9098로 접속한다.
-      this.mskSecurityGroup = new SecurityGroup(this, 'DevMskSg', {
-        vpc: this.vpc, description: 'dev MSK brokers', allowAllOutbound: false, disableInlineRules: true,
-      });
-      this.mskSecurityGroup.addIngressRule(apps, Port.tcp(DEV_EKS_MSK_IAM_PORT), 'MSK IAM from EKS applications');
-      for (const port of [11001, 11002]) this.mskSecurityGroup.addIngressRule(obs, Port.tcp(port), 'MSK Open Monitoring from observability');
-      // 기존 SG의 inline properties를 바꾸지 않고 별도 규칙을 추가한다.
-      new CfnSecurityGroupIngress(this, 'EksToRds', {
-        groupId: this.rdsSecurityGroup.securityGroupId, sourceSecurityGroupId: apps.securityGroupId,
-        ipProtocol: 'tcp', fromPort: 5432, toPort: 5432, description: 'Postgres from EKS applications',
-      });
-      new CfnSecurityGroupIngress(this, 'EksToExistingClickhouse', {
-        groupId: this.clickhouseSecurityGroup.securityGroupId, sourceSecurityGroupId: apps.securityGroupId,
-        ipProtocol: 'tcp', fromPort: 8123, toPort: 8123, description: 'Existing ClickHouse from EKS canary',
-      });
+    apps.addIngressRule(cp, Port.tcp(9443), 'LBC admission webhook');
+    obs.addIngressRule(cp, Port.tcp(10250), 'Prometheus operator admission webhook');
+    for (const nodes of [apps, ch]) {
+      nodes.addIngressRule(obs, Port.tcp(10250), 'Kubelet metrics from observability');
+      nodes.addIngressRule(obs, Port.tcp(2020), 'Fluent Bit metrics from observability');
+      nodes.addIngressRule(obs, Port.tcp(9100), 'Node exporter metrics from observability');
     }
-  }
-
-  private wireSecurityGroupRules(): void {
-    const ephemeralPorts = Port.tcpRange(
-      EPHEMERAL_PORT_MIN,
-      EPHEMERAL_PORT_MAX,
-    );
-
-    // ALB <- 허용 CIDR : 80(OTLP + API), 8123(ClickHouse 직접 쿼리).
+    apps.addIngressRule(obs, Port.tcp(9404), 'Application metrics from observability');
+    ch.addIngressRule(obs, Port.tcp(9363), 'ClickHouse metrics from observability');
+    // kube-dns가 앱 노드에 배치되어도 관측 Pod의 이름 조회가 동작한다.
+    apps.addIngressRule(obs, Port.udp(53), 'Cluster DNS from observability');
+    apps.addIngressRule(obs, Port.tcp(53), 'Cluster DNS TCP from observability');
+    ch.addIngressRule(apps, Port.tcp(8123), 'ClickHouse HTTP from EKS applications');
+    ch.addIngressRule(apps, Port.tcp(9000), 'ClickHouse native from EKS applications');
+    for (const alb of [validation]) {
+      apps.addIngressRule(alb, Port.tcp(30416), 'EKS ingest NodePort from ALB');
+      apps.addIngressRule(alb, Port.tcp(30080), 'EKS enrollment NodePort from ALB');
+      apps.addIngressRule(alb, Port.tcp(DEV_EKS_NODE_PORTS.dashboard), 'EKS dashboard NodePort from ALB');
+      apps.addIngressRule(alb, Port.tcp(DEV_EKS_NODE_PORTS.gateway), 'EKS telemetry gateway NodePort from ALB');
+      ch.addIngressRule(alb, Port.tcp(8123), 'EKS ClickHouse HTTP from ALB');
+    }
     this.forEachAllowedCidr((peer, cidr) => {
-      this.albSecurityGroup.addIngressRule(
-        peer,
-        Port.tcp(PORTS.http),
-        `HTTP from ${cidr}`,
-      );
-      this.albSecurityGroup.addIngressRule(
-        peer,
-        Port.tcp(PORTS.clickhouseHttp),
-        `ClickHouse HTTP from ${cidr}`,
-      );
+      validation.addIngressRule(peer, Port.tcp(80), `Validation HTTP from ${cidr}`);
+      validation.addIngressRule(peer, Port.tcp(8123), `Validation ClickHouse from ${cidr}`);
+      if (props.eksHttpsEnabled) {
+        validation.addIngressRule(peer, Port.tcp(PORTS.https), `Validation HTTPS from ${cidr}`);
+      }
+    });
+    // VPC construct와 maxAzs: 2를 바꾸지 않고 MSK broker 전용 subnet만 추가한다. local route만 있으며
+    // IGW·NAT·S3 endpoint route를 연결하지 않는다. VPC의 subnet 선택에도 들어가지 않는다. (ADR-0035)
+    this.mskSubnets = DEV_EKS_MSK_SUBNETS.map((subnet, index) => new PrivateSubnet(this, `DevMskSubnet${index + 1}`, {
+      vpcId: this.vpc.vpcId, availabilityZone: subnet.availabilityZone,
+      cidrBlock: subnet.cidrBlock, mapPublicIpOnLaunch: false,
+    }));
+    // broker ENI는 연결을 시작하지 않는다. 앱 NodePool의 Gateway·Consumer·관리 Job만 9098로 접속한다.
+    this.mskSecurityGroup = new SecurityGroup(this, 'DevMskSg', {
+      vpc: this.vpc, description: 'dev MSK brokers', allowAllOutbound: false, disableInlineRules: true,
+    });
+    this.mskSecurityGroup.addIngressRule(apps, Port.tcp(DEV_EKS_MSK_IAM_PORT), 'MSK IAM from EKS applications');
+    for (const port of [11001, 11002]) this.mskSecurityGroup.addIngressRule(obs, Port.tcp(port), 'MSK Open Monitoring from observability');
+    // 기존 SG의 inline properties를 바꾸지 않고 별도 규칙을 추가한다.
+    new CfnSecurityGroupIngress(this, 'EksToRds', {
+      groupId: this.rdsSecurityGroup.securityGroupId, sourceSecurityGroupId: apps.securityGroupId,
+      ipProtocol: 'tcp', fromPort: 5432, toPort: 5432, description: 'Postgres from EKS applications',
     });
 
-    // 앱 호스트 <- ALB : bridge 앱 태스크의 동적 호스트 포트.
-    this.appHostSecurityGroup.addIngressRule(
-      this.albSecurityGroup,
-      ephemeralPorts,
-      'Dynamic host ports from ALB (bridge tasks)',
-    );
-    // 앱 호스트 <- 허용 CIDR : ALB 를 거치지 않고 호스트에 직접 curl 을 던져
-    // 디버깅할 수 있게 둔다. 호스트 접속 자체는 SSM 이지만(ADR-0022 5(b)),
-    // 로컬에서 바로 찔러보는 경로가 dev 의 존재 이유다.
-    this.forEachAllowedCidr((peer, cidr) => {
-      this.appHostSecurityGroup.addIngressRule(
-        peer,
-        ephemeralPorts,
-        `Dynamic host ports from ${cidr}`,
-      );
-    });
-
-    // ClickHouse 태스크 ENI <- 앱 호스트 : 8123/9000.
-    //
-    // telemetry-ingest 가 bridge 태스크라 자기 ENI 없이 호스트 ENI 로 통신하므로
-    // 출발 SG 는 `DevAppHostSg` 다. (ADR-0026)
-    this.clickhouseSecurityGroup.addIngressRule(
-      this.appHostSecurityGroup,
-      Port.tcp(PORTS.clickhouseHttp),
-      'ClickHouse HTTP',
-    );
-    this.clickhouseSecurityGroup.addIngressRule(
-      this.appHostSecurityGroup,
-      Port.tcp(PORTS.clickhouseNative),
-      'ClickHouse native',
-    );
-    // ClickHouse 태스크 ENI <- ALB:8123. EC2 퍼블릭 IP 가 인스턴스 교체마다 바뀌므로
-    // (ADR-0010 과 같은 사정) ALB :8123 리스너가 안정적인 직접 쿼리 주소를 준다.
-    this.clickhouseSecurityGroup.addIngressRule(
-      this.albSecurityGroup,
-      Port.tcp(PORTS.clickhouseHttp),
-      'ClickHouse HTTP from ALB (debug listener)',
-    );
-
-    // RDS <- 앱 호스트 : 5432. telemetry-ingest 와 enrollment-api 가 bridge 태스크라
-    // Postgres 연결의 출발 SG 는 호스트 ENI 다. (ADR-0026)
-    this.rdsSecurityGroup.addIngressRule(
-      this.appHostSecurityGroup,
-      Port.tcp(PORTS.aurora),
-      'Postgres from app tier',
-    );
-    // RDS <- 허용 CIDR : 로컬 psql 진단 접근. 스키마는 enrollment-api의 Flyway가
-    // 관리하며, 이 경로는 `publiclyAccessible: true`와 함께 dev 운영자가 직접 상태를
-    // 확인할 때만 쓴다. (ADR-0022 6번, ADR-0026)
-    this.forEachAllowedCidr((peer, cidr) => {
-      this.rdsSecurityGroup.addIngressRule(
-        peer,
-        Port.tcp(PORTS.aurora),
-        `Postgres from ${cidr}`,
-      );
-    });
   }
 
   /**

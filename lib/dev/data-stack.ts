@@ -140,8 +140,7 @@ export class DevDataStack extends Stack {
         'HMAC-SHA256 key for dev auth-proxy telemetry token hashing (TOKEN_HASH_SECRET). Shared with the enrollment server.',
       generateSecretString: {
         passwordLength: TOKEN_HASH_SECRET_LENGTH,
-        // 영숫자만 남긴다. 이 값은 환경변수로 셸을 거치지 않고 ECS 가 직접 주입하지만,
-        // 운영자가 CLI 로 꺼내 다룰 때 인용 실수가 나지 않게 한다.
+        // 기존 영숫자 생성 정책을 유지한다. EKS는 CSI/configtree로 원문을 주입한다.
         excludePunctuation: true,
         excludeUppercase: false,
         includeSpace: false,
@@ -150,8 +149,8 @@ export class DevDataStack extends Stack {
     });
 
     // enrollment-api 의 관리자 엔드포인트 인증 토큰. 값은 CDK/CloudFormation 출력에
-    // 기록하지 않고 Secrets Manager 가 배포 시 생성한다. ECS 에는 JSON `token` 필드만
-    // 주입한다. dev MVP 정책에 따라 기본 암호화, 무회전, DESTROY 를 유지한다.
+    // 기록하지 않고 Secrets Manager 가 배포 시 생성한다. EKS에는 JSON `token` 필드만
+    // CSI/configtree로 주입한다. dev MVP 정책에 따라 기본 암호화, 무회전, DESTROY 를 유지한다.
     this.adminApiTokenSecret = new Secret(
       this,
       'DevEnrollmentAdminApiToken',
@@ -313,7 +312,7 @@ export class DevDataStack extends Stack {
     return this.adminApiTokenSecret.secretArn;
   }
 
-  /** 후속 ECS/EKS 설정용 ARN만 노출하며 값·앱 권한은 이 단계에서 공급하지 않는다. */
+  /** EKS 설정용 ARN만 노출하며 값·앱 권한은 이 단계에서 공급하지 않는다. */
   public get dashboardRdsSourceSecretArn(): string {
     return this.dashboardRdsSourceSecret.secretArn;
   }

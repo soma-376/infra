@@ -13,11 +13,9 @@ describe('MSK 전용 네트워크', () => {
   const enabled = Template.fromStack(buildDevApp(EKS).network);
   const ingress = (template: Template): any[] => Object.values(template.findResources('AWS::EC2::SecurityGroupIngress'));
 
-  test('EKS 비활성 구성에는 MSK subnet·SG·9098·30082 규칙이 없다', () => {
-    disabled.resourceCountIs('AWS::EC2::Subnet', 2);
-    disabled.resourceCountIs('AWS::EC2::SecurityGroup', 4);
-    const text = JSON.stringify(disabled.toJSON());
-    for (const value of ['DevMsk', '10.1.32.0/24', '"FromPort":9098', '"FromPort":30082']) expect(text).not.toContain(value);
+  test('EKS 생략과 true 구성은 같은 MSK 네트워크를 만든다', () => {
+    expect(disabled.toJSON()).toEqual(enabled.toJSON());
+    expect(() => buildDevApp({ devEksEnabled: false })).toThrow('false로 비활성화할 수 없다');
   });
 
   test('VPC는 그대로 두고 3 AZ isolated subnet을 local route만으로 추가한다', () => {
@@ -56,17 +54,17 @@ describe('MSK 전용 네트워크', () => {
     expect(egress.map(rule => rule.Properties.CidrIp)).toEqual(['255.255.255.255/32']);
   });
 
-  test('두 ALB SG만 앱 node의 Gateway NodePort 30082에 접근한다', () => {
+  test('EKS ALB SG만 앱 node의 Gateway NodePort 30082에 접근한다', () => {
     expect(DEV_EKS_NODE_PORTS.gateway).toBe(30082);
     const rules = ingress(enabled).filter(rule => rule.Properties.FromPort === 30082);
-    expect(rules).toHaveLength(2);
+    expect(rules).toHaveLength(1);
     for (const rule of rules) {
       expect(rule.Properties).toMatchObject({ ToPort: 30082, IpProtocol: 'tcp' });
       expect(JSON.stringify(rule.Properties.GroupId)).toContain('DevEksAppNodeSg');
       expect(rule.Properties.CidrIp).toBeUndefined();
     }
     expect(rules.map(rule => JSON.stringify(rule.Properties.SourceSecurityGroupId)).sort())
-      .toEqual([expect.stringContaining('DevAlbSg'), expect.stringContaining('DevEksValidationAlbSg')]);
+      .toEqual([expect.stringContaining('DevEksValidationAlbSg')]);
   });
 });
 
@@ -75,14 +73,10 @@ describe('MSK Provisioned cluster', () => {
   const eks = Template.fromStack(built.eks!);
   const cluster = () => Object.values(eks.findResources('AWS::MSK::Cluster'))[0] as any;
 
-  test('EKS 비활성 합성에는 MSK·관련 output이 없다', () => {
-    const disabled = buildDevApp();
-    expect(disabled.eks).toBeUndefined();
-    for (const stack of [disabled.network, disabled.data, disabled.application, disabled.edge]) {
-      const json = JSON.stringify(Template.fromStack(stack).toJSON());
-      expect(json).not.toContain('AWS::MSK::');
-      expect(json).not.toContain('MskClusterArn');
-    }
+  test('EKS 생략 합성에도 MSK와 output을 유지한다', () => {
+    const template = Template.fromStack(buildDevApp().eks);
+    template.resourceCountIs('AWS::MSK::Cluster', 1);
+    template.hasOutput('MskClusterArn', {});
   });
 
   test('3.9 KRaft broker 3대를 세 MSK subnet·DevMskSg에 IAM·TLS 전용으로 둔다', () => {
@@ -181,7 +175,7 @@ describe('검증 ALB OTLP 대상 전환', () => {
   const tgId = (json: any, name: string) => Object.entries<any>(json.Resources)
     .find(([, resource]) => resource.Type === 'AWS::ElasticLoadBalancingV2::TargetGroup' && resource.Properties.Name === name)![0];
 
-  test('gateway는 EKS priority 1 규칙의 대상만 Gateway TG로 바꾸고 ECS listener와 규칙 ID를 보존한다', () => {
+  test('gateway는 EKS priority 1 규칙의 대상만 Gateway TG로 바꾸고 기존 규칙 ID를 보존한다', () => {
     const changed = Object.keys(before.Resources).filter(id => JSON.stringify(before.Resources[id]) !== JSON.stringify(after.Resources[id]));
     expect(changed).toEqual(['EksValidationAlbHttpOtlpRule810EC07C']);
     expect(Object.keys(after.Resources).sort()).toEqual(Object.keys(before.Resources).sort());
@@ -189,13 +183,13 @@ describe('검증 ALB OTLP 대상 전환', () => {
     expect(rule(before).Actions).toEqual([{ Type: 'forward', TargetGroupArn: { Ref: tgId(before, 'soma-376-dev-eks-ingest-v') } }]);
     expect(rule(after).Actions).toEqual([{ Type: 'forward', TargetGroupArn: { Ref: tgId(after, 'soma-376-dev-eks-gateway-v') } }]);
     expect({ ...rule(after), Actions: undefined }).toEqual({ ...rule(before), Actions: undefined });
-    expect(after.Resources.DevAlbDevHttpListenerDevOtlpForwardRule79AA5238).toEqual(before.Resources.DevAlbDevHttpListenerDevOtlpForwardRule79AA5238);
+    expect(after.Resources.DevAlbDevHttpListenerDevOtlpForwardRule79AA5238).toBeUndefined();
     expect(after.Outputs.ValidationOtlpTarget).toEqual({ Value: 'gateway' });
     expect({ ...after.Outputs, ValidationOtlpTarget: undefined }).toEqual({ ...before.Outputs, ValidationOtlpTarget: undefined });
   });
 
   test('전환은 Edge 외 스택 템플릿을 바꾸지 않는다', () => {
-    for (const key of ['network', 'data', 'application', 'eks'] as const) {
+    for (const key of ['network', 'data', 'eks'] as const) {
       expect(Template.fromStack(gateway[key]!).toJSON()).toEqual(Template.fromStack(ingest[key]!).toJSON());
     }
   });
@@ -213,12 +207,12 @@ describe('검증 ALB OTLP 대상 전환', () => {
   test.each([
     [{ devEksOtlpTarget: 'Gateway' }, /devEksOtlpTarget은 ingest 또는 gateway/],
     [{ ...EKS, devEksOtlpTarget: 'direct' }, /devEksOtlpTarget은 ingest 또는 gateway/],
-    [{ devEksOtlpTarget: 'gateway' }, /devEksEnabled=true/],
+    [{ devEksEnabled: false, devEksOtlpTarget: 'gateway' }, /false로 비활성화할 수 없다/],
   ])('잘못된 OTLP 대상 입력 %j를 거부한다', (context, message) => {
     expect(() => buildDevApp(context)).toThrow(message);
   });
 
-  test('EKS 비활성 구성은 명시적 ingest를 허용하고 ECS Edge를 바꾸지 않는다', () => {
+  test('EKS 기본 구성은 명시적 ingest와 같은 Edge를 만든다', () => {
     const explicit = Template.fromStack(buildDevApp({ devEksOtlpTarget: 'ingest' }).edge).toJSON();
     expect(explicit).toEqual(Template.fromStack(buildDevApp().edge).toJSON());
   });

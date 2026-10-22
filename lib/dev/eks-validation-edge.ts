@@ -17,7 +17,7 @@ export interface DevEksValidationEdgeProps extends DevAppListenerOptions {
   readonly otlpTarget?: DevEksOtlpTarget;
 }
 
-/** ECS의 기존 construct ID/forwarding은 그대로 두고 별도 검증 자리를 추가한다. */
+/** EKS 단독 전환 뒤에도 기존 검증 경로의 construct ID·TG 이름·output을 보존한다. */
 export class DevEksValidationEdge extends Construct {
   constructor(scope: Construct, id: string, props: DevEksValidationEdgeProps) {
     super(scope, id);
@@ -32,7 +32,7 @@ export class DevEksValidationEdge extends Construct {
         deregistrationDelay: type === TargetType.IP ? Duration.seconds(300) : DEV_DEREGISTRATION_DELAY,
         healthCheck: { path, healthyHttpCodes: '200', port: 'traffic-port' },
       });
-      // 이름과 태그 양쪽으로 LBC 등록 대상을 제한한다. 기존 ECS TG에는 붙이지 않는다.
+      // 이름과 태그 양쪽으로 LBC 등록 대상을 제한한다.
       Tags.of(group).add(DEV_EKS_TARGET_GROUP_CLUSTER_TAG, DEV_EKS_CLUSTER_NAME);
       return group;
     };
@@ -44,7 +44,7 @@ export class DevEksValidationEdge extends Construct {
     const gateway = tg('GatewayTg', 'gateway', DEV_EKS_NODE_PORTS.gateway, '/api/v1/healthz', TargetType.INSTANCE);
     const otlpTarget = props.otlpTarget ?? 'ingest';
     const http = addDevAppListener(alb, 'Http', props);
-    // ECS와 EKS는 같은 path/method/preflight 계약을 서로 독립된 TG에 연결한다. OTLP 규칙 ID는 대상과 무관하다.
+    // EKS는 기존 path/method/preflight 계약을 서로 독립된 TG에 연결한다. OTLP 규칙 ID는 대상과 무관하다.
     installDevAppRoutes(this, http, { enrollment, dashboard, ingest: otlpTarget === 'gateway' ? gateway : ingest }, 'Otlp');
     alb.addListener('Clickhouse', { port: 8123, protocol: ApplicationProtocol.HTTP, open: false, defaultAction: ListenerAction.forward([clickhouse]) });
     new CfnWebACLAssociation(this, 'WafAssociation', { resourceArn: alb.loadBalancerArn, webAclArn: props.webAclArn });

@@ -3,255 +3,99 @@ import { DEV_VPC_CIDR } from '../../lib/dev/config';
 import { PORTS } from '../../lib/common/config';
 import { buildDevApp } from '../helpers';
 
-/**
- * SG 인그레스 항목을 한곳에 모은다.
- *
- * CIDR peer 룰은 SG 리소스의 인라인 `SecurityGroupIngress` 로, SG peer 룰은 별도
- * `AWS::EC2::SecurityGroupIngress` 리소스로 합성되므로 양쪽을 함께 본다.
- * **라우트 테이블의 `DestinationCidrBlock: 0.0.0.0/0` 은 인그레스가 아니므로
- * 여기 섞이지 않는다** - 전면 공개 회귀를 잡으려면 이 구분이 필요하다.
- */
+/** CIDR inline 규칙과 별도 SG peer 규칙을 모두 검사한다. */
 function allIngressRules(template: Template): any[] {
-  const inline = Object.values(
-    template.findResources('AWS::EC2::SecurityGroup'),
-  ).flatMap(
-    (resource: any) => resource.Properties.SecurityGroupIngress ?? [],
-  );
-  const standalone = Object.values(
-    template.findResources('AWS::EC2::SecurityGroupIngress'),
-  ).map((resource: any) => resource.Properties);
-
+  const inline = Object.values(template.findResources('AWS::EC2::SecurityGroup'))
+    .flatMap((resource: any) => resource.Properties.SecurityGroupIngress ?? []);
+  const standalone = Object.values(template.findResources('AWS::EC2::SecurityGroupIngress'))
+    .map((resource: any) => resource.Properties);
   return [...inline, ...standalone];
 }
 
-function buildNetworkFixture(devAllowedCidr?: string) {
-  const { network } = buildDevApp(
-    devAllowedCidr === undefined ? {} : { devAllowedCidr },
-  );
+function fixture(devAllowedCidr?: string) {
+  const { network } = buildDevApp(devAllowedCidr === undefined ? {} : { devAllowedCidr });
   return { network, template: Template.fromStack(network) };
 }
+const CIDRS = ['203.0.113.10/32', '198.51.100.0/24'];
+const baseline = fixture();
+const narrowed = fixture(CIDRS[0]);
+const multiple = fixture(CIDRS.join(', '));
 
-const ALLOWED_CIDR = '203.0.113.10/32';
-const ALLOWED_CIDRS = ['203.0.113.10/32', '198.51.100.0/24'];
-const DEFAULT_NETWORK = buildNetworkFixture();
-const NARROWED_NETWORK = buildNetworkFixture(ALLOWED_CIDR);
-const MULTI_CIDR_NETWORK = buildNetworkFixture(ALLOWED_CIDRS.join(', '));
+describe('DevNetworkStack EKS 전용 네트워크', () => {
+  const { network, template } = baseline;
 
-describe('DevNetworkStack', () => {
-  const { network, template } = DEFAULT_NETWORK;
-
-  // NAT 가 없다는 것이 이 환경의 비용 전제이자 토폴로지 전제다. 하나라도 생기면
-  // 월 약 $35 가 조용히 붙고, 동시에 "퍼블릭 서브넷 전용"이라는 설계도 깨진다.
-  // (ADR-0022 1번)
-  test('NAT gateway 를 하나도 만들지 않는다', () => {
+  test('기존 VPC·public subnet 두 개·S3 endpoint를 유지하고 NAT를 만들지 않는다', () => {
     template.resourceCountIs('AWS::EC2::NatGateway', 0);
-  });
-
-  // 운영 VPC(CDK 기본 10.0.0.0/16)와 겹치면 두 VPC 를 peering 하거나 같은 VPN 에
-  // 물릴 여지가 영구히 사라진다. (ADR-0022 1번)
-  test('VPC CIDR 이 운영과 겹치지 않는 10.1.0.0/16 이다', () => {
-    template.hasResourceProperties('AWS::EC2::VPC', {
-      CidrBlock: DEV_VPC_CIDR,
-    });
-    expect(DEV_VPC_CIDR).not.toBe('10.0.0.0/16');
-  });
-
-  // NAT 0 + 서브넷 2개 + 전부 MapPublicIpOnLaunch 조합이 "public 한 티어만 있다"를
-  // 증명한다. 프라이빗 서브넷이 끼어들면 셋 중 하나는 반드시 깨진다.
-  test('서브넷은 2 AZ x public 1 티어 = 2개이고 전부 퍼블릭이다', () => {
-    template.resourceCountIs('AWS::EC2::Subnet', 2);
-
-    const subnets = Object.values(template.findResources('AWS::EC2::Subnet'));
-    expect(
-      subnets.map((subnet: any) => subnet.Properties.MapPublicIpOnLaunch),
-    ).toEqual([true, true]);
-  });
-
-  // awsvpc 태스크의 ENI 에는 퍼블릭 IP 가 붙지 않고 NAT 도 없으므로, 이 엔드포인트가
-  // 태스크가 S3 에 닿는 유일한 경로다. (ADR-0022 1번/5(a))
-  test('S3 게이트웨이 VPC 엔드포인트가 있다', () => {
+    template.hasResourceProperties('AWS::EC2::VPC', { CidrBlock: DEV_VPC_CIDR });
+    expect(DEV_VPC_CIDR).toBe('10.1.0.0/16');
+    template.resourceCountIs('AWS::EC2::Subnet', 5);
+    expect(Object.values(template.findResources('AWS::EC2::Subnet'))
+      .map((subnet: any) => subnet.Properties.MapPublicIpOnLaunch)).toEqual([true, true, false, false, false]);
     template.resourceCountIs('AWS::EC2::VPCEndpoint', 1);
-    template.hasResourceProperties('AWS::EC2::VPCEndpoint', {
-      VpcEndpointType: 'Gateway',
+    template.hasResourceProperties('AWS::EC2::VPCEndpoint', { VpcEndpointType: 'Gateway' });
+  });
+
+  test('EKS·RDS SG 여덟 개의 기존 ID와 교체 유발 description을 유지한다', () => {
+    const groups = template.findResources('AWS::EC2::SecurityGroup');
+    expect(Object.keys(groups).sort()).toEqual([
+      'DevRdsSgD66FDC40', 'DevEksControlPlaneSgCB0F4EE9', 'DevEksAppNodeSg95755693',
+      'DevEksClickhouseNodeSg4071CB1E', 'DevEksValidationAlbSg7D5E6C15', 'DevEksRelaySg930FF80D',
+      'DevEksObservabilityNodeSgEDF3C199', 'DevMskSg6BEDDF12',
+    ].sort());
+    expect(Object.values(groups).map((resource: any) => resource.Properties.GroupDescription).sort()).toEqual([
+      'dev RDS PostgreSQL (publicly accessible)', 'dev EKS control plane', 'dev EKS application nodes',
+      'dev EKS ClickHouse nodes', 'dev EKS validation ALB', 'dev EKS API SSM relay',
+      'dev EKS observability nodes', 'dev MSK brokers',
+    ].sort());
+  });
+
+  test('ECS SG·동적 host port·구 ClickHouse canary 연결을 제거한다', () => {
+    expect(JSON.stringify(template.toJSON())).not.toMatch(/DevAlbSg|DevAppHostSg|DevClickhouseSg|DevCollectorSg|EksToExistingClickhouse/);
+    expect(allIngressRules(template).filter(rule => rule.FromPort === 32768 || rule.ToPort === 65535)).toEqual([]);
+  });
+
+  test('EKS 앱의 RDS·ClickHouse 통로와 ALB의 NodePort 통로를 유지한다', () => {
+    for (const [port, target, source] of [
+      [5432, 'DevRdsSg', 'DevEksAppNodeSg'],
+      [8123, 'DevEksClickhouseNodeSg', 'DevEksAppNodeSg'],
+      [9000, 'DevEksClickhouseNodeSg', 'DevEksAppNodeSg'],
+      [30416, 'DevEksAppNodeSg', 'DevEksValidationAlbSg'],
+      [30080, 'DevEksAppNodeSg', 'DevEksValidationAlbSg'],
+      [30081, 'DevEksAppNodeSg', 'DevEksValidationAlbSg'],
+      [30082, 'DevEksAppNodeSg', 'DevEksValidationAlbSg'],
+    ] as const) template.hasResourceProperties('AWS::EC2::SecurityGroupIngress', {
+      FromPort: port, ToPort: port, IpProtocol: 'tcp',
+      GroupId: { 'Fn::GetAtt': [Match.stringLikeRegexp(target), 'GroupId'] },
+      SourceSecurityGroupId: { 'Fn::GetAtt': [Match.stringLikeRegexp(source), 'GroupId'] },
     });
   });
 
-  test('최종 SG 4개와 기존 GroupDescription을 보존한다', () => {
-    template.resourceCountIs('AWS::EC2::SecurityGroup', 4);
-
-    const descriptions = Object.values(
-      template.findResources('AWS::EC2::SecurityGroup'),
-    )
-      .map((resource: any) => resource.Properties.GroupDescription)
-      .sort();
-
-    // GroupDescription은 Replacement 속성이므로 이미 배포된 문자열을 그대로 둔다.
-    expect(descriptions).toEqual(
-      [
-        'dev ALB - inbound 80/4318/8123 from allowed CIDRs',
-        'dev ECS EC2 hosts (app ASG + ClickHouse ASG)',
-        'dev ClickHouse task ENI (awsvpc)',
-        'dev RDS PostgreSQL (publicly accessible)',
-      ].sort(),
-    );
+  test('devAllowedCidr 미지정이면 기존 open-ingress 경고를 낸다', () => {
+    Annotations.fromStack(network).hasWarning('*', Match.stringLikeRegexp('infra:dev-open-ingress'));
   });
 
-  test('Collector SG와 관련 인그레스를 모두 제거한다', () => {
-    expect(
-      Object.keys(template.findResources('AWS::EC2::SecurityGroup')).filter(
-        (logicalId) => logicalId.startsWith('DevCollectorSg'),
-      ),
-    ).toEqual([]);
-    expect(
-      JSON.stringify(
-        template.findResources('AWS::EC2::SecurityGroupIngress'),
-      ),
-    ).not.toContain('DevCollectorSg');
+  test.each([baseline, narrowed, multiple])('4318과 NodePort를 CIDR에 직접 열지 않는다', ({ template }) => {
+    expect(allIngressRules(template).filter(rule => rule.CidrIp !== undefined &&
+      [4318, 30416, 30080, 30081, 30082].includes(rule.FromPort))).toEqual([]);
   });
 
-  // 신규 앱 둘은 bridge 태스크라 AppHost SG를 출발점으로 RDS와 ClickHouse에 닿고,
-  // ALB는 동적 호스트 포트로 두 앱에 전달한다. (ADR-0026)
-  test('bridge 앱의 ALB·RDS·ClickHouse 통로를 보존한다', () => {
-    template.hasResourceProperties('AWS::EC2::SecurityGroupIngress', {
-      FromPort: 32768,
-      ToPort: 65535,
-      IpProtocol: 'tcp',
-      Description: 'Dynamic host ports from ALB (bridge tasks)',
-      GroupId: {
-        'Fn::GetAtt': [Match.stringLikeRegexp('DevAppHostSg'), 'GroupId'],
-      },
-      SourceSecurityGroupId: {
-        'Fn::GetAtt': [Match.stringLikeRegexp('DevAlbSg'), 'GroupId'],
-      },
-    });
-
-    for (const [port, targetSg, description] of [
-      [PORTS.aurora, 'DevRdsSg', 'Postgres from app tier'],
-      [PORTS.clickhouseHttp, 'DevClickhouseSg', 'ClickHouse HTTP'],
-      [PORTS.clickhouseNative, 'DevClickhouseSg', 'ClickHouse native'],
-    ] as const) {
-      template.hasResourceProperties('AWS::EC2::SecurityGroupIngress', {
-        FromPort: port,
-        ToPort: port,
-        IpProtocol: 'tcp',
-        Description: description,
-        GroupId: {
-          'Fn::GetAtt': [Match.stringLikeRegexp(targetSg), 'GroupId'],
-        },
-        SourceSecurityGroupId: {
-          'Fn::GetAtt': [Match.stringLikeRegexp('DevAppHostSg'), 'GroupId'],
-        },
-      });
-    }
-  });
-
-  // 기본값이 그대로 쓰이면 유일한 방어선은 이 경고뿐이다. 메시지가 아니라
-  // addWarningV2 의 ack ID(`[ack: infra:dev-open-ingress]` 로 합성 메시지 끝에
-  // 붙는다)를 매칭한다 - ID 를 바꾸면 기존 acknowledge 가 무효가 되기 때문이다.
-  test('devAllowedCidr 미지정이면 infra:dev-open-ingress 경고를 낸다', () => {
-    Annotations.fromStack(network).hasWarning(
-      '*',
-      Match.stringLikeRegexp('infra:dev-open-ingress'),
-    );
-  });
-});
-
-describe('DevNetworkStack - 인증 우회 4318 제거', () => {
-  test.each<[string, Template]>([
-    ['devAllowedCidr 미지정', DEFAULT_NETWORK.template],
-    ['devAllowedCidr 한 개', NARROWED_NETWORK.template],
-    ['devAllowedCidr 여러 개', MULTI_CIDR_NETWORK.template],
-  ])('%s 구성에는 4318 CIDR 인그레스가 없다', (_label, template) => {
-    const otlpCidrIngress = allIngressRules(template).filter(
-      (rule) =>
-        rule.CidrIp !== undefined &&
-        rule.FromPort === PORTS.otlp &&
-        rule.ToPort === PORTS.otlp,
-    );
-
-    expect(otlpCidrIngress).toEqual([]);
-  });
-});
-
-describe('DevNetworkStack - devAllowedCidr 로 인바운드를 좁힌 경우', () => {
-  const { network, template } = NARROWED_NETWORK;
-
-  test('ALB SG는 지정 CIDR에서 80과 8123만 받는다', () => {
-    for (const port of [PORTS.http, PORTS.clickhouseHttp]) {
-      template.hasResourceProperties('AWS::EC2::SecurityGroup', {
-        // **이 문자열을 고치는 PR 은 반려 대상이다.** GroupDescription 은 CFN 상
-        // Replacement 속성이라, 바꾸면 SG 교체 -> ALB(다른 스택)가 옛 SG 를 붙들고
-        // 있어 DependencyViolation -> 고아 SG 가 남는다. 이 어서션은 값이 맞는지가
-        // 아니라 **아무도 값을 바꾸지 않았는지**를 지킨다. (lib 쪽 주석 참조)
-        GroupDescription: 'dev ALB - inbound 80/4318/8123 from allowed CIDRs',
-        SecurityGroupIngress: Match.arrayWith([
-          Match.objectLike({
-            CidrIp: ALLOWED_CIDR,
-            FromPort: port,
-            ToPort: port,
-            IpProtocol: 'tcp',
-          }),
-        ]),
-      });
-    }
-  });
-
-  // publiclyAccessible RDS 의 접근 통제는 전적으로 이 룰에 달려 있다. (ADR-0022 6번)
-  test('RDS SG 는 지정 CIDR 에서 5432 를 받는다', () => {
-    template.hasResourceProperties('AWS::EC2::SecurityGroup', {
-      GroupDescription: 'dev RDS PostgreSQL (publicly accessible)',
-      SecurityGroupIngress: Match.arrayWith([
-        Match.objectLike({
-          CidrIp: ALLOWED_CIDR,
-          FromPort: PORTS.aurora,
-          ToPort: PORTS.aurora,
-          IpProtocol: 'tcp',
-        }),
-      ]),
-    });
-  });
-
-  // **이 어서션이 `open: false` 회귀를 잡는 자리다.** DevEdgeStack 의 addListener 에서
-  // `open: false` 를 빼면 CDK 가 리스너 포트를 0.0.0.0/0 에 여는 인그레스를 ALB SG 에
-  // 자동으로 추가하고, 그 룰이 좁힌 룰 옆에 남아 전면 공개로 되돌린다. 그러면
-  // devAllowedCidr 을 지정한 의미가 통째로 사라진다. (ADR-0022 2번/9번)
-  test('CIDR 을 지정하면 전면 공개 인그레스가 어디에도 남지 않는다', () => {
-    const open = allIngressRules(template).filter(
-      (rule) => rule.CidrIp === '0.0.0.0/0',
-    );
-    expect(open).toEqual([]);
-  });
-
-  test('CIDR 을 지정하면 open-ingress 경고를 내지 않는다', () => {
-    Annotations.fromStack(network).hasNoWarning(
-      '*',
-      Match.stringLikeRegexp('infra:dev-open-ingress'),
-    );
-  });
-});
-
-describe('DevNetworkStack - devAllowedCidr 을 여러 개 준 경우', () => {
-  // 공백 포함 입력이 사람의 기본 습관이다. 여기까지 통과해야 손잡이가 실제로 쓸모 있다.
-  const { template } = MULTI_CIDR_NETWORK;
-
-  // 포트마다 arrayWith 를 따로 건다. **`Match.arrayWith` 는 순서를 지키는 부분열
-  // 매칭이라** 한 번에 여러 개를 넣으면 룰을 거는 순서가 어서션 순서와 같아야만
-  // 통과한다 - 그 결합은 테스트가 검증하려는 계약과 무관하다.
-  test('ALB SG 인그레스에 두 CIDR 이 모두 들어간다', () => {
-    for (const cidr of ALLOWED_CIDRS) {
+  test.each([[narrowed, [CIDRS[0]]], [multiple, CIDRS]] as const)('지정 CIDR에만 EKS ALB와 RDS 인바운드를 연다', ({ network, template }, cidrs) => {
+    const ingress = allIngressRules(template);
+    expect(ingress.filter(rule => rule.CidrIp === '0.0.0.0/0' || rule.CidrIpv6 === '::/0')).toEqual([]);
+    for (const cidr of cidrs) {
       for (const port of [PORTS.http, PORTS.clickhouseHttp]) {
-        template.hasResourceProperties('AWS::EC2::SecurityGroup', {
-          // **이 문자열을 고치는 PR 은 반려 대상이다.** GroupDescription 은 CFN 상
-          // Replacement 속성이라, 바꾸면 SG 교체 -> ALB(다른 스택)가 옛 SG 를 붙들고
-          // 있어 DependencyViolation -> 고아 SG 가 남는다. 이 어서션은 값이 맞는지가
-          // 아니라 **아무도 값을 바꾸지 않았는지**를 지킨다. (lib 쪽 주석 참조)
-          GroupDescription:
-            'dev ALB - inbound 80/4318/8123 from allowed CIDRs',
-          SecurityGroupIngress: Match.arrayWith([
-            Match.objectLike({ CidrIp: cidr, FromPort: port }),
-          ]),
+        template.hasResourceProperties('AWS::EC2::SecurityGroupIngress', {
+          GroupId: { 'Fn::GetAtt': ['DevEksValidationAlbSg7D5E6C15', 'GroupId'] },
+          CidrIp: cidr, FromPort: port, ToPort: port, IpProtocol: 'tcp',
         });
       }
+      template.hasResourceProperties('AWS::EC2::SecurityGroup', {
+        GroupDescription: 'dev RDS PostgreSQL (publicly accessible)',
+        SecurityGroupIngress: Match.arrayWith([Match.objectLike({
+          CidrIp: cidr, FromPort: PORTS.aurora, ToPort: PORTS.aurora, IpProtocol: 'tcp',
+        })]),
+      });
     }
+    Annotations.fromStack(network).hasNoWarning('*', Match.stringLikeRegexp('infra:dev-open-ingress'));
   });
 });

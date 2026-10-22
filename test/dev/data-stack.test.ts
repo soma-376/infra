@@ -245,7 +245,7 @@ describe('DevDataStack', () => {
     ).toBeUndefined();
   });
 
-  // 관리자 토큰은 64자 임의 값이며, ECS 가 JSON 필드 하나만 선택해 주입할 수 있게
+  // 관리자 토큰은 64자 임의 값이며, CSI가 JSON 필드 하나만 선택해 주입할 수 있게
   // `token` 키 아래 저장한다. 값 자체는 합성 템플릿에 없어야 한다.
   test('관리자 토큰은 JSON token 필드에 64자로 생성하고 값을 남기지 않는다', () => {
     const secret = secretByIdPrefix('DevEnrollmentAdminApiToken');

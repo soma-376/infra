@@ -5,14 +5,17 @@ export const EKS_CONTEXT = {
   devEksEnabled: true,
 };
 
-test('기본 구성은 EKS 및 EKS 전용 SG를 생성하지 않는다', () => {
+test('기본 구성은 EKS 전용 네 스택이며 ECS 리소스를 생성하지 않는다', () => {
   const built = buildDevApp();
-  expect(built.eks).toBeUndefined();
-  Template.fromStack(built.network).resourceCountIs('AWS::EC2::SecurityGroup', 4);
+  expect(built.eks).toBeDefined();
+  for (const stack of built.app.synth().stacks) {
+    expect(Object.values(stack.template.Resources).filter((r: any) => /^AWS::(ECS|AutoScaling|ServiceDiscovery)::/.test(r.Type))).toEqual([]);
+  }
+  Template.fromStack(built.network).resourceCountIs('AWS::EC2::SecurityGroup', 8);
   expect(built.app.synth().stacks).toHaveLength(4);
 });
 
-test('API CIDR 입력 없이 기존 endpoint 속성을 보존하고 private Auto Mode 5스택을 구성한다', () => {
+test('API CIDR 입력 없이 기존 endpoint 속성을 보존하고 private Auto Mode 4스택을 구성한다', () => {
   const built = buildDevApp(EKS_CONTEXT);
   const template = Template.fromStack(built.eks!);
   template.hasResourceProperties('AWS::EKS::Cluster', {
@@ -35,7 +38,7 @@ test('API CIDR 입력 없이 기존 endpoint 속성을 보존하고 private Auto
   });
   template.resourceCountIs('AWS::Lambda::Function', 0);
   const assembly = built.app.synth();
-  expect(assembly.stacks).toHaveLength(5);
+  expect(assembly.stacks).toHaveLength(4);
   const artifact = assembly.getStackArtifact(built.eks!.artifactId);
   const dependencyIds = artifact.dependencies.map(dep => dep.id);
   expect(dependencyIds).toContain('DevNetworkStack');
@@ -83,15 +86,15 @@ test('운영자 role을 생성하고 같은 계정 trust와 클러스터 관리 
 test('추가 SG 규칙은 Network에만 생기고 기존 리소스 속성은 보존한다', () => {
   const before = buildDevApp();
   const after = buildDevApp(EKS_CONTEXT);
-  for (const key of ['network', 'data', 'application', 'edge'] as const) {
+  for (const key of ['network', 'data', 'edge', 'eks'] as const) {
     const baseline = Template.fromStack(before[key]).toJSON();
     const changed = Template.fromStack(after[key]).toJSON();
     for (const [id, resource] of Object.entries(baseline.Resources)) expect(changed.Resources[id]).toEqual(resource);
     if (key !== 'network') expect(Object.values(changed.Resources).filter((r: any) => r.Type.startsWith('AWS::EC2::SecurityGroup'))).toEqual([]);
   }
   const network = Template.fromStack(after.network);
-  // ADR-0035의 DevMskSg를 더해 EKS 활성 구성은 사용자 정의 SG 10개다.
-  network.resourceCountIs('AWS::EC2::SecurityGroup', 11);
+  // MSK와 관측 SG를 포함한 EKS 전용 구성은 사용자 정의 SG 8개다.
+  network.resourceCountIs('AWS::EC2::SecurityGroup', 8);
   for (const port of [30416, 30080, 30082, 8123, 5432, 9443, 10250, 9098]) {
     network.hasResourceProperties('AWS::EC2::SecurityGroupIngress', { FromPort: port, ToPort: port, SourceSecurityGroupId: Match.anyValue() });
   }

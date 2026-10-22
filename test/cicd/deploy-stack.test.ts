@@ -12,7 +12,7 @@ import {
   GITHUB_OIDC_URL,
   GITHUB_REPOS,
 } from '../../lib/cicd/config';
-import { buildApp, buildCicdApp, buildDevApp } from '../helpers';
+import { buildApp, buildCicdApp } from '../helpers';
 
 const PIPELINE_DEV = `github-deploy-${GITHUB_REPOS.pipeline.name}-dev`;
 const PIPELINE_PROD = `github-deploy-${GITHUB_REPOS.pipeline.name}-prod`;
@@ -20,6 +20,8 @@ const DASHBOARD_DEV = `github-deploy-${GITHUB_REPOS.dashboard.name}-dev`;
 const DASHBOARD_PROD = `github-deploy-${GITHUB_REPOS.dashboard.name}-prod`;
 const ALL_ROLES = [PIPELINE_DEV, PIPELINE_PROD, DASHBOARD_DEV, DASHBOARD_PROD];
 const PERMISSIONED_ROLES = [PIPELINE_PROD, DASHBOARD_DEV, DASHBOARD_PROD];
+const ECS_DEPLOY_ROLES = [PIPELINE_PROD, DASHBOARD_PROD];
+const RETIRED_DEV_CLUSTER = 'soma-376-dev';
 const RETIRED_AUTH_PROXY_REPO = `${ECR_NAMESPACE}/auth-proxy`;
 const RETIRED_AUTH_PROXY_SERVICE = 'auth-proxy';
 
@@ -29,7 +31,7 @@ describe('DeployStack', () => {
 
   /**
    * ARN 값에서 리터럴 조각만 이어붙인다. `Arn.format` 은 계정 토큰 때문에 Fn::Join 을
-   * 만든다. `test/dev/application-stack.test.ts` 의 `imageLiterals` 와 같은 기법이다.
+   * 만든다. 토큰을 제외하고 리터럴 서비스·저장소 이름을 비교한다.
    */
   const arnLiterals = (value: unknown): string =>
     typeof value === 'string'
@@ -277,7 +279,7 @@ describe('DeployStack', () => {
       },
     );
 
-    test.each(PERMISSIONED_ROLES)(
+    test.each(ECS_DEPLOY_ROLES)(
       '%s 의 ECS 액션 집합이 정확하다',
       (roleName) => {
         const statement = statementWithAction(roleName, 'ecs:UpdateService');
@@ -324,8 +326,8 @@ describe('DeployStack', () => {
     test.each([
       [PIPELINE_DEV, ECS_CLUSTER_NAMES.prod],
       [DASHBOARD_DEV, ECS_CLUSTER_NAMES.prod],
-      [PIPELINE_PROD, ECS_CLUSTER_NAMES.dev],
-      [DASHBOARD_PROD, ECS_CLUSTER_NAMES.dev],
+      [PIPELINE_PROD, RETIRED_DEV_CLUSTER],
+      [DASHBOARD_PROD, RETIRED_DEV_CLUSTER],
     ])('%s 는 %s 클러스터를 건드릴 수 없다', (roleName, foreignCluster) => {
       expect(resourceTextFor(roleName)).not.toContain(foreignCluster);
     });
@@ -383,22 +385,15 @@ describe('DeployStack', () => {
       );
     });
 
-    test('telemetry-gateway는 ECR push만 받고 ECS service 권한이 없다', () => {
-      for (const role of ALL_ROLES) {
-        expect(resourceTextFor(role)).not.toContain(':service/soma-376-dev/telemetry-gateway');
-        if (role !== DASHBOARD_DEV) expect(resourceTextFor(role)).not.toContain(`:repository/${ECR_REPOS.telemetryGateway}`);
-      }
-      expect(resourceTextFor(DASHBOARD_DEV)).toContain(`:repository/${ECR_REPOS.telemetryGateway}`);
-    });
-
-    test('backend dev 역할의 ECS 재배포 대상은 dashboard를 포함한 세 앱이다', () => {
-      expect(ecsServicesFor(DASHBOARD_DEV)).toEqual(
-        [
-          `${ECS_CLUSTER_NAMES.dev}/${ECS_SERVICE_NAMES.enrollmentApi}`,
-          `${ECS_CLUSTER_NAMES.dev}/${ECS_SERVICE_NAMES.telemetryIngest}`,
-          `${ECS_CLUSTER_NAMES.dev}/${ECS_SERVICE_NAMES.dashboardApi}`,
-        ].sort(),
+    test('backend dev 역할은 ECR 공급만 허용하고 ECS·EKS 배포 권한이 없다', () => {
+      expect(actionsFor(DASHBOARD_DEV).sort()).toEqual(
+        ['ecr:GetAuthorizationToken', ...ECR_PUSH_ACTIONS].sort(),
       );
+      expect(resourceTextFor(DASHBOARD_DEV)).not.toContain(':service/');
+      expect(resourceTextFor(DASHBOARD_DEV)).not.toContain(RETIRED_DEV_CLUSTER);
+      const [, role] = roleResource(DASHBOARD_DEV);
+      expect(role.Properties.Policies).toBeUndefined();
+      expect(role.Properties.ManagedPolicyArns).toBeUndefined();
     });
 
     test('backend prod 역할은 기존 대상만 유지한다', () => {
@@ -418,14 +413,12 @@ describe('DeployStack', () => {
       }
     });
 
-    test('dashboard-api 재배포 권한은 backend dev 역할에만 있고 JWT·writer 공급 권한은 없다', () => {
+    test('역할에 dashboard-api ECS 재배포·JWT·writer 공급 권한이 없다', () => {
       for (const role of ALL_ROLES) {
         const actions = actionsFor(role);
         expect(actions.some((action) => action.startsWith('secretsmanager:'))).toBe(false);
         expect(resourceTextFor(role)).not.toContain(':repository/soma-376/jwt-key-writer');
-        if (role !== DASHBOARD_DEV) {
-          expect(resourceTextFor(role)).not.toContain(`/${ECS_SERVICE_NAMES.dashboardApi}`);
-        }
+        expect(resourceTextFor(role)).not.toContain(':service/soma-376-dev/dashboard-api');
       }
     });
 
@@ -455,7 +448,7 @@ describe('DeployStack', () => {
   //
   // **이 티켓 최대의 위험을 막는 어서션이다.** CloudFormation 은 IAM 정책에 적힌 리소스
   // ARN 의 실존을 검증하지 않는다. `deploy-targets.ts` 를 고치면서 application-stack 한쪽만
-  // 반영하면 네 스택이 전부 배포에 성공하고 GitHub Actions 만 AccessDenied 로 죽는다.
+  // 반영하면 배포는 성공하고 GitHub Actions 만 AccessDenied 로 죽는다.
   describe('IAM 서비스 ARN 이 실제 스택의 이름과 일치한다', () => {
     const namePairs = (stackTemplate: Template): string[] => {
       const clusters = Object.values(
@@ -473,19 +466,17 @@ describe('DeployStack', () => {
       );
     };
 
-    const deployed = [
-      ...namePairs(Template.fromStack(buildApp().application)),
-      ...namePairs(Template.fromStack(buildDevApp().application)),
-    ];
+    const deployed = namePairs(Template.fromStack(buildApp().application));
 
-    test.each(ALL_ROLES)(
-      '%s 의 비어 있지 않은 모든 ECS ARN 이 실제로 만들어지는 서비스다',
+    test.each(ECS_DEPLOY_ROLES)(
+      '%s 의 모든 ECS ARN 이 실제 prod 스택의 서비스다',
       (roleName) => {
         const ecsArns = statementsFor(roleName)
           .filter((s) =>
             (asArray(s.Action) as string[]).includes('ecs:UpdateService'),
           )
           .flatMap((s) => asArray(s.Resource).map(arnLiterals));
+        expect(ecsArns).toHaveLength(1);
         for (const arn of ecsArns) {
           expect(deployed).toContain(arn.split(':service/')[1]);
         }
@@ -496,8 +487,11 @@ describe('DeployStack', () => {
   // 앱 레포에 넘겨줄 값. 논리 ID 가 바뀌면 핸드오프 문서가 낡는다.
   test('역할 ARN 4개를 CfnOutput 으로 내보낸다', () => {
     const outputs = template.findOutputs('*');
-    expect(Object.keys(outputs).filter((k) => k.endsWith('Arn'))).toHaveLength(
-      4,
-    );
+    expect(Object.keys(outputs).sort()).toEqual([
+      'AiTelemetryPipelineDevDeployRoleArn',
+      'AiTelemetryPipelineProdDeployRoleArn',
+      'PulsemetryBackendDevDeployRoleArn',
+      'PulsemetryBackendProdDeployRoleArn',
+    ]);
   });
 });

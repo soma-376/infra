@@ -89,11 +89,11 @@ describe('ApplicationStack', () => {
   // 어긋나도 synth·test·deploy 는 전부 통과하고 GitHub Actions 만 AccessDenied 로
   // 죽는다. 양쪽이 맞물리는지는 `test/cicd/deploy-stack.test.ts` 가 교차 검증한다.
   describe('ECS 물리 이름', () => {
-    test('클러스터 이름이 dev 와 다르다', () => {
+    test('운영 클러스터 이름이 기존 값으로 유지된다', () => {
       template.hasResourceProperties('AWS::ECS::Cluster', {
         ClusterName: ECS_CLUSTER_NAMES.prod,
       });
-      expect(ECS_CLUSTER_NAMES.prod).not.toBe(ECS_CLUSTER_NAMES.dev);
+      expect(ECS_CLUSTER_NAMES.prod).toBe('soma-376-prod');
     });
 
     test('서비스 3개의 이름이 고정되어 있다', () => {

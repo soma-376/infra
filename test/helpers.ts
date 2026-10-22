@@ -12,7 +12,6 @@ import { loadDevConfig } from '../lib/dev/config';
 import { synthDev } from '../lib/dev/app';
 import { DevNetworkStack } from '../lib/dev/network-stack';
 import { DevDataStack } from '../lib/dev/data-stack';
-import { DevApplicationStack } from '../lib/dev/application-stack';
 import { DevEdgeStack } from '../lib/dev/edge-stack';
 import { loadCicdConfig } from '../lib/cicd/config';
 import { synthCicd } from '../lib/cicd/app';
@@ -60,19 +59,17 @@ export function buildApp(edgeConfig: EdgeConfig = DEFAULT_EDGE): BuiltApp {
 }
 
 export interface BuiltDevApp {
-  eks?: DevEksStack;
+  eks: DevEksStack;
   app: App;
   network: DevNetworkStack;
   data: DevDataStack;
-  application: DevApplicationStack;
   edge: DevEdgeStack;
 }
 
 /**
- * 고정 env로 기본 dev 4스택과 선택적 EKS 스택을 조립하는 테스트 팩토리.
+ * 고정 env로 EKS 전용 dev 네 스택을 조립하는 테스트 팩토리.
  *
- * `context` 로 dev context 키(`devAllowedCidr`, `devAppAsgMaxCapacity`,
- * `devImageTag`)를 주입한다 - CLI 의 `-c key=value` 와 같은 자리다. cdk.json 의
+ * `context` 로 dev context 키(`devAllowedCidr`, `devOidcClientKeys`)를 주입한다 - CLI 의 `-c key=value` 와 같은 자리다. cdk.json 의
  * 피처 플래그 위에 덮어쓰므로 위 `buildApp()` 과 같은 합성 조건을 공유한다.
  *
  * 스택 조립은 bin/infra.ts(CLI)와 같은 `synthDev` 를 거친다. 손으로 복제하면
@@ -81,7 +78,7 @@ export interface BuiltDevApp {
 export function buildDevApp(
   context: Record<string, unknown> = {},
 ): BuiltDevApp {
-  const app = new App({ context: { ...loadCdkContext(), devDashboardRuntimeFile: path.join(__dirname, 'fixtures/dashboard-runtime.json'), ...context } });
+  const app = new App({ context: { ...loadCdkContext(), devOidcClientKeys: [], ...context } });
   const stacks = synthDev(app, {
     env: TEST_ENV,
     config: loadDevConfig(app),
