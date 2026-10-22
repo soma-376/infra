@@ -6,7 +6,7 @@
 
 ## 1. 실행 전제와 보존 대상
 
-- PROJ-249가 backend workflow의 ECS 사전 검사·재배포를 제거하고 세 ARM64 이미지를 ECR에 정상 게시해야 한다.
+- PROJ-249가 backend workflow의 ECS 사전 검사·재배포를 제거하고 Gateway를 포함한 네 ARM64 이미지를 ECR에 정상 게시해야 한다.
   허브 dashboard 계약 §5·ADR 0021의 dev 배포 경계도 정합화한 뒤 진행한다. ECS 사전 검사가 남으면 이미지 공급도 실패한다.
 - EKS private API·SSM 릴레이 접근, 네 workload와 TG 상태, 사용 중인 API/OTLP/ClickHouse 주소가 EKS를 가리키는지 확인한다.
   EKS workload가 구 `clickhouse.obs.local` 또는 ECS ALB를 사용하는 상태에서는 철거하지 않는다.
@@ -25,6 +25,7 @@ set -euo pipefail
 : "${DEV_ALLOWED_CIDRS:?기존 ALB/RDS 허용 CIDR}"
 : "${DEV_OIDC_CLIENT_KEYS:?기존 OIDC key 전체를 담은 JSON 배열, 없으면 []}"
 : "${DEV_EKS_ARCHIVE_PREFIX:?기존 eks_validation 또는 eks 값}"
+: "${DEV_EKS_OTLP_TARGET:?기존 ingest 또는 gateway 값}"
 : "${RUN_DIR:?레포 밖 또는 ignore된 generated 아래의 증거 디렉터리}"
 export AWS_PROFILE="$DEPLOY_PROFILE"
 export AWS_REGION=ap-northeast-2
@@ -33,7 +34,8 @@ umask 077
 mkdir -p "$RUN_DIR/before" "$RUN_DIR/after"
 EKS_CONTEXT=(-c env=dev -c "devAllowedCidr=$DEV_ALLOWED_CIDRS"
   -c "devOidcClientKeys=$DEV_OIDC_CLIENT_KEYS"
-  -c "devEksArchivePrefix=$DEV_EKS_ARCHIVE_PREFIX")
+  -c "devEksArchivePrefix=$DEV_EKS_ARCHIVE_PREFIX"
+  -c "devEksOtlpTarget=$DEV_EKS_OTLP_TARGET")
 if [[ -n "${DEV_EKS_CERTIFICATE_ARN:-}" ]]; then
   EKS_CONTEXT+=(-c "devEksCertificateArn=$DEV_EKS_CERTIFICATE_ARN")
 fi
@@ -46,8 +48,12 @@ test "$(cat "$RUN_DIR/account.txt")" = "$CDK_DEFAULT_ACCOUNT"
 
 `DEV_OIDC_CLIENT_KEYS`는 이전 `oidc.clients[].key`의 **전체 집합**을 옮긴다. 현재 EKS에서 비활성인 key도
 누락하지 않는다. 삭제하면 Retain Secret은 남아도 CloudFormation 관리·output·IAM에서는 빠진다.
-기존 인증서·redirect·CIDR·archive prefix를 그대로 전달한다. 폐기된 `devDashboardRuntimeFile`,
+기존 인증서·redirect·CIDR·archive prefix·OTLP 대상을 그대로 전달한다. 폐기된 `devDashboardRuntimeFile`,
 `devImageTag`, `devAppAsgMaxCapacity`, `devCertificateArn`, `devEksApiAllowedCidrs`는 모든 context 출처에서 제거한다.
+
+ECS 철거가 이미 완료된 환경에서는 이 문서의 삭제 단계를 반복하지 않는다. CloudFormation의
+`DevApplicationStack` 부재와 ECS 서비스·ASG·구 ALB/TG·SG 부재를 확인하고 EKS 런북의 일반 배포로 진행한다.
+접두사 없는 `ApplicationStack`은 별도 prod 스택이므로 이 문서의 삭제 대상이 아니다.
 
 ## 2. 배포 상태와 복구 자료 확보
 
@@ -212,11 +218,11 @@ backend-dev ECS 권한 회수 외 IAM 변경이 없음을 확인한 뒤 실행�
 npx cdk deploy DeployStack --exclusively "${CICD_CONTEXT[@]}" --outputs-file "$RUN_DIR/cicd-outputs.json"
 ```
 
-diff는 backend-dev의 ECS 권한 회수만 허용하며 ECR 세 저장소·역할 네 개·trust·prod 권한을 보존해야 한다.
+diff는 backend-dev의 ECS 권한 회수만 허용하며 Gateway를 포함한 ECR 네 저장소·역할 네 개·trust·prod 권한을 보존해야 한다.
 
 ## 5. 완료 증거와 중단·복구
 
-- CloudFormation 삭제/갱신 상태와 남은 dev 네 스택, ALB 1개·TG 4개·WAF association 1개·사용자 정의 SG 6개를 기록한다.
+- CloudFormation 삭제/갱신 상태와 남은 dev 네 스택, ALB 1개·TG 5개·WAF association 1개·사용자 정의 SG 8개를 기록한다.
 - EKS private API/SSM, 네 workload·TGB·target health, 실제 인증·수집·조회 결과를 각각 기록한다.
 - RDS DatabaseConnections 전후와 ECS 재기동 부재를 확인한다. 연결 수 감소나 원인 해소를 정적 pool 계산으로 단정하지 않는다.
 - Snapshot ID·원본 볼륨·AZ·최종 상태와 미실시 복원 시험, 미검증 기능을 인계한다.

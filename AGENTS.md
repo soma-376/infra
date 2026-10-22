@@ -202,9 +202,9 @@ Application 삭제 → Edge → Network 순서가 우선한다. weak 참조는 E
 
 | 스택 | 주요 리소스 |
 |---|---|
-| `DevNetworkStack` | VPC `10.1.0.0/16`, public 2 AZ·NAT 0·S3 endpoint, RDS와 EKS SG 총 6개 및 모든 cross-SG 규칙 |
+| `DevNetworkStack` | VPC `10.1.0.0/16`, public 2 AZ·MSK isolated 3 AZ·NAT 0·S3 endpoint, RDS·EKS·MSK·관측 SG 총 8개 및 모든 cross-SG 규칙 |
 | `DevDataStack` | RDS PostgreSQL 16.13 `db.t4g.micro`·gp3 20GB, Raw Signal S3 7일, 기본 Secret 11개 + OIDC key 수 |
-| `DevEdgeStack` | 기존 EKS ALB·TG 4개·명시 path/method/OPTIONS·default 404·REGIONAL WAF/로그 |
+| `DevEdgeStack` | 기존 EKS ALB·TG 5개·명시 path/method/OPTIONS·default 404·REGIONAL WAF/로그 |
 | `DevEksStack` | Auto Mode cluster·node/operator/Pod Identity·SSM relay·로그·runtime output |
 
 | workload | 실행 | 포트 / target |
@@ -240,7 +240,7 @@ dev WAF는 ALB 전체에 적용한다. 국가·악성 IP·URI·헤더 Block, 정
 
 | 규칙 | 왜 |
 |---|---|
-| **prod SG 5개와 dev SG 6개 및 모든 cross-SG 룰은 각 `NetworkStack`에만 정의한다** | SG 참조가 스택 내부 참조가 되어 스택 간 순환 의존을 원천 차단한다. 하류 스택은 props로 주입만 받는다. (`lib/prod/network-stack.ts`의 클래스 헤더 주석. `DevNetworkStack`이 같은 규칙을 그대로 계승한다 - ADR-0022 2번) |
+| **prod SG 5개와 dev SG 8개 및 모든 cross-SG 룰은 각 `NetworkStack`에만 정의한다** | SG 참조가 스택 내부 참조가 되어 스택 간 순환 의존을 원천 차단한다. 하류 스택은 props로 주입만 받는다. (`lib/prod/network-stack.ts`의 클래스 헤더 주석. `DevNetworkStack`이 같은 규칙을 그대로 계승한다 - ADR-0022 2번) |
 | **ECR 레포를 CDK로 만들지 않는다** | `Repository.fromRepositoryName`으로 참조만 한다. CDK가 만들면 첫 배포에서 "이미지 없는 레포" → 태스크 기동 실패 → 롤백으로 레포까지 삭제되는 순환이 생긴다. (ADR-0007) |
 | **ECR 레포 이름은 `soma-376/` 네임스페이스 아래에 둔다** | 네임스페이스는 `COMMON_TAGS.Org`와 같은 값이다. 비용 배분 태그 축과 레지스트리 경로를 같은 식별자로 정렬한다. ECR은 레포 이름 변경이 불가능해 사후 교정에 재생성 + 이미지 재push가 든다. (`lib/common/config.ts`의 `ECR_NAMESPACE`, ADR-0007) |
 | **prod `batch-processor`는 `essential: false`** | 배치 실패가 같은 태스크의 api-server를 함께 내리면 안 된다. dev 최종 구성에는 두 컨테이너가 없다. (`lib/prod/application-stack.ts`, ADR-0004, ADR-0026) |
@@ -271,9 +271,9 @@ dev WAF는 ALB 전체에 적용한다. 국가·악성 IP·URI·헤더 Block, 정
 | 규칙 | 이유 |
 |---|---|
 | `lib/prod/`와 `lib/dev/` 상호 import 금지 | common 방향 의존만 유지 |
-| Network가 사용자 정의 SG 6개와 모든 cross-SG 규칙 소유 | 순환 참조·하류의 자동 SG 변경 방지 |
+| Network가 사용자 정의 SG 8개와 모든 cross-SG 규칙 소유 | 순환 참조·하류의 자동 SG 변경 방지 |
 | EKS ALB/TG·WAF·relay·Data 논리 ID와 기존 속성 보존 | ECS 제거에 무관한 리소스 교체 방지 |
-| Secret 기본 9개·OIDC key별 원본 수명 보존 | 기존 원본·Retain·고정 ARN과 실제 값은 런타임 수명과 별개 |
+| Data Secret 기본 11개·Grafana Secret 1개·OIDC key별 원본 수명 보존 | 기존 원본·Retain·고정 ARN과 실제 값은 런타임 수명과 별개 |
 | OIDC client 전체 key 집합을 명시 | 입력 누락으로 원본 관리·output·IAM이 사라지는 것을 방지 |
 | enrollment는 JWT 두 원본, dashboard는 공개키만, ingest는 JWT 권한 없음 | 최소 권한 유지 |
 | JWT 키 일반 배포 시 재생성 금지 | verifier → signer → 마지막 구 발급 후 330초 → 구 공개키 제거 |
@@ -523,8 +523,8 @@ npm run synth:dev -- -c 'devOidcClientKeys=[]'
 
 실제 신규 설치·후속 배포는 [EKS 런북](docs/runbooks/dev-eks-manual-deployment.md)을 따른다.
 이미 ECS가 존재하는 환경에서는 먼저 [수동 철거](docs/runbooks/dev-ecs-retirement.md)를 완료한다.
-ECR 세 앱 ARM64 이미지 공급·공유 DB/키 준비와 실제 기능 확인을 합성 성공으로 대신하지 않는다.
-EKS Helm 배포 순서는 기반 구성 → ClickHouse → enrollment → ingest → dashboard다.
+Gateway를 포함한 네 앱 ARM64 이미지 공급·공유 DB/키 준비와 실제 기능 확인을 합성 성공으로 대신하지 않는다.
+EKS Helm 배포 순서는 기반 구성 → ClickHouse → enrollment → Gateway → ingest → dashboard → 관측이다. Gateway·MSK 전환은 [telemetry 런북](docs/runbooks/dev-telemetry-kafka.md), 관측은 [관측 런북](docs/runbooks/dev-observability.md)을 함께 따른다.
 
 ### 운영자 접속 (ADR-0016)
 
@@ -610,7 +610,7 @@ diff /tmp/before/NetworkStack.template.json /tmp/after/NetworkStack.template.jso
 
 **dev 테스트가 고정하는 핵심 계약**
 
-- 네 스택, ECS/ASG/Cloud Map 0개, ALB 1개/TG 4개/WAF association 1개/SG 6개.
+- 네 스택, ECS/ASG/Cloud Map 0개, ALB 1개/TG 5개/WAF association 1개/SG 8개.
 - Data/EKS·ALB/TG/WAF의 보존 리소스 논리 ID·속성 및 output 호환.
 - OIDC 전체 key의 정규화·중복/누락/형식 검증, 기존 Secret/IAM 원본 유지.
 - EKS 고정 버전의 JWT/OIDC 공급·권한·configtree·runtime/workload 경계.
@@ -622,7 +622,7 @@ diff /tmp/before/NetworkStack.template.json /tmp/after/NetworkStack.template.jso
 | 계약 | 왜 |
 |---|---|
 | trust `sub`가 immutable org/repo ID와 branch까지 `StringEquals` | wildcard나 name-only subject를 막는다 |
-| backend-dev가 ECR 세 저장소만 대상으로 하고 ECS/EKS 권한 없음 | 물리 이름과 workflow 계약 drift를 잡는다 |
+| backend-dev가 ECR 네 저장소만 대상으로 하고 ECS/EKS 권한 없음 | 물리 이름과 workflow 계약 drift를 잡는다 |
 | pipeline-dev role의 permission statement 0개, trust/output 유지 | ECR login 포함 권한 회수를 보장한다 |
 | prod 역할의 ECR/service policy가 기준선과 같음 | dev cleanup이 prod 권한을 바꾸지 않게 한다 |
 | `iam:PassRole`, `ecs:RegisterTaskDefinition`, wildcard action 부재 | 권한 상승 경로를 막는다 |

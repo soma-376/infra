@@ -9,6 +9,7 @@ AWS CDK v2로 prod·dev·cicd를 관리한다. dev 백엔드는 EKS 전용이며
 - [ADR 인덱스](docs/adr/README.md), [dev EKS 전용 ADR-0035](docs/adr/0035-dev-backend-eks-only.md)
 - [기존 dev ECS 수동 철거](docs/runbooks/dev-ecs-retirement.md): PROJ-249 선행·수동 Snapshot·Application 삭제·Edge/Network/IAM 순서
 - [EKS 수동 설치·검증·복구](docs/runbooks/dev-eks-manual-deployment.md)
+- [telemetry Gateway·MSK](docs/runbooks/dev-telemetry-kafka.md), [Prometheus·Grafana 관측](docs/runbooks/dev-observability.md)
 - [dashboard 저장소·인증 준비](docs/runbooks/dev-dashboard-prerequisites.md), [OIDC 준비](docs/runbooks/dev-oidc-prerequisites.md)
 - [HTTPS 적용·복구](docs/runbooks/dev-alb-https.md)
 - [PROJ-248 로컬 검증 결과](docs/runbooks/proj248-local-validation.md)
@@ -23,7 +24,7 @@ PROJ-248은 코드·문서·로컬 검증이다. 실제 AWS 철거·Snapshot 생
 ```bash
 npm run build
 # Helm/schema 검증까지 포함하려면 Helm 3.22.0·kubeconform 0.8.0 경로를 지정한다.
-HELM_BIN=/path/to/helm-3.22.0 KUBECONFORM_BIN=/path/to/kubeconform npm test -- --runInBand
+HELM_BIN=/path/to/helm-3.22.0 KUBECONFORM_BIN=/path/to/kubeconform PROMTOOL_BIN=/path/to/promtool-3.9.1 npm test -- --runInBand
 # OIDC 원본이 없는 신규 환경의 명시적 빈 목록 예시다. 기존 환경에서는 전체 key 목록을 유지한다.
 npm run synth:dev -- -c 'devOidcClientKeys=[]'
 ```
