@@ -141,6 +141,7 @@ export class DevEksStack extends Stack {
       EksClusterName: this.cluster.ref, EksClusterEndpoint: this.cluster.attrEndpoint,
       EksRegion: this.region, EksVpcId: props.vpc.vpcId,
       EksDashboardApiNodePort: String(DEV_EKS_NODE_PORTS.dashboard),
+      EksTelemetryGatewayNodePort: String(DEV_EKS_NODE_PORTS.gateway),
       EksSubnetIds: props.vpc.publicSubnets.map(subnet => subnet.subnetId).join(','),
       EksClickhouseAvailabilityZone: props.vpc.publicSubnets[0].availabilityZone,
       EksAppNodeSecurityGroupId: props.appNodeSecurityGroup.securityGroupId,

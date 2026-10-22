@@ -28,6 +28,7 @@ test('API CIDR 입력 없이 기존 endpoint 속성을 보존하고 private Auto
     KubernetesNetworkConfig: { IpFamily: 'ipv4', ElasticLoadBalancing: { Enabled: true } },
   });
   template.hasOutput('EksDashboardApiNodePort', { Value: '30081' });
+  template.hasOutput('EksTelemetryGatewayNodePort', { Value: '30082' });
   template.resourceCountIs('AWS::EKS::AccessEntry', 2);
   template.hasResourceProperties('AWS::EKS::AccessEntry', {
     Type: 'EC2', AccessPolicies: [{ AccessScope: { Type: 'cluster' }, PolicyArn: 'arn:aws:eks::aws:cluster-access-policy/AmazonEKSAutoNodePolicy' }],

@@ -617,6 +617,20 @@ describe('PROJ-246 Gateway·MSK·telemetry JWT values 생성', () => {
     });
   });
 
+  test('생성기가 읽는 output은 모두 실제 CDK 합성 결과에 있다', () => {
+    // fixture에만 있는 output으로 통과하지 않도록, 합성된 output 이름만 남겨 생성한다.
+    const { buildDevApp } = require('../helpers');
+    const synthesized = new Set(buildDevApp({ devEksEnabled: true }).app.synth().stacks
+      .flatMap((stack: any) => Object.keys(stack.template.Outputs ?? {})));
+    const source: any = outputs();
+    for (const stack of Object.values(source) as any[]) {
+      for (const key of Object.keys(stack)) if (!synthesized.has(key)) delete stack[key];
+    }
+    const output = run(source);
+    expect(output.result.stderr).not.toContain('배포 output이 없다');
+    expect(output.result.status).toBe(0);
+  });
+
   test('Gateway는 공개키·Kafka 발행·전용 TG만 받고 DB·HMAC·사용자 JWT·개인키 설정이 없다', () => {
     const output = run(outputs());
     expect(output.result.status).toBe(0);
