@@ -147,7 +147,7 @@ Backend scrape 사본 3개는 [provenance](tests/fixtures/provenance.json)에 �
 
 | 검사 | 도구 | 결과 |
 |---|---|---|
-| `npx jest` (`HELM_BIN`·`PROMTOOL_BIN`·`KUBECONFORM_BIN` 지정) | Helm 3.22.0, promtool 3.9.1, kubeconform 0.8.0 | 30 suites, 711 통과, skip 0 |
+| `npx jest` (`HELM_BIN`·`PROMTOOL_BIN`·`KUBECONFORM_BIN` 지정) | Helm 3.22.0, promtool 3.9.1, kubeconform 0.8.0 | 31 suites, 716 통과, skip 0 |
 | `observability-validate.mjs` | Helm 3.18.6·3.22.0, promtool 3.9.1 | 7 dashboards, 78 PromQL, 30 rules, digest·provenance 대조 통과 |
 | `validate-helm-workloads.mjs` | Helm 3.22.0, kubeconform 0.8.0 | workload 147·platform 10 resource, 실패 입력 232 통과 |
 | `eks-values-check-runtime.mjs` | 고정 CSI 1.6.1·ASCP 3.1.4·Fluent Bit chart 0.58.3 archive SHA256 | 통과 |
