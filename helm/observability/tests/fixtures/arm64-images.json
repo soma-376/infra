@@ -1,0 +1,63 @@
+{
+  "status": "PASS",
+  "scope": "registry-manifest-platform-only",
+  "verified_at": "2026-10-21T15:13:00.708530+00:00",
+  "images": [
+    {
+      "image": "quay.io/prometheus/prometheus:v3.9.1",
+      "linux_arm64_digests": [
+        "sha256:d82c5a30f98eb9b4cf2f2639af48f9a2a2df3a404c905b418be6278d2a021404"
+      ],
+      "manifest_index_sha256": "1f0f50f06acaceb0f5670d2c8a658a599affe7b0d8e78b898c1035653849a702"
+    },
+    {
+      "image": "docker.io/grafana/grafana:12.3.1",
+      "linux_arm64_digests": [
+        "sha256:62c1a430ef163ae4a8b3713874dbd1fc1d0e179168f236946e5420df5597207c"
+      ],
+      "manifest_index_sha256": "2175aaa91c96733d86d31cf270d5310b278654b03f5718c59de12a865380a31f"
+    },
+    {
+      "image": "quay.io/prometheus-operator/prometheus-operator:v0.88.0",
+      "linux_arm64_digests": [
+        "sha256:521894fd14c9bc9bbada1d4647e42b60701e588c86a844f3aa12f9f4f18c3b43"
+      ],
+      "manifest_index_sha256": "b4f51de53357a241fdcab2d956888c1cb3acb3c1f2f72ea0cd60046333ff06b0"
+    },
+    {
+      "image": "quay.io/prometheus-operator/prometheus-config-reloader:v0.88.0",
+      "linux_arm64_digests": [
+        "sha256:890b9f7b3acea293e56f881e9af6522889343bfdff459fc13bbd298003f01ffb"
+      ],
+      "manifest_index_sha256": "501a47205f61acf8ad11b1caeb0bd117b135932728b17eb5cd5914a33f0ce704"
+    },
+    {
+      "image": "registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.18.0",
+      "linux_arm64_digests": [
+        "sha256:9b14108e8db4069a2292a88fcba2ece7c3af5d2203ec7420498e8281cace5dfe"
+      ],
+      "manifest_index_sha256": "1545919b72e3ae035454fc054131e8d0f14b42ef6fc5b2ad5c751cafa6b2130e"
+    },
+    {
+      "image": "quay.io/prometheus/node-exporter:v1.10.2",
+      "linux_arm64_digests": [
+        "sha256:608e1c9432b358f093a304db957a13d2cff1d6dd7492d50e07f63fb4c4a6afd7"
+      ],
+      "manifest_index_sha256": "337ff1d356b68d39cef853e8c6345de11ce7556bb34cda8bd205bcf2ed30b565"
+    },
+    {
+      "image": "ghcr.io/jkroepke/kube-webhook-certgen:1.7.4",
+      "linux_arm64_digests": [
+        "sha256:5db5a3636d181700a48bda83c91c5354a09ef2b77a8646ce7a23ccba621ab05a"
+      ],
+      "manifest_index_sha256": "7a62bba56a7cef38c78ed5eaf62f7feaef5a50460fe5517d120cd402d62fee9c"
+    },
+    {
+      "image": "cr.fluentbit.io/fluent/fluent-bit:5.1.3",
+      "linux_arm64_digests": [
+        "sha256:4c84a238ad148fcf902a10b087f5911e5355f5c6cf5fb250490f7a51af7f1f1a"
+      ],
+      "manifest_index_sha256": "c5542543523c9678398dd78d927c05e8425ec15b038f226b67b3b019b1a70845"
+    }
+  ]
+}

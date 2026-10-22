@@ -1,0 +1,20 @@
+{{- if .Values.metrics.enabled }}
+{{- if not (has .Values.workload (list "telemetry-gateway" "telemetry-ingest")) }}{{ fail "metrics는 Gateway·ingest만 지원한다" }}{{ end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.workload }}-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pulsemetry.app.labels" . | nindent 4 }}
+    observability.pulsemetry.io/endpoint: metrics
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "pulsemetry.app.selector" . | nindent 4 }}
+  ports:
+    - name: metrics
+      port: 9404
+      targetPort: metrics
+      protocol: TCP
+{{- end }}

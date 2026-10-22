@@ -129,7 +129,7 @@ describe('dev EKS private API SSM 릴레이', () => {
       },
     ]));
     expect(statements.flatMap(statement => statement.Action).sort()).toEqual([
-      'eks:DescribeCluster', 'ssm:ResumeSession', 'ssm:StartSession', 'ssm:StartSession',
+      'eks:DescribeCluster', 's3:GetObject', 's3:PutObject', 'ssm:ResumeSession', 'ssm:StartSession', 'ssm:StartSession',
       'ssm:TerminateSession', 'ssmmessages:OpenDataChannel',
     ].sort());
   });

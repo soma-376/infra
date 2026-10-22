@@ -1,0 +1,113 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "global": {
+      "type": "object",
+      "properties": {
+        "pulsemetry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "environment",
+            "targetNamespace",
+            "region",
+            "clusterName",
+            "grafanaAdminSecretArn",
+            "mskClusterName",
+            "applicationLogGroup",
+            "brokerLogGroup",
+            "observabilityLogGroup",
+            "kubernetesEventsLogGroup",
+            "diagnosticsBucket",
+            "topic",
+            "consumerGroup",
+            "mskBrokers",
+            "controlPlaneLogGroup"
+          ],
+          "properties": {
+            "environment": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_./:+-]+$"
+            },
+            "targetNamespace": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_./:+-]+$"
+            },
+            "region": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_./:+-]+$"
+            },
+            "clusterName": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_./:+-]+$"
+            },
+            "grafanaAdminSecretArn": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_./:+-]+$"
+            },
+            "mskClusterName": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_./:+-]+$"
+            },
+            "applicationLogGroup": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_./:+-]+$"
+            },
+            "brokerLogGroup": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_./:+-]+$"
+            },
+            "observabilityLogGroup": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_./:+-]+$"
+            },
+            "kubernetesEventsLogGroup": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_./:+-]+$"
+            },
+            "diagnosticsBucket": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_./:+-]+$"
+            },
+            "topic": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_./:+-]+$"
+            },
+            "consumerGroup": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_./:+-]+$"
+            },
+            "mskBrokers": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "uniqueItems": true,
+              "items": {
+                "type": "string"
+              }
+            },
+            "controlPlaneLogGroup": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_./:+-]+$"
+            }
+          }
+        }
+      }
+    }
+  }
+}

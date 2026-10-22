@@ -1,0 +1,39 @@
+{{- if .Values.observability.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickhouse-observability
+  namespace: {{ .Release.Namespace }}
+data:
+  observability.xml: |
+    <clickhouse>
+      <prometheus>
+        <endpoint>/metrics</endpoint><port>9363</port>
+        <metrics>true</metrics><events>true</events>
+        <asynchronous_metrics>true</asynchronous_metrics><errors>true</errors>
+      </prometheus>
+      <logger>
+        <level>information</level><console>1</console>
+        <log remove="remove"/><errorlog remove="remove"/>
+        <formatting><type>json</type></formatting>
+      </logger>
+    </clickhouse>
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pulsemetry.clickhouse.labels" . | nindent 4 }}
+    observability.pulsemetry.io/endpoint: metrics
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "pulsemetry.clickhouse.selector" . | nindent 4 }}
+  ports:
+    - name: metrics
+      port: 9363
+      targetPort: metrics
+      protocol: TCP
+{{- end }}

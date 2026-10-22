@@ -17,7 +17,22 @@ BFF 단일 프로세스에 맞춰 서비스 desired=1/min=0/max=100이다. 앱 �
 기존 CDK 전용 테스트 규칙은 그대로 유지하고, 새 Terraform은 fmt·validate·mock test로 검증한다.
 기존 CDK 리소스를 Terraform에 import하거나 같은 리소스를 두 도구가 수정하지 않는다.
 실제 apply는 리뷰·머지 후 보호된 CI에서 수행한다. 최초 bootstrap과 이후 bootstrap 변경은 관리자 작업이다.
-다음 미사용 ADR은 **0037**다.
+다음 미사용 ADR은 **0038**다.
+
+## PROJ-191 관측 로컬 구현 보충
+
+[ADR-0037](docs/adr/0037-dev-observability-and-system-diagnostics.md)은 전용 관측 NodePool·SG,
+Prometheus/Grafana, MSK Open Monitoring, 내부 9404·9363 metrics, CloudWatch 시스템 로그를 정의한다.
+`scripts/eks-values.mjs`는 기존 입력에 전체 `list-nodes` JSON인 `--msk-nodes`를 추가로 필수로 받는다.
+bootstrap 목록으로 전체 broker를 추정하지 않는다. EKS 하위 Grafana Secret은 서버 측 생성·Retain이며
+전용 Pod Identity·CSI 파일로 공급한다. 기존 데이터 Secret을 관측 스택에 공유하지 않는다.
+Fluent Bit은 Kubernetes metadata(label 포함, annotation 제외)·원문과 node-local DB/buffer를 보존한다. 실패 event
+metric filter는 실제 Fluent Bit envelope 샘플로 대조하며 배포 전 `observability-metric-filter-check.mjs --aws`가 관문이다.
+단일 Events collector는 PVC를, 노드 진단은 private S3의 NodeDiagnostic bundle을 사용한다. 계측은 요청 tracing을 추가하지 않는다.
+생성기는 관측을 항상 켠다(opt-in 없음, 근거는 런북). runtime-values의 `jvmGcSafepointLog`만 Gateway·ingest의
+GC/safepoint stderr를 켠다. 관측 이미지 8개와 Fluent Bit DaemonSet은 검증한 multi-arch digest로 고정한다.
+[관측 런북](docs/runbooks/dev-observability.md)과 [차트 안내](helm/observability/README.md)를 따른다.
+AWS 배포·실제 로그 배송·MSK exporter·장애/부하 검증은 아직 수행하지 않았다.
 
 ---
 

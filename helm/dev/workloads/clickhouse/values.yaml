@@ -13,3 +13,6 @@ resources:
     memory: 2Gi
 targetGroupBindings: []
 vpcId: ""
+
+observability:
+  enabled: false

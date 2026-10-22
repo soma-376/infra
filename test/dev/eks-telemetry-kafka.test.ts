@@ -40,14 +40,14 @@ describe('MSK 전용 네트워크', () => {
     expect(JSON.stringify(endpoint.Properties.RouteTableIds)).not.toContain('DevMsk');
   });
 
-  test('DevMskSg는 아웃바운드가 없고 앱 node SG의 9098만 받는다', () => {
+  test('DevMskSg는 앱 9098과 관측 11001·11002만 받는다', () => {
     const [id, sg] = Object.entries(enabled.findResources('AWS::EC2::SecurityGroup'))
       .find(([logicalId]) => logicalId.startsWith('DevMskSg'))! as [string, any];
     expect(sg.Properties.GroupDescription).toBe('dev MSK brokers');
     expect(sg.Properties.SecurityGroupIngress).toBeUndefined();
     expect(sg.Properties.SecurityGroupEgress).toBeUndefined();
     const own = ingress(enabled).filter(rule => JSON.stringify(rule.Properties.GroupId).includes(id));
-    expect(own).toHaveLength(1);
+    expect(own).toHaveLength(3);
     expect(own[0].Properties).toMatchObject({ IpProtocol: 'tcp', FromPort: DEV_EKS_MSK_IAM_PORT, ToPort: 9098,
       SourceSecurityGroupId: { 'Fn::GetAtt': [expect.stringMatching(/^DevEksAppNodeSg/), 'GroupId'] } });
     expect(own[0].Properties.CidrIp).toBeUndefined();
@@ -99,7 +99,7 @@ describe('MSK Provisioned cluster', () => {
     // 저장 암호화는 AWS 관리 키다. TLS 인증서 인증·public broker를 만들지 않는다.
     expect(properties.EncryptionInfo.EncryptionAtRest).toBeUndefined();
     expect(properties.ClientAuthentication.Tls).toBeUndefined();
-    expect(properties.OpenMonitoring).toBeUndefined();
+    expect(properties.OpenMonitoring).toEqual({ Prometheus: { JmxExporter: { EnabledInBroker: true }, NodeExporter: { EnabledInBroker: true } } });
     const group = properties.BrokerNodeGroupInfo;
     expect(group).toMatchObject({ InstanceType: 'kafka.m7g.large', StorageInfo: { EBSStorageInfo: { VolumeSize: 100 } },
       ConnectivityInfo: { PublicAccess: { Type: 'DISABLED' } } });

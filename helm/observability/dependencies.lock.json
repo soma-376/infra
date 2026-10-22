@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "chart": {
+    "name": "kube-prometheus-stack",
+    "version": "81.2.2",
+    "url": "https://github.com/prometheus-community/helm-charts/releases/download/kube-prometheus-stack-81.2.2/kube-prometheus-stack-81.2.2.tgz",
+    "sha256": "8c24e18edc90bb3c1488783485829732deadab0332427dc96894a35f82a31f8d"
+  },
+  "versions": {
+    "helmTested": "3.18.6",
+    "prometheus": "3.9.1",
+    "grafana": "12.3.1",
+    "prometheusOperator": "0.88.0",
+    "kubeStateMetrics": "2.18.0",
+    "nodeExporter": "1.10.2",
+    "fluentBit": "5.1.3",
+    "k6": "1.8.2"
+  },
+  "architecture": "linux/arm64",
+  "runtimeVerification": "AWS_NOT_RUN",
+  "localRemoteWriteVerification": {
+    "status": "PASS",
+    "evidence": "tests/remote-write/local-verification-cluster.json",
+    "script": "../../scripts/observability-remote-write-smoke.py",
+    "k6Image": "grafana/k6:1.8.2@sha256:bd6ae8607c0a05d0dc0dc3f5753c464b0929baf083ef0f20b7eed845a3d9e6b4",
+    "prometheusImage": "quay.io/prometheus/prometheus:v3.9.1@sha256:1f0f50f06acaceb0f5670d2c8a658a599affe7b0d8e78b898c1035653849a702"
+  },
+  "imagePlatformVerification": {
+    "status": "PASS",
+    "evidence": "tests/fixtures/arm64-images.json",
+    "scope": "OCI index linux/arm64 manifests; not deployment readiness"
+  }
+}

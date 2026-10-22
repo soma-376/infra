@@ -9,3 +9,5 @@ apps:
   cpuLimit: "8"
 clickhouse:
   cpuLimit: "4"
+
+observabilityNodeSecurityGroupId: ""

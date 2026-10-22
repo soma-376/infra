@@ -6,7 +6,10 @@ import { FilterPattern, ILogGroup, MetricFilter } from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 import { DEV_EKS_MSK } from './eks-config';
 
-/** backend가 평문 `event=<code>` 한 줄로 남기는 실패 이벤트다. Fluent Bit은 원문 줄을 그대로 보낸다. (ADR-0035) */
+/**
+ * backend가 평문 `event=<code>` 한 줄로 남기는 실패 이벤트다. Fluent Bit envelope의 `log`에 원문이 그대로 있다.
+ * 실제 filter engine 일치는 배포 전 `scripts/observability-metric-filter-check.mjs --aws`로 확인한다. (ADR-0035·0037)
+ */
 export const DEV_TELEMETRY_LOG_EVENTS = {
   telemetry_gateway_rejected: { metricName: 'TelemetryGatewayRejected', threshold: 50 },
   telemetry_publish_failed: { metricName: 'TelemetryPublishFailed', threshold: 1 },
@@ -61,7 +64,7 @@ export class DevEksTelemetryAlarms extends Construct {
     for (const [event, { metricName, threshold }] of Object.entries(DEV_TELEMETRY_LOG_EVENTS)) {
       const filter = new MetricFilter(this, `${metricName}Filter`, {
         logGroup: props.applicationLogGroup,
-        // 따옴표 term은 원문 줄의 정확한 key=value 부분 문자열과 일치한다.
+        // 따옴표 term은 envelope 안 원문의 key=value 부분 문자열과 일치해야 한다.
         filterPattern: FilterPattern.literal(`"event=${event}"`),
         metricNamespace: DEV_TELEMETRY_METRIC_NAMESPACE, metricName, metricValue: '1',
       });

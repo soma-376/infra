@@ -29,7 +29,8 @@ try {
   const images = Object.fromEntries(['enrollment-api', 'telemetry-ingest', 'dashboard-api', 'telemetry-gateway']
     .map(app => [{ 'enrollment-api': 'enrollment', 'telemetry-ingest': 'ingest', 'dashboard-api': 'dashboard', 'telemetry-gateway': 'gateway' }[app], `registry.example.test/soma-376/${app}@${digest}`]));
   const bootstrap = readFileSync(join(root, 'test/scripts/fixtures/msk-bootstrap.json'), 'utf8');
-  const values = generateValues(source, images, parseRuntimeValues(readFileSync(join(root, 'test/fixtures/eks-runtime.yaml'), 'utf8')), bootstrap);
+  const nodes = readFileSync(join(root, 'test/scripts/fixtures/msk-nodes.json'), 'utf8');
+  const values = generateValues(source, images, parseRuntimeValues(readFileSync(join(root, 'test/fixtures/eks-runtime.yaml'), 'utf8')), bootstrap, nodes);
   for (const [file, value] of Object.entries(values)) writeFileSync(join(temp, file), dump(value, { noRefs: true }));
   const render = (name, chart, namespace, files) => {
     const args = [name, chart, '--namespace', namespace, '--kube-version', '1.36.0', ...files.flatMap(file => ['-f', file])];
@@ -87,6 +88,14 @@ try {
     ['telemetry-kafka-admin', 'helm/dev/workloads/telemetry-kafka-admin', [join(temp, 'telemetry-kafka-admin.yaml')]],
   ]) {
     const text = render(release, chart, 'pulsemetry-dev', files);
+    if (['telemetry-gateway', 'telemetry-ingest'].includes(release)) {
+      const docs = loadAll(text).filter(Boolean);
+      const metrics = docs.find(item => item.kind === 'Service' && item.metadata.name === `${release}-metrics`);
+      check(metrics?.spec.type === 'ClusterIP' && metrics.spec.ports.length === 1 && metrics.spec.ports[0].port === 9404, '생성된 metrics는 내부 9404 하나만 노출한다');
+      const env = docs.find(item => item.kind === 'Deployment').spec.template.spec.containers[0].env;
+      check(env.filter(item => item.name === 'MANAGEMENT_SERVER_PORT').length === 1 && env.find(item => item.name === 'MANAGEMENT_SERVER_PORT').value === '9404', 'management 포트는 중복 없이 9404여야 한다');
+      check(env.find(item => item.name === 'PULSEMETRY_OBSERVABILITY_ENVIRONMENT').value === 'dev', '환경 tag가 필요하다');
+    }
     const standard = loadAll(text).filter(item => item && item.kind !== 'TargetGroupBinding').map(item => dump(item)).join('---\n');
     console.log(`${release} ` + run(kubeconform, kubeArgs, standard).trim());
   }
@@ -102,7 +111,7 @@ try {
   const oidcSource = { ...source, OidcFixtureDataStack: { OidcClientSecretArns: JSON.stringify(Object.fromEntries(
     ['cognito-a', 'cognito-b', 'unused'].map(key => [key, `arn:aws:secretsmanager:ap-northeast-2:${account}:secret:soma-376/dev/oidc/clients/${key}-abc123`]),
   )) } };
-  const oidcValues = generateValues(oidcSource, images, oidcInput, bootstrap);
+  const oidcValues = generateValues(oidcSource, images, oidcInput, bootstrap, nodes);
   const oidcRuntimeFile = join(temp, 'oidc-runtime.yaml'), oidcAppFile = join(temp, 'oidc-enrollment.yaml');
   writeFileSync(oidcRuntimeFile, dump(oidcValues['runtime.yaml'], { noRefs: true }));
   writeFileSync(oidcAppFile, dump(oidcValues['enrollment-api.yaml'], { noRefs: true }));
@@ -158,9 +167,17 @@ try {
     if (key === 'fluentBit') {
       const ds = resources.find(resource => resource.kind === 'DaemonSet');
       check(ds.spec.template.spec.serviceAccountName === 'fluent-bit', 'Fluent Bit Pod Identity SA가 다르다');
+      check(ds.spec.template.spec.containers[0].image === 'cr.fluentbit.io/fluent/fluent-bit:5.1.3@sha256:c5542543523c9678398dd78d927c05e8425ec15b038f226b67b3b019b1a70845', 'Fluent Bit 이미지는 검증한 digest로 고정한다');
       const config = resources.find(resource => resource.kind === 'ConfigMap').data['fluent-bit.conf'];
-      check(config.includes('Path /var/log/containers/*_pulsemetry-dev_*.log') && config.includes("Regex $kubernetes['namespace_name'] ^pulsemetry-dev$"), 'app namespace 이중 filter가 필요하다');
+      check(config.includes('Path /var/log/containers/*_pulsemetry-dev_*.log') && config.includes("Regex $kubernetes['namespace_name'] ^(pulsemetry-dev|pulsemetry-observability|pulsemetry-dev-logs)$"), 'app namespace 이중 filter가 필요하다');
       check(config.includes('auto_create_group Off'), 'CDK 로그 그룹 소유권을 유지한다');
+      check(config.includes('DB /var/fluent-bit/state/tail.db') && config.includes('storage.type filesystem'), 'offset과 미전송 로그를 node-local 디스크에 남긴다');
+      check(!/\blog_key\b/.test(config) && config.includes('Keep_Log On'), '원문과 Kubernetes metadata를 함께 보내야 한다');
+      check(config.includes('Merge_Log Off') && config.includes('Labels On') && config.includes('Annotations Off'), 'label로 구성요소를 식별하고 annotation·임의 JSON 병합은 보내지 않는다');
+      check(config.includes('Match application.*') && config.includes('Match observability.*'), '앱과 관측 스택 로그를 각각 전달한다');
+      check(config.includes('storage.total_limit_size 512M') && config.includes('storage.total_limit_size 128M'), '재시도 buffer에 크기 상한이 필요하다');
+      check(ds.spec.template.spec.tolerations.some(item => item.key === 'workload' && item.value === 'observability'), '관측 노드도 수집한다');
+      check(ds.spec.template.spec.volumes.some(item => item.hostPath?.path === '/var/log/fluent-bit-state'), 'DB와 buffer를 Pod 재시작 후에도 보존한다');
       check(!config.includes('Name systemd') && !config.includes('Name es'), '다른 로그 전송을 포함하지 않는다');
     }
   }

@@ -1,0 +1,5 @@
+# 재사용 입력 예시다. perf CDK 환경·전용 사용권·실행 준비 완료를 만들지 않는다.
+global:
+  pulsemetry:
+    environment: perf
+    targetNamespace: pulsemetry-perf

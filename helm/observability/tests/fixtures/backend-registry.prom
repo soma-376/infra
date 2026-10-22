@@ -1,0 +1,176 @@
+# HELP pulsemetry_clickhouse_request_duration_seconds  
+# TYPE pulsemetry_clickhouse_request_duration_seconds histogram
+pulsemetry_clickhouse_request_duration_seconds_bucket{operation="insert",outcome="success",table="telemetry_events",le="0.005"} 0
+pulsemetry_clickhouse_request_duration_seconds_bucket{operation="insert",outcome="success",table="telemetry_events",le="0.01"} 0
+pulsemetry_clickhouse_request_duration_seconds_bucket{operation="insert",outcome="success",table="telemetry_events",le="0.025"} 1
+pulsemetry_clickhouse_request_duration_seconds_bucket{operation="insert",outcome="success",table="telemetry_events",le="0.05"} 1
+pulsemetry_clickhouse_request_duration_seconds_bucket{operation="insert",outcome="success",table="telemetry_events",le="0.1"} 1
+pulsemetry_clickhouse_request_duration_seconds_bucket{operation="insert",outcome="success",table="telemetry_events",le="0.25"} 1
+pulsemetry_clickhouse_request_duration_seconds_bucket{operation="insert",outcome="success",table="telemetry_events",le="0.5"} 1
+pulsemetry_clickhouse_request_duration_seconds_bucket{operation="insert",outcome="success",table="telemetry_events",le="1.0"} 1
+pulsemetry_clickhouse_request_duration_seconds_bucket{operation="insert",outcome="success",table="telemetry_events",le="2.5"} 1
+pulsemetry_clickhouse_request_duration_seconds_bucket{operation="insert",outcome="success",table="telemetry_events",le="5.0"} 1
+pulsemetry_clickhouse_request_duration_seconds_bucket{operation="insert",outcome="success",table="telemetry_events",le="10.0"} 1
+pulsemetry_clickhouse_request_duration_seconds_bucket{operation="insert",outcome="success",table="telemetry_events",le="30.0"} 1
+pulsemetry_clickhouse_request_duration_seconds_bucket{operation="insert",outcome="success",table="telemetry_events",le="+Inf"} 1
+pulsemetry_clickhouse_request_duration_seconds_count{operation="insert",outcome="success",table="telemetry_events"} 1
+pulsemetry_clickhouse_request_duration_seconds_sum{operation="insert",outcome="success",table="telemetry_events"} 0.02
+# HELP pulsemetry_clickhouse_request_duration_seconds_max  
+# TYPE pulsemetry_clickhouse_request_duration_seconds_max gauge
+pulsemetry_clickhouse_request_duration_seconds_max{operation="insert",outcome="success",table="telemetry_events"} 0.02
+# HELP pulsemetry_clickhouse_requests_total  
+# TYPE pulsemetry_clickhouse_requests_total counter
+pulsemetry_clickhouse_requests_total{operation="insert",outcome="success",table="telemetry_events"} 1.0
+pulsemetry_clickhouse_requests_total{operation="select",outcome="success",table="other"} 1.0
+pulsemetry_clickhouse_requests_total{operation="select",outcome="success",table="telemetry_retention_fence"} 1.0
+# HELP pulsemetry_clickhouse_rows_submitted_total  
+# TYPE pulsemetry_clickhouse_rows_submitted_total counter
+pulsemetry_clickhouse_rows_submitted_total{table="telemetry_events"} 2.0
+# HELP pulsemetry_gateway_inflight  
+# TYPE pulsemetry_gateway_inflight gauge
+pulsemetry_gateway_inflight 0.0
+# HELP pulsemetry_gateway_publish_total  
+# TYPE pulsemetry_gateway_publish_total counter
+pulsemetry_gateway_publish_total{outcome="acknowledged",reason="none",signal="logs"} 1.0
+# HELP pulsemetry_gateway_publish_duration_seconds  
+# TYPE pulsemetry_gateway_publish_duration_seconds histogram
+pulsemetry_gateway_publish_duration_seconds_bucket{outcome="acknowledged",signal="logs",le="0.005"} 0
+pulsemetry_gateway_publish_duration_seconds_bucket{outcome="acknowledged",signal="logs",le="0.01"} 1
+pulsemetry_gateway_publish_duration_seconds_bucket{outcome="acknowledged",signal="logs",le="0.025"} 1
+pulsemetry_gateway_publish_duration_seconds_bucket{outcome="acknowledged",signal="logs",le="0.05"} 1
+pulsemetry_gateway_publish_duration_seconds_bucket{outcome="acknowledged",signal="logs",le="0.1"} 1
+pulsemetry_gateway_publish_duration_seconds_bucket{outcome="acknowledged",signal="logs",le="0.25"} 1
+pulsemetry_gateway_publish_duration_seconds_bucket{outcome="acknowledged",signal="logs",le="0.5"} 1
+pulsemetry_gateway_publish_duration_seconds_bucket{outcome="acknowledged",signal="logs",le="1.0"} 1
+pulsemetry_gateway_publish_duration_seconds_bucket{outcome="acknowledged",signal="logs",le="2.5"} 1
+pulsemetry_gateway_publish_duration_seconds_bucket{outcome="acknowledged",signal="logs",le="5.0"} 1
+pulsemetry_gateway_publish_duration_seconds_bucket{outcome="acknowledged",signal="logs",le="10.0"} 1
+pulsemetry_gateway_publish_duration_seconds_bucket{outcome="acknowledged",signal="logs",le="30.0"} 1
+pulsemetry_gateway_publish_duration_seconds_bucket{outcome="acknowledged",signal="logs",le="+Inf"} 1
+pulsemetry_gateway_publish_duration_seconds_count{outcome="acknowledged",signal="logs"} 1
+pulsemetry_gateway_publish_duration_seconds_sum{outcome="acknowledged",signal="logs"} 0.01
+# HELP pulsemetry_gateway_publish_duration_seconds_max  
+# TYPE pulsemetry_gateway_publish_duration_seconds_max gauge
+pulsemetry_gateway_publish_duration_seconds_max{outcome="acknowledged",signal="logs"} 0.01
+# HELP pulsemetry_gateway_rejections_total  
+# TYPE pulsemetry_gateway_rejections_total counter
+pulsemetry_gateway_rejections_total{reason="missing_bearer",stage="authenticate"} 1.0
+# HELP pulsemetry_gateway_request_bytes  
+# TYPE pulsemetry_gateway_request_bytes histogram
+pulsemetry_gateway_request_bytes_bucket{signal="logs",le="1024.0"} 1
+pulsemetry_gateway_request_bytes_bucket{signal="logs",le="16384.0"} 1
+pulsemetry_gateway_request_bytes_bucket{signal="logs",le="65536.0"} 1
+pulsemetry_gateway_request_bytes_bucket{signal="logs",le="262144.0"} 1
+pulsemetry_gateway_request_bytes_bucket{signal="logs",le="1048576.0"} 1
+pulsemetry_gateway_request_bytes_bucket{signal="logs",le="4194304.0"} 1
+pulsemetry_gateway_request_bytes_bucket{signal="logs",le="1.048576E7"} 1
+pulsemetry_gateway_request_bytes_bucket{signal="logs",le="+Inf"} 1
+pulsemetry_gateway_request_bytes_count{signal="logs"} 1
+pulsemetry_gateway_request_bytes_sum{signal="logs"} 1024.0
+# HELP pulsemetry_gateway_request_bytes_max  
+# TYPE pulsemetry_gateway_request_bytes_max gauge
+pulsemetry_gateway_request_bytes_max{signal="logs"} 1024.0
+# HELP pulsemetry_gateway_request_duration_seconds  
+# TYPE pulsemetry_gateway_request_duration_seconds histogram
+pulsemetry_gateway_request_duration_seconds_bucket{signal="logs",status="200",le="0.005"} 0
+pulsemetry_gateway_request_duration_seconds_bucket{signal="logs",status="200",le="0.01"} 0
+pulsemetry_gateway_request_duration_seconds_bucket{signal="logs",status="200",le="0.025"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{signal="logs",status="200",le="0.05"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{signal="logs",status="200",le="0.1"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{signal="logs",status="200",le="0.25"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{signal="logs",status="200",le="0.5"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{signal="logs",status="200",le="1.0"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{signal="logs",status="200",le="2.5"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{signal="logs",status="200",le="5.0"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{signal="logs",status="200",le="10.0"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{signal="logs",status="200",le="30.0"} 1
+pulsemetry_gateway_request_duration_seconds_bucket{signal="logs",status="200",le="+Inf"} 1
+pulsemetry_gateway_request_duration_seconds_count{signal="logs",status="200"} 1
+pulsemetry_gateway_request_duration_seconds_sum{signal="logs",status="200"} 0.025
+# HELP pulsemetry_gateway_request_duration_seconds_max  
+# TYPE pulsemetry_gateway_request_duration_seconds_max gauge
+pulsemetry_gateway_request_duration_seconds_max{signal="logs",status="200"} 0.025
+# HELP pulsemetry_gateway_requests_total  
+# TYPE pulsemetry_gateway_requests_total counter
+pulsemetry_gateway_requests_total{outcome="accepted",signal="logs",status="200"} 1.0
+# HELP pulsemetry_pipeline_accepted_to_attempt_start_seconds  
+# TYPE pulsemetry_pipeline_accepted_to_attempt_start_seconds histogram
+pulsemetry_pipeline_accepted_to_attempt_start_seconds_bucket{signal="logs",le="0.1"} 0
+pulsemetry_pipeline_accepted_to_attempt_start_seconds_bucket{signal="logs",le="0.25"} 1
+pulsemetry_pipeline_accepted_to_attempt_start_seconds_bucket{signal="logs",le="0.5"} 1
+pulsemetry_pipeline_accepted_to_attempt_start_seconds_bucket{signal="logs",le="1.0"} 1
+pulsemetry_pipeline_accepted_to_attempt_start_seconds_bucket{signal="logs",le="2.5"} 1
+pulsemetry_pipeline_accepted_to_attempt_start_seconds_bucket{signal="logs",le="5.0"} 1
+pulsemetry_pipeline_accepted_to_attempt_start_seconds_bucket{signal="logs",le="10.0"} 1
+pulsemetry_pipeline_accepted_to_attempt_start_seconds_bucket{signal="logs",le="30.0"} 1
+pulsemetry_pipeline_accepted_to_attempt_start_seconds_bucket{signal="logs",le="60.0"} 1
+pulsemetry_pipeline_accepted_to_attempt_start_seconds_bucket{signal="logs",le="120.0"} 1
+pulsemetry_pipeline_accepted_to_attempt_start_seconds_bucket{signal="logs",le="300.0"} 1
+pulsemetry_pipeline_accepted_to_attempt_start_seconds_bucket{signal="logs",le="600.0"} 1
+pulsemetry_pipeline_accepted_to_attempt_start_seconds_bucket{signal="logs",le="+Inf"} 1
+pulsemetry_pipeline_accepted_to_attempt_start_seconds_count{signal="logs"} 1
+pulsemetry_pipeline_accepted_to_attempt_start_seconds_sum{signal="logs"} 0.2
+# HELP pulsemetry_pipeline_accepted_to_attempt_start_seconds_max  
+# TYPE pulsemetry_pipeline_accepted_to_attempt_start_seconds_max gauge
+pulsemetry_pipeline_accepted_to_attempt_start_seconds_max{signal="logs"} 0.2
+# HELP pulsemetry_pipeline_accepted_to_completion_seconds  
+# TYPE pulsemetry_pipeline_accepted_to_completion_seconds histogram
+pulsemetry_pipeline_accepted_to_completion_seconds_bucket{signal="logs",le="0.1"} 0
+pulsemetry_pipeline_accepted_to_completion_seconds_bucket{signal="logs",le="0.25"} 0
+pulsemetry_pipeline_accepted_to_completion_seconds_bucket{signal="logs",le="0.5"} 1
+pulsemetry_pipeline_accepted_to_completion_seconds_bucket{signal="logs",le="1.0"} 1
+pulsemetry_pipeline_accepted_to_completion_seconds_bucket{signal="logs",le="2.5"} 1
+pulsemetry_pipeline_accepted_to_completion_seconds_bucket{signal="logs",le="5.0"} 1
+pulsemetry_pipeline_accepted_to_completion_seconds_bucket{signal="logs",le="10.0"} 1
+pulsemetry_pipeline_accepted_to_completion_seconds_bucket{signal="logs",le="30.0"} 1
+pulsemetry_pipeline_accepted_to_completion_seconds_bucket{signal="logs",le="60.0"} 1
+pulsemetry_pipeline_accepted_to_completion_seconds_bucket{signal="logs",le="120.0"} 1
+pulsemetry_pipeline_accepted_to_completion_seconds_bucket{signal="logs",le="300.0"} 1
+pulsemetry_pipeline_accepted_to_completion_seconds_bucket{signal="logs",le="600.0"} 1
+pulsemetry_pipeline_accepted_to_completion_seconds_bucket{signal="logs",le="+Inf"} 1
+pulsemetry_pipeline_accepted_to_completion_seconds_count{signal="logs"} 1
+pulsemetry_pipeline_accepted_to_completion_seconds_sum{signal="logs"} 0.3
+# HELP pulsemetry_pipeline_accepted_to_completion_seconds_max  
+# TYPE pulsemetry_pipeline_accepted_to_completion_seconds_max gauge
+pulsemetry_pipeline_accepted_to_completion_seconds_max{signal="logs"} 0.3
+# HELP pulsemetry_pipeline_attempts_total  
+# TYPE pulsemetry_pipeline_attempts_total counter
+pulsemetry_pipeline_attempts_total{outcome="completed",signal="logs"} 1.0
+# HELP pulsemetry_pipeline_commit_failures_total  
+# TYPE pulsemetry_pipeline_commit_failures_total counter
+pulsemetry_pipeline_commit_failures_total 1.0
+# HELP pulsemetry_pipeline_empty_total  
+# TYPE pulsemetry_pipeline_empty_total counter
+pulsemetry_pipeline_empty_total{signal="logs"} 1.0
+# HELP pulsemetry_pipeline_excluded_observations_total  
+# TYPE pulsemetry_pipeline_excluded_observations_total counter
+pulsemetry_pipeline_excluded_observations_total{reason="retention"} 1.0
+# HELP pulsemetry_pipeline_failures_total  
+# TYPE pulsemetry_pipeline_failures_total counter
+pulsemetry_pipeline_failures_total{reason="other",stage="other"} 100.0
+# HELP pulsemetry_pipeline_inflight  
+# TYPE pulsemetry_pipeline_inflight gauge
+pulsemetry_pipeline_inflight 0.0
+# HELP pulsemetry_pipeline_retry_exhausted_total  
+# TYPE pulsemetry_pipeline_retry_exhausted_total counter
+pulsemetry_pipeline_retry_exhausted_total{stage="insert"} 1.0
+# HELP pulsemetry_pipeline_stage_duration_seconds  
+# TYPE pulsemetry_pipeline_stage_duration_seconds histogram
+pulsemetry_pipeline_stage_duration_seconds_bucket{outcome="success",stage="decode",le="0.005"} 1
+pulsemetry_pipeline_stage_duration_seconds_bucket{outcome="success",stage="decode",le="0.01"} 1
+pulsemetry_pipeline_stage_duration_seconds_bucket{outcome="success",stage="decode",le="0.025"} 1
+pulsemetry_pipeline_stage_duration_seconds_bucket{outcome="success",stage="decode",le="0.05"} 1
+pulsemetry_pipeline_stage_duration_seconds_bucket{outcome="success",stage="decode",le="0.1"} 1
+pulsemetry_pipeline_stage_duration_seconds_bucket{outcome="success",stage="decode",le="0.25"} 1
+pulsemetry_pipeline_stage_duration_seconds_bucket{outcome="success",stage="decode",le="0.5"} 1
+pulsemetry_pipeline_stage_duration_seconds_bucket{outcome="success",stage="decode",le="1.0"} 1
+pulsemetry_pipeline_stage_duration_seconds_bucket{outcome="success",stage="decode",le="2.5"} 1
+pulsemetry_pipeline_stage_duration_seconds_bucket{outcome="success",stage="decode",le="5.0"} 1
+pulsemetry_pipeline_stage_duration_seconds_bucket{outcome="success",stage="decode",le="10.0"} 1
+pulsemetry_pipeline_stage_duration_seconds_bucket{outcome="success",stage="decode",le="30.0"} 1
+pulsemetry_pipeline_stage_duration_seconds_bucket{outcome="success",stage="decode",le="+Inf"} 1
+pulsemetry_pipeline_stage_duration_seconds_count{outcome="success",stage="decode"} 1
+pulsemetry_pipeline_stage_duration_seconds_sum{outcome="success",stage="decode"} 4.7E-5
+# HELP pulsemetry_pipeline_stage_duration_seconds_max  
+# TYPE pulsemetry_pipeline_stage_duration_seconds_max gauge
+pulsemetry_pipeline_stage_duration_seconds_max{outcome="success",stage="decode"} 4.7E-5

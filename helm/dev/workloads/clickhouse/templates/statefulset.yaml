@@ -19,6 +19,10 @@ spec:
     metadata:
       labels:
         {{- include "pulsemetry.clickhouse.selector" . | nindent 8 }}
+      {{- if .Values.observability.enabled }}
+      annotations:
+        checksum/observability: {{ include (print $.Template.BasePath "/observability.yaml") . | sha256sum }}
+      {{- end }}
     spec:
       automountServiceAccountToken: false
       nodeSelector:
@@ -51,6 +55,11 @@ spec:
             - name: native
               containerPort: 9000
               protocol: TCP
+            {{- if .Values.observability.enabled }}
+            - name: metrics
+              containerPort: 9363
+              protocol: TCP
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           startupProbe:
@@ -75,6 +84,18 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/clickhouse
+            {{- if .Values.observability.enabled }}
+            - name: observability
+              mountPath: /etc/clickhouse-server/config.d/observability.xml
+              subPath: observability.xml
+              readOnly: true
+            {{- end }}
+      {{- if .Values.observability.enabled }}
+      volumes:
+        - name: observability
+          configMap:
+            name: clickhouse-observability
+      {{- end }}
   volumeClaimTemplates:
     - metadata:
         name: data

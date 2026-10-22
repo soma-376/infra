@@ -1,0 +1,45 @@
+{
+  "image": "cr.fluentbit.io/fluent/fluent-bit:5.1.3",
+  "imageDigests": [
+    "cr.fluentbit.io/fluent/fluent-bit@sha256:c5542543523c9678398dd78d927c05e8425ec15b038f226b67b3b019b1a70845"
+  ],
+  "architecture": "arm64",
+  "runtimeConfigSource": "helm/dev/runtime/fluent-bit-values.yaml",
+  "configSha256": "8c5c5a666293e4ad358bbff9d9dd36ae9379a008e88d40249bc11c1895cbc235",
+  "real": [
+    "tail(CRI multiline, DB, Read_From_Head)",
+    "grep namespace allowlist",
+    "record_modifier environment·cluster",
+    "rewrite_tag application/observability",
+    "plain JSON 직렬화"
+  ],
+  "emulated": "kubernetes filter metadata(Lua) — Kubernetes API 조회 없음",
+  "notRun": "cloudwatch_logs output·CloudWatch filter engine(TestMetricFilter)",
+  "topLevelFields": [
+    "_p",
+    "cluster",
+    "environment",
+    "kubernetes",
+    "log",
+    "stream",
+    "time"
+  ],
+  "kubernetesFields": [
+    "container_hash",
+    "container_image",
+    "container_name",
+    "docker_id",
+    "host",
+    "labels",
+    "namespace_name",
+    "pod_id",
+    "pod_name"
+  ],
+  "applicationRecords": 10,
+  "observabilityRecords": 1,
+  "envelopeOverheadBytes": {
+    "min": 641,
+    "max": 660
+  },
+  "cri": "P/F 분할 줄은 결합되지만 _p는 첫 조각 값(P)을 유지한다. time은 CRI 원래 시각 문자열이다"
+}

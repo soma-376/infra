@@ -1,0 +1,90 @@
+# HELP fluentbit_input_records_total Number of input records.
+# TYPE fluentbit_input_records_total counter
+fluentbit_input_records_total{name="smoke"} 43
+fluentbit_input_records_total{name="storage_backlog.1"} 0
+# HELP fluentbit_output_proc_records_total Number of processed output records.
+# TYPE fluentbit_output_proc_records_total counter
+fluentbit_output_proc_records_total{name="null.0"} 33
+# HELP fluentbit_output_proc_bytes_total Number of processed output bytes.
+# TYPE fluentbit_output_proc_bytes_total counter
+fluentbit_output_proc_bytes_total{name="null.0"} 990
+# HELP fluentbit_output_errors_total Number of output errors.
+# TYPE fluentbit_output_errors_total counter
+fluentbit_output_errors_total{name="null.0"} 0
+# HELP fluentbit_output_retries_total Number of output retries.
+# TYPE fluentbit_output_retries_total counter
+fluentbit_output_retries_total{name="null.0"} 0
+# HELP fluentbit_output_retries_failed_total Number of abandoned batches because the maximum number of re-tries was reached.
+# TYPE fluentbit_output_retries_failed_total counter
+fluentbit_output_retries_failed_total{name="null.0"} 0
+# HELP fluentbit_output_dropped_records_total Number of dropped records.
+# TYPE fluentbit_output_dropped_records_total counter
+fluentbit_output_dropped_records_total{name="null.0"} 0
+# HELP fluentbit_output_retried_records_total Number of retried records.
+# TYPE fluentbit_output_retried_records_total counter
+fluentbit_output_retried_records_total{name="null.0"} 0
+# HELP fluentbit_storage_chunks Total number of chunks in the storage layer.
+# TYPE fluentbit_storage_chunks gauge
+fluentbit_storage_chunks 1
+# HELP fluentbit_storage_mem_chunks Total number of memory chunks.
+# TYPE fluentbit_storage_mem_chunks gauge
+fluentbit_storage_mem_chunks 0
+# HELP fluentbit_storage_fs_chunks Total number of filesystem chunks.
+# TYPE fluentbit_storage_fs_chunks gauge
+fluentbit_storage_fs_chunks 1
+# HELP fluentbit_storage_fs_chunks_up Total number of filesystem chunks up in memory.
+# TYPE fluentbit_storage_fs_chunks_up gauge
+fluentbit_storage_fs_chunks_up 1
+# HELP fluentbit_storage_fs_chunks_down Total number of filesystem chunks down.
+# TYPE fluentbit_storage_fs_chunks_down gauge
+fluentbit_storage_fs_chunks_down 0
+# HELP fluentbit_input_storage_overlimit Is the input memory usage overlimit ?.
+# TYPE fluentbit_input_storage_overlimit gauge
+fluentbit_input_storage_overlimit{name="smoke"} 0
+fluentbit_input_storage_overlimit{name="storage_backlog.1"} 0
+# HELP fluentbit_input_storage_memory_bytes Memory bytes used by the chunks.
+# TYPE fluentbit_input_storage_memory_bytes gauge
+fluentbit_input_storage_memory_bytes{name="smoke"} 300
+fluentbit_input_storage_memory_bytes{name="storage_backlog.1"} 0
+# HELP fluentbit_input_storage_chunks Total number of chunks.
+# TYPE fluentbit_input_storage_chunks gauge
+fluentbit_input_storage_chunks{name="smoke"} 1
+fluentbit_input_storage_chunks{name="storage_backlog.1"} 0
+# HELP fluentbit_input_storage_chunks_up Total number of chunks up in memory.
+# TYPE fluentbit_input_storage_chunks_up gauge
+fluentbit_input_storage_chunks_up{name="smoke"} 1
+fluentbit_input_storage_chunks_up{name="storage_backlog.1"} 0
+# HELP fluentbit_input_storage_chunks_down Total number of chunks down.
+# TYPE fluentbit_input_storage_chunks_down gauge
+fluentbit_input_storage_chunks_down{name="smoke"} 0
+fluentbit_input_storage_chunks_down{name="storage_backlog.1"} 0
+# HELP fluentbit_input_storage_chunks_busy Total number of chunks in a busy state.
+# TYPE fluentbit_input_storage_chunks_busy gauge
+fluentbit_input_storage_chunks_busy{name="smoke"} 0
+fluentbit_input_storage_chunks_busy{name="storage_backlog.1"} 0
+# HELP fluentbit_input_storage_chunks_busy_bytes Total number of bytes used by chunks in a busy state.
+# TYPE fluentbit_input_storage_chunks_busy_bytes gauge
+fluentbit_input_storage_chunks_busy_bytes{name="smoke"} 0
+fluentbit_input_storage_chunks_busy_bytes{name="storage_backlog.1"} 0
+# HELP fluentbit_output_upstream_total_connections Total Connection count.
+# TYPE fluentbit_output_upstream_total_connections gauge
+fluentbit_output_upstream_total_connections{name="null.0"} 0
+# HELP fluentbit_output_upstream_busy_connections Busy Connection count.
+# TYPE fluentbit_output_upstream_busy_connections gauge
+fluentbit_output_upstream_busy_connections{name="null.0"} 0
+# HELP fluentbit_output_chunk_available_capacity_percent Available chunk capacity (percent)
+# TYPE fluentbit_output_chunk_available_capacity_percent gauge
+fluentbit_output_chunk_available_capacity_percent{name="null.0"} 99.590400000000002
+# HELP fluentbit_output_latency_seconds End-to-end latency in seconds
+# TYPE fluentbit_output_latency_seconds histogram
+fluentbit_output_latency_seconds_bucket{le="0.5",input="smoke",output="null.0"} 1
+fluentbit_output_latency_seconds_bucket{le="1.0",input="smoke",output="null.0"} 2
+fluentbit_output_latency_seconds_bucket{le="1.5",input="smoke",output="null.0"} 4
+fluentbit_output_latency_seconds_bucket{le="2.5",input="smoke",output="null.0"} 4
+fluentbit_output_latency_seconds_bucket{le="5.0",input="smoke",output="null.0"} 4
+fluentbit_output_latency_seconds_bucket{le="10.0",input="smoke",output="null.0"} 4
+fluentbit_output_latency_seconds_bucket{le="20.0",input="smoke",output="null.0"} 4
+fluentbit_output_latency_seconds_bucket{le="30.0",input="smoke",output="null.0"} 4
+fluentbit_output_latency_seconds_bucket{le="+Inf",input="smoke",output="null.0"} 4
+fluentbit_output_latency_seconds_sum{input="smoke",output="null.0"} 3.2924165725708008
+fluentbit_output_latency_seconds_count{input="smoke",output="null.0"} 4

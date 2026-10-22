@@ -70,6 +70,7 @@ export class DevEksMsk extends Construct {
       encryptionInfo: { encryptionInTransit: { clientBroker: 'TLS', inCluster: true } },
       configurationInfo: { arn: this.configuration.attrArn, revision: this.configuration.attrLatestRevisionRevision },
       enhancedMonitoring: 'DEFAULT',
+      openMonitoring: { prometheus: { jmxExporter: { enabledInBroker: true }, nodeExporter: { enabledInBroker: true } } },
       loggingInfo: { brokerLogs: { cloudWatchLogs: { enabled: true, logGroup: this.logGroup.logGroupName } } },
     });
 

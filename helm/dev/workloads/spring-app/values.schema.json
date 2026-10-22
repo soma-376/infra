@@ -536,6 +536,30 @@
           }
         }
       ]
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "jvm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gcSafepointLog"
+      ],
+      "properties": {
+        "gcSafepointLog": {
+          "type": "boolean"
+        }
+      }
     }
   },
   "allOf": [

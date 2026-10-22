@@ -291,12 +291,13 @@ function checkPlatform() {
     subnetIds: ['subnet-0123456789abcdef0', 'subnet-1123456789abcdef0'],
     appNodeSecurityGroupId: 'sg-0123456789abcdef0',
     clickhouseNodeSecurityGroupId: 'sg-1123456789abcdef0',
+    observabilityNodeSecurityGroupId: 'sg-2123456789abcdef0',
     clickhouseAvailabilityZone: 'ap-northeast-2a',
   };
   const args = chartArgs('pulsemetry-dev-platform', chart, values);
   checked(helm, ['lint', chart, '--strict', ...args.slice(2)]);
   const documents = yaml.loadAll(checked(helm, ['template', ...args])).filter(Boolean);
-  assert.equal(documents.length, 6);
+  assert.equal(documents.length, 10);
   const namespace = find(documents, 'Namespace', 'pulsemetry-dev');
   assert.equal(namespace.metadata.annotations['helm.sh/resource-policy'], 'keep');
   const storage = find(documents, 'StorageClass', 'pulsemetry-dev-gp3');
@@ -338,8 +339,59 @@ function checkPlatform() {
     assert.equal(nodePool.spec.limits.cpu, pool === 'apps' ? '8' : '4');
   }
   // AWS가 배포하는 NodeClass/Auto Mode NodePool CRD는 live 설치 전 구조만 검사한다.
-  checkSchema([namespace, storage]);
+  const observationStorage = find(documents, 'StorageClass', 'gp3-observability');
+  assert.equal(observationStorage.provisioner, 'ebs.csi.eks.amazonaws.com');
+  assert.equal(observationStorage.reclaimPolicy, 'Retain');
+  assert.equal(observationStorage.volumeBindingMode, 'WaitForFirstConsumer');
+  assert.deepEqual(observationStorage.parameters, { type: 'gp3', encrypted: 'true' });
+  const observationClass = find(documents, 'NodeClass', 'pulsemetry-observability');
+  assert.deepEqual(observationClass.spec.securityGroupSelectorTerms, [{ id: values.observabilityNodeSecurityGroupId }]);
+  const observationPool = find(documents, 'NodePool', 'pulsemetry-observability');
+  assert.deepEqual(observationPool.spec.template.spec.taints, [{ key: 'workload', value: 'observability', effect: 'NoSchedule' }]);
+  assert.deepEqual(observationPool.spec.template.metadata.labels, { 'pulsemetry.io/workload': 'observability' });
+  assert.deepEqual(observationPool.spec.template.spec.requirements.find(rule => rule.key === 'node.kubernetes.io/instance-type').values, ['m7g.large']);
+  checkSchema([namespace, storage, observationStorage, find(documents, 'Namespace', 'pulsemetry-observability')]);
   return documents.length;
+}
+
+// 별도 ClusterIP가 management 포트만 노출한다. 기존 business Service/TGB의 port는 그대로다.
+function checkObservability(chart, clickhouseChart, clickhouseValues) {
+  const documents = [];
+  for (const workload of ['telemetry-gateway', 'telemetry-ingest']) {
+    const rendered = render(workload, chart, { ...appValues(workload), metrics: { enabled: true } });
+    const service = find(rendered, 'Service', `${workload}-metrics`);
+    const pod = find(rendered, 'Deployment', workload).spec.template.spec;
+    assert.equal(service.spec.type, 'ClusterIP');
+    assert.deepEqual(service.spec.ports, [{ name: 'metrics', port: 9404, targetPort: 'metrics', protocol: 'TCP' }]);
+    assert.deepEqual(service.spec.selector, find(rendered, 'Service', workload).spec.selector);
+    assert.equal(environment(rendered, workload).MANAGEMENT_SERVER_PORT, '9404');
+    assert.ok(pod.containers[0].ports.some(port => port.name === 'metrics' && port.containerPort === 9404));
+    assert.equal(find(rendered, 'Service', workload).spec.ports.length, 1);
+    documents.push(...rendered);
+  }
+  rejects('enrollment-api', chart, { ...appValues('enrollment-api'), metrics: { enabled: true } });
+  rejects('telemetry-gateway', chart, { ...appValues('telemetry-gateway'), metrics: { enabled: true }, env: { MANAGEMENT_SERVER_PORT: '8082' } });
+  // GC/safepoint 로그는 고정 문자열 하나만 허용한다. 임의 JVM 옵션 env는 거부한다.
+  for (const workload of ['telemetry-gateway', 'telemetry-ingest']) {
+    const enabled = render(workload, chart, { ...appValues(workload), jvm: { gcSafepointLog: true } });
+    assert.equal(environment(enabled, workload).JDK_JAVA_OPTIONS, '-Xlog:gc,safepoint:stderr:utctime,level,tags');
+    assert.equal(environment(render(workload, chart, appValues(workload)), workload).JDK_JAVA_OPTIONS, undefined);
+    documents.push(...enabled);
+  }
+  for (const name of ['JDK_JAVA_OPTIONS', 'JAVA_TOOL_OPTIONS']) rejects('telemetry-ingest', chart, { ...appValues('telemetry-ingest'), env: { [name]: '-Xmx1g' } });
+  rejects('telemetry-ingest', chart, { ...appValues('telemetry-ingest'), jvm: { gcSafepointLog: true, options: '-Xmx1g' } });
+  const clickhouse = render('clickhouse', clickhouseChart, { ...clickhouseValues, observability: { enabled: true } });
+  const config = find(clickhouse, 'ConfigMap', 'clickhouse-observability').data['observability.xml'];
+  assert.ok(config.includes('<endpoint>/metrics</endpoint><port>9363</port>'));
+  assert.ok(config.includes('<level>information</level><console>1</console>'));
+  assert.ok(config.includes('<log remove="remove"/><errorlog remove="remove"/>'));
+  const pod = find(clickhouse, 'StatefulSet', 'clickhouse').spec.template.spec;
+  assert.ok(pod.containers[0].volumeMounts.some(mount => mount.subPath === 'observability.xml' && mount.readOnly));
+  const metrics = find(clickhouse, 'Service', 'clickhouse-metrics');
+  assert.equal(metrics.spec.type, 'ClusterIP');
+  assert.deepEqual(metrics.spec.ports, [{ name: 'metrics', port: 9363, targetPort: 'metrics', protocol: 'TCP' }]);
+  documents.push(...clickhouse);
+  return documents;
 }
 
 const RUNTIME_FILES = {
@@ -810,6 +862,7 @@ try {
   rejects('clickhouse', clickhouseChart, { ...clickhouseValues, targetGroupBindings: [binding('validation', 'same'), binding('canary', 'same')] });
   rejects('clickhouse', clickhouseChart, { ...clickhouseValues, vpcId: '' });
   rejects('clickhouse', clickhouseChart, clickhouseValues, 'default');
+  allDocuments.push(...checkObservability(chart, clickhouseChart, clickhouseValues));
   checkSchema(allDocuments);
   const platformResources = checkPlatform();
   console.log(`Helm 3.22.0 / kubeconform 0.8.0: ${renderedResources}개 workload resource, ${platformResources}개 platform resource, ${negativeCases}개 실패 입력, workload/runtime 경계 통과 (AWS NodeClass/NodePool 구조 검사)`);

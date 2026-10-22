@@ -1,3 +1,4 @@
+import { DevEksObservability } from './eks-observability';
 import { ISecret } from 'aws-cdk-lib/aws-secretsmanager';
 import { IBucket } from 'aws-cdk-lib/aws-s3';
 import { DevEksRuntime } from './eks-runtime';
@@ -32,6 +33,7 @@ export interface DevEksStackProps extends StackProps {
   readonly appNodeSecurityGroup: ISecurityGroup;
   readonly clickhouseNodeSecurityGroup: ISecurityGroup;
   readonly relaySecurityGroup: ISecurityGroup;
+  readonly observabilityNodeSecurityGroup: ISecurityGroup;
   /** ADR-0035의 MSK 전용 subnet 3개와 broker SG. Network가 소유한다. */
   readonly mskSubnets: readonly ISubnet[];
   readonly mskSecurityGroup: ISecurityGroup;
@@ -122,6 +124,10 @@ export class DevEksStack extends Stack {
       telemetryJwtPublicKeysSecret: props.telemetryJwtPublicKeysSecret,
       msk: { clusterArn: this.msk.cluster.attrArn, topicArn: this.msk.topicArn, consumerGroupArn: this.msk.consumerGroupArn },
     });
+    new DevEksObservability(this, 'Observability', { clusterName: this.cluster.ref,
+      applicationLogGroup: runtime.applicationLogGroup, brokerLogGroup: this.msk.logGroup,
+      fluentBitRole: runtime.fluentBitRole, operatorRole: this.operatorRole,
+    });
     new DevEksTelemetryAlarms(this, 'TelemetryAlarms', {
       topicName: this.msk.topicName, consumerGroupName: this.msk.consumerGroupName,
       applicationLogGroup: runtime.applicationLogGroup,
@@ -145,6 +151,7 @@ export class DevEksStack extends Stack {
       EksSubnetIds: props.vpc.publicSubnets.map(subnet => subnet.subnetId).join(','),
       EksClickhouseAvailabilityZone: props.vpc.publicSubnets[0].availabilityZone,
       EksAppNodeSecurityGroupId: props.appNodeSecurityGroup.securityGroupId,
+      ObservabilityNodeSecurityGroupId: props.observabilityNodeSecurityGroup.securityGroupId,
       EksClickhouseNodeSecurityGroupId: props.clickhouseNodeSecurityGroup.securityGroupId,
       EksControlPlaneSecurityGroupId: props.controlPlaneSecurityGroup.securityGroupId,
       EksNodeRoleArn: this.nodeRole.roleArn, EksNodeRoleName: this.nodeRole.roleName,

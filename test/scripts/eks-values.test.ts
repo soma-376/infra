@@ -23,6 +23,11 @@ const helmTest = process.env.HELM_BIN ? test : test.skip;
 function outputs(prefix = 'eks_validation', otlpTarget = 'ingest') {
   return {
     DevEksStack: {
+      ObservabilityNamespace: 'pulsemetry-observability', ObservabilityNodeSecurityGroupId: 'sg-0123456789abcdef2',
+      GrafanaAdminSecretArn: secret('soma-376/dev/observability/grafana-admin'),
+      ObservabilityLogGroupName: '/eks/dev/observability', KubernetesEventsLogGroupName: '/eks/dev/events',
+      DiagnosticsBucketName: 'fixture-diagnostics', MskBrokerLogGroupName: '/aws/vendedlogs/msk/soma-376-dev-telemetry',
+      EksControlPlaneLogGroupName: '/aws/eks/soma-376-dev-eks/cluster',
       EksDashboardApiNodePort: '30081',
       DashboardRdsSourceSecretArn: secret('dashboard-rds-source'), DashboardRdsCacheSecretArn: secret('dashboard-rds-cache'), DashboardClickHouseSourceSecretArn: secret('dashboard-ch-source'), DashboardClickHouseCacheSecretArn: secret('dashboard-ch-cache'), UserJwtPrivateKeySecretArn: secret('jwt-private'), UserJwtPublicKeysSecretArn: secret('jwt-public'),
       EksClusterName: 'soma-376-dev-eks', EksRegion: 'ap-northeast-2', EksVpcId: 'vpc-0123456789abcdef0',
@@ -80,7 +85,7 @@ function oidcRuntime(enabled = true, scheme: 'http' | 'https' = 'https') {
 }
 
 function invoke(document: any, image = enrollmentImage, dashboard = dashboardImage, runtimeText = readFileSync(runtimeFile, 'utf8'),
-  extra: { gateway?: string; bootstrap?: string } = {}) {
+  extra: { gateway?: string; bootstrap?: string; nodes?: string } = {}) {
   const temp = mkdtempSync(join(tmpdir(), 'eks-values-test-'));
   const source = join(temp, 'outputs.json');
   const dir = join(temp, 'values');
@@ -89,10 +94,12 @@ function invoke(document: any, image = enrollmentImage, dashboard = dashboardIma
   writeFileSync(runtime, runtimeText);
   const bootstrap = join(temp, 'bootstrap.json');
   writeFileSync(bootstrap, extra.bootstrap ?? readFileSync(bootstrapFile, 'utf8'));
+  const nodes = join(temp, 'nodes.json');
+  writeFileSync(nodes, extra.nodes ?? readFileSync(resolve(__dirname, 'fixtures/msk-nodes.json'), 'utf8'));
   const result = spawnSync(process.execPath, [
     join(root, 'scripts/eks-values.mjs'), '--outputs', source, '--output-dir', dir,
     '--enrollment-image', image, '--ingest-image', ingestImage, '--dashboard-image', dashboard,
-    '--gateway-image', extra.gateway ?? gatewayImage, '--runtime-values', runtime, '--msk-bootstrap', bootstrap,
+    '--gateway-image', extra.gateway ?? gatewayImage, '--runtime-values', runtime, '--msk-bootstrap', bootstrap, '--msk-nodes', nodes,
   ], { cwd: root, encoding: 'utf8' });
   return { temp, dir, result, read: (file: string) => load(readFileSync(join(dir, file), 'utf8')) };
 }
@@ -100,15 +107,15 @@ function invoke(document: any, image = enrollmentImage, dashboard = dashboardIma
 describe('배포 output→values 변환', () => {
   const temps: string[] = [];
   afterEach(() => { for (const temp of temps.splice(0)) rmSync(temp, { recursive: true, force: true }); });
-  const run = (document: any, image?: string, dashboard?: string, runtimeText?: string, extra?: { gateway?: string; bootstrap?: string }) => { const output = invoke(document, image, dashboard, runtimeText, extra); temps.push(output.temp); return output; };
+  const run = (document: any, image?: string, dashboard?: string, runtimeText?: string, extra?: { gateway?: string; bootstrap?: string; nodes?: string }) => { const output = invoke(document, image, dashboard, runtimeText, extra); temps.push(output.temp); return output; };
 
   test.each(['eks_validation', 'eks'])('%s prefix가 IAM output과 일치하며 immutable image를 전달한다', prefix => {
     const output = run(outputs(prefix));
     expect(output.result.status).toBe(0);
-    expect(readdirSync(output.dir).sort()).toEqual(['ascp.yaml', 'base.yaml', 'clickhouse.yaml', 'dashboard-api.yaml', 'enrollment-api.yaml', 'fluent-bit.yaml', 'lbc.yaml', 'runtime.yaml', 'telemetry-gateway.yaml', 'telemetry-ingest.yaml', 'telemetry-kafka-admin.yaml']);
+    expect(readdirSync(output.dir).sort()).toEqual(['ascp.yaml', 'base.yaml', 'clickhouse.yaml', 'dashboard-api.yaml', 'enrollment-api.yaml', 'fluent-bit.yaml', 'lbc.yaml', 'observability.yaml', 'runtime.yaml', 'telemetry-gateway.yaml', 'telemetry-ingest.yaml', 'telemetry-kafka-admin.yaml']);
     expect(output.read('base.yaml')).toEqual({
       nodeRoleName: 'soma-376-dev-eks-node', subnetIds: ['subnet-0123456789abcdef0', 'subnet-0123456789abcdef1'],
-      appNodeSecurityGroupId: 'sg-0123456789abcdef0', clickhouseNodeSecurityGroupId: 'sg-0123456789abcdef1', clickhouseAvailabilityZone: 'ap-northeast-2a',
+      appNodeSecurityGroupId: 'sg-0123456789abcdef0', clickhouseNodeSecurityGroupId: 'sg-0123456789abcdef1', clickhouseAvailabilityZone: 'ap-northeast-2a', observabilityNodeSecurityGroupId: 'sg-0123456789abcdef2',
     });
     expect(output.read('lbc.yaml')).toEqual({ clusterName: 'soma-376-dev-eks', region: 'ap-northeast-2', vpcId: 'vpc-0123456789abcdef0' });
     const ingest = output.read('telemetry-ingest.yaml');
@@ -596,7 +603,7 @@ describe('배포 output→values 변환', () => {
 describe('PROJ-246 Gateway·MSK·telemetry JWT values 생성', () => {
   const temps: string[] = [];
   afterEach(() => { for (const temp of temps.splice(0)) rmSync(temp, { recursive: true, force: true }); });
-  const run = (document: any, runtimeText = readFileSync(runtimeFile, 'utf8'), extra: { gateway?: string; bootstrap?: string } = {}) => {
+  const run = (document: any, runtimeText = readFileSync(runtimeFile, 'utf8'), extra: { gateway?: string; bootstrap?: string; nodes?: string } = {}) => {
     const output = invoke(document, enrollmentImage, dashboardImage, runtimeText, extra); temps.push(output.temp); return output;
   };
   const runtime = (change: (value: any) => void = () => {}) => { const value = load(readFileSync(runtimeFile, 'utf8')); change(value); return dump(value); };
@@ -635,11 +642,11 @@ describe('PROJ-246 Gateway·MSK·telemetry JWT values 생성', () => {
     const output = run(outputs());
     expect(output.result.status).toBe(0);
     expect(output.read('telemetry-gateway.yaml')).toEqual({
-      image: { repository: repository + 'telemetry-gateway', digest }, vpcId: 'vpc-0123456789abcdef0', nodePort: 30082,
+      image: { repository: repository + 'telemetry-gateway', digest }, metrics: { enabled: true }, vpcId: 'vpc-0123456789abcdef0', nodePort: 30082,
       telemetryJwt: publicTelemetry('telemetry-gateway'),
       kafka: { enabled: true, bootstrapServers: brokers, topic: 'pulsemetry-dev-telemetry-ingress-validation',
         iamRoleArn: mskRole('Gateway'), iamSessionName: 'pulsemetry-dev-telemetry-gateway' },
-      env: { AWS_REGION: 'ap-northeast-2' },
+      env: { AWS_REGION: 'ap-northeast-2', PULSEMETRY_OBSERVABILITY_ENVIRONMENT: 'dev' },
       targetGroupBindings: [{ stage: 'validation', targetGroupARN: tg('gateway-v'), confirmExclusiveOwnership: true }],
     });
     const text = readFileSync(join(output.dir, 'telemetry-gateway.yaml'), 'utf8');
@@ -791,7 +798,7 @@ describe('PROJ-246 Gateway·MSK·telemetry JWT values 생성', () => {
       return result.stdout.split(/^---\s*$/m).filter(text => text.trim()).map(text => load(text)).filter(Boolean);
     };
     const gateway = render('telemetry-gateway', 'helm/dev/workloads/spring-app', ['helm/dev/workloads/telemetry-gateway.yaml', join(output.dir, 'telemetry-gateway.yaml')]);
-    expect(gateway.map((doc: any) => doc.kind).sort()).toEqual(['Deployment', 'Service', 'ServiceAccount', 'TargetGroupBinding']);
+    expect(gateway.map((doc: any) => doc.kind).sort()).toEqual(['Deployment', 'Service', 'Service', 'ServiceAccount', 'TargetGroupBinding']);
     const ingest = render('telemetry-ingest', 'helm/dev/workloads/spring-app', ['helm/dev/workloads/telemetry-ingest.yaml', join(output.dir, 'telemetry-ingest.yaml')]);
     expect(ingest.find((doc: any) => doc.kind === 'Service').spec.type).toBe('ClusterIP');
     expect(ingest.some((doc: any) => doc.kind === 'TargetGroupBinding')).toBe(false);
@@ -803,5 +810,72 @@ describe('PROJ-246 Gateway·MSK·telemetry JWT values 생성', () => {
     const spcs = render('runtime-config', 'helm/dev/runtime/chart', [join(output.dir, 'runtime.yaml')]);
     expect(spcs.map((doc: any) => doc.metadata.name).sort()).toEqual(['dashboard-api-jwt', 'dashboard-api-runtime', 'enrollment-api-jwt',
       'enrollment-api-runtime', 'enrollment-api-telemetry-jwt', 'telemetry-gateway-telemetry-jwt', 'telemetry-ingest-runtime', 'telemetry-ingest-telemetry-jwt']);
+  });
+});
+
+// PROJ-191: bootstrap 일부 주소를 전체 scrape 대상으로 오인하지 않는다.
+describe('관측 values와 전체 MSK broker 검증', () => {
+  const temps: string[] = [];
+  afterEach(() => temps.splice(0).forEach(temp => rmSync(temp, { recursive: true, force: true })));
+  const run = (nodes?: string) => {
+    const result = invoke(outputs(), undefined, undefined, undefined, { nodes,
+      bootstrap: JSON.stringify({ BootstrapBrokerStringSaslIam: brokers.split(',')[0] }) });
+    temps.push(result.temp); return result;
+  };
+  test('부분 bootstrap으로도 list-nodes의 3대와 observability 설정을 생성한다', () => {
+    const output = run();
+    expect(output.result.status).toBe(0);
+    const config = output.read('observability.yaml').global.pulsemetry;
+    expect(config.mskBrokers).toEqual(brokers.split(',').map(value => value.replace(':9098', '')));
+    expect(config.environment).toBe('dev');
+    expect(config.targetNamespace).toBe('pulsemetry-dev');
+    expect(config.controlPlaneLogGroup).toBe('/aws/eks/soma-376-dev-eks/cluster');
+    const monitoring = output.read('observability.yaml').monitoring;
+    for (const path of [
+      ['kubelet', 'serviceMonitor'], ['prometheus', 'serviceMonitor'], ['prometheusOperator', 'serviceMonitor'],
+      ['grafana', 'serviceMonitor'], ['kube-state-metrics', 'prometheus', 'monitor'], ['prometheus-node-exporter', 'prometheus', 'monitor'],
+    ]) expect(path.reduce((node, key) => node[key], monitoring).relabelings).toEqual([
+      { targetLabel: 'cluster', replacement: config.clusterName }, { targetLabel: 'environment', replacement: 'dev' },
+    ]);
+    expect(output.read('clickhouse.yaml').observability.enabled).toBe(true);
+    expect(output.read('telemetry-ingest.yaml').metrics.enabled).toBe(true);
+  });
+  test.each(['missing', 'duplicate', 'foreign', 'pagination'])('%s broker 목록은 파일 생성 전에 거부한다', mode => {
+    const value = JSON.parse(readFileSync(resolve(__dirname, 'fixtures/msk-nodes.json'), 'utf8'));
+    if (mode === 'missing') value.NodeInfoList.pop();
+    if (mode === 'duplicate') value.NodeInfoList[2] = value.NodeInfoList[0];
+    if (mode === 'foreign') value.NodeInfoList[0].BrokerNodeInfo.Endpoints = ['b-1.foreign.cluster.c2.kafka.ap-northeast-2.amazonaws.com'];
+    if (mode === 'pagination') value.NextToken = 'more';
+    const output = run(JSON.stringify(value));
+    expect(output.result.status).toBe(1);
+    expect(output.result.stderr).toContain('msk-nodes');
+    expect(existsSync(output.dir)).toBe(false);
+  });
+});
+
+// PROJ-191: GC/safepoint stderr는 성능 비교 구간에서만 켜고 측정 대상 두 앱에만 전달한다.
+describe('JVM GC·safepoint 로그 입력', () => {
+  const temps: string[] = [];
+  afterEach(() => temps.splice(0).forEach(temp => rmSync(temp, { recursive: true, force: true })));
+  const run = (value: unknown) => {
+    const runtime = load(readFileSync(runtimeFile, 'utf8'));
+    if (value !== undefined) runtime.jvmGcSafepointLog = value;
+    const result = invoke(outputs(), undefined, undefined, dump(runtime));
+    temps.push(result.temp); return result;
+  };
+  test('생략하면 끄고 true면 Gateway·ingest values에만 넣는다', () => {
+    const off = run(undefined);
+    expect(off.result.status).toBe(0);
+    for (const file of ['telemetry-gateway.yaml', 'telemetry-ingest.yaml']) expect(off.read(file).jvm).toBeUndefined();
+    const on = run(true);
+    expect(on.result.status).toBe(0);
+    for (const file of ['telemetry-gateway.yaml', 'telemetry-ingest.yaml']) expect(on.read(file).jvm).toEqual({ gcSafepointLog: true });
+    for (const file of ['enrollment-api.yaml', 'dashboard-api.yaml']) expect(on.read(file).jvm).toBeUndefined();
+  });
+  test('boolean이 아니면 파일 생성 전에 거부한다', () => {
+    const output = run('-Xlog:gc');
+    expect(output.result.status).toBe(1);
+    expect(output.result.stderr).toContain('jvmGcSafepointLog');
+    expect(existsSync(output.dir)).toBe(false);
   });
 });

@@ -1,10 +1,10 @@
 {
-  "checkedAt": "2026-10-12",
+  "checkedAt": "2026-10-22",
   "csiDriver": {
     "version": "1.6.1",
     "appVersion": "1.6.1",
     "url": "https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts/secrets-store-csi-driver-1.6.1.tgz",
-    "sha256": "a3f9f5098cc1285f41c707a4de9bf06e27617ab792bef92c60ddc299f842dab0"
+    "sha256": "d312041d5334a1e5b0b9fe602a5cdcc1bfe028e0e9a4a8b3a14a24236497e1b6"
   },
   "ascp": {
     "version": "3.1.4",

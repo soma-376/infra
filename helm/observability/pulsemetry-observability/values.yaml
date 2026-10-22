@@ -1,0 +1,298 @@
+# 식별자는 CDK outputs와 list-nodes 결과에서 생성한다. 비밀 원문은 받지 않는다.
+global:
+  pulsemetry:
+    environment: ""
+    targetNamespace: ""
+    region: ap-northeast-2
+    clusterName: ""
+    grafanaAdminSecretArn: ""
+    mskClusterName: ""
+    mskBrokers: []
+    controlPlaneLogGroup: ""
+    applicationLogGroup: ""
+    brokerLogGroup: ""
+    observabilityLogGroup: ""
+    kubernetesEventsLogGroup: ""
+    diagnosticsBucket: ""
+    topic: ""
+    consumerGroup: ""
+# 이미지는 tag와 함께 검증한 multi-arch index digest로 고정한다(tests/fixtures/arm64-images.json).
+# upstream chart마다 입력 형식이 다르다: sha는 hex만, kube-state-metrics sha·node-exporter digest는 sha256: 포함.
+events:
+  image: cr.fluentbit.io/fluent/fluent-bit:5.1.3@sha256:c5542543523c9678398dd78d927c05e8425ec15b038f226b67b3b019b1a70845
+  storageClass: gp3-observability
+  storageSize: 1Gi
+monitoring:
+  fullnameOverride: pulsemetry-monitoring
+  # kubelet의 cAdvisor/probes/resource는 main endpoint와 별도 relabel 배열을 사용한다.
+  kubelet:
+    serviceMonitor:
+      cAdvisorRelabelings: &kubeletEndpointLabels
+        - action: replace
+          sourceLabels: [__metrics_path__]
+          targetLabel: metrics_path
+        - targetLabel: cluster
+          replacement: '{{ .Values.global.pulsemetry.clusterName }}'
+        - targetLabel: environment
+          replacement: '{{ .Values.global.pulsemetry.environment }}'
+      probesRelabelings: *kubeletEndpointLabels
+      resourceRelabelings: *kubeletEndpointLabels
+  # EKS 관리 plane 내부 컴포넌트는 직접 scrape하지 않는다.
+  kubeEtcd:
+    enabled: false
+  kubeControllerManager:
+    enabled: false
+  kubeScheduler:
+    enabled: false
+  kubeProxy:
+    enabled: false
+  coreDns:
+    enabled: false
+  defaultRules:
+    create: false
+  alertmanager:
+    enabled: false
+  prometheusOperator:
+    image:
+      sha: b4f51de53357a241fdcab2d956888c1cb3acb3c1f2f72ea0cd60046333ff06b0
+    nodeSelector: &observabilityNode
+      kubernetes.io/arch: arm64
+      pulsemetry.io/workload: observability
+    tolerations: &observabilityTolerations
+      - key: workload
+        operator: Equal
+        value: observability
+        effect: NoSchedule
+    resources:
+      requests: {cpu: 100m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 256Mi}
+    tls:
+      internalPort: 10250
+    admissionWebhooks:
+      patch:
+        image:
+          sha: 7a62bba56a7cef38c78ed5eaf62f7feaef5a50460fe5517d120cd402d62fee9c
+        nodeSelector: *observabilityNode
+        tolerations: *observabilityTolerations
+        resources:
+          requests: {cpu: 50m, memory: 64Mi}
+          limits: {cpu: 200m, memory: 128Mi}
+    prometheusConfigReloader:
+      image:
+        sha: 501a47205f61acf8ad11b1caeb0bd117b135932728b17eb5cd5914a33f0ce704
+      resources:
+        requests: {cpu: 25m, memory: 32Mi}
+        limits: {cpu: 100m, memory: 64Mi}
+  prometheus:
+    service:
+      type: ClusterIP
+    ingress:
+      enabled: false
+    prometheusSpec:
+      image:
+        sha: 1f0f50f06acaceb0f5670d2c8a658a599affe7b0d8e78b898c1035653849a702
+      replicas: 1
+      shards: 1
+      retention: 7d
+      retentionSize: 20GB
+      scrapeInterval: 10s
+      evaluationInterval: 10s
+      scrapeTimeout: 5s
+      enableRemoteWriteReceiver: true
+      scrapeNativeHistograms: true
+      nodeSelector: *observabilityNode
+      tolerations: *observabilityTolerations
+      resources:
+        requests: {cpu: 500m, memory: 1536Mi}
+        limits: {cpu: "2", memory: 3Gi}
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: gp3-observability
+            accessModes: [ReadWriteOnce]
+            resources:
+              requests: {storage: 30Gi}
+      persistentVolumeClaimRetentionPolicy:
+        whenDeleted: Retain
+        whenScaled: Retain
+      serviceMonitorSelectorNilUsesHelmValues: false
+      serviceMonitorSelector: {}
+      serviceMonitorNamespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: pulsemetry-observability
+      podMonitorSelectorNilUsesHelmValues: false
+      podMonitorSelector:
+        matchLabels:
+          observability.pulsemetry.io/stack: pulsemetry
+      podMonitorNamespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: pulsemetry-observability
+      ruleSelectorNilUsesHelmValues: false
+      ruleSelector:
+        matchLabels:
+          observability.pulsemetry.io/stack: pulsemetry
+      ruleNamespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: pulsemetry-observability
+      additionalScrapeConfigs: |
+        - job_name: msk-jmx
+          scrape_interval: 10s
+          scrape_timeout: 5s
+          static_configs:
+            - targets:
+              {{- range .Values.global.pulsemetry.mskBrokers }}
+                - {{ printf "%s:11001" . | quote }}
+              {{- end }}
+              labels:
+                environment: {{ .Values.global.pulsemetry.environment | quote }}
+                cluster: {{ .Values.global.pulsemetry.clusterName | quote }}
+                msk_cluster: {{ .Values.global.pulsemetry.mskClusterName | quote }}
+          # 개인정보·관측 ID는 수집하지 않고 필요한 broker/topic 지표만 보관한다.
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: 'kafka_server_BrokerTopicMetrics_(Count|OneMinuteRate)|kafka_server_ReplicaManager_(Value|Count)|kafka_controller_KafkaController_Value|kafka_network_RequestMetrics_(Count|Mean)|kafka_network_SocketServer_Value|kafka_server_DelayedOperationPurgatory_Value|java_lang_Memory_HeapMemoryUsage_.*'
+              action: keep
+        - job_name: msk-node
+          scrape_interval: 10s
+          scrape_timeout: 5s
+          static_configs:
+            - targets:
+              {{- range .Values.global.pulsemetry.mskBrokers }}
+                - {{ printf "%s:11002" . | quote }}
+              {{- end }}
+              labels:
+                environment: {{ .Values.global.pulsemetry.environment | quote }}
+                cluster: {{ .Values.global.pulsemetry.clusterName | quote }}
+                msk_cluster: {{ .Values.global.pulsemetry.mskClusterName | quote }}
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: 'node_cpu_seconds_total|node_memory_(MemAvailable|MemTotal)_bytes|node_filesystem_(avail|size)_bytes|node_disk_(read|written)_bytes_total|node_network_(receive|transmit)_bytes_total|node_time_seconds'
+              action: keep
+  kube-state-metrics:
+    image:
+      sha: sha256:1545919b72e3ae035454fc054131e8d0f14b42ef6fc5b2ad5c751cafa6b2130e
+    nodeSelector: *observabilityNode
+    tolerations: *observabilityTolerations
+    resources:
+      requests: {cpu: 100m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 256Mi}
+  prometheus-node-exporter:
+    image:
+      digest: sha256:337ff1d356b68d39cef853e8c6345de11ce7556bb34cda8bd205bcf2ed30b565
+    nodeSelector:
+      kubernetes.io/os: linux
+      kubernetes.io/arch: arm64
+    # ClickHouse·관측 노드를 포함한 모든 Linux ARM64 노드를 수집한다.
+    tolerations:
+      - operator: Exists
+    resources:
+      requests: {cpu: 25m, memory: 32Mi}
+      limits: {cpu: 200m, memory: 64Mi}
+  grafana:
+    fullnameOverride: pulsemetry-grafana
+    image:
+      sha: 2175aaa91c96733d86d31cf270d5310b278654b03f5718c59de12a865380a31f
+    replicas: 1
+    deploymentStrategy:
+      type: Recreate
+    serviceAccount:
+      create: true
+      name: grafana
+    nodeSelector: *observabilityNode
+    tolerations: *observabilityTolerations
+    service:
+      type: ClusterIP
+    ingress:
+      enabled: false
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: 500m, memory: 512Mi}
+    persistence:
+      enabled: true
+      type: pvc
+      storageClassName: gp3-observability
+      accessModes: [ReadWriteOnce]
+      size: 5Gi
+      annotations:
+        helm.sh/resource-policy: keep
+    initChownData:
+      enabled: false
+    testFramework:
+      enabled: false
+    env:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /mnt/grafana-admin/admin-password
+      AWS_REGION: '{{ .Values.global.pulsemetry.region }}'
+      AWS_DEFAULT_REGION: '{{ .Values.global.pulsemetry.region }}'
+    extraVolumes:
+      - name: grafana-admin
+        csi:
+          driver: secrets-store.csi.k8s.io
+          readOnly: true
+          volumeAttributes:
+            secretProviderClass: grafana-admin
+      - name: dashboards
+        configMap:
+          name: pulsemetry-dashboards
+    extraVolumeMounts:
+      - name: grafana-admin
+        mountPath: /mnt/grafana-admin
+        readOnly: true
+      - name: dashboards
+        mountPath: /var/lib/grafana/dashboards/pulsemetry
+        readOnly: true
+    defaultDashboardsEnabled: false
+    sidecar:
+      dashboards:
+        enabled: false
+      datasources:
+        enabled: false
+    grafana.ini:
+      users:
+        allow_sign_up: false
+      auth.anonymous:
+        enabled: false
+      analytics:
+        reporting_enabled: false
+        check_for_updates: false
+      log:
+        mode: console
+        level: info
+    dashboardProviders:
+      dashboards.yaml:
+        apiVersion: 1
+        providers:
+          - name: pulsemetry
+            orgId: 1
+            folder: Pulsemetry
+            type: file
+            disableDeletion: true
+            editable: false
+            updateIntervalSeconds: 10
+            options:
+              path: /var/lib/grafana/dashboards/pulsemetry
+    datasources:
+      datasources.yaml:
+        apiVersion: 1
+        prune: true
+        datasources:
+          - name: Prometheus
+            uid: pulsemetry-prometheus
+            type: prometheus
+            access: proxy
+            url: http://pulsemetry-monitoring-prometheus.pulsemetry-observability.svc:9090
+            isDefault: true
+            editable: false
+            jsonData:
+              httpMethod: POST
+              timeInterval: 10s
+              prometheusType: Prometheus
+              prometheusVersion: 3.9.1
+          - name: CloudWatch
+            uid: pulsemetry-cloudwatch
+            type: cloudwatch
+            access: proxy
+            editable: false
+            jsonData:
+              authType: default
+              defaultRegion: '{{ .Values.global.pulsemetry.region }}'

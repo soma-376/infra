@@ -35,7 +35,15 @@
     "MskGatewaySessionName": "pulsemetry-dev-telemetry-gateway",
     "MskIngestSessionName": "pulsemetry-dev-telemetry-ingest",
     "MskTopicAdminSessionName": "pulsemetry-dev-telemetry-kafka-admin",
-    "MskOffsetAdminSessionName": "pulsemetry-dev-telemetry-kafka-offsets"
+    "MskOffsetAdminSessionName": "pulsemetry-dev-telemetry-kafka-offsets",
+    "ObservabilityNamespace": "pulsemetry-observability",
+    "EksControlPlaneLogGroupName": "/aws/eks/soma-376-dev-eks/cluster",
+    "ObservabilityNodeSecurityGroupId": "sg-0123456789abcdef2",
+    "GrafanaAdminSecretArn": "arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:soma-376/dev/observability/grafana-admin-abc123",
+    "ObservabilityLogGroupName": "/eks/dev/observability",
+    "KubernetesEventsLogGroupName": "/eks/dev/events",
+    "DiagnosticsBucketName": "fixture-diagnostics",
+    "MskBrokerLogGroupName": "/aws/vendedlogs/msk/soma-376-dev-telemetry"
   },
   "DevEdgeStack": {
     "ValidationPublicBaseUrl": "http://validation-alb.example.test",

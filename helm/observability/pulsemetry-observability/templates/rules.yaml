@@ -1,0 +1,9 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: pulsemetry-observability
+  namespace: {{ .Release.Namespace }}
+  labels:
+    observability.pulsemetry.io/stack: pulsemetry
+spec:
+  {{- .Files.Get "rules/pulsemetry.yaml" | nindent 2 }}
