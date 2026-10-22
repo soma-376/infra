@@ -62,8 +62,8 @@ spec:
       {{- include "pulsemetry.app.selector" . | nindent 6 }}
   template:
     metadata:
-      {{- if or .Values.jwt.enabled $telemetry.enabled }}
       annotations:
+        pulsemetry.io/blocked-certs-revision: {{ include "pulsemetry.app.blockedCerts" . | sha256sum | quote }}
         {{- if .Values.jwt.enabled }}
         pulsemetry.io/jwt-revision: {{ .Values.jwt | toJson | sha256sum | quote }}
         {{- if $oidc.enabled }}
@@ -73,7 +73,6 @@ spec:
         {{- if $telemetry.enabled }}
         pulsemetry.io/telemetry-jwt-revision: {{ $telemetry | toJson | sha256sum | quote }}
         {{- end }}
-      {{- end }}
       labels:
         {{- include "pulsemetry.app.selector" . | nindent 8 }}
     spec:
@@ -266,11 +265,14 @@ spec:
             timeoutSeconds: 2
             failureThreshold: 3
             {{- end }}
-          {{- if $mounts }}
           volumeMounts:
+            {{- if $mounts }}
             {{- toYaml $mounts | nindent 12 }}
-          {{- end }}
-      {{- if $volumes }}
+            {{- end }}
+            - name: blocked-certs
+              mountPath: /opt/java/openjdk/lib/security/blocked.certs
+              subPath: blocked.certs
+              readOnly: true
       volumes:
         {{- range $volumes }}
         - name: {{ .name }}
@@ -280,4 +282,10 @@ spec:
             volumeAttributes:
               secretProviderClass: {{ .spc | quote }}
         {{- end }}
-      {{- end }}
+        - name: blocked-certs
+          configMap:
+            name: {{ printf "%s-blocked-certs" .Release.Name }}
+            defaultMode: 292 # 0444; YAML 1.1/1.2 모두 같은 권한으로 해석한다.
+            items:
+              - key: blocked.certs
+                path: blocked.certs

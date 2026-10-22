@@ -25,6 +25,8 @@
 > PROJ-246의 MSK·telemetry Gateway·ingest Kafka 모드·Kafka 관리 Job은 [ADR-0035](../adr/0035-dev-msk-isolated-subnets-under-eks-stack.md)·
 > [ADR-0036](../adr/0036-dev-telemetry-gateway-workload-and-msk-iam.md)과 [telemetry Kafka 런북](dev-telemetry-kafka.md)을 따른다.
 > 이 문서의 공통 설치 순서와 생성기 입력은 그 런북의 키 등록·bootstrap 조회를 전제로 한다.
+> PROJ-253의 dev JVM 임시 차단 목록 공급은 [ADR-0036](../adr/0036-dev-jvm-blocked-certs-configmap.md)과
+> §12를 따른다. Gateway를 포함한 네 앱의 실제 배포 이미지로 사전 검증한다.
 
 ## 1. 실행 범위와 사전 조건
 
@@ -528,7 +530,9 @@ kubectl -n pulsemetry-dev get pods,pvc,targetgroupbindings -o wide
 ```
 
 rollback은 앱 release용 예시다. platform/controller의 namespace는 버전 표를 따른다. DB migration 호환성을
-확인하지 못하면 앱 rollback보다 쓰기 차단·원인 진단을 먼저 한다. PVC·PV·namespace·CRD를 실패 정리
+확인하지 못하면 앱 rollback보다 쓰기 차단·원인 진단을 먼저 한다. PROJ-253 적용 전의 chart revision은
+임시 차단 목록을 제거할 수 있다. 복구 이미지에 패치가 없으면 §12의 보호를 유지한 chart와 해당 이미지
+digest로 upgrade하여 복구한다. PVC·PV·namespace·CRD를 실패 정리
 명목으로 삭제하지 않는다. `helm uninstall`은 스토리지/데이터 복구 전략이 아니다.
 
 ## 9. 로컬 검증과 실행 증거
@@ -775,3 +779,116 @@ Secret 값·label·mount 변경만으로 실행 중인 앱의 키가 바뀌지 �
 마지막 신 키 발급 후 330초 이상까지 신 공개키를 유지한다. `AWSPREVIOUS`나 최신 값으로 복구 버전을 추측하지 않는다.
 이미지·Helm revision만 되돌리고 Secret 참조·파일 맵·label도 복구됐다고 판단하지 않는다.
 키 누락·잘못된 PEM·키쌍/kid 불일치·등록 부분 실패·인스턴스 일부 실패·제거 후 롤백을 리허설 수락 조건에 포함한다.
+
+## 12. dev JVM의 임시 blocked.certs 공급
+
+[ADR 0036](../adr/0036-dev-jvm-blocked-certs-configmap.md)은 OpenJDK CVE-2026-91403에 대한
+임시 대응으로 dev Spring 앱 네 개(enrollment·ingest·dashboard·Gateway)에 공식 Unix용 차단 목록을 공급한다. 아래 운영 절차는 실제 배포가
+승인된 환경에서만 수행한다. PROJ-253의 코드·문서·로컬 검증은 이 절차의 실행 완료를 의미하지 않는다.
+
+### 12-1. 원본과 이미지 사전 검증
+
+1. chart의 `files/blocked.certs`와 [`files/SOURCE.json`](../../helm/dev/workloads/spring-app/files/SOURCE.json)의
+   공식 URL·취득 시점·SHA-256을 확인한다. 파일 전체를 원본 그대로 보존한다. 다운로드 오류·빈 파일·
+   형식·해시 불일치는 배포를 중단할 조건이며 임의 목록으로 대체하지 않는다.
+2. 배포할 네 ARM64 이미지에서 `java.home=/opt/java/openjdk`, 대상 `lib/security/blocked.certs`가
+   일반 파일이고 UID 10001로 읽을 수 있는지 확인한다. `cacerts`와 나머지 security 파일도 접근 가능해야 한다.
+   이미지에 별도로 추가한 차단 항목이 있으면 새 목록에 보존되는지 대조한 뒤 진행한다.
+3. §9의 로컬 검증과 JVM 로드 검증을 수행한다. 앱별 chart 렌더링에서 release별 ConfigMap,
+   단일 파일 `subPath`, 읽기 전용 모드 `0444`, checksum annotation을 확인한다.
+
+로컬 파일 해시는 다음처럼 확인한다. SOURCE.json의 해시는 취득 시 고정한 원본과 대조하기 위한 값이다.
+
+```bash
+python3 - <<'PY'
+import hashlib, json, pathlib
+root = pathlib.Path('helm/dev/workloads/spring-app/files')
+data = (root / 'blocked.certs').read_bytes()
+source = json.loads((root / 'SOURCE.json').read_text())
+assert data, 'blocked.certs가 비어 있다'
+assert hashlib.sha256(data).hexdigest() == source['sha256'], 'blocked.certs SHA-256 불일치'
+print(source['sha256'])
+PY
+```
+
+JVM 로드 검증에는 로컬 JDK 25의 `javac`와 Docker가 필요하다. 다른 컴파일러가 기본값이면
+`JAVAC_BIN`에 JDK 25 `javac` 경로를 지정한다. 실제 배포할 네 ARM64 이미지를 로컬에 준비하고
+각 이미지 ID/digest마다 다음을 실행한다. 스크립트는 이미지를 pull하거나 앱을 시작하지 않으며,
+네트워크를 차단한 UID 10001 컨테이너에서 기존 차단 항목 보존·JVM 로드·`cacerts` 보존을 검사한다.
+ECR 인증 후 `docker pull --platform linux/arm64 <repository@sha256:digest>`로 이미지를 먼저 준비한다.
+이미지에 번들보다 최신 차단 항목이 있으면 목록 보존 검증이 실패하므로 검사를 우회하지 않는다.
+
+```bash
+set -euo pipefail
+: "${ENROLLMENT_IMAGE:?실제 배포 ARM64 repository@sha256:digest}"
+: "${INGEST_IMAGE:?실제 배포 ARM64 repository@sha256:digest}"
+: "${DASHBOARD_IMAGE:?실제 배포 ARM64 repository@sha256:digest}"
+: "${GATEWAY_IMAGE:?실제 배포 ARM64 repository@sha256:digest}"
+for image in "$ENROLLMENT_IMAGE" "$INGEST_IMAGE" "$DASHBOARD_IMAGE" "$GATEWAY_IMAGE"; do
+  python3 scripts/test-blocked-certs.py --image "$image"
+done
+```
+
+### 12-2. 적용과 목록 갱신
+
+파일은 각 앱 release의 `<Release.Name>-blocked-certs` ConfigMap으로 공급된다. 앱 컨테이너에만
+`/opt/java/openjdk/lib/security/blocked.certs`를 마운트하므로 `runtime-config` release나 기존 Secret/JWT
+원본을 변경하지 않는다. runtime/JWT 비활성 렌더링에서도 이 보호는 적용된다.
+Gateway에는 기존 telemetry JWT 공개키 mount만 유지하며 DB configtree를 새로 공급하지 않는다.
+initContainer는 기존 Secret/JWT 검증만 수행하고 차단 목록 파일은 앱 컨테이너에서 읽는다.
+
+최초 설치는 §4·§10의 순서를 따른다. 이미 네 앱을 운영하는 환경에서 임시 보호만 적용하거나 목록을
+갱신할 때는 현재 사용 중인 image digest·runtime 입력을 유지하고 아래처럼 앱 release만 갱신한다.
+각 앱이 실패하면 다음 앱으로 넘어가지 않는다. **replica 1·`Recreate`이므로 앱별 재시작 중 중단이 있다.**
+
+```bash
+set -euo pipefail
+: "${RUN_DIR:?현재 배포에 사용한 generated YAML과 증거 디렉터리}"
+for release in enrollment-api telemetry-ingest dashboard-api telemetry-gateway; do
+  helm upgrade "$release" helm/dev/workloads/spring-app --namespace pulsemetry-dev \
+    --values "helm/dev/workloads/$release.yaml" \
+    --values "$RUN_DIR/generated/$release.yaml" --wait --timeout 10m
+  kubectl -n pulsemetry-dev rollout status "deployment/$release" --timeout=5m
+done
+```
+
+`pulsemetry.io/blocked-certs-revision` annotation은 번들 내용의 SHA-256이다. 목록 변경이 새 Pod를
+만들어야 하며, 실행 중인 `subPath` 파일이나 이미 초기화된 JVM이 자동 갱신된다고 가정하지 않는다.
+ConfigMap만 `kubectl edit`하여 교체하는 방식은 사용하지 않는다. 갱신할 때 공식 원본을 다시 확보하여
+출처·취득 시점·해시와 함께 검토하고, 로컬 검증을 통과한 chart를 각 앱에 upgrade한다.
+
+### 12-3. 배포 후 확인과 기록
+
+```bash
+set -euo pipefail
+for release in enrollment-api telemetry-ingest dashboard-api telemetry-gateway; do
+  kubectl -n pulsemetry-dev get "configmap/$release-blocked-certs" -o json \
+    | jq -j '.data["blocked.certs"]' | shasum -a 256
+  kubectl -n pulsemetry-dev get "deployment/$release" \
+    -o jsonpath='{.spec.template.metadata.annotations.pulsemetry\.io/blocked-certs-revision}{"\n"}'
+  kubectl -n pulsemetry-dev get pods -l "app.kubernetes.io/instance=$release" \
+    -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.metadata.uid}{" "}{.metadata.annotations.pulsemetry\.io/blocked-certs-revision}{" "}{.status.containerStatuses[*].imageID}{"\n"}{end}'
+  kubectl -n pulsemetry-dev exec "deployment/$release" -c "$release" -- \
+    /bin/sh -ec 'test "$(id -u)" = 10001; test -r /opt/java/openjdk/lib/security/cacerts; sha256sum /opt/java/openjdk/lib/security/blocked.certs'
+done
+```
+
+세 위치의 해시를 SOURCE.json과 대조하고 실제 Pod가 새 revision·예상 imageID로 생성됐는지 확인한다.
+이 명령은 공개 차단 목록만 다루며 Secret/JWT 파일은 읽거나 출력하지 않는다.
+Ready·target health·시작 로그와 기존 OIDC·외부 HTTPS 요청의 기능 회귀도 확인한다. 파일 해시·Ready만으로
+JVM의 차단 처리나 취약점 E2E가 검증됐다고 기록하지 않는다. 적용 commit, 앱별 Helm revision,
+image digest·JVM 버전·Pod UID·차단 목록 해시와 검증 결과를 증거에 남긴다.
+
+### 12-4. 패치 이미지 전환과 임시 조치 제거
+
+1. 해당 취약점이 수정된 Temurin 배포를 확인하고 backend 이미지를 재빌드한다. 실제 ARM64 이미지
+   자체의 JVM 버전과 내장 차단 목록을 **임시 mount 없이** 검증한다. 태그 이름만으로 패치를 판정하지 않는다.
+2. 검증한 새 image digest를 generated 앱 YAML에 반영하고, chart의 임시 ConfigMap·mount·checksum
+   annotation과 번들 파일·관련 임시 검증을 제거하는 변경을 함께 검토한다.
+3. 각 앱 release에서 **새 이미지와 보호 제거를 같은 Helm upgrade로** 적용한다. 앱을 하나씩 전환하고
+   정상 기동·기능과 이미지 자체의 차단 목록을 확인한다. 이때 기존 보호 없는 이미지에 mount만 먼저 제거하지 않는다.
+4. 네 앱의 새 이미지 적용과 ConfigMap·mount·annotation 제거를 확인하고 이 임시 조치의 종료를 기록한다.
+
+복구 시 취약한 이미지를 사용해야 한다면 임시 보호가 있는 chart로 해당 digest를 배포한다.
+PROJ-253 이전의 보호 없는 Helm revision으로 무조건 rollback하지 않는다. 적용 실패 시에도 ConfigMap을
+먼저 지워 Pod 시작을 막거나, security 디렉터리 전체를 덮어 `cacerts`를 숨기는 방식으로 복구하지 않는다.

@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-blocked-certs" .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pulsemetry.app.labels" . | nindent 4 }}
+data:
+  # JSON 문자열 표현으로 원본의 개행까지 보존한다.
+  blocked.certs: {{ include "pulsemetry.app.blockedCerts" . | toJson }}

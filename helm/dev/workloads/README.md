@@ -48,6 +48,23 @@ chart는 `SPRING_CONFIG_IMPORT=configtree:/mnt/secrets-store/`를 설정하고 U
 파일을 읽는다. 같은 이미지의 initContainer가 파일 존재·읽기·비어 있지 않음을 검사하며 내용은
 출력하지 않는다. Secret 값과 `SPRING_CONFIG_IMPORT`를 `env` map에 넣으면 렌더링을 거부한다.
 
+PROJ-253·[ADR 0036](../../../docs/adr/0036-dev-jvm-blocked-certs-configmap.md)의 임시 대응으로
+`enrollment-api`·`telemetry-ingest`·`dashboard-api`·`telemetry-gateway` 네 앱은
+chart에 포함된 공식 Unix용 `blocked.certs`를 사용한다. 출처·취득 시점·SHA-256은
+[`spring-app/files/SOURCE.json`](spring-app/files/SOURCE.json)에 기록한다. 각 앱 release가
+`<Release.Name>-blocked-certs` ConfigMap을 소유하며 앱 컨테이너에만
+`/opt/java/openjdk/lib/security/blocked.certs`를 `subPath: blocked.certs`·읽기 전용·모드 `0444`로
+공급한다. 기존 `cacerts` 등 security 디렉터리와 Secret/JWT CSI mount·init 검증은 유지한다.
+이 공급은 runtime/JWT 설정과 독립적이며 별도 활성화 옵션이 없다.
+
+Pod annotation `pulsemetry.io/blocked-certs-revision`은 번들 파일의 SHA-256이다. 파일 변경은 각 앱의
+Helm upgrade로 적용하며 checksum 변경이 새 Pod를 생성한다. 실행 중인 Pod의 `subPath` 파일이나
+JVM의 목록이 자동 갱신된다고 가정하지 않는다. replica 1·`Recreate`이므로 재시작 중 중단이 있다.
+파일 누락·빈 내용은 렌더링 오류이고 원본 확보·해시 검증에 실패하면 적용하지 않는다.
+패치된 Temurin 이미지 자체의 차단 목록을 먼저 검증하고, 해당 digest 배포와 임시
+ConfigMap·mount·annotation 제거를 함께 수행한다. 자세한 적용·해제·복구는
+[EKS 런북 §12](../../../docs/runbooks/dev-eks-manual-deployment.md#12-dev-jvm의-임시-blockedcerts-공급)를 따른다.
+
 `targetGroupBindings`는 선택 사항이며 `stage`, `targetGroupARN`, `confirmExclusiveOwnership: true`를
 받는다. `validation`과 `canary`는 각각 하나씩만 선언할 수 있고 서로 다른 전용 TG ARN을 써야 한다.
 `vpcId`를 함께 전달한다. ARN은 CDK가 만든 `soma-376-dev-eks-*` 이름만 허용한다. 기존 ECS TG의

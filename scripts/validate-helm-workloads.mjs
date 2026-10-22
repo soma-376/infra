@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -49,6 +50,9 @@ function render(release, chart, values) {
     assert.notEqual(document.kind, 'Ingress');
     if (document.kind === 'Service') assert.notEqual(document.spec.type, 'LoadBalancer');
     assert.notEqual(document.kind, 'Secret');
+  }
+  if (['enrollment-api', 'telemetry-ingest', 'dashboard-api', 'telemetry-gateway'].includes(release)) {
+    checkBlockedCerts(documents, release);
   }
   return documents;
 }
@@ -209,15 +213,38 @@ function checkApp(documents, workload, grace = 60) {
   checkBindings(documents, workload, 'instance');
 }
 
+function checkBlockedCerts(documents, workload) {
+  const contents = readFileSync(resolve(root, 'helm/dev/workloads/spring-app/files/blocked.certs'), 'utf8');
+  const configMap = find(documents, 'ConfigMap', `${workload}-blocked-certs`);
+  assert.deepEqual(configMap.data, { 'blocked.certs': contents });
+  const deployment = find(documents, 'Deployment', workload);
+  assert.equal(deployment.spec.template.metadata.annotations['pulsemetry.io/blocked-certs-revision'],
+    createHash('sha256').update(contents).digest('hex'));
+  const pod = deployment.spec.template.spec;
+  assert.deepEqual(pod.volumes.filter(volume => volume.name === 'blocked-certs'), [{
+    name: 'blocked-certs', configMap: {
+      name: `${workload}-blocked-certs`, defaultMode: 0o444,
+      items: [{ key: 'blocked.certs', path: 'blocked.certs' }],
+    },
+  }]);
+  assert.deepEqual(pod.containers[0].volumeMounts.filter(mount => mount.name === 'blocked-certs'), [{
+    name: 'blocked-certs', mountPath: '/opt/java/openjdk/lib/security/blocked.certs',
+    subPath: 'blocked.certs', readOnly: true,
+  }]);
+  for (const init of pod.initContainers ?? []) {
+    assert.equal(init.volumeMounts.some(mount => mount.name === 'blocked-certs'), false);
+  }
+}
+
 function checkRuntime(documents, workload, files) {
   const pod = find(documents, 'Deployment', workload).spec.template.spec;
   const container = pod.containers[0];
-  assert.deepEqual(pod.volumes, [{ name: 'secrets-store', csi: {
+  assert.deepEqual(pod.volumes.filter(volume => volume.name !== 'blocked-certs'), [{ name: 'secrets-store', csi: {
     driver: 'secrets-store.csi.k8s.io', readOnly: true,
     volumeAttributes: { secretProviderClass: `${workload}-runtime` },
   } }]);
   const mounts = [{ name: 'secrets-store', mountPath: '/mnt/secrets-store', readOnly: true }];
-  assert.deepEqual(container.volumeMounts, mounts);
+  assert.deepEqual(container.volumeMounts.filter(mount => mount.name !== 'blocked-certs'), mounts);
   const init = pod.initContainers[0];
   assert.deepEqual(init.volumeMounts, mounts);
   assert.equal(init.image, container.image);
@@ -415,8 +442,8 @@ function checkTelemetry(chart) {
   documents.push(...gateway);
   checkApp(gateway, 'telemetry-gateway', 60);
   const gatewayPod = find(gateway, 'Deployment', 'telemetry-gateway').spec.template.spec;
-  assert.deepEqual(gatewayPod.volumes, [telemetryVolume('telemetry-gateway')]);
-  assert.deepEqual(gatewayPod.containers[0].volumeMounts, [TELEMETRY_MOUNT]);
+  assert.deepEqual(gatewayPod.volumes.filter(volume => volume.name !== 'blocked-certs'), [telemetryVolume('telemetry-gateway')]);
+  assert.deepEqual(gatewayPod.containers[0].volumeMounts.filter(mount => mount.name !== 'blocked-certs'), [TELEMETRY_MOUNT]);
   assert.deepEqual(gatewayPod.initContainers[0].volumeMounts, [TELEMETRY_MOUNT]);
   assert.ok(!gatewayPod.initContainers[0].args[0].includes('/mnt/secrets-store'));
   assert.ok(!gatewayPod.initContainers[0].args[0].includes('private.pem'));
@@ -488,9 +515,9 @@ function checkTelemetry(chart) {
       assert.equal(find(ingest, 'Deployment', 'telemetry-ingest').spec.template.spec.terminationGracePeriodSeconds, grace);
     } else checkApp(ingest, 'telemetry-ingest', grace);
     const pod = find(ingest, 'Deployment', 'telemetry-ingest').spec.template.spec;
-    assert.deepEqual(pod.volumes.map(volume => volume.name), ['secrets-store', 'telemetry-jwt']);
+    assert.deepEqual(pod.volumes.map(volume => volume.name), ['secrets-store', 'telemetry-jwt', 'blocked-certs']);
     assert.deepEqual(pod.volumes[1], telemetryVolume('telemetry-ingest'));
-    assert.deepEqual(pod.initContainers[0].volumeMounts, pod.containers[0].volumeMounts);
+    assert.deepEqual(pod.initContainers[0].volumeMounts, pod.containers[0].volumeMounts.filter(mount => mount.name !== 'blocked-certs'));
     assert.deepEqual(pod.containers[0].volumeMounts[1], TELEMETRY_MOUNT);
     checkLiveness(pod.containers[0], mode !== 'http');
     const env = environment(ingest, 'telemetry-ingest');
@@ -543,9 +570,9 @@ function checkTelemetry(chart) {
     documents.push(...enrollment);
     checkApp(enrollment, 'enrollment-api', 60);
     const pod = find(enrollment, 'Deployment', 'enrollment-api').spec.template.spec;
-    assert.deepEqual(pod.volumes.map(volume => volume.name), ['secrets-store', 'user-jwt', 'telemetry-jwt']);
+    assert.deepEqual(pod.volumes.map(volume => volume.name), ['secrets-store', 'user-jwt', 'telemetry-jwt', 'blocked-certs']);
     assert.deepEqual(pod.volumes[2], telemetryVolume('enrollment-api'));
-    assert.deepEqual(pod.initContainers[0].volumeMounts, pod.containers[0].volumeMounts);
+    assert.deepEqual(pod.initContainers[0].volumeMounts, pod.containers[0].volumeMounts.filter(mount => mount.name !== 'blocked-certs'));
     const env = environment(enrollment, 'enrollment-api');
     assert.deepEqual(JSON.parse(env.SPRING_APPLICATION_JSON), { pulsemetry: {
       'user-auth': { 'public-key-files': { '[release-2026.10]': '/mnt/user-jwt/keys/release-2026-10.pem' } },
@@ -762,7 +789,10 @@ try {
     const values = appValues(workload);
     const base = render(workload, chart, values);
     checkApp(base, workload);
-    assert.equal(find(base, 'Deployment', workload).spec.template.spec.volumes, undefined);
+    const basePod = find(base, 'Deployment', workload).spec.template.spec;
+    assert.equal(basePod.volumes.length, 1);
+    assert.equal(basePod.containers[0].volumeMounts.length, 1);
+    assert.equal(basePod.initContainers, undefined);
     const files = ['PULSEMETRY_DB_USERNAME', 'PULSEMETRY_DB_PASSWORD', 'PULSEMETRY_TOKEN_HASH_SECRET'];
     if (workload === 'enrollment-api') files.push('PULSEMETRY_ADMIN_API_TOKEN');
     if (workload === 'dashboard-api') files.splice(0, files.length, ...['RDS', 'CLICKHOUSE'].flatMap(store => ['SOURCE', 'CACHE'].flatMap(role => ['USERNAME', 'PASSWORD'].map(field => `PULSEMETRY_DASHBOARD_${store}_${role}_${field}`))));
@@ -821,10 +851,10 @@ try {
     const deployment = find(documents, 'Deployment', workload);
     const pod = deployment.spec.template.spec;
     const container = pod.containers[0];
-    assert.equal(pod.volumes.length, 2);
+    assert.equal(pod.volumes.length, 3);
     assert.deepEqual(pod.volumes[1], { name: 'user-jwt', csi: { driver: 'secrets-store.csi.k8s.io', readOnly: true, volumeAttributes: { secretProviderClass: `${workload}-jwt` } } });
     assert.deepEqual(container.volumeMounts[1], { name: 'user-jwt', mountPath: '/mnt/user-jwt/keys', readOnly: true });
-    assert.deepEqual(pod.initContainers[0].volumeMounts, container.volumeMounts);
+    assert.deepEqual(pod.initContainers[0].volumeMounts, container.volumeMounts.filter(mount => mount.name !== 'blocked-certs'));
     assert.ok(pod.initContainers[0].args[0].includes('head -c 1'));
     assert.equal(pod.initContainers[0].args[0].includes('private.pem'), workload === 'enrollment-api');
     const json = JSON.parse(container.env.find(item => item.name === 'SPRING_APPLICATION_JSON').value);

@@ -283,6 +283,7 @@ dev WAF는 ALB 전체에 적용한다. 국가·악성 IP·URI·헤더 Block, 정
 | CDK/Helm/Auto Mode 소유권 분리 | 기존 EKS TG만 TGB에 연결하고 AWS 리소스는 CDK가 소유 |
 | 새 설정은 비밀 원문 없는 입력만 허용 | Secret 원문은 synth/output/values/context에 넣지 않음 |
 | `bin/infra.ts`와 test helper는 synthDev로 조립 | CLI와 테스트의 배포 트리 불일치 방지 |
+| dev JVM의 임시 `blocked.certs`는 앱 release별 ConfigMap과 단일 파일 mount로 공급 | ADR-0036. 앱 컨테이너에만 읽기 전용으로 마운트하고 내용 checksum으로 Pod를 재생성한다. 기존 Secret/JWT mount·init 검증을 유지하며 security 디렉터리 전체를 가리지 않는다. 패치 이미지 자체의 차단 목록을 검증한 뒤 임시 공급을 제거한다. |
 
 ## 4. 설정과 환경 분기
 
@@ -418,7 +419,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0038`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급, `0033`은 외부 ACM 기반 dev HTTPS, `0034`는 dev EKS SSM 릴레이 접근, `0035`는 dev EKS 전용 전환으로 이미 쓰였다. `0020`은 프론트엔드 로그 정책이며, 프론트엔드 `0028`·`0029`·`0030`은 각각 Terraform 실행 환경·외부 DNS와 기존 인증서·독립 기반 상태를 다룬다. 중복 번호는 [ADR 인덱스](docs/adr/README.md)의 제목과 파일 링크로 구분하고, 기존 CDK 로그 정책 미결 사항은 위 (F)를 따른다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0038`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급, `0033`은 외부 ACM 기반 dev HTTPS, `0034`는 dev EKS SSM 릴레이 접근, `0035`는 MSK 배치와 dev EKS 전용 전환, `0036`은 telemetry Gateway·MSK IAM과 임시 blocked.certs 공급, `0037`은 관측 구성으로 이미 쓰였다. `0020`은 프론트엔드 로그 정책이며, 프론트엔드 `0028`·`0029`·`0030`은 각각 Terraform 실행 환경·외부 DNS와 기존 인증서·독립 기반 상태를 다룬다. 중복 번호는 [ADR 인덱스](docs/adr/README.md)의 제목과 파일 링크로 구분하고, 기존 CDK 로그 정책 미결 사항은 위 (F)를 따른다.
    형식은 `docs/adr/0000-adr-template.md`를 따른다.
 3. 상수는 **"이 값이 dev에서 달라야 할 이유가 있는가"**로 위치를 정한다 — 없으면 `lib/common/config.ts`, 운영 전용이면 `lib/prod/config.ts`, dev 전용이면 `lib/dev/config.ts`. 스택에서는 import만 한다 (4장).
 4. `test/prod/*.test.ts` / `test/dev/*.test.ts` / `test/cicd/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`(prod), `buildDevApp()`(dev), `buildCicdApp()`(cicd)를 재사용한다.
@@ -508,6 +509,23 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 - 이번 변경은 리소스 정의·수동 준비 문서·로컬 검증이다. 실제 DB 접속·계정/권한 적용·키 생성/등록·AWS 배포는 수행하지 않는다. 기존 3개 Secret·과거 검증 결과를 신규 공급 완료 증거로 재해석하지 않는다.
 
 ---
+
+### (L) PROJ-253 dev JVM의 임시 blocked.certs 공급
+
+[ADR-0036](docs/adr/0036-dev-jvm-blocked-certs-configmap.md)에 따라 dev Spring 앱 네 개(enrollment·ingest·dashboard·Gateway)의 각 Helm
+release가 공식 Unix용 `blocked.certs` ConfigMap을 소유한다. 원본 provenance는
+`helm/dev/workloads/spring-app/files/SOURCE.json`이며 앱 컨테이너의
+`/opt/java/openjdk/lib/security/blocked.certs` 파일에만 읽기 전용으로 마운트한다.
+파일 checksum은 runtime/JWT 활성 여부와 무관하게 Pod template에 들어간다.
+Gateway도 같은 chart를 사용한다. 앱 전용 mount를 기존 initContainer의 Secret·사용자 JWT·telemetry JWT mount와
+분리하고, telemetry JWT revision·Kafka 설정·9404 metrics를 유지한다. 배포 전 실제 네 이미지 digest를 검증한다.
+파일 갱신은 각 앱 재배포와 재시작을 요구하며 기존 replica 1·`Recreate` 중단을 감수한다.
+
+원본 확보·해시 검증 실패를 빈 파일·임의 목록으로 대체하지 않는다. 패치된 Temurin 이미지 자체의
+차단 목록을 확인한 뒤 새 digest 배포와 임시 ConfigMap·mount·annotation 제거를 함께 진행한다.
+취약한 이미지와 보호 없는 과거 chart revision을 조합해 rollback하지 않는다.
+[적용·해제 런북 §12](docs/runbooks/dev-eks-manual-deployment.md#12-dev-jvm의-임시-blockedcerts-공급)를 따르며
+로컬 검증은 실제 배포·TLS 기능·취약점 재현 검증의 증거가 아니다.
 
 ## 6. 명령어
 
