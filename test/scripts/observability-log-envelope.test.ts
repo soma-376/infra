@@ -36,6 +36,20 @@ test('Fluent Bit은 label로 구성요소를 식별하고 annotation·임의 JSO
   expect(values.config.outputs).not.toMatch(/\blog_key\b/);
 });
 
+test('Loki overlay는 CloudWatch 출력을 그대로 두고 label 다섯 개의 Loki 출력만 더한다 (ADR-0039)', () => {
+  const base = load(readFileSync(resolve(root, 'helm/dev/runtime/fluent-bit-values.yaml'), 'utf8')).config.outputs;
+  const overlay = load(readFileSync(resolve(root, 'helm/dev/runtime/fluent-bit-loki-values.yaml'), 'utf8'));
+  expect(Object.keys(overlay)).toEqual(['config']);
+  expect(Object.keys(overlay.config)).toEqual(['outputs']);
+  expect(overlay.config.outputs.startsWith(base)).toBe(true);
+  const added = overlay.config.outputs.slice(base.length);
+  expect(added.match(/\[OUTPUT\]/g)).toHaveLength(1);
+  expect(added).toMatch(/Name loki/);
+  const labels = added.match(/Labels (.*)/)![1].split(',').map((item: string) => item.trim().split('=')[0]);
+  expect(labels).toEqual(['environment', 'cluster', 'namespace', 'service_name', 'container']);
+  expect(added).not.toMatch(/\blog_key\b/);
+});
+
 test('대시보드·런북의 로그 query 필드는 실제 envelope 필드다', () => {
   const fields = new Set([...evidence.topLevelFields, ...evidence.kubernetesFields.map((key: string) => `kubernetes.${key}`)]);
   // 최상위 component·node 필드는 만들지 않는다. 구성요소는 app.kubernetes.io/name label이다.

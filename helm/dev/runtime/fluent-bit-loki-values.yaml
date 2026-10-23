@@ -1,0 +1,35 @@
+# Fluent Bit의 Loki 병행 출력 overlay(ADR-0039). 정적 fluent-bit-values.yaml 다음, generated/fluent-bit.yaml 앞에 적용한다.
+# outputs는 문자열 하나라 기존 CloudWatch 두 출력을 그대로 앞에 둔다. 검사기가 앞부분이 정적 values와 같은지 단언한다.
+# 복구는 이 파일을 빼고 같은 순서로 다시 적용한다(CloudWatch·tail DB·buffer는 그대로다).
+config:
+  outputs: |
+    [OUTPUT]
+        Name cloudwatch_logs
+        Match application.*
+        region ${AWS_REGION}
+        log_group_name ${APPLICATION_LOG_GROUP}
+        log_stream_prefix from-fluent-bit-
+        auto_create_group Off
+        Retry_Limit False
+        storage.total_limit_size 512M
+    [OUTPUT]
+        Name cloudwatch_logs
+        Match observability.*
+        region ${AWS_REGION}
+        log_group_name ${OBSERVABILITY_LOG_GROUP}
+        log_stream_prefix from-fluent-bit-
+        auto_create_group Off
+        Retry_Limit False
+        storage.total_limit_size 128M
+    [OUTPUT]
+        # Loki 병행 출력(ADR-0039). 위 CloudWatch 두 출력은 그대로다. 노드당 queue 128MiB를 넘거나 재시도 5회를 넘기면 Loki 쪽만 버린다.
+        # stream label은 다섯 개다. Pod 이름·trace ID는 label이 아니라 본문(JSON)에 남는다. app label이 없는 Pod는 service_name 없이 container로 찾는다.
+        Name loki
+        Match_Regex ^(application|observability)\.
+        Host pulsemetry-loki.pulsemetry-observability.svc
+        Port 3100
+        Uri /loki/api/v1/push
+        Labels environment=$environment, cluster=$cluster, namespace=$kubernetes['namespace_name'], service_name=$kubernetes['labels']['app.kubernetes.io/name'], container=$kubernetes['container_name']
+        Line_Format json
+        Retry_Limit 5
+        storage.total_limit_size 128M
