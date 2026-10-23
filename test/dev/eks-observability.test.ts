@@ -52,6 +52,20 @@ test('Grafana는 CloudWatch 지표 조회와 지정 log group 조회 권한만 �
   expect(actions.filter((action: string) => /^cloudwatch:(DescribeAlarm|PutMetric|Delete|Set)/.test(action))).toEqual([]);
 });
 
+test('Grafana의 log 조회 권한은 다섯 log group ARN에만 걸리고 control-plane ARN은 콜론 구분자를 쓴다', () => {
+  const [, policy] = Object.entries(eks.findResources('AWS::IAM::Policy')).find(([id]) => id.startsWith('ObservabilityGrafana'))! as [string, any];
+  const statement = policy.Properties.PolicyDocument.Statement.find((s: any) => [s.Action].flat().includes('logs:StartQuery'));
+  const resources = [statement.Resource].flat();
+  expect(resources).toHaveLength(5);
+  const rendered = resources.map((resource: any) => JSON.stringify(resource));
+  const controlPlane = rendered.filter((text: string) => text.includes('/aws/eks/'));
+  expect(controlPlane).toHaveLength(1);
+  expect(controlPlane[0]).toContain(':log-group:/aws/eks/');
+  expect(controlPlane[0]).toContain('/cluster:*');
+  for (const text of rendered) expect(text).not.toContain('log-group//');
+  expect(rendered.filter((text: string) => text === '"*"')).toEqual([]);
+});
+
 test('시스템 로그는 14일, 진단 bucket은 private·암호화·14일 만료를 보장한다', () => {
   for (const name of ['/eks/dev/observability', '/eks/dev/events']) eks.hasResource('AWS::Logs::LogGroup', {
     DeletionPolicy: 'Retain', Properties: { LogGroupName: name, RetentionInDays: 14 },

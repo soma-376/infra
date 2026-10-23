@@ -1,4 +1,4 @@
-import { CfnOutput, Duration, RemovalPolicy, Stack } from 'aws-cdk-lib/core';
+import { ArnFormat, CfnOutput, Duration, RemovalPolicy, Stack } from 'aws-cdk-lib/core';
 import { CfnPodIdentityAssociation } from 'aws-cdk-lib/aws-eks';
 import { PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 import { ILogGroup, LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
@@ -51,7 +51,11 @@ export class DevEksObservability extends Construct {
       actions: ['cloudwatch:ListMetrics', 'cloudwatch:GetMetricData'],
       resources: ['*'], conditions: { StringEquals: { 'aws:RequestedRegion': stack.region } },
     }));
-    const controlPlaneArn = stack.formatArn({ service: 'logs', resource: 'log-group', resourceName: `/aws/eks/${props.clusterName}/cluster:*` });
+    // log-group ARN은 `log-group:<이름>` 형식이다. 기본 `/` 구분자는 `log-group//aws/...`를 만들어 조회가 거부된다.
+    const controlPlaneArn = stack.formatArn({
+      service: 'logs', resource: 'log-group', resourceName: `/aws/eks/${props.clusterName}/cluster:*`,
+      arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+    });
     grafana.addToPolicy(new PolicyStatement({
       actions: ['logs:StartQuery', 'logs:GetLogGroupFields', 'logs:GetLogEvents', 'logs:DescribeLogStreams'],
       resources: [props.applicationLogGroup.logGroupArn, props.brokerLogGroup.logGroupArn, logs.logGroupArn, events.logGroupArn, controlPlaneArn],
