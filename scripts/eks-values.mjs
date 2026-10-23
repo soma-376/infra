@@ -269,7 +269,8 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
       jwt: jwt(false), userAuth: authSettings,
       env: { ...runtime.dashboard.settings, PULSEMETRY_DASHBOARD_PORT: '8081', PULSEMETRY_MANAGEMENT_ENABLED: String(runtime.dashboard.managementEnabled), PULSEMETRY_MAIL_ENABLED: String(runtime.dashboard.mailEnabled), PULSEMETRY_DASHBOARD_RDS_SOURCE_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_DASHBOARD_RDS_CACHE_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_DATABASE: 'default', PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_DATABASE: 'dashboard_cache' }, targetGroupBindings: binding('ValidationDashboardApiTargetGroupArn'),
     },
-    'clickhouse.yaml': { vpcId, availabilityZone: zone, observability: { enabled: true }, targetGroupBindings: binding('ValidationClickhouseTargetGroupArn') },
+    // 구 CDK output으로도 먼저 Helm TGB를 제거할 수 있다. ClickHouse 공개 TG 참조는 소비하지 않는다. (ADR-0038)
+    'clickhouse.yaml': { availabilityZone: zone, observability: { enabled: true } },
     'fluent-bit.yaml': { env: [{ name: 'AWS_REGION', value: region }, { name: 'APPLICATION_LOG_GROUP', value: required('ApplicationLogGroupName') }, { name: 'OBSERVABILITY_LOG_GROUP', value: required('ObservabilityLogGroupName') }, { name: 'CLUSTER_NAME', value: clusterName }] },
     'ascp.yaml': { awsRegion: region },
     'observability.yaml': { global: { pulsemetry: {
@@ -289,8 +290,8 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
       return [name, path.reduceRight((value, key) => ({ [key]: value }), { relabelings })];
     })) },
   };
-  const groups = ['ValidationEnrollmentApiTargetGroupArn', 'ValidationTelemetryIngestTargetGroupArn', 'ValidationClickhouseTargetGroupArn', 'ValidationDashboardApiTargetGroupArn', 'ValidationTelemetryGatewayTargetGroupArn'].map(required);
-  if (new Set(groups).size !== groups.length) throw new Error('다섯 검증 TG ARN은 서로 달라야 한다');
+  const groups = ['ValidationEnrollmentApiTargetGroupArn', 'ValidationTelemetryIngestTargetGroupArn', 'ValidationDashboardApiTargetGroupArn', 'ValidationTelemetryGatewayTargetGroupArn'].map(required);
+  if (new Set(groups).size !== groups.length) throw new Error('네 앱 TG ARN은 서로 달라야 한다');
   if (required('ApplicationLogGroupName') !== '/eks/dev/application') throw new Error('ApplicationLogGroupName이 런타임 계약과 다르다');
   return values;
 }

@@ -291,7 +291,7 @@ function checkClickhouse(documents) {
   assert.equal(claim.spec.resources.requests.storage, '50Gi');
   assert.deepEqual(claim.spec.accessModes, ['ReadWriteOnce']);
   assert.deepEqual(container.volumeMounts, [{ name: 'data', mountPath: '/var/lib/clickhouse' }]);
-  checkBindings(documents, 'clickhouse', 'ip');
+  assert.equal(documents.filter(document => document.kind === 'TargetGroupBinding').length, 0);
 }
 
 function checkSchema(documents) {
@@ -876,10 +876,7 @@ try {
   allDocuments.push(...checkTelemetry(chart));
   allDocuments.push(...checkKafkaAdmin());
   const clickhouseChart = 'helm/dev/workloads/clickhouse';
-  const clickhouseValues = {
-    availabilityZone: 'ap-northeast-2a', vpcId: 'vpc-0123456789abcdef0',
-    targetGroupBindings: [binding('validation', 'clickhouse-v'), binding('canary', 'clickhouse-c')],
-  };
+  const clickhouseValues = { availabilityZone: 'ap-northeast-2a' };
   const clickhouse = render('clickhouse', clickhouseChart, clickhouseValues);
   checkClickhouse(clickhouse);
   allDocuments.push(...clickhouse);
@@ -889,8 +886,13 @@ try {
   rejects('clickhouse', clickhouseChart, { ...clickhouseValues, storage: { size: '20Gi' } });
   rejects('clickhouse', clickhouseChart, { ...clickhouseValues, replicaCount: 2 });
   rejects('clickhouse', clickhouseChart, { ...clickhouseValues, image: 'clickhouse/clickhouse-server:latest' });
-  rejects('clickhouse', clickhouseChart, { ...clickhouseValues, targetGroupBindings: [binding('validation', 'same'), binding('canary', 'same')] });
-  rejects('clickhouse', clickhouseChart, { ...clickhouseValues, vpcId: '' });
+  // 구 generated values를 조용히 무시하면 공개 TG 정리가 누락될 수 있으므로 빈 값도 거부한다.
+  for (const targetGroupBindings of [[], [binding('validation', 'clickhouse-v')]]) {
+    rejects('clickhouse', clickhouseChart, { ...clickhouseValues, targetGroupBindings });
+  }
+  for (const vpcId of ['', 'vpc-0123456789abcdef0']) {
+    rejects('clickhouse', clickhouseChart, { ...clickhouseValues, vpcId });
+  }
   rejects('clickhouse', clickhouseChart, clickhouseValues, 'default');
   allDocuments.push(...checkObservability(chart, clickhouseChart, clickhouseValues));
   checkSchema(allDocuments);

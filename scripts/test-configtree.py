@@ -12,6 +12,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 BOOT = "4.1.0"
 KOTLIN = "2.3.21"
+PRICING_SOURCE = "libs/telemetry-adapter/src/main/kotlin/com/team376/pulsemetry/telemetry/adapter/observation/pricing/CodeburnReferencePrices.kt"
 # backend BOM과 compiler의 고정 runtime 의존성만 사용한다.
 ARTIFACTS = [
     ("org.springframework.boot", "spring-boot", BOOT),
@@ -58,19 +59,25 @@ def validate(args, backend):
         backend / "apps/enrollment-api/src/main/kotlin/com/team376/pulsemetry/enrollment/config/PulsemetryProperties.kt",
         backend / "apps/telemetry-ingest/src/main/kotlin/com/team376/pulsemetry/telemetry/config/TelemetryIngestProperties.kt",
     ]
+    pricing_source = backend / PRICING_SOURCE
+    pricing_version = re.search(r'^\s*public const val VERSION:\s*String\s*=\s*"([A-Za-z0-9._-]+)"\s*$', pricing_source.read_text(), re.M)
+    if not pricing_version:
+        raise RuntimeError("CodeburnReferencePrices.VERSION이 단순 문자열 상수인지 재검토가 필요하다")
     yaml_paths = [backend / ("apps/" + app + "/src/main/resources/application.yaml") for app in ("enrollment-api", "telemetry-ingest")]
     # 이 source snapshot 자체를 수정하지 않고 hash로 재현 대상을 기록한다.
-    for source in [*source_paths, *yaml_paths]:
+    for source in [*source_paths, pricing_source, *yaml_paths]:
         print(str(source.relative_to(backend)) + " sha256=" + hashlib.sha256(source.read_bytes()).hexdigest())
 
     with tempfile.TemporaryDirectory(prefix="pulsemetry-configtree-") as temp_dir:
         temp = Path(temp_dir)
         classes = temp / "classes"
         classes.mkdir()
-        # DTO의 네트워크 클라이언트 기본 상수만 격리한다. DB/HTTP/AWS 구현은 로딩하지 않는다.
+        # DTO의 네트워크 기본 상수와 참조 가격 버전만 격리한다. DB/HTTP/AWS·가격 계산 구현은 로딩하지 않는다.
+        # 가격 버전은 실제 backend 소스에서 읽는다. configtree 바인딩에 불필요한 가격표·카탈로그 의존은 추가하지 않는다.
         defaults = {
             "ClickHouseHttpClient.java": 'package com.team376.pulsemetry.persistence.telemetry; import java.time.Duration; public class ClickHouseHttpClient { public static final String DEFAULT_DATABASE = "default"; public static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(30); }',
             "OtlpIngestHandler.java": 'package com.team376.pulsemetry.telemetry.collector; public class OtlpIngestHandler { public static final long DEFAULT_MAX_DECOMPRESSED_BYTES = 104857600L; }',
+            "CodeburnReferencePrices.java": 'package com.team376.pulsemetry.telemetry.adapter.observation.pricing; public class CodeburnReferencePrices { public static final String VERSION = "' + pricing_version.group(1) + '"; }',
         }
         for name, source in defaults.items():
             (temp / name).write_text(source)
@@ -139,7 +146,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--backend", type=Path, default=ROOT.parent / "pulsemetry-backend")
-    source.add_argument("--fetch-ref", help="GitHub에서 읽을 immutable backend commit SHA (소스 파일 5개만 임시 저장)")
+    source.add_argument("--fetch-ref", help="GitHub에서 읽을 immutable backend commit SHA (소스 파일 6개만 임시 저장)")
     parser.add_argument("--gradle-cache", type=Path, default=Path(os.environ.get("GRADLE_USER_HOME", str(Path.home() / ".gradle"))) / "caches/modules-2/files-2.1")
     args = parser.parse_args()
     if not args.fetch_ref:
@@ -153,6 +160,7 @@ def main():
         "apps/telemetry-ingest/src/main/resources/application.yaml",
         "apps/enrollment-api/src/main/kotlin/com/team376/pulsemetry/enrollment/config/PulsemetryProperties.kt",
         "apps/telemetry-ingest/src/main/kotlin/com/team376/pulsemetry/telemetry/config/TelemetryIngestProperties.kt",
+        PRICING_SOURCE,
     ]
     with tempfile.TemporaryDirectory(prefix="pulsemetry-backend-source-") as source_dir:
         backend = Path(source_dir)
