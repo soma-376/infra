@@ -61,7 +61,7 @@ safepoint 줄은 부하에 비례해 늘어나므로 dev 상시 운영에서는 
 |---|---|---|
 | Gateway/ingest | ClusterIP `*-metrics:9404/actuator/prometheus` | scrape UP, `environment`·`cluster`·`service` label, business port에서 actuator 접근 차단 |
 | ClickHouse | `clickhouse-metrics:9363/metrics` | native metrics/events/async/errors 노출, 기존 8123 health/적재 정상 |
-| MSK | 실제 broker DNS 3개 × JMX11001/node11002 | exporter 6 target UP, broker 별 지표 존재 |
+| MSK | 실제 broker DNS 3개 × JMX11001(60초)/node11002(10초) | 6 target 발견, broker별 최근 15분 수집 성공률(`pulsemetry:msk_scrape_success:ratio15m`), broker 별 지표 존재 |
 | Kubernetes | kubelet/cAdvisor·kube-state-metrics·node-exporter | 앱/CH/관측 노드 전부 관측, restart/termination reason 지표 |
 | 앱/CH 로그 | Fluent Bit → `/eks/dev/application` | 원문 `log`와 `kubernetes.*` metadata 동시 존재 |
 | 관측 스택/Fluent Bit 로그 | Fluent Bit → `/eks/dev/observability` | 관측 taint 노드에서도 전송 |
@@ -89,6 +89,55 @@ MSK는 broker 로그 그룹에서 시간 범위를 먼저 좁히고 `@logStream`
 컨트롤러 선출·스토리지 오류와 같은 메시지를 broker별 UP/디스크/ISR 지표에 대조한다. MSK 운영 이벤트와
 AWS Health/CloudTrail 조회가 추가로 필요할 수 있다. broker 로그만으로 AWS 내부 장애 원인 전체를 확정하지 않는다.
 MSK INFO를 유지하며 부하 측정 중 DEBUG/TRACE를 켜지 않는다.
+
+## 수집 상태와 빈 패널 읽기 (PROJ-255)
+
+`수집 경로와 k6` 첫 행의 표가 구성요소별 상태를 보인다. 값은 `pulsemetry:collection_state` rule이다.
+
+| 상태 | 의미 | 다음 조치 |
+|---|---|---|
+| 정상 | 기대 target이 모두 UP | 패널이 비면 선택 기간에 해당 이벤트가 없는 것이다 |
+| 일부 실패 | 일부 target down, MSK는 3개 미만 | 해당 target의 `lastError`와 성공률 확인 |
+| 전체 실패 | target은 있으나 모두 down | Service·port·NetworkPolicy·SG 확인 |
+| 대상 없음 | target 자체가 없음 | workload 배포·`metrics.enabled`·ServiceMonitor label 확인 |
+| 최근 수신 없음 | k6 표본이 최근 5분에 없음 | 실행 여부·remote-write 경로 확인 |
+
+- 앱 패널의 `값 없음 · 첫 화면 수집 상태 확인`은 위 표에서 구성요소가 정상인지 먼저 보라는 뜻이다.
+- Pipeline 맨 위 `현재 ingest 모드`가 `http`면 Kafka 소비 패널(Consumer·lag·commit)은 해당 없음이다.
+  모드는 telemetry-ingest Pod annotation `pulsemetry.io/ingest-mode`를 ServiceMonitor가 `ingest_mode` label로 옮긴 값이다.
+  이 annotation을 처음 적용하면 ingest Pod가 한 번 재생성된다.
+- MSK JMX(11001)는 10초 간격에서 HTTP 429로 broker별 표본 약 1/3을 거부했다(2026-10-23). 60초로 늘린 뒤에도
+  성공률이 1 미만이면 JMX 패널 값은 마지막 성공 표본이다. MSK node exporter는 `node_memory_*`·`node_network_*`를 내지 않아
+  메모리·수신량은 CloudWatch `MemoryUsed`·`MemoryFree`·`BytesInPerSec`으로 본다. offline partition은 CloudWatch 값이 기준이다.
+
+### k6 지표 확인
+
+앱 노드 SG에서 관측 SG로 가는 규칙이 없으므로 클러스터 안 k6는 Prometheus remote-write에 닿지 않는다.
+운영자 PC에서 Prometheus를 port-forward하고 [관측 차트 안내](../../helm/observability/README.md#k6-연결과-로컬-검증)의 명령으로
+짧고 낮은 부하를 보낸다.
+
+```bash
+kubectl -n pulsemetry-observability port-forward svc/pulsemetry-monitoring-prometheus 9090:9090
+```
+
+실행 뒤 수집 경로와 k6에서 testid와 실행 구간을 골라 요청량·native histogram p95를 본다.
+
+## PROJ-255 live 적용 순서
+
+변경 단위마다 diff를 남기고 이전 revision·digest로 돌아갈 수 있게 한 뒤 하나씩 적용한다.
+
+1. **기준선**: Helm list/values/manifest, Pod imageID, PVC UID·PV·volume ID, target health, Grafana datasource UID를
+   접근 제한된 실행 디렉터리에 저장한다. telemetry JWT Secret 값 등록 여부와 ALB 대상·`ingestMode`도 기록한다.
+2. **Grafana 로그 권한(G1)**: DevEksStack diff가 Grafana 역할 정책의 control-plane ARN 변경뿐인지 확인한 뒤 배포한다.
+   System Diagnostics의 EKS control-plane 로그가 AccessDenied 없이 조회되는지 본다.
+3. **ClickHouse exporter(G3)**: `observability.enabled=true`로 갱신한다. 단일 replica가 재시작하므로 data PVC 유지와
+   8123 health·기존 데이터 조회를 먼저 확인한다.
+4. **Gateway·ingest(G2)**: 검증한 digest와 generated values로 갱신한다. 9404 target UP과 무트래픽 gauge·counter를 확인한다.
+5. **Fluent Bit(G4)**: static → generated 순서로 갱신한다. 새 로그에 원문 `log`와 `kubernetes.*`가 함께 있는지,
+   관측 로그 그룹에 stream이 생기는지 본다. tail DB 첫 도입의 재전송 구간을 기록한다.
+6. **관측 차트(G5·G7)**: 대시보드·rule·MSK 간격을 반영한다. 30분 이상 broker별 성공률과 429 빈도를 기록한다.
+7. **소량 E2E·k6(G6)**: 내부 Gateway 소량 요청의 publish ACK·소비·commit·ClickHouse 저장을 따로 대조하고 k6 smoke를 보낸다.
+8. **전수 재점검(G8)**: 기준선 패널마다 이전·이후 상태와 남은 조치를 남긴다.
 
 ## 로그 손실 경계와 회귀 검증
 
@@ -212,7 +261,7 @@ max by (job) (max_over_time(scrape_samples_scraped{job=~"msk-(jmx|node)"}[1h]))
 ```
 
 1)이 비어 있으면 `NodeDataDiskSpaceLow`가 울릴 수 없다. node-exporter의 mount/fs-type 제외 설정을 먼저 고친다.
-2)의 duration이 timeout 5초의 절반을 넘으면 주기를 늘린다. `sample_limit`·`body_size_limit`은 실측 최대값에
+2)의 duration이 timeout(JMX 10초, node 5초)의 절반을 넘으면 주기를 늘린다. `sample_limit`·`body_size_limit`은 실측 최대값에
 여유를 둔 값으로 정한다. 응답 크기는 관측 노드에서 broker `:11001/metrics`를 한 번 조회해 bytes를 기록한다.
 
 부하 전 기준선에는 chart/image 버전, 시간대, target 100% UP, broker 3대, Pod/노드 자원, PVC 여유,

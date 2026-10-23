@@ -544,8 +544,10 @@ Gateway도 같은 chart를 사용한다. 앱 전용 mount를 기존 initContaine
 
 ```bash
 npm run build
-# 조건부 Helm suite를 건너뛰지 않도록 실제 Helm 3.22.0 / kubeconform 0.8.0 경로를 사용한다.
-HELM_BIN=/path/to/helm-3.22.0 KUBECONFORM_BIN=/path/to/kubeconform npm test -- --runInBand
+# 조건부 Helm suite를 건너뛰지 않도록 실제 Helm 3.22.0 / kubeconform 0.8.0 / promtool 3.9.1 경로를 사용한다.
+# PROMTOOL_BIN이 없으면 관측 차트 suite(test/helm/observability-stack.test.ts)가 조용히 skip된다.
+# 관측 suite는 먼저 `node scripts/observability-prepare.mjs`로 고정 chart archive를 받아 둔다.
+HELM_BIN=/path/to/helm-3.22.0 KUBECONFORM_BIN=/path/to/kubeconform PROMTOOL_BIN=/path/to/promtool-3.9.1 npm test -- --runInBand
 npm run synth       # prod 기본값
 npm run synth:cicd
 # 원본이 없는 신규 dev 예시다. 기존 dev는 전체 OIDC key 목록을 유지한다.
