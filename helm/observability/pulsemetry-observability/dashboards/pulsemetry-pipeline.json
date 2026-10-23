@@ -193,6 +193,77 @@
   ],
   "panels": [
     {
+      "type": "stat",
+      "title": "현재 ingest 모드",
+      "description": "배포 values의 ingestMode를 Prometheus target label로 읽는다. http면 Kafka listener·lag·commit 패널은 해당 없음이다. dual은 HTTP와 Kafka 소비를 함께, kafka는 Kafka 소비만 한다. 이름이 비어 있으면 모드 annotation이 없는 이전 배포다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pulsemetry-prometheus"
+          },
+          "expr": "count by (ingest_mode) (up{job=\"telemetry-ingest\",cluster=\"$cluster\",namespace=\"$namespace\"})",
+          "legendFormat": "{{ingest_mode}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "미수집 · ingest metrics 대상 없음",
+          "unit": "none",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "name",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      },
+      "id": 10,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 8,
+        "h": 4
+      }
+    },
+    {
+      "type": "text",
+      "title": "모드별로 비는 패널",
+      "options": {
+        "mode": "markdown",
+        "content": "- **http**: Consumer 상태·Commit 기준 lag·재시도 소진·Commit 실패는 Kafka 소비가 없어 해당 없음입니다. 처리 시도·단계 지연은 HTTP 경로 값입니다.\n- **dual·kafka**: 위 패널이 비면 미수집입니다. 첫 화면 수집 상태 표에서 telemetry-ingest가 `정상`인지 먼저 봅니다.\n- 지연 p95는 처리 요청이 없으면 계산되지 않습니다. 빈 구간은 0초가 아닙니다."
+      },
+      "id": 11,
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 16,
+        "h": 4
+      }
+    },
+    {
       "type": "timeseries",
       "title": "시도 결과 / 초",
       "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
@@ -238,7 +309,7 @@
       "id": 1,
       "gridPos": {
         "x": 0,
-        "y": 0,
+        "y": 4,
         "w": 12,
         "h": 8
       },
@@ -296,7 +367,7 @@
       "id": 2,
       "gridPos": {
         "x": 12,
-        "y": 0,
+        "y": 4,
         "w": 12,
         "h": 8
       },
@@ -354,7 +425,7 @@
       "id": 3,
       "gridPos": {
         "x": 0,
-        "y": 8,
+        "y": 12,
         "w": 12,
         "h": 8
       },
@@ -412,7 +483,7 @@
       "id": 4,
       "gridPos": {
         "x": 12,
-        "y": 8,
+        "y": 12,
         "w": 12,
         "h": 8
       },
@@ -470,7 +541,7 @@
       "id": 5,
       "gridPos": {
         "x": 0,
-        "y": 16,
+        "y": 20,
         "w": 12,
         "h": 8
       },
@@ -485,7 +556,7 @@
     {
       "type": "timeseries",
       "title": "재시도 소진",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+      "description": "재시도 소진·commit 실패 counter는 실패 전부터 0으로 노출된다. 빈 시계열은 미수집이다. ingest 모드가 http면 Kafka 소비가 없어 해당 없음이다(맨 위 모드 패널).",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -528,7 +599,7 @@
       "id": 6,
       "gridPos": {
         "x": 12,
-        "y": 16,
+        "y": 20,
         "w": 12,
         "h": 8
       },
@@ -543,7 +614,7 @@
     {
       "type": "timeseries",
       "title": "Commit 실패",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+      "description": "재시도 소진·commit 실패 counter는 실패 전부터 0으로 노출된다. 빈 시계열은 미수집이다. ingest 모드가 http면 Kafka 소비가 없어 해당 없음이다(맨 위 모드 패널).",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -586,7 +657,7 @@
       "id": 7,
       "gridPos": {
         "x": 0,
-        "y": 24,
+        "y": 28,
         "w": 12,
         "h": 8
       },
@@ -601,7 +672,7 @@
     {
       "type": "timeseries",
       "title": "Commit 기준 총 lag · 60초",
-      "description": "CloudWatch 60초, commit 기준 offset lag. STABLE/EMPTY 및 commit된 offset이 있어야 방출된다. rebalance·미수집을 0으로 해석하지 않는다. Kafka record 수이며 OTLP 관측 행 수와 다르다.",
+      "description": "CloudWatch 60초, commit 기준 offset lag. STABLE/EMPTY 및 commit된 offset이 있어야 방출된다. rebalance·미수집을 0으로 해석하지 않는다. Kafka record 수이며 OTLP 관측 행 수와 다르다. ingest 모드가 http면 Kafka 소비가 없어 해당 없음이다(맨 위 모드 패널).",
       "datasource": {
         "type": "cloudwatch",
         "uid": "pulsemetry-cloudwatch"
@@ -651,7 +722,7 @@
       "id": 8,
       "gridPos": {
         "x": 12,
-        "y": 24,
+        "y": 28,
         "w": 12,
         "h": 8
       },
@@ -666,7 +737,7 @@
     {
       "type": "timeseries",
       "title": "Consumer 상태 (listener 실행·처리 중 record)",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다. listener 1은 Kafka listener container가 실행 중이고 처리 중 0은 대기다. listener 0이 이어지면 HTTP liveness 재시작과 함께 본다.",
+      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다. listener 1은 Kafka listener container가 실행 중이고 처리 중 0은 대기다. listener 0이 이어지면 HTTP liveness 재시작과 함께 본다. ingest 모드가 http면 Kafka 소비가 없어 해당 없음이다(맨 위 모드 패널).",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -715,7 +786,7 @@
       "id": 9,
       "gridPos": {
         "x": 0,
-        "y": 32,
+        "y": 36,
         "w": 12,
         "h": 8
       },

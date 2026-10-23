@@ -179,6 +179,8 @@ for (const name of ['telemetry-gateway','telemetry-ingest','clickhouse']) {
   for (const [targetLabel,replacement] of [['cluster','fixture-eks'],['environment','dev'],['service',name]]) {
     assert.ok(endpoint.relabelings.some(x => x.targetLabel===targetLabel && x.replacement===replacement));
   }
+  const mode = endpoint.relabelings.filter(x => x.targetLabel === 'ingest_mode');
+  assert.deepEqual(mode.map(x => x.sourceLabels), name === 'telemetry-ingest' ? [['__meta_kubernetes_pod_annotation_pulsemetry_io_ingest_mode']] : [], `${name}: ingest_mode relabel`);
 }
 const arm64 = JSON.parse(readFileSync(resolve(fixtures,'fixtures/arm64-images.json'),'utf8'));
 assert.equal(arm64.status,'PASS'); assert.equal(arm64.images.length,8);

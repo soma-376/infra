@@ -30,6 +30,11 @@ spec:
           replacement: {{ $.Values.global.pulsemetry.clusterName | quote }}
         - targetLabel: environment
           replacement: {{ $.Values.global.pulsemetry.environment | quote }}
+        {{- if eq $name "telemetry-ingest" }}
+        # http 모드에서는 Kafka listener·lag·commit 지표가 해당 없다. 배포 values의 모드를 지표에 붙여 구분한다.
+        - sourceLabels: [__meta_kubernetes_pod_annotation_pulsemetry_io_ingest_mode]
+          targetLabel: ingest_mode
+        {{- end }}
       metricRelabelings:
         - action: labeldrop
           regex: 'request_id|trace_id|tenant_id|member_id|installation_id|run_id|exception_message'

@@ -73,6 +73,10 @@ spec:
         {{- if $telemetry.enabled }}
         pulsemetry.io/telemetry-jwt-revision: {{ $telemetry | toJson | sha256sum | quote }}
         {{- end }}
+        {{- /* Prometheus가 target label ingest_mode로 옮겨 HTTP 모드의 Kafka 패널을 "해당 없음"으로 구분한다. selector label은 바꾸지 않는다. */}}
+        {{- if and (eq .Values.workload "telemetry-ingest") .Values.ingestMode }}
+        pulsemetry.io/ingest-mode: {{ .Values.ingestMode | quote }}
+        {{- end }}
       labels:
         {{- include "pulsemetry.app.selector" . | nindent 8 }}
     spec:
