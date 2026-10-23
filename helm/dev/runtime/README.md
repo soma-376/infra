@@ -64,6 +64,9 @@ node scripts/eks-values.mjs \
   --msk-nodes /secure/msk-nodes.json
 ```
 
+runtime-values의 `platformTracing: {enabled: true, sampleProbability: 0.1}`(선택)은 Gateway·ingest에 플랫폼 trace 설정을 넣는다(ADR-0039).
+Fluent Bit의 Loki 병행 출력은 정적 values 다음에 `fluent-bit-loki-values.yaml`을 더해 켠다.
+
 이미지 네 개는 모두 `<repository>@sha256:<digest>` 형식이다. `--msk-bootstrap`·`--msk-nodes`는
 `get-bootstrap-brokers`·`list-nodes` 원본 JSON이며 조회 명령은 EKS 런북 §2-2에 있다.
 

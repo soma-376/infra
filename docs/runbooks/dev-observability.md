@@ -140,6 +140,46 @@ kubectl -n pulsemetry-observability port-forward svc/pulsemetry-monitoring-prome
 7. **소량 E2E·k6(G6)**: 내부 Gateway 소량 요청의 publish ACK·소비·commit·ClickHouse 저장을 따로 대조하고 k6 smoke를 보낸다.
 8. **전수 재점검(G8)**: 기준선 패널마다 이전·이후 상태와 남은 조치를 남긴다.
 
+## PROJ-256 Loki·Tempo·플랫폼 trace 적용 (ADR-0039, Proposed)
+
+PROJ-255 live 적용이 끝난 뒤 진행한다. 각 단계는 diff를 보고 하나씩 적용하며 이전 revision·digest를 기록한다.
+
+| 단계 | 적용 | 확인 |
+|---|---|---|
+| 1 | DevNetworkStack diff → 배포(apps·ClickHouse → 관측 3100, apps → 관측 4318만 추가) | 다른 SG 변경 없음 |
+| 2 | 관측 NodePool 여유 확인. 세 release request 합계 600m·1280Mi, PVC 41Gi | 한 노드에 안 들어가면 노드가 늘어난다. 비용·AZ를 기록 |
+| 3 | `loki` → `tempo` → `otel-platform` 순서로 설치(아래 명령) | PVC Bound·Pod Ready·고정 digest |
+| 4 | 관측 차트 upgrade(datasource 4개·Traces 대시보드·ServiceMonitor·rule) | Grafana Recreate 뒤 로그인·기존 Prometheus/CloudWatch, Loki·Tempo health |
+| 5 | Fluent Bit: 정적 values → `fluent-bit-loki-values.yaml` → generated | 새 로그가 CloudWatch와 Loki 양쪽에 보인다 |
+| 6 | tracing 이미지(backend ADR 0069) digest와 runtime-values `platformTracing: {enabled: true, sampleProbability: 1}`로 Gateway·ingest 갱신 | 소량 요청의 trace·Kafka commit·ClickHouse 저장 대조 |
+| 7 | `sampleProbability`를 생략(0.1)해 다시 갱신하고 30분 관찰 | export 오류·queue·OOM·PVC 증가 없음 |
+
+```bash
+node scripts/observability-prepare.mjs
+for release in loki tempo otel-platform; do
+  helm upgrade --install "$release" "helm/observability/$release" -n pulsemetry-observability --wait --timeout 10m
+done
+```
+
+세 release는 계정·클러스터별 값이 없어 generated values 없이 설치한다. `--atomic`이나 실패 시 자동 제거에 기대지 않는다.
+PVC는 Retain이라 uninstall·rollback으로 지워지지 않는다.
+
+- 주소: Loki `pulsemetry-loki.pulsemetry-observability.svc:3100`, Tempo 조회 `:3200`·수신 `:4317`, Collector `pulsemetry-otel-platform.pulsemetry-observability.svc:4318/v1/traces`.
+- Loki label은 `environment, cluster, namespace, service_name, container`다. Pod는 `| json | kubernetes_pod_name=~"..."`로 좁힌다.
+  app label이 없는 Pod는 `service_name` 없이 `container`로 찾는다.
+- Loki 도입 전 로그·Kubernetes Events·EKS control-plane·MSK broker 로그는 CloudWatch에만 있다. 과거 로그를 Loki로 옮기지 않는다.
+- trace는 sampling(기본 10%)과 보존(48h) 때문에 없을 수 있다. trace 부재만으로 처리 실패를 판단하지 않는다.
+
+복구는 단계 역순이다.
+1. trace 문제: runtime-values의 `platformTracing`을 지우고 생성기·앱을 다시 적용한다(앱은 Tracer NOOP으로 돌아간다). Kafka payload·offset·모드는 바꾸지 않는다.
+2. Loki 출력 문제: Fluent Bit을 overlay 없이 정적 → generated로 다시 적용한다. CloudWatch·tail DB·buffer는 그대로다.
+3. Grafana: 이전 관측 chart revision으로 되돌리면 `prune`이 Loki·Tempo datasource를 지운다. 대시보드 링크를 확인한다.
+4. 세 release를 내려도 PVC·데이터를 지우지 않는다. Tempo major downgrade(3→2)는 in-place rollback이 아니다.
+5. 송신이 멈춘 것을 확인한 뒤 SG 규칙을 정리한다.
+
+로컬 검증: `HELM_BIN=... node scripts/observability-platform-trace-validate.mjs`(렌더·digest·보존·예산·실패 입력),
+`HELM_BIN=... node scripts/observability-loki-tempo-smoke.mjs --output <새 파일>`(고정 이미지 왕복·재시작 복구, [증거](../../helm/observability/tests/loki-tempo/local-verification.json)).
+
 ## 로그 손실 경계와 회귀 검증
 
 ClickHouse 24.8은 information 수준 JSON console 로그를 명시하며 file/error file 로그를 제거한다.
