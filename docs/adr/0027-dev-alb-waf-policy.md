@@ -10,6 +10,9 @@ PROJ-159의 PROJ-197·198·199는 문서·CDK·테스트·환경별 synth까지 
 
 [ADR-0029](0029-dev-dashboard-api-ecs-and-eks-deployment.md)이 dashboard의 명시한 경로를 앱 본문/query 검사에 추가한다. 기존 등록 rate 세 조건과 OTLP·나머지 rate, 국가·악성 IP·URI·헤더 차단 및 로그 보호 결정은 유효하다. 이번 문서 채택은 WAF 코드 변경·배포 증거가 아니다.
 
+[ADR 0038](0038-dev-databases-private-access-via-ssm-relay.md)이 ClickHouse 8123 디버깅 listener 유지 가정을 부분 대체한다.
+DB 운영자 접속은 별도 SSM 릴레이를 사용하며 나머지 앱·데이터·환경 경계는 유지한다.
+
 ## Context
 
 dev ALB는 정확한 OTLP 세 경로, `/api/v1` 앱 API, bootstrap·바이너리 다운로드와 ClickHouse

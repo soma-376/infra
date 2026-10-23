@@ -7,6 +7,9 @@
 > 기존 Cognito client secret 원본·수동 등록·EKS 연결은 [OIDC 준비 런북](dev-oidc-prerequisites.md)과
 > [ADR-0032](../adr/0032-dev-oidc-client-secret-runtime-supply.md)의 추가 범위다.
 
+PROJ-254 이후 운영자 DB 연결은 [DB SSM 릴레이 런북](dev-database-access.md)을 따른다.
+아래 DB 계정·권한 준비 절차는 로컬 터널을 먼저 연 뒤 수행하며 공개 RDS/ALB 주소로 직접 접속하지 않는다.
+
 ## 1. 실행 범위와 사전 조건
 
 이 절차는 dev EKS의 계정·키 원본·배포 입력을 준비한다. ADR-0035 이후 ECS runtime은 제거됐다.

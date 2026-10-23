@@ -17,7 +17,19 @@ BFF 단일 프로세스에 맞춰 서비스 desired=1/min=0/max=100이다. 앱 �
 기존 CDK 전용 테스트 규칙은 그대로 유지하고, 새 Terraform은 fmt·validate·mock test로 검증한다.
 기존 CDK 리소스를 Terraform에 import하거나 같은 리소스를 두 도구가 수정하지 않는다.
 실제 apply는 리뷰·머지 후 보호된 CI에서 수행한다. 최초 bootstrap과 이후 bootstrap 변경은 관리자 작업이다.
-다음 미사용 ADR은 **0038**다.
+다음 미사용 ADR은 **0039**다.
+
+## PROJ-254 dev DB 비공개 접근
+
+[ADR 0038](docs/adr/0038-dev-databases-private-access-via-ssm-relay.md)은 RDS의 공개 flag·CIDR ingress와
+ClickHouse 공개 ALB 8123·TG·TGB를 제거한다. `devAllowedCidr`는 앱 ALB에만 적용한다.
+Data에 별도 DB SSM 릴레이 한 대와 `soma-376-dev-db-operator`를 추가하고 Network가 SG 총 9개를 소유한다.
+기존 EKS API 릴레이·역할은 유지하며 DB relay EC2에는 Kubernetes·Secret 권한을 주지 않는다.
+로컬 `scripts/dev-db-tunnel.mjs`는 PostgreSQL 15432→5432, ClickHouse 18123→현재 Pod IP:8123으로 연결한다.
+ClickHouse IP 조회에는 기존 EKS 터널·kubeconfig·EKS 운영자 프로필이 필요하고 Pod 교체 시 다시 실행한다.
+RDS SG description의 `publicly accessible`은 교체 방지용 기존 문자열이며 현재 공개 설정을 뜻하지 않는다.
+TGB를 Helm에서 먼저 제거하고 삭제/finalizer 완료 후 Edge TG를 제거한다. 공개 경로를 되살리는 rollback은 하지 않는다.
+[접속·전환 런북](docs/runbooks/dev-database-access.md)을 따른다. AWS 배포·외부 차단·실제 DB 연결은 미검증이다.
 
 ## PROJ-191 관측 로컬 구현 보충
 
@@ -62,14 +74,15 @@ prod와 별도 frontend Terraform의 ECS는 유지한다. backend workflow의 EC
 계약 정합화는 PROJ-249가 담당한다. **실제 철거는 PROJ-249 완료 후** [철거 런북](docs/runbooks/dev-ecs-retirement.md)을 따른다.
 
 - dev는 Network·Data·Edge·EKS 네 스택이다. ECS·ASG·Cloud Map과 ECS JWT writer 구현은 없다.
-- EKS ALB 1개·TG 5개·WAF association 1개·사용자 정의 SG 8개다. 기존 EKS construct 경로·논리 ID·
-  TG 이름·`Validation*` output을 보존한다. 이름의 validation은 호환 표기다.
+- EKS ALB 1개·TG 4개·WAF association 1개·사용자 정의 SG 9개다. 기존 EKS construct 경로·논리 ID·
+  TG 이름·앱 `Validation*` output을 보존한다. PROJ-254는 ClickHouse TG와 두 관련 output을 제거한다. 이름의 validation은 호환 표기다.
 - RDS·S3·기본 Secret 11개와 OIDC 원본·EKS·Pod Identity·SSM relay·Helm workload/PVC는 유지한다.
 - CDK의 필수 `devOidcClientKeys`는 전체 OIDC 원본 key 목록이며, 없으면 `[]`를 명시한다.
   기존 `oidc.clients[].key` 집합을 그대로 옮긴다. JWT/VersionId/callback/dashboard 설정은 EKS runtime YAML이 소유한다.
 - `devEksEnabled`는 생략/true만 허용하고 false는 거부한다. `devDashboardRuntimeFile`·`devImageTag`·
   `devAppAsgMaxCapacity`·`devCertificateArn`·`devEksApiAllowedCidrs`는 폐기됐으며 남아 있으면 합성 오류다.
-- 기존 EKS 인증서·CIDR·archive prefix·NodePort·생성 YAML을 유지한다. HTTPS의 공개 URL·manifest·
+- 기존 EKS 인증서·CIDR·archive prefix·NodePort·앱 생성 YAML을 유지한다. ClickHouse 생성 YAML의
+  공개 TG 입력 제거는 ADR-0038에 따른다. HTTPS의 공개 URL·manifest·
   Cognito·CLI E2E 정합은 별도 기능 검증이며 HTTP output을 HTTPS 완료 증거로 쓰지 않는다.
 - 실제 삭제는 ECS 앱/ClickHouse 정상 종료 → 운영자 수동 EBS Snapshot completed → Application 스택 삭제 →
   task/ASG/ENI 부재 확인 → Edge 단독 갱신 → Network 단독 갱신 → cicd 권한 회수다. 최초 `deploy --all` 금지.
@@ -98,7 +111,7 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 
 **ADR 우선 원칙은 이 레포의 기존 규칙과 같다** — 1장의 "코드와 ADR이 어긋나면 ADR이 기준이다"가
 전 레포 공통 규칙이며, 크로스레포 결정만 `../docs/adr/`가 소유한다. 스코프 판정은 `adr-new` 스킬이 안내한다.
-단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0038`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
+단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0039`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
 기존 병행 브랜치의 ADR `0028`·`0029`·`0030`은 번호가 겹치므로 파일명과 링크를 보존한다.
 프론트엔드 Terraform 절은 프론트엔드 ADR을, dashboard·EKS·기존 CDK 절은 해당 백엔드 ADR을 가리킨다.
 인용할 때는 번호와 함께 범위·제목 또는 파일 링크를 사용하며, 전체 목록은 [ADR 인덱스](docs/adr/README.md)를 따른다.
@@ -202,9 +215,9 @@ Application 삭제 → Edge → Network 순서가 우선한다. weak 참조는 E
 
 | 스택 | 주요 리소스 |
 |---|---|
-| `DevNetworkStack` | VPC `10.1.0.0/16`, public 2 AZ·MSK isolated 3 AZ·NAT 0·S3 endpoint, RDS·EKS·MSK·관측 SG 총 8개 및 모든 cross-SG 규칙 |
-| `DevDataStack` | RDS PostgreSQL 16.13 `db.t4g.micro`·gp3 20GB, Raw Signal S3 7일, 기본 Secret 11개 + OIDC key 수 |
-| `DevEdgeStack` | 기존 EKS ALB·TG 5개·명시 path/method/OPTIONS·default 404·REGIONAL WAF/로그 |
+| `DevNetworkStack` | VPC `10.1.0.0/16`, public 2 AZ·MSK isolated 3 AZ·NAT 0·S3 endpoint, RDS·EKS·MSK·관측 SG 총 9개 및 모든 cross-SG 규칙 |
+| `DevDataStack` | 비공개 RDS PostgreSQL 16.13 `db.t4g.micro`·gp3 20GB, DB SSM relay·operator, Raw Signal S3 7일, 기본 Secret 11개 + OIDC key 수 |
+| `DevEdgeStack` | 기존 EKS ALB·TG 4개·명시 path/method/OPTIONS·default 404·REGIONAL WAF/로그 |
 | `DevEksStack` | Auto Mode cluster·node/operator/Pod Identity·SSM relay·로그·runtime output |
 
 | workload | 실행 | 포트 / target |
@@ -212,14 +225,14 @@ Application 삭제 → Edge → Network 순서가 우선한다. weak 참조는 E
 | enrollment-api | Helm Deployment | 8080 / NodePort 30080 instance TG |
 | telemetry-ingest | Helm Deployment | 4316 / NodePort 30416 instance TG |
 | dashboard-api | Helm Deployment | 8081 / NodePort 30081 instance TG |
-| clickhouse | Helm StatefulSet·독립 PVC | 8123 / Pod IP TG |
+| clickhouse | Helm StatefulSet·독립 PVC | 8123 / 내부 ClusterIP·DB 릴레이에서 현재 Pod IP |
 
 EKS API는 private 전용이다. SSM relay의 public IPv4는 NAT 없는 subnet의 SSM egress용이며
 노드 직접 접속용이 아니다. Helm은 기존 generated YAML 순서를 유지하고 CDK는 OIDC 원본 key만 선언한다.
 
 dev WAF는 ALB 전체에 적용한다. 국가·악성 IP·URI·헤더 Block, 정확한 OTLP 본문/rate Count·query Block,
 등록 rate 세 조건, 429/Retry-After, 로그 마스킹·sampling 비활성화와 14일 보존을 유지한다.
-`Validation*` output은 EKS 주소/ARN이며 이름을 바꾸지 않는다. 인증서가 없으면 HTTP이고,
+남는 앱 `Validation*` output은 EKS 주소/ARN이며 이름을 바꾸지 않는다. ClickHouse 공개 output은 ADR-0038로 제거한다. 인증서가 없으면 HTTP이고,
 선택적 HTTPS도 인증서 도메인·공개 URL·manifest의 정합과 실제 E2E를 별도로 확인해야 한다.
 
 ### CI/CD 스택 (cicd)
@@ -240,7 +253,7 @@ dev WAF는 ALB 전체에 적용한다. 국가·악성 IP·URI·헤더 Block, 정
 
 | 규칙 | 왜 |
 |---|---|
-| **prod SG 5개와 dev SG 8개 및 모든 cross-SG 룰은 각 `NetworkStack`에만 정의한다** | SG 참조가 스택 내부 참조가 되어 스택 간 순환 의존을 원천 차단한다. 하류 스택은 props로 주입만 받는다. (`lib/prod/network-stack.ts`의 클래스 헤더 주석. `DevNetworkStack`이 같은 규칙을 그대로 계승한다 - ADR-0022 2번) |
+| **prod SG 5개와 dev SG 9개 및 모든 cross-SG 룰은 각 `NetworkStack`에만 정의한다** | SG 참조가 스택 내부 참조가 되어 스택 간 순환 의존을 원천 차단한다. 하류 스택은 props로 주입만 받는다. (`lib/prod/network-stack.ts`의 클래스 헤더 주석. `DevNetworkStack`이 같은 규칙을 그대로 계승한다 - ADR-0022 2번) |
 | **ECR 레포를 CDK로 만들지 않는다** | `Repository.fromRepositoryName`으로 참조만 한다. CDK가 만들면 첫 배포에서 "이미지 없는 레포" → 태스크 기동 실패 → 롤백으로 레포까지 삭제되는 순환이 생긴다. (ADR-0007) |
 | **ECR 레포 이름은 `soma-376/` 네임스페이스 아래에 둔다** | 네임스페이스는 `COMMON_TAGS.Org`와 같은 값이다. 비용 배분 태그 축과 레지스트리 경로를 같은 식별자로 정렬한다. ECR은 레포 이름 변경이 불가능해 사후 교정에 재생성 + 이미지 재push가 든다. (`lib/common/config.ts`의 `ECR_NAMESPACE`, ADR-0007) |
 | **prod `batch-processor`는 `essential: false`** | 배치 실패가 같은 태스크의 api-server를 함께 내리면 안 된다. dev 최종 구성에는 두 컨테이너가 없다. (`lib/prod/application-stack.ts`, ADR-0004, ADR-0026) |
@@ -271,8 +284,8 @@ dev WAF는 ALB 전체에 적용한다. 국가·악성 IP·URI·헤더 Block, 정
 | 규칙 | 이유 |
 |---|---|
 | `lib/prod/`와 `lib/dev/` 상호 import 금지 | common 방향 의존만 유지 |
-| Network가 사용자 정의 SG 8개와 모든 cross-SG 규칙 소유 | 순환 참조·하류의 자동 SG 변경 방지 |
-| EKS ALB/TG·WAF·relay·Data 논리 ID와 기존 속성 보존 | ECS 제거에 무관한 리소스 교체 방지 |
+| Network가 사용자 정의 SG 9개와 모든 cross-SG 규칙 소유 | 순환 참조·하류의 자동 SG 변경 방지 |
+| EKS 앱 ALB/TG·WAF·기존 relay·Data 논리 ID 보존 | ECS 제거에 무관한 리소스 교체 방지. PROJ-254의 RDS 공개 flag·DB 규칙·ClickHouse TG 삭제는 ADR-0038에 따름 |
 | Data Secret 기본 11개·Grafana Secret 1개·OIDC key별 원본 수명 보존 | 기존 원본·Retain·고정 ARN과 실제 값은 런타임 수명과 별개 |
 | OIDC client 전체 key 집합을 명시 | 입력 누락으로 원본 관리·output·IAM이 사라지는 것을 방지 |
 | enrollment는 JWT 두 원본, dashboard는 공개키만, ingest는 JWT 권한 없음 | 최소 권한 유지 |
@@ -296,7 +309,7 @@ dev WAF는 ALB 전체에 적용한다. 국가·악성 IP·URI·헤더 Block, 정
 | prod | `edgeMode`, `certificateArn`, `customDomain` | 기존 모드 A/B와 외부 TLS 입력 유지 |
 | dev | `devOidcClientKeys` | 필수 배열; CLI JSON 배열 문자열. 없으면 명시적 `[]` |
 | dev | `devEksEnabled` | 생략/true만 허용. false 거부 |
-| dev | `devAllowedCidr` | `0.0.0.0/0`; ALB/RDS ingress. 제한된 실제 CIDR 권장 |
+| dev | `devAllowedCidr` | `0.0.0.0/0`; 앱 ALB 80/선택적 443 ingress. DB에는 적용하지 않음 |
 | dev | `devEksCertificateArn` | 선택적 EKS ALB 외부 ACM ARN |
 | dev | `devHttpRedirectEnabled` | true; 인증서가 있을 때 별도 HTTP 301 listener |
 | dev | `devEksArchivePrefix` | `eks_validation`; `eks`도 지원. 기존 배포 값 유지 |
@@ -419,7 +432,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0038`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급, `0033`은 외부 ACM 기반 dev HTTPS, `0034`는 dev EKS SSM 릴레이 접근, `0035`는 MSK 배치와 dev EKS 전용 전환, `0036`은 telemetry Gateway·MSK IAM과 임시 blocked.certs 공급, `0037`은 관측 구성으로 이미 쓰였다. `0020`은 프론트엔드 로그 정책이며, 프론트엔드 `0028`·`0029`·`0030`은 각각 Terraform 실행 환경·외부 DNS와 기존 인증서·독립 기반 상태를 다룬다. 중복 번호는 [ADR 인덱스](docs/adr/README.md)의 제목과 파일 링크로 구분하고, 기존 CDK 로그 정책 미결 사항은 위 (F)를 따른다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0039`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급, `0033`은 외부 ACM 기반 dev HTTPS, `0034`는 dev EKS SSM 릴레이 접근, `0035`는 MSK 배치와 dev EKS 전용 전환, `0036`은 telemetry Gateway·MSK IAM과 임시 blocked.certs 공급, `0037`은 관측 구성으로 이미 쓰였다. `0020`은 프론트엔드 로그 정책이며, 프론트엔드 `0028`·`0029`·`0030`은 각각 Terraform 실행 환경·외부 DNS와 기존 인증서·독립 기반 상태를 다룬다. 중복 번호는 [ADR 인덱스](docs/adr/README.md)의 제목과 파일 링크로 구분하고, 기존 CDK 로그 정책 미결 사항은 위 (F)를 따른다.
    형식은 `docs/adr/0000-adr-template.md`를 따른다.
 3. 상수는 **"이 값이 dev에서 달라야 할 이유가 있는가"**로 위치를 정한다 — 없으면 `lib/common/config.ts`, 운영 전용이면 `lib/prod/config.ts`, dev 전용이면 `lib/dev/config.ts`. 스택에서는 import만 한다 (4장).
 4. `test/prod/*.test.ts` / `test/dev/*.test.ts` / `test/cicd/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`(prod), `buildDevApp()`(dev), `buildCicdApp()`(cicd)를 재사용한다.
@@ -429,7 +442,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 
 - 이 레포 자체의 `npm test`/`cdk synth` CI가 없다. DeployStack은 앱 레포 배포 권한이며 infra 검증 CI가 아니다.
 - `.DS_Store`가 루트, `.github/`, `docs/`에 남아 있다.
-- `devAllowedCidr=0.0.0.0/0`이면 비밀번호 없는 ClickHouse `:8123`과 RDS `:5432`가 인터넷에 열린다. synth 경고를 무시하지 않는다.
+- PROJ-254·ADR-0038은 DB 공개 경로를 제거한다. `devAllowedCidr=0.0.0.0/0`의 앱 ALB 공개 경고는 유지한다. 실제 AWS 차단·DB 릴레이 접속·앱 연결은 별도 검증한다.
 - dev RDS와 prod Aurora 모두 `StorageEncrypted`를 명시하지 않는다. prod 전환 때 removal policy와 함께 검토한다.
 - `/app/binaries`의 실제 설치 파일 공급은 이 레포 범위가 아니다. URL과 rule만 있어도 설치 E2E는 완료되지 않는다.
 - PROJ-238은 dev HTTPS listener와 외부 ACM 참조를 로컬 구현한다. 실제 인증서·도메인·DNS·공개 URL·manifest 정합과 원격 OTLP E2E는 미완료이며 backend·telemetryctl·Schema 계약을 HTTP 허용으로 낮추지 않는다.
@@ -628,7 +641,7 @@ diff /tmp/before/NetworkStack.template.json /tmp/after/NetworkStack.template.jso
 
 **dev 테스트가 고정하는 핵심 계약**
 
-- 네 스택, ECS/ASG/Cloud Map 0개, ALB 1개/TG 5개/WAF association 1개/SG 8개.
+- 네 스택, ECS/ASG/Cloud Map 0개, ALB 1개/TG 4개/WAF association 1개/SG 9개.
 - Data/EKS·ALB/TG/WAF의 보존 리소스 논리 ID·속성 및 output 호환.
 - OIDC 전체 key의 정규화·중복/누락/형식 검증, 기존 Secret/IAM 원본 유지.
 - EKS 고정 버전의 JWT/OIDC 공급·권한·configtree·runtime/workload 경계.

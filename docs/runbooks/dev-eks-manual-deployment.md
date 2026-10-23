@@ -28,6 +28,9 @@
 > PROJ-253의 dev JVM 임시 차단 목록 공급은 [ADR-0036](../adr/0036-dev-jvm-blocked-certs-configmap.md)과
 > §12를 따른다. Gateway를 포함한 네 앱의 실제 배포 이미지로 사전 검증한다.
 
+> PROJ-254의 기존 DB 공개 경로 전환은 [DB 릴레이 런북](dev-database-access.md)을 먼저 따른다.
+> 전체 CDK 배포 전에 ClickHouse TGB를 Helm에서 제거해야 한다. 이후 ClickHouse 공개 ALB ping은 사용하지 않는다.
+
 ## 1. 실행 범위와 사전 조건
 
 **실행 checkout 조건:** ADR-0035의 EKS 전용 코드와 기존 dashboard·JWT·OIDC·SSM relay 구현을 포함한다.
@@ -335,8 +338,9 @@ TLS·Kubernetes 권한 성공을 기록하지 않는다. live 수락 기록에�
 | EksClusterName, EksRegion, EksVpcId | LBC 및 앱 TGB |
 | EksOperatorRoleArn, EksOperatorRoleName | 계정 IAM의 AssumeRole 권한 지정과 kubeconfig 인증 |
 | EksRelayInstanceId, EksRelaySessionDocumentName | operator 프로필의 SSM 터널 대상과 전용 문서 (`soma-376-dev-eks-api-tunnel`) |
+| DbRelayInstanceId, DbOperatorRoleArn, DbRelayPostgresSessionDocumentName, DbRelayClickHouseSessionDocumentName (`DevDataStack`) | 로컬 DB 터널 helper |
 | DbEndpoint, DbSecretArn, TokenHashSecretArn, AdminApiTokenSecretArn, RawSignalBucketName, ArchivePrefix | runtime/앱 values |
-| ValidationPublicBaseUrl, ValidationTelemetryIngestTargetGroupArn, ValidationEnrollmentApiTargetGroupArn, ValidationClickhouseTargetGroupArn, ValidationDashboardApiTargetGroupArn | 검증 앱/TGB |
+| ValidationPublicBaseUrl, ValidationTelemetryIngestTargetGroupArn, ValidationEnrollmentApiTargetGroupArn, ValidationDashboardApiTargetGroupArn | 검증 앱/TGB |
 | EksDashboardApiNodePort, DashboardRdsSourceSecretArn, DashboardRdsCacheSecretArn, DashboardClickHouseSourceSecretArn, DashboardClickHouseCacheSecretArn, UserJwtPrivateKeySecretArn, UserJwtPublicKeysSecretArn | dashboard 및 JWT runtime YAML |
 | ApplicationLogGroupName | Fluent Bit |
 | TelemetryJwtPrivateKeySecretArn, TelemetryJwtPublicKeysSecretArn (`DevDataStack`) | telemetry JWT runtime SPC 3개 |
@@ -413,7 +417,7 @@ CSI를 다시 설치하지 않도록 `secrets-store-csi-driver.install=false`를
 ## 4. 기존 ClickHouse → enrollment → ingest 순서
 
 ```bash
-helm upgrade --install clickhouse helm/dev/workloads/clickhouse --namespace pulsemetry-dev \
+helm upgrade --install clickhouse helm/dev/workloads/clickhouse --namespace pulsemetry-dev --reset-values \
   --values "$RUN_DIR/generated/clickhouse.yaml" --wait --timeout 15m
 kubectl -n pulsemetry-dev rollout status statefulset/clickhouse --timeout=10m
 kubectl -n pulsemetry-dev get pvc,pods -o wide
@@ -448,12 +452,12 @@ VALIDATION_URL=$(jq -r '.Stacks[].Outputs[] | select(.OutputKey=="ValidationPubl
   "$RUN_DIR/deployed-outputs.json")
 curl --path-as-is -sS -o /dev/null -w '%{http_code}\n' "$VALIDATION_URL/not-a-route"
 curl --path-as-is -sS -o /dev/null -w '%{http_code}\n' "$VALIDATION_URL/api/v1/healthz"
-curl --path-as-is -sS -o /dev/null -w '%{http_code}\n' "$VALIDATION_URL:8123/ping"
 ```
 
-두 첫 요청은 public routing상 404, ClickHouse ping은 200이어야 한다. healthz는 TG health check 전용이며
-public rule로 추가하지 않는다. 앱 TG는 NodePort 30416/30080의 instance target, CH는 Pod IP:8123이어야 한다.
-기존 EKS TG의 target 목록과 healthy 상태를 배포 전후 비교한다. `Validation*` output과 TGB ARN을 보존한다.
+두 요청은 public routing상 404여야 한다. healthz는 TG health check 전용이며 public rule로 추가하지 않는다.
+앱 TG는 해당 앱 NodePort의 instance target이다. ClickHouse 공개 listener/TG/TGB는 없으며
+[DB 릴레이](dev-database-access.md) 연결 후 로컬 `http://127.0.0.1:18123/ping`으로 확인한다.
+남는 앱 TG의 target 목록과 healthy 상태를 배포 전후 비교하고 앱 `Validation*` output과 TGB ARN을 보존한다.
 같은 Web ACL을 공유하므로 검증 요청도 같은 rate rule 집계에 영향을 줄 수 있다. 이는 [AWS의
 rule 인스턴스별 집계 설명](https://docs.aws.amazon.com/waf/latest/developerguide/waf-rule-statement-type-rate-based.html)에
 따른 운영상 추론이며, 부하 검증 전 동일 출발지 IP를 공유하는 트래픽 영향을 확인한다.
