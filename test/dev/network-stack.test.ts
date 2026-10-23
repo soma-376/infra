@@ -35,9 +35,10 @@ describe('DevNetworkStack EKS 전용 네트워크', () => {
     template.hasResourceProperties('AWS::EC2::VPCEndpoint', { VpcEndpointType: 'Gateway' });
   });
 
-  test('EKS·RDS SG 여덟 개의 기존 ID와 교체 유발 description을 유지한다', () => {
+  test('기존 SG 여덟 개의 ID·description을 유지하고 DB relay SG 하나만 추가한다', () => {
     const groups = template.findResources('AWS::EC2::SecurityGroup');
-    expect(Object.keys(groups).sort()).toEqual([
+    const dbRelayId = network.resolve(network.dbRelaySecurityGroup.securityGroupId)['Fn::GetAtt'][0];
+    expect(Object.keys(groups).filter(id => id !== dbRelayId).sort()).toEqual([
       'DevRdsSgD66FDC40', 'DevEksControlPlaneSgCB0F4EE9', 'DevEksAppNodeSg95755693',
       'DevEksClickhouseNodeSg4071CB1E', 'DevEksValidationAlbSg7D5E6C15', 'DevEksRelaySg930FF80D',
       'DevEksObservabilityNodeSgEDF3C199', 'DevMskSg6BEDDF12',
@@ -46,6 +47,7 @@ describe('DevNetworkStack EKS 전용 네트워크', () => {
       'dev RDS PostgreSQL (publicly accessible)', 'dev EKS control plane', 'dev EKS application nodes',
       'dev EKS ClickHouse nodes', 'dev EKS validation ALB', 'dev EKS API SSM relay',
       'dev EKS observability nodes', 'dev MSK brokers',
+      'dev database SSM relay',
     ].sort());
   });
 
@@ -74,26 +76,18 @@ describe('DevNetworkStack EKS 전용 네트워크', () => {
     Annotations.fromStack(network).hasWarning('*', Match.stringLikeRegexp('infra:dev-open-ingress'));
   });
 
-  test.each([baseline, narrowed, multiple])('ClickHouse 포트·4318·NodePort를 CIDR에 직접 열지 않는다', ({ template }) => {
+  test.each([baseline, narrowed, multiple])('DB 포트·4318·NodePort를 CIDR에 직접 열지 않는다', ({ template }) => {
     expect(allIngressRules(template).filter(rule => rule.CidrIp !== undefined &&
-      [8123, 9000, 4318, 30416, 30080, 30081, 30082].includes(rule.FromPort))).toEqual([]);
+      [5432, 8123, 9000, 4318, 30416, 30080, 30081, 30082].includes(rule.FromPort))).toEqual([]);
   });
 
-  test.each([[narrowed, [CIDRS[0]]], [multiple, CIDRS]] as const)('지정 CIDR에만 EKS ALB와 RDS 인바운드를 연다', ({ network, template }, cidrs) => {
+  test.each([[narrowed, [CIDRS[0]]], [multiple, CIDRS]] as const)('지정 CIDR에만 앱 ALB 인바운드를 연다', ({ network, template }, cidrs) => {
     const ingress = allIngressRules(template);
     expect(ingress.filter(rule => rule.CidrIp === '0.0.0.0/0' || rule.CidrIpv6 === '::/0')).toEqual([]);
     for (const cidr of cidrs) {
-      for (const port of [PORTS.http]) {
-        template.hasResourceProperties('AWS::EC2::SecurityGroupIngress', {
-          GroupId: { 'Fn::GetAtt': ['DevEksValidationAlbSg7D5E6C15', 'GroupId'] },
-          CidrIp: cidr, FromPort: port, ToPort: port, IpProtocol: 'tcp',
-        });
-      }
-      template.hasResourceProperties('AWS::EC2::SecurityGroup', {
-        GroupDescription: 'dev RDS PostgreSQL (publicly accessible)',
-        SecurityGroupIngress: Match.arrayWith([Match.objectLike({
-          CidrIp: cidr, FromPort: PORTS.aurora, ToPort: PORTS.aurora, IpProtocol: 'tcp',
-        })]),
+      template.hasResourceProperties('AWS::EC2::SecurityGroupIngress', {
+        GroupId: { 'Fn::GetAtt': ['DevEksValidationAlbSg7D5E6C15', 'GroupId'] },
+        CidrIp: cidr, FromPort: PORTS.http, ToPort: PORTS.http, IpProtocol: 'tcp',
       });
     }
     Annotations.fromStack(network).hasNoWarning('*', Match.stringLikeRegexp('infra:dev-open-ingress'));

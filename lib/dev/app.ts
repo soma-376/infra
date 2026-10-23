@@ -57,6 +57,7 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     env,
     vpc: network.vpc,
     rdsSecurityGroup: network.rdsSecurityGroup,
+    dbRelaySecurityGroup: network.dbRelaySecurityGroup,
     oidcClientKeys: config.oidcClientKeys,
   });
 

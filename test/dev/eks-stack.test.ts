@@ -11,7 +11,7 @@ test('기본 구성은 EKS 전용 네 스택이며 ECS 리소스를 생성하지
   for (const stack of built.app.synth().stacks) {
     expect(Object.values(stack.template.Resources).filter((r: any) => /^AWS::(ECS|AutoScaling|ServiceDiscovery)::/.test(r.Type))).toEqual([]);
   }
-  Template.fromStack(built.network).resourceCountIs('AWS::EC2::SecurityGroup', 8);
+  Template.fromStack(built.network).resourceCountIs('AWS::EC2::SecurityGroup', 9);
   expect(built.app.synth().stacks).toHaveLength(4);
 });
 
@@ -93,8 +93,8 @@ test('추가 SG 규칙은 Network에만 생기고 기존 리소스 속성은 보
     if (key !== 'network') expect(Object.values(changed.Resources).filter((r: any) => r.Type.startsWith('AWS::EC2::SecurityGroup'))).toEqual([]);
   }
   const network = Template.fromStack(after.network);
-  // MSK와 관측 SG를 포함한 EKS 전용 구성은 사용자 정의 SG 8개다.
-  network.resourceCountIs('AWS::EC2::SecurityGroup', 8);
+  // MSK·관측·DB 릴레이를 포함한 dev 사용자 정의 SG는 9개다.
+  network.resourceCountIs('AWS::EC2::SecurityGroup', 9);
   for (const port of [30416, 30080, 30082, 8123, 5432, 9443, 10250, 9098]) {
     network.hasResourceProperties('AWS::EC2::SecurityGroupIngress', { FromPort: port, ToPort: port, SourceSecurityGroupId: Match.anyValue() });
   }

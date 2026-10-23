@@ -133,6 +133,12 @@ export const DEV_DEREGISTRATION_DELAY = Duration.seconds(60);
 /** RDS 할당 스토리지. gp3 최소 과금 구간이자 dev 스키마 검증에 충분한 크기다. */
 export const DEV_RDS_ALLOCATED_STORAGE_GIB = 20;
 
+/** DB 전용 SSM 릴레이. 기존 EKS API 릴레이의 이름·역할과 분리한다. (ADR-0038) */
+export const DEV_DB_RELAY_INSTANCE_TYPE = 't4g.micro';
+export const DEV_DB_OPERATOR_ROLE_NAME = 'soma-376-dev-db-operator';
+export const DEV_DB_RELAY_POSTGRES_SESSION_DOCUMENT_NAME = 'soma-376-dev-db-postgres-tunnel';
+export const DEV_DB_RELAY_CLICKHOUSE_SESSION_DOCUMENT_NAME = 'soma-376-dev-db-clickhouse-tunnel';
+
 /**
  * dashboard source/cache 접속용 자격 증명 원본. 실제 DB 사용자·권한은 런북으로
  * 별도 준비하고, 기존 enrollment·ingest의 master credential은 바꾸지 않는다. (ADR-0031)
@@ -197,7 +203,7 @@ export const DEV_OPEN_CIDR = '0.0.0.0/0';
 export interface DevConfig {
   readonly eks: DevEksConfig;
   readonly edge: DevEdgeConfig;
-  /** 앱 ALB(80/선택적 443)와 RDS(5432)의 인바운드 허용 소스. 항상 1개 이상이다. */
+  /** 앱 ALB(80/선택적 443)의 인바운드 허용 소스. 항상 1개 이상이다. */
   readonly allowedCidrs: readonly string[];
   /** 원본이 없는 경우에도 빈 배열을 명시한다. */
   readonly oidcClientKeys: readonly string[];
@@ -256,9 +262,8 @@ export function warnOnOpenIngress(
 
   Annotations.of(scope).addWarningV2(
     'infra:dev-open-ingress',
-    `devAllowedCidr 미지정(또는 ${DEV_OPEN_CIDR} 명시): 앱 ALB(80/선택적 443)와 RDS(5432)의 ` +
-      '인바운드가 인터넷에 전면 공개된다. RDS 는 마스터 자격증명 무차별 대입에 노출된다. ' +
-      '앱 listener의 telemetry-ingest·enrollment-api·dashboard-api 경로도 같은 CIDR에 공개된다. ' +
-      '`-c devAllowedCidr=<내 IP>/32` 로 좁혀서 배포한다 (ADR-0022 9번).',
+    `devAllowedCidr 미지정(또는 ${DEV_OPEN_CIDR} 명시): 앱 ALB(80/선택적 443)의 ` +
+      '인바운드가 인터넷에 전면 공개된다. telemetry-ingest·telemetry-gateway·enrollment-api·dashboard-api ' +
+      '경로가 같은 CIDR에 공개되므로 `-c devAllowedCidr=<내 IP>/32` 로 좁혀서 배포한다 (ADR-0022 9번·0038).',
   );
 }

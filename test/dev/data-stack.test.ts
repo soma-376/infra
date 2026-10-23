@@ -25,11 +25,10 @@ describe('DevDataStack', () => {
     });
   });
 
-  // publiclyAccessible + 퍼블릭 서브넷이 이 선택의 목적이다 - 로컬 psql 로 직접 붙어
-  // 스키마를 부트스트랩하는 경로가 dev 의 존재 이유다. 접근 통제는 DevRdsSg 뿐이다.
-  test('로컬에서 직접 붙을 수 있게 publiclyAccessible 이다 (ADR-0022 6번)', () => {
+  // 기존 subnet group을 유지하며 DB 릴레이를 통해서만 운영자가 접속한다. (ADR-0038)
+  test('RDS의 공개 접근을 차단한다', () => {
     template.hasResourceProperties('AWS::RDS::DBInstance', {
-      PubliclyAccessible: true,
+      PubliclyAccessible: false,
     });
   });
 
