@@ -132,6 +132,14 @@ for (const dashboard of dashboards) {
     }
   }
 }
+// 첫 화면은 구성요소별 수집 상태를 먼저 보여 준다. 상태 값의 의미는 rules/pulsemetry.yaml의 collection group과 같다.
+const overview = dashboards.find(x => x.uid === 'pulsemetry-overview');
+const summary = overview.panels.find(x => x.gridPos.y === 0);
+assert.equal(summary?.type, 'table', '수집 경로 첫 행에 수집 상태 표가 없다');
+assert.deepEqual(summary.targets.map(x => x.expr.match(/pulsemetry:collection_[a-z_]+:?[a-z0-9]*/)?.[0]),
+  ['pulsemetry:collection_state', 'pulsemetry:collection_success:ratio', 'pulsemetry:collection_last_success:timestamp']);
+const stateMapping = summary.fieldConfig.overrides.find(x => x.matcher.options === '현재 상태').properties.find(x => x.id === 'mappings').value[0].options;
+assert.deepEqual(Object.keys(stateMapping).sort(), ['-1', '-2', '0', '1', '2']);
 writeFileSync(resolve(temp, 'dashboard-queries.yaml'), dump({groups:[{name:'dashboard-query-check',rules:expressions}]}));
 checked(promtool, ['check', 'rules', resolve(temp, 'dashboard-queries.yaml')]);
 // Backend 사본은 생성 commit과 SHA256을 함께 고정한다. 사본을 바꾸면 provenance도 같이 바꾼다.

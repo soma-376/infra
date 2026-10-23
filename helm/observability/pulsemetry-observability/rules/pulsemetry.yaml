@@ -22,6 +22,170 @@ groups:
         expr: avg by (environment, cluster, msk_cluster, job, instance) (avg_over_time(up{job=~"msk-jmx|msk-node"}[15m]))
       - record: pulsemetry:clickhouse_inserted_rows:rate1m
         expr: sum by (environment, cluster, namespace, service, pod) (rate(ClickHouseProfileEvents_InsertedRows{job="clickhouse"}[1m]))
+  # last_success는 성공한 scrape의 표본 시각이다(timestamp(up == 1)은 rule 평가 시각을 돌려준다).
+  # 구성요소별 수집 상태다. 2 정상, 1 일부 실패(또는 기대 target 수 미달), 0 전체 실패, -1 대상 없음(배포·설정 필요),
+  # -2 최근 수신 없음(k6 실행 없음 또는 remote-write 미연결)이다. 빈값을 0으로 덮지 않고 상태를 별도 값으로 둔다.
+  - name: pulsemetry.collection
+    interval: 10s
+    rules:
+      - record: pulsemetry:collection_state
+        expr: |
+          max(
+            (min(up{job="telemetry-gateway"}) == 1) * 2
+              or (max(up{job="telemetry-gateway"}) == 1) * 0 + 1
+              or max(up{job="telemetry-gateway"}) * 0
+              or absent(up{job="telemetry-gateway"}) * -1
+          )
+        labels:
+          component: telemetry-gateway
+          dashboard: pulsemetry-gateway
+      - record: pulsemetry:collection_success:ratio
+        expr: avg(up{job="telemetry-gateway"})
+        labels:
+          component: telemetry-gateway
+          dashboard: pulsemetry-gateway
+      - record: pulsemetry:collection_last_success:timestamp
+        expr: max(timestamp(up{job="telemetry-gateway"}) and up{job="telemetry-gateway"} == 1)
+        labels:
+          component: telemetry-gateway
+          dashboard: pulsemetry-gateway
+      - record: pulsemetry:collection_state
+        expr: |
+          max(
+            (min(up{job="telemetry-ingest"}) == 1) * 2
+              or (max(up{job="telemetry-ingest"}) == 1) * 0 + 1
+              or max(up{job="telemetry-ingest"}) * 0
+              or absent(up{job="telemetry-ingest"}) * -1
+          )
+        labels:
+          component: telemetry-ingest
+          dashboard: pulsemetry-pipeline
+      - record: pulsemetry:collection_success:ratio
+        expr: avg(up{job="telemetry-ingest"})
+        labels:
+          component: telemetry-ingest
+          dashboard: pulsemetry-pipeline
+      - record: pulsemetry:collection_last_success:timestamp
+        expr: max(timestamp(up{job="telemetry-ingest"}) and up{job="telemetry-ingest"} == 1)
+        labels:
+          component: telemetry-ingest
+          dashboard: pulsemetry-pipeline
+      - record: pulsemetry:collection_state
+        expr: |
+          max(
+            (min(up{job="clickhouse"}) == 1) * 2
+              or (max(up{job="clickhouse"}) == 1) * 0 + 1
+              or max(up{job="clickhouse"}) * 0
+              or absent(up{job="clickhouse"}) * -1
+          )
+        labels:
+          component: clickhouse
+          dashboard: pulsemetry-clickhouse
+      - record: pulsemetry:collection_success:ratio
+        expr: avg(up{job="clickhouse"})
+        labels:
+          component: clickhouse
+          dashboard: pulsemetry-clickhouse
+      - record: pulsemetry:collection_last_success:timestamp
+        expr: max(timestamp(up{job="clickhouse"}) and up{job="clickhouse"} == 1)
+        labels:
+          component: clickhouse
+          dashboard: pulsemetry-clickhouse
+      - record: pulsemetry:collection_state
+        expr: |
+          max(
+            (min(up{job="msk-jmx"}) == 1 and count(up{job="msk-jmx"}) == 3) * 2
+              or (max(up{job="msk-jmx"}) == 1) * 0 + 1
+              or max(up{job="msk-jmx"}) * 0
+              or absent(up{job="msk-jmx"}) * -1
+          )
+        labels:
+          component: msk-jmx
+          dashboard: pulsemetry-msk
+      - record: pulsemetry:collection_success:ratio
+        expr: avg(up{job="msk-jmx"})
+        labels:
+          component: msk-jmx
+          dashboard: pulsemetry-msk
+      - record: pulsemetry:collection_last_success:timestamp
+        expr: max(timestamp(up{job="msk-jmx"}) and up{job="msk-jmx"} == 1)
+        labels:
+          component: msk-jmx
+          dashboard: pulsemetry-msk
+      - record: pulsemetry:collection_state
+        expr: |
+          max(
+            (min(up{job="msk-node"}) == 1 and count(up{job="msk-node"}) == 3) * 2
+              or (max(up{job="msk-node"}) == 1) * 0 + 1
+              or max(up{job="msk-node"}) * 0
+              or absent(up{job="msk-node"}) * -1
+          )
+        labels:
+          component: msk-node
+          dashboard: pulsemetry-msk
+      - record: pulsemetry:collection_success:ratio
+        expr: avg(up{job="msk-node"})
+        labels:
+          component: msk-node
+          dashboard: pulsemetry-msk
+      - record: pulsemetry:collection_last_success:timestamp
+        expr: max(timestamp(up{job="msk-node"}) and up{job="msk-node"} == 1)
+        labels:
+          component: msk-node
+          dashboard: pulsemetry-msk
+      - record: pulsemetry:collection_state
+        expr: |
+          max(
+            (min(up{job="fluent-bit"}) == 1) * 2
+              or (max(up{job="fluent-bit"}) == 1) * 0 + 1
+              or max(up{job="fluent-bit"}) * 0
+              or absent(up{job="fluent-bit"}) * -1
+          )
+        labels:
+          component: fluent-bit
+          dashboard: pulsemetry-health
+      - record: pulsemetry:collection_success:ratio
+        expr: avg(up{job="fluent-bit"})
+        labels:
+          component: fluent-bit
+          dashboard: pulsemetry-health
+      - record: pulsemetry:collection_last_success:timestamp
+        expr: max(timestamp(up{job="fluent-bit"}) and up{job="fluent-bit"} == 1)
+        labels:
+          component: fluent-bit
+          dashboard: pulsemetry-health
+      - record: pulsemetry:collection_state
+        expr: |
+          max(
+            (min(up{job="kubernetes-events"}) == 1) * 2
+              or (max(up{job="kubernetes-events"}) == 1) * 0 + 1
+              or max(up{job="kubernetes-events"}) * 0
+              or absent(up{job="kubernetes-events"}) * -1
+          )
+        labels:
+          component: kubernetes-events
+          dashboard: pulsemetry-health
+      - record: pulsemetry:collection_success:ratio
+        expr: avg(up{job="kubernetes-events"})
+        labels:
+          component: kubernetes-events
+          dashboard: pulsemetry-health
+      - record: pulsemetry:collection_last_success:timestamp
+        expr: max(timestamp(up{job="kubernetes-events"}) and up{job="kubernetes-events"} == 1)
+        labels:
+          component: kubernetes-events
+          dashboard: pulsemetry-health
+      # k6는 scrape 대상이 아니라 remote-write로 들어온다. 최근 5분 표본 유무만 판단한다.
+      - record: pulsemetry:collection_state
+        expr: max(group(k6_http_reqs_total) * 2 or absent(k6_http_reqs_total) * -2)
+        labels:
+          component: k6
+          dashboard: pulsemetry-overview
+      - record: pulsemetry:collection_last_success:timestamp
+        expr: max(timestamp(k6_http_reqs_total))
+        labels:
+          component: k6
+          dashboard: pulsemetry-overview
   - name: pulsemetry.alerts
     interval: 10s
     rules:

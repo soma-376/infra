@@ -366,3 +366,76 @@ tests:
       - eval_time: 3m
         alertname: PipelineCommitFailure
         exp_alerts: []
+  # 구성요소별 수집 상태: 정상·일부 실패·전체 실패·대상 없음·기대 target 수 미달·k6 수신 유무를 서로 다른 값으로 구분한다.
+  - interval: 10s
+    input_series:
+      - series: up{job="telemetry-ingest",pod="a"}
+        values: 1+0x30
+      - series: up{job="clickhouse",pod="a"}
+        values: 1+0x30
+      - series: up{job="clickhouse",pod="b"}
+        values: 0+0x30
+      - series: up{job="fluent-bit",pod="a"}
+        values: 0+0x30
+      - series: up{job="msk-jmx",instance="b-1:11001"}
+        values: 1+0x30
+      - series: up{job="msk-jmx",instance="b-2:11001"}
+        values: 1+0x30
+      - series: up{job="msk-node",instance="b-1:11002"}
+        values: 1+0x30
+      - series: up{job="msk-node",instance="b-2:11002"}
+        values: 1+0x30
+      - series: up{job="msk-node",instance="b-3:11002"}
+        values: 1+0x30
+    promql_expr_test:
+      - expr: pulsemetry:collection_state
+        eval_time: 3m
+        exp_samples:
+          - labels: pulsemetry:collection_state{component="telemetry-gateway",dashboard="pulsemetry-gateway"}
+            value: -1
+          - labels: pulsemetry:collection_state{component="telemetry-ingest",dashboard="pulsemetry-pipeline"}
+            value: 2
+          - labels: pulsemetry:collection_state{component="clickhouse",dashboard="pulsemetry-clickhouse"}
+            value: 1
+          - labels: pulsemetry:collection_state{component="msk-jmx",dashboard="pulsemetry-msk"}
+            value: 1
+          - labels: pulsemetry:collection_state{component="msk-node",dashboard="pulsemetry-msk"}
+            value: 2
+          - labels: pulsemetry:collection_state{component="fluent-bit",dashboard="pulsemetry-health"}
+            value: 0
+          - labels: pulsemetry:collection_state{component="kubernetes-events",dashboard="pulsemetry-health"}
+            value: -1
+          - labels: pulsemetry:collection_state{component="k6",dashboard="pulsemetry-overview"}
+            value: -2
+      - expr: pulsemetry:collection_success:ratio{component="clickhouse"}
+        eval_time: 3m
+        exp_samples:
+          - labels: pulsemetry:collection_success:ratio{component="clickhouse",dashboard="pulsemetry-clickhouse"}
+            value: 0.5
+      # 실패 중인 구성요소는 성공 시각을 새로 기록하지 않는다.
+      - expr: pulsemetry:collection_last_success:timestamp{component="fluent-bit"}
+        eval_time: 3m
+        exp_samples: []
+  - interval: 1m
+    input_series:
+      - series: up{job="telemetry-gateway",pod="a"}
+        values: 1 1 1 0 0 0
+      - series: k6_http_reqs_total{testid="t1"}
+        values: 1 2 3 _ _ _
+    promql_expr_test:
+      # 마지막 성공은 2분이다. 이후 실패 구간에는 새 성공 시각이 없다.
+      - expr: time() - max_over_time(pulsemetry:collection_last_success:timestamp{component="telemetry-gateway"}[24h])
+        eval_time: 5m
+        exp_samples:
+          - labels: '{component="telemetry-gateway",dashboard="pulsemetry-gateway"}'
+            value: 180
+      - expr: pulsemetry:collection_state{component="telemetry-gateway"}
+        eval_time: 5m
+        exp_samples:
+          - labels: pulsemetry:collection_state{component="telemetry-gateway",dashboard="pulsemetry-gateway"}
+            value: 0
+      - expr: pulsemetry:collection_state{component="k6"}
+        eval_time: 2m
+        exp_samples:
+          - labels: pulsemetry:collection_state{component="k6",dashboard="pulsemetry-overview"}
+            value: 2

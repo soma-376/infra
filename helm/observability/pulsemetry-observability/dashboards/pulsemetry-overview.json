@@ -193,16 +193,220 @@
   ],
   "panels": [
     {
+      "type": "table",
+      "title": "구성요소별 수집 상태",
+      "description": "현재 상태는 scrape 결과다. 정상·일부 실패(기대 target 수 미달 포함)·전체 실패·대상 없음을 구분하고, k6는 remote-write 수신 유무만 본다. 선택 기간 수집률은 예정 scrape 중 성공 비율이며, 빈 칸은 그 기간에 대상이 없었다는 뜻이다. 마지막 성공 후 경과가 빈 칸이면 24시간 안에 성공한 scrape가 없다. 업무 이벤트 유무는 각 상세 화면에서 본다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pulsemetry-prometheus"
+          },
+          "expr": "pulsemetry:collection_state",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pulsemetry-prometheus"
+          },
+          "expr": "avg_over_time(pulsemetry:collection_success:ratio[$__range])",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pulsemetry-prometheus"
+          },
+          "expr": "time() - max_over_time(pulsemetry:collection_last_success:timestamp[24h])",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "component": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "dashboard": 4
+            },
+            "renameByName": {
+              "component": "구성요소",
+              "Value #A": "현재 상태",
+              "Value #B": "선택 기간 수집률",
+              "Value #C": "마지막 성공 후 경과",
+              "dashboard": "상세 화면"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "미수집 · Prometheus rule 결과 없음",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "현재 상태"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "2": {
+                        "text": "정상",
+                        "color": "green",
+                        "index": 0
+                      },
+                      "1": {
+                        "text": "일부 실패",
+                        "color": "orange",
+                        "index": 1
+                      },
+                      "0": {
+                        "text": "전체 실패",
+                        "color": "red",
+                        "index": 2
+                      },
+                      "-1": {
+                        "text": "대상 없음 · 배포/설정 필요",
+                        "color": "purple",
+                        "index": 3
+                      },
+                      "-2": {
+                        "text": "최근 수신 없음 · 실행 없음",
+                        "color": "text",
+                        "index": 4
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "선택 기간 수집률"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "마지막 성공 후 경과"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "상세 화면"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "상세 대시보드 열기",
+                    "url": "/d/${__value.raw}?${__url_time_range}",
+                    "targetBlank": false
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": [
+          {
+            "displayName": "현재 상태",
+            "desc": false
+          }
+        ]
+      },
+      "id": 11,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 9
+      }
+    },
+    {
       "type": "text",
       "title": "읽는 기준",
       "options": {
         "mode": "markdown",
-        "content": "Gateway ACK → MSK record → Pipeline attempt → ClickHouse submitted/inserted rows는 단위가 다릅니다. 차감해서 유실률을 만들지 않습니다.\n\n공유 dev는 진단 환경입니다. 정식 성능 PASS는 전용 환경과 사후 정합성 검증이 필요합니다. k6 testid를 선택하면 해당 실행만 표시됩니다. 서버 지표는 같은 UTC 구간의 전체 환경 값입니다."
+        "content": "Gateway ACK → MSK record → Pipeline attempt → ClickHouse submitted/inserted rows는 단위가 다릅니다. 차감해서 유실률을 만들지 않습니다.\n\n공유 dev는 진단 환경입니다. 정식 성능 PASS는 전용 환경과 사후 정합성 검증이 필요합니다. k6 testid를 선택하면 해당 실행만 표시됩니다. 서버 지표는 같은 UTC 구간의 전체 환경 값입니다.\n\n맨 위 표는 구성요소별 수집 상태입니다. 빈 패널을 보기 전에 그 구성요소가 `정상`인지 먼저 확인합니다. `대상 없음`은 배포·metrics 설정이 필요하다는 뜻이고, `정상`인데 값이 없으면 선택 기간에 해당 이벤트가 없었던 것입니다."
       },
       "id": 1,
       "gridPos": {
         "x": 0,
-        "y": 0,
+        "y": 9,
         "w": 12,
         "h": 8
       }
@@ -253,7 +457,7 @@
       "id": 2,
       "gridPos": {
         "x": 12,
-        "y": 0,
+        "y": 9,
         "w": 12,
         "h": 8
       },
@@ -311,7 +515,7 @@
       "id": 3,
       "gridPos": {
         "x": 0,
-        "y": 8,
+        "y": 17,
         "w": 12,
         "h": 8
       },
@@ -369,7 +573,7 @@
       "id": 4,
       "gridPos": {
         "x": 12,
-        "y": 8,
+        "y": 17,
         "w": 12,
         "h": 8
       },
@@ -434,7 +638,7 @@
       "id": 5,
       "gridPos": {
         "x": 0,
-        "y": 16,
+        "y": 25,
         "w": 12,
         "h": 8
       },
@@ -492,7 +696,7 @@
       "id": 6,
       "gridPos": {
         "x": 12,
-        "y": 16,
+        "y": 25,
         "w": 12,
         "h": 8
       },
@@ -550,7 +754,7 @@
       "id": 7,
       "gridPos": {
         "x": 0,
-        "y": 24,
+        "y": 33,
         "w": 12,
         "h": 8
       },
@@ -608,7 +812,7 @@
       "id": 8,
       "gridPos": {
         "x": 12,
-        "y": 24,
+        "y": 33,
         "w": 12,
         "h": 8
       },
@@ -666,7 +870,7 @@
       "id": 9,
       "gridPos": {
         "x": 0,
-        "y": 32,
+        "y": 41,
         "w": 12,
         "h": 8
       },
@@ -724,7 +928,7 @@
       "id": 10,
       "gridPos": {
         "x": 12,
-        "y": 32,
+        "y": 41,
         "w": 12,
         "h": 8
       },
