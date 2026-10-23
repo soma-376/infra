@@ -560,6 +560,33 @@
           "type": "boolean"
         }
       }
+    },
+    "tracing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "endpoint",
+        "sampleProbability",
+        "cluster"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "endpoint": {
+          "type": "string",
+          "pattern": "^(|http://[a-z0-9.-]+:4318/v1/traces)$"
+        },
+        "sampleProbability": {
+          "type": "string",
+          "pattern": "^(0(\\.[0-9]+)?|1(\\.0+)?)$"
+        },
+        "cluster": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]*$"
+        }
+      }
     }
   },
   "allOf": [
