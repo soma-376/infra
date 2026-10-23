@@ -13,7 +13,7 @@ import {
   Vpc,
 } from 'aws-cdk-lib/aws-ec2';
 import { PORTS } from '../common/config';
-import { DEV_EKS_NODE_PORTS, DEV_EKS_MSK_SUBNETS, DEV_EKS_MSK_IAM_PORT } from './eks-config';
+import { DEV_EKS_NODE_PORTS, DEV_EKS_MSK_SUBNETS, DEV_EKS_MSK_IAM_PORT, DEV_OBSERVABILITY_INGEST_PORTS } from './eks-config';
 import {
   DEV_SUBNET_GROUP,
   DEV_VPC_CIDR,
@@ -136,6 +136,9 @@ export class DevNetworkStack extends Stack {
     }
     apps.addIngressRule(obs, Port.tcp(9404), 'Application metrics from observability');
     ch.addIngressRule(obs, Port.tcp(9363), 'ClickHouse metrics from observability');
+    // Loki·플랫폼 trace Collector(ADR-0039). 관측 노드로 들어오는 규칙은 이 둘뿐이다.
+    for (const nodes of [apps, ch]) obs.addIngressRule(nodes, Port.tcp(DEV_OBSERVABILITY_INGEST_PORTS.loki), 'Loki push from node log collectors');
+    obs.addIngressRule(apps, Port.tcp(DEV_OBSERVABILITY_INGEST_PORTS.platformOtlpHttp), 'Platform trace OTLP HTTP from applications');
     // kube-dns가 앱 노드에 배치되어도 관측 Pod의 이름 조회가 동작한다.
     apps.addIngressRule(obs, Port.udp(53), 'Cluster DNS from observability');
     apps.addIngressRule(obs, Port.tcp(53), 'Cluster DNS TCP from observability');
