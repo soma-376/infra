@@ -253,7 +253,7 @@
     {
       "type": "timeseries",
       "title": "마지막 종료 원인 OOMKilled",
-      "description": "마지막 종료 원인 상태다. 현재 실행 중인 OOM 횟수가 아니다.",
+      "description": "현재 존재하는 Pod 컨테이너의 직전 종료 원인이 OOMKilled인지 보인다. 값이 없으면 현재 Pod들에 이전 종료 이력이 없다는 뜻이고, 과거 전체 기간에 OOM이 없었다는 뜻은 아니다. 삭제된 Pod의 OOM은 Kubernetes Events 로그로 확인한다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -269,7 +269,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "noValue": "미수집",
+          "noValue": "종료 이력 없음 · 현재 Pod 기준",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -427,7 +427,7 @@
     {
       "type": "timeseries",
       "title": "앱 JVM heap",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+      "description": "빈 시계열은 수집 대상이 없거나(배포·metrics 설정 전) 아직 해당 이벤트가 없다는 뜻이다. 어느 쪽인지는 수집 경로와 k6 첫 화면의 수집 상태 표에서 구분한다. 0으로 대체하지 않으며 시각은 UTC다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -443,7 +443,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "bytes",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -484,8 +484,8 @@
     },
     {
       "type": "timeseries",
-      "title": "GC pause 평균",
-      "description": "실제 앱은 summary count/sum을 방출한다. 평균은 p95가 아니며 GC가 없으면 분모0으로 값이 없다.",
+      "title": "GC pause 평균 · GC 횟수",
+      "description": "GC pause 평균(왼쪽 축)과 구간별 GC 횟수(오른쪽 축)다. GC가 없으면 평균은 분모 0으로 계산되지 않고 횟수는 0이다. 평균은 p95가 아니다. 둘 다 비면 앱 지표 미수집이다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -496,12 +496,18 @@
           "expr": "sum by(application)(rate(jvm_gc_pause_seconds_sum{application=~\"$application\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"$service\",pod=~\"$pod\"}[$__rate_interval])) / sum by(application)(rate(jvm_gc_pause_seconds_count{application=~\"$application\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"$service\",pod=~\"$pod\"}[$__rate_interval]))",
           "legendFormat": "{{application}}",
           "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum by(application)(increase(jvm_gc_pause_seconds_count{application=~\"$application\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"$service\",pod=~\"$pod\"}[$__rate_interval]))",
+          "legendFormat": "{{application}} GC 횟수",
+          "range": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -510,7 +516,28 @@
             "showPoints": "never"
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "bars"
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -543,7 +570,7 @@
     {
       "type": "timeseries",
       "title": "Hikari 대기 요청",
-      "description": "DB를 사용하지 않는 Gateway에는 해당 계측이 없을 수 있다.",
+      "description": "DB 연결 풀을 쓰는 ingest의 Hikari 대기 요청이다. Gateway는 DB를 쓰지 않아 Hikari 지표가 없다(설계상 미적용). ingest 값까지 비면 첫 화면 수집 상태 표에서 telemetry-ingest를 확인한다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -559,7 +586,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "noValue": "미수집",
+          "noValue": "값 없음 · Gateway는 Hikari 미적용",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -1007,7 +1034,7 @@
     {
       "type": "logs",
       "title": "EKS control-plane 로그",
-      "description": "CloudWatch Logs Insights. 선택 시간대의 INFO startup/shutdown/leader 변화와 WARN/ERROR를 함께 표시한다. 로그는 UTC이며 비밀·payload 본문은 기록하지 않는다.",
+      "description": "CloudWatch Logs Insights. 선택 시간대의 INFO startup/shutdown/leader 변화와 WARN/ERROR를 함께 표시한다. 로그는 UTC이며 비밀·payload 본문은 기록하지 않는다. 결과가 없으면 선택 기간에 로그가 없거나 필터가 맞지 않는 것이다. 권한·조회 오류는 패널 오류 표시로 따로 보인다.",
       "datasource": {
         "type": "cloudwatch",
         "uid": "pulsemetry-cloudwatch"
@@ -1045,7 +1072,7 @@
     {
       "type": "logs",
       "title": "앱·ClickHouse 진단 로그",
-      "description": "CloudWatch Logs Insights. 선택 시간대의 INFO startup/shutdown/leader 변화와 WARN/ERROR를 함께 표시한다. 로그는 UTC이며 비밀·payload 본문은 기록하지 않는다.",
+      "description": "CloudWatch Logs Insights. 선택 시간대의 INFO startup/shutdown/leader 변화와 WARN/ERROR를 함께 표시한다. 로그는 UTC이며 비밀·payload 본문은 기록하지 않는다. 결과가 없으면 선택 기간에 로그가 없거나 필터가 맞지 않는 것이다. 권한·조회 오류는 패널 오류 표시로 따로 보인다.",
       "datasource": {
         "type": "cloudwatch",
         "uid": "pulsemetry-cloudwatch"
@@ -1083,7 +1110,7 @@
     {
       "type": "logs",
       "title": "MSK broker 로그",
-      "description": "CloudWatch Logs Insights. 선택 시간대의 INFO startup/shutdown/leader 변화와 WARN/ERROR를 함께 표시한다. 로그는 UTC이며 비밀·payload 본문은 기록하지 않는다.",
+      "description": "CloudWatch Logs Insights. 선택 시간대의 INFO startup/shutdown/leader 변화와 WARN/ERROR를 함께 표시한다. 로그는 UTC이며 비밀·payload 본문은 기록하지 않는다. 결과가 없으면 선택 기간에 로그가 없거나 필터가 맞지 않는 것이다. 권한·조회 오류는 패널 오류 표시로 따로 보인다.",
       "datasource": {
         "type": "cloudwatch",
         "uid": "pulsemetry-cloudwatch"
@@ -1121,7 +1148,7 @@
     {
       "type": "logs",
       "title": "Kubernetes event",
-      "description": "CloudWatch Logs Insights. 선택 시간대의 INFO startup/shutdown/leader 변화와 WARN/ERROR를 함께 표시한다. 로그는 UTC이며 비밀·payload 본문은 기록하지 않는다.",
+      "description": "CloudWatch Logs Insights. 선택 시간대의 INFO startup/shutdown/leader 변화와 WARN/ERROR를 함께 표시한다. 로그는 UTC이며 비밀·payload 본문은 기록하지 않는다. 결과가 없으면 선택 기간에 로그가 없거나 필터가 맞지 않는 것이다. 권한·조회 오류는 패널 오류 표시로 따로 보인다.",
       "datasource": {
         "type": "cloudwatch",
         "uid": "pulsemetry-cloudwatch"
@@ -1159,7 +1186,7 @@
     {
       "type": "logs",
       "title": "관측 스택 로그",
-      "description": "CloudWatch Logs Insights. 선택 시간대의 INFO startup/shutdown/leader 변화와 WARN/ERROR를 함께 표시한다. 로그는 UTC이며 비밀·payload 본문은 기록하지 않는다.",
+      "description": "CloudWatch Logs Insights. 선택 시간대의 INFO startup/shutdown/leader 변화와 WARN/ERROR를 함께 표시한다. 로그는 UTC이며 비밀·payload 본문은 기록하지 않는다. 결과가 없으면 선택 기간에 로그가 없거나 필터가 맞지 않는 것이다. 권한·조회 오류는 패널 오류 표시로 따로 보인다.",
       "datasource": {
         "type": "cloudwatch",
         "uid": "pulsemetry-cloudwatch"

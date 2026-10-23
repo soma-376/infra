@@ -1,7 +1,7 @@
 {
   "uid": "pulsemetry-pipeline",
   "title": "Pulsemetry · Pipeline",
-  "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+  "description": "빈 시계열은 수집 대상이 없거나(배포·metrics 설정 전) 아직 해당 이벤트가 없다는 뜻이다. 어느 쪽인지는 수집 경로와 k6 첫 화면의 수집 상태 표에서 구분한다. 0으로 대체하지 않으며 시각은 UTC다. ingest가 http 모드면 Kafka 소비 패널은 해당 없음이다(맨 위 모드 패널).",
   "tags": [
     "pulsemetry",
     "PROJ-191"
@@ -266,7 +266,7 @@
     {
       "type": "timeseries",
       "title": "시도 결과 / 초",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+      "description": "빈 시계열은 수집 대상이 없거나(배포·metrics 설정 전) 아직 해당 이벤트가 없다는 뜻이다. 어느 쪽인지는 수집 경로와 k6 첫 화면의 수집 상태 표에서 구분한다. 0으로 대체하지 않으며 시각은 UTC다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -282,7 +282,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "ops",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -324,7 +324,7 @@
     {
       "type": "timeseries",
       "title": "단계별 p95",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+      "description": "빈 시계열은 수집 대상이 없거나(배포·metrics 설정 전) 아직 해당 이벤트가 없다는 뜻이다. 어느 쪽인지는 수집 경로와 k6 첫 화면의 수집 상태 표에서 구분한다. 0으로 대체하지 않으며 시각은 UTC다. 요청·처리가 없으면 분위수는 계산되지 않는다. 빈 구간은 0초가 아니다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -340,7 +340,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -382,7 +382,7 @@
     {
       "type": "timeseries",
       "title": "Gateway 수신 → attempt 시작 p95",
-      "description": "재시도는 동일 envelope 수신 시각을 유지한다. consumer position lag와 별도 지연이다.",
+      "description": "재시도는 동일 envelope 수신 시각을 유지한다. consumer position lag와 별도 지연이다. 요청·처리가 없으면 분위수는 계산되지 않는다. 빈 구간은 0초가 아니다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -398,7 +398,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -440,7 +440,7 @@
     {
       "type": "timeseries",
       "title": "Gateway 수신 → 완료 p95",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+      "description": "빈 시계열은 수집 대상이 없거나(배포·metrics 설정 전) 아직 해당 이벤트가 없다는 뜻이다. 어느 쪽인지는 수집 경로와 k6 첫 화면의 수집 상태 표에서 구분한다. 0으로 대체하지 않으며 시각은 UTC다. 요청·처리가 없으면 분위수는 계산되지 않는다. 빈 구간은 0초가 아니다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -456,7 +456,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -498,7 +498,7 @@
     {
       "type": "timeseries",
       "title": "실패 분류 / 초",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+      "description": "빈 시계열은 수집 대상이 없거나(배포·metrics 설정 전) 아직 해당 이벤트가 없다는 뜻이다. 어느 쪽인지는 수집 경로와 k6 첫 화면의 수집 상태 표에서 구분한다. 0으로 대체하지 않으며 시각은 UTC다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -514,7 +514,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "ops",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -572,7 +572,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "noValue": "미수집",
+          "noValue": "Kafka 미적용(http) 또는 미수집 · 모드 패널 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -630,7 +630,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "noValue": "미수집",
+          "noValue": "Kafka 미적용(http) 또는 미수집 · 모드 패널 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -703,7 +703,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "noValue": "미수집",
+          "noValue": "Kafka 미적용(http) 또는 미수집 · 모드 패널 확인",
           "custom": {
             "spanNulls": false
           }
@@ -759,7 +759,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "noValue": "미수집",
+          "noValue": "Kafka 미적용(http) 또는 미수집 · 모드 패널 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,

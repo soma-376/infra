@@ -472,7 +472,7 @@
     {
       "type": "timeseries",
       "title": "Gateway 요청 / 초",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+      "description": "빈 시계열은 수집 대상이 없거나(배포·metrics 설정 전) 아직 해당 이벤트가 없다는 뜻이다. 어느 쪽인지는 수집 경로와 k6 첫 화면의 수집 상태 표에서 구분한다. 0으로 대체하지 않으며 시각은 UTC다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -488,7 +488,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "reqps",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -530,7 +530,7 @@
     {
       "type": "timeseries",
       "title": "Gateway 응답 p95",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+      "description": "빈 시계열은 수집 대상이 없거나(배포·metrics 설정 전) 아직 해당 이벤트가 없다는 뜻이다. 어느 쪽인지는 수집 경로와 k6 첫 화면의 수집 상태 표에서 구분한다. 0으로 대체하지 않으며 시각은 UTC다. 요청·처리가 없으면 분위수는 계산되지 않는다. 빈 구간은 0초가 아니다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -546,7 +546,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -653,7 +653,7 @@
     {
       "type": "timeseries",
       "title": "Pipeline 처리 시도 / 초",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+      "description": "빈 시계열은 수집 대상이 없거나(배포·metrics 설정 전) 아직 해당 이벤트가 없다는 뜻이다. 어느 쪽인지는 수집 경로와 k6 첫 화면의 수집 상태 표에서 구분한다. 0으로 대체하지 않으며 시각은 UTC다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -669,7 +669,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "ops",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -711,7 +711,7 @@
     {
       "type": "timeseries",
       "title": "서버 수신 → 완료 p95",
-      "description": "Gateway envelope 실제 수신 시각부터 Pipeline 완료까지다. 과거로 이동된 OTLP source_time을 사용하지 않는다. ClickHouse 조회 가시성 확인을 대신하지 않는다.",
+      "description": "Gateway envelope 실제 수신 시각부터 Pipeline 완료까지다. 과거로 이동된 OTLP source_time을 사용하지 않는다. ClickHouse 조회 가시성 확인을 대신하지 않는다. 요청·처리가 없으면 분위수는 계산되지 않는다. 빈 구간은 0초가 아니다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -727,7 +727,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -769,7 +769,7 @@
     {
       "type": "timeseries",
       "title": "k6 실제 HTTP 요청 / 초",
-      "description": "PROJ-192 remote-write 연결 후 표시된다. setup/probe 분리 여부를 실행 manifest에서 확인한다.",
+      "description": "운영자 PC에서 port-forward한 Prometheus remote-write로 보낸 k6 결과다. 위쪽 testid를 골라야 표시되고, 실행이 없거나 선택 기간 밖이면 비어 있다. 첫 화면 상태 표의 k6가 `최근 수신 없음`이면 최근 5분에 받은 표본이 없다. setup/probe 분리 여부를 실행 manifest에서 확인한다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -785,7 +785,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "reqps",
-          "noValue": "미수집",
+          "noValue": "k6 실행 없음 · testid·기간 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -827,7 +827,7 @@
     {
       "type": "timeseries",
       "title": "k6 HTTP 응답 p95 · native histogram",
-      "description": "native histogram 합산이다. 기본 http_req_duration은 TCP/TLS 연결 시간을 제외한다. 전체 elapsed SLO 판정은 k6 원본/summary를 사용한다.",
+      "description": "운영자 PC에서 port-forward한 Prometheus remote-write로 보낸 k6 결과다. 위쪽 testid를 골라야 표시되고, 실행이 없거나 선택 기간 밖이면 비어 있다. 첫 화면 상태 표의 k6가 `최근 수신 없음`이면 최근 5분에 받은 표본이 없다. native histogram 합산이다. 기본 http_req_duration은 TCP/TLS 연결 시간을 제외한다. 전체 elapsed SLO 판정은 k6 원본/summary를 사용한다. K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM=true로 보내지 않으면 이 패널만 빈다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -843,7 +843,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "noValue": "미수집",
+          "noValue": "k6 실행 없음 · testid·기간 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -885,7 +885,7 @@
     {
       "type": "timeseries",
       "title": "k6 시작하지 못한 iteration",
-      "description": "미전송 iteration은 HTTP 실패 분모에 넣지 않는다. 목표 유입을 만들지 못하면 서버 용량을 확정할 수 없다.",
+      "description": "운영자 PC에서 port-forward한 Prometheus remote-write로 보낸 k6 결과다. 위쪽 testid를 골라야 표시되고, 실행이 없거나 선택 기간 밖이면 비어 있다. 첫 화면 상태 표의 k6가 `최근 수신 없음`이면 최근 5분에 받은 표본이 없다. 미전송 iteration은 HTTP 실패 분모에 넣지 않는다. 목표 유입을 만들지 못하면 서버 용량을 확정할 수 없다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -901,7 +901,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "noValue": "미수집",
+          "noValue": "k6 실행 없음 · testid·기간 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,

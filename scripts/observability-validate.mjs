@@ -93,6 +93,15 @@ checked(promtool, ['check', 'rules', resolve(chart, 'rules/pulsemetry.yaml')]);
 checked(promtool, ['test', 'rules', resolve(fixtures, 'rules.test.yaml')]);
 const dashboards = Object.values(find('ConfigMap', 'pulsemetry-dashboards').data).map(JSON.parse);
 assert.equal(dashboards.length, 7);
+// 빈 패널 문구는 이유를 구분하는 고정 집합만 쓴다. 0이나 숫자로 빈값을 덮지 않는다.
+const noValueTexts = new Set([
+  '미수집',
+  '값 없음 · 첫 화면 수집 상태 확인',
+  'Kafka 미적용(http) 또는 미수집 · 모드 패널 확인',
+  '종료 이력 없음 · 현재 Pod 기준',
+  '값 없음 · Gateway는 Hikari 미적용',
+  'k6 실행 없음 · testid·기간 확인',
+]);
 const expressions = [];
 const usedCustomMetrics = new Set();
 const usedNativeMetrics = new Set();
@@ -103,7 +112,8 @@ for (const dashboard of dashboards) {
   assert.deepEqual([dashboard.refresh, dashboard.time.from], logs ? ['1m', 'now-15m'] : ['10s', 'now-30m'], `${dashboard.uid} 갱신 주기`);
   for (const panel of dashboard.panels) {
     if (panel.type === 'timeseries') {
-      assert.equal(panel.fieldConfig.defaults.noValue, '미수집');
+      assert.ok(noValueTexts.has(panel.fieldConfig.defaults.noValue), `${dashboard.uid}/${panel.title} noValue: ${panel.fieldConfig.defaults.noValue}`);
+      assert.ok(panel.description?.trim(), `${dashboard.uid}/${panel.title} 설명 없음`);
       assert.equal(panel.fieldConfig.defaults.custom.spanNulls, false);
       assert.ok(panel.links.some(x => x.url.includes("pulsemetry-diagnostics") && x.url.includes("${pod:queryparam}")));
     }
@@ -117,7 +127,11 @@ for (const dashboard of dashboards) {
         for (const metric of expr.match(/\bpulsemetry_[A-Za-z0-9_]+/g) ?? []) usedCustomMetrics.add(metric);
         for (const metric of expr.match(/\b(?:jvm_|tomcat_|hikaricp_|kafka_producer_|ClickHouse)[A-Za-z0-9_]+/g) ?? []) usedNativeMetrics.add(metric);
         if (/pulsemetry_|ClickHouse|jvm_|hikaricp_|tomcat_|kafka_producer_/.test(expr)) {
-          for (const label of ['cluster="$cluster"','namespace="$namespace"','service=~"$service"','pod=~"$pod"']) assert.ok(expr.includes(label), `필터 누락: ${expr}`);
+          for (const label of ['cluster="$cluster"','namespace="$namespace"','pod=~"$pod"']) assert.ok(expr.includes(label), `필터 누락: ${expr}`);
+          // ClickHouse 화면은 서버 지표(clickhouse)와 ingest의 앱 지표를 서비스 선택과 분리해 고정 service로 조회한다.
+          if (dashboard.uid === 'pulsemetry-clickhouse') {
+            assert.ok(expr.includes(/pulsemetry_clickhouse_/.test(expr) ? 'service="telemetry-ingest"' : 'service="clickhouse"'), `ClickHouse service 고정 누락: ${expr}`);
+          } else assert.ok(expr.includes('service=~"$service"'), `필터 누락: ${expr}`);
         }
       }
       if (target.queryMode === 'Logs') {
