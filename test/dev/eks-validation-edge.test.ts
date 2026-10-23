@@ -19,14 +19,13 @@ describe('기존 EKS edge의 identity 보존', () => {
     expect(JSON.stringify(resources)).not.toMatch(/DevAlb6E3BD7B3|DevTelemetryIngestTg|DevEnrollmentApiTg|DevDashboardApiTg|DevClickhouseTg/);
   });
 
-  test('다섯 TG의 배포된 logical ID·이름·타입·NodePort·health·drain을 유지한다', () => {
-    expect(groups).toHaveLength(5);
+  test('네 앱 TG의 배포된 logical ID·이름·타입·NodePort·health·drain을 유지한다', () => {
+    expect(groups).toHaveLength(4);
     for (const [name, logicalId, port, type, path, delay] of [
       ['ingest', 'EksValidationIngestTg57D75D2A', 30416, 'instance', '/api/v1/healthz', '60'],
       ['enroll', 'EksValidationEnrollmentTgF7289365', 30080, 'instance', '/api/v1/healthz', '60'],
       ['dashboard', 'EksValidationDashboardTg6075C143', 30081, 'instance', '/api/v1/healthz', '60'],
       ['gateway', 'EksValidationGatewayTg502E534F', 30082, 'instance', '/api/v1/healthz', '60'],
-      ['ch', 'EksValidationClickhouseTg1069CCC7', 8123, 'ip', '/ping', '300'],
     ] as const) {
       const [id, resource] = group(name);
       expect(id).toBe(logicalId);
@@ -42,10 +41,10 @@ describe('기존 EKS edge의 identity 보존', () => {
   test('generated YAML이 소비하는 Validation output 이름과 참조를 보존한다', () => {
     for (const [output, name] of [['ValidationTelemetryIngestTargetGroupArn', 'ingest'],
       ['ValidationEnrollmentApiTargetGroupArn', 'enroll'], ['ValidationDashboardApiTargetGroupArn', 'dashboard'],
-      ['ValidationClickhouseTargetGroupArn', 'ch'], ['ValidationTelemetryGatewayTargetGroupArn', 'gateway']]) {
+      ['ValidationTelemetryGatewayTargetGroupArn', 'gateway']]) {
       expect(edge.toJSON().Outputs[output].Value).toEqual({ Ref: group(name)[0] });
     }
-    for (const output of ['ValidationAlbArn', 'ValidationPublicBaseUrl', 'ValidationClickhouseUrl']) edge.hasOutput(output, {});
+    for (const output of ['ValidationAlbArn', 'ValidationPublicBaseUrl']) edge.hasOutput(output, {});
   });
 
   test('priority 1 OTLP 규칙 ID와 53개 앱 규칙의 listener를 보존한다', () => {

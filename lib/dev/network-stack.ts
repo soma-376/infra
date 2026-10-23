@@ -23,7 +23,7 @@ import {
 export interface DevNetworkStackProps extends StackProps {
   readonly eksHttpsEnabled?: boolean;
   /**
-   * EKS ALB(80/선택적 443/8123)와 RDS(5432)의 인바운드 허용 소스.
+   * 앱 ALB(80/선택적 443)와 RDS(5432)의 인바운드 허용 소스.
    */
   readonly allowedCidrs: readonly string[];
 }
@@ -135,11 +135,9 @@ export class DevNetworkStack extends Stack {
       apps.addIngressRule(alb, Port.tcp(30080), 'EKS enrollment NodePort from ALB');
       apps.addIngressRule(alb, Port.tcp(DEV_EKS_NODE_PORTS.dashboard), 'EKS dashboard NodePort from ALB');
       apps.addIngressRule(alb, Port.tcp(DEV_EKS_NODE_PORTS.gateway), 'EKS telemetry gateway NodePort from ALB');
-      ch.addIngressRule(alb, Port.tcp(8123), 'EKS ClickHouse HTTP from ALB');
     }
     this.forEachAllowedCidr((peer, cidr) => {
       validation.addIngressRule(peer, Port.tcp(80), `Validation HTTP from ${cidr}`);
-      validation.addIngressRule(peer, Port.tcp(8123), `Validation ClickHouse from ${cidr}`);
       if (props.eksHttpsEnabled) {
         validation.addIngressRule(peer, Port.tcp(PORTS.https), `Validation HTTPS from ${cidr}`);
       }

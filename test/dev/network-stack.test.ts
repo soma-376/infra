@@ -74,16 +74,16 @@ describe('DevNetworkStack EKS 전용 네트워크', () => {
     Annotations.fromStack(network).hasWarning('*', Match.stringLikeRegexp('infra:dev-open-ingress'));
   });
 
-  test.each([baseline, narrowed, multiple])('4318과 NodePort를 CIDR에 직접 열지 않는다', ({ template }) => {
+  test.each([baseline, narrowed, multiple])('ClickHouse 포트·4318·NodePort를 CIDR에 직접 열지 않는다', ({ template }) => {
     expect(allIngressRules(template).filter(rule => rule.CidrIp !== undefined &&
-      [4318, 30416, 30080, 30081, 30082].includes(rule.FromPort))).toEqual([]);
+      [8123, 9000, 4318, 30416, 30080, 30081, 30082].includes(rule.FromPort))).toEqual([]);
   });
 
   test.each([[narrowed, [CIDRS[0]]], [multiple, CIDRS]] as const)('지정 CIDR에만 EKS ALB와 RDS 인바운드를 연다', ({ network, template }, cidrs) => {
     const ingress = allIngressRules(template);
     expect(ingress.filter(rule => rule.CidrIp === '0.0.0.0/0' || rule.CidrIpv6 === '::/0')).toEqual([]);
     for (const cidr of cidrs) {
-      for (const port of [PORTS.http, PORTS.clickhouseHttp]) {
+      for (const port of [PORTS.http]) {
         template.hasResourceProperties('AWS::EC2::SecurityGroupIngress', {
           GroupId: { 'Fn::GetAtt': ['DevEksValidationAlbSg7D5E6C15', 'GroupId'] },
           CidrIp: cidr, FromPort: port, ToPort: port, IpProtocol: 'tcp',
@@ -97,5 +97,11 @@ describe('DevNetworkStack EKS 전용 네트워크', () => {
       });
     }
     Annotations.fromStack(network).hasNoWarning('*', Match.stringLikeRegexp('infra:dev-open-ingress'));
+  });
+
+  test('ALB에서 ClickHouse로 향하는 SG 허용 규칙을 제거한다', () => {
+    const albId = network.resolve(network.eksValidationAlbSecurityGroup.securityGroupId);
+    expect(allIngressRules(template).filter(rule => rule.FromPort === PORTS.clickhouseHttp
+      && JSON.stringify(rule.SourceSecurityGroupId) === JSON.stringify(albId))).toEqual([]);
   });
 });
