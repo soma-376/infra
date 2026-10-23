@@ -60,5 +60,11 @@
     "status": "PASS",
     "evidence": "tests/fixtures/arm64-platform-trace-images.json",
     "scope": "OCI index linux/arm64 manifests; not deployment readiness"
+  },
+  "localLokiTempoVerification": {
+    "status": "PASS",
+    "evidence": "tests/loki-tempo/local-verification.json",
+    "script": "../../scripts/observability-loki-tempo-smoke.mjs",
+    "scope": "local Docker ARM64; rendered configs, synthetic log/trace round trip, Grafana datasources, restart recovery; not dev deployment"
   }
 }
