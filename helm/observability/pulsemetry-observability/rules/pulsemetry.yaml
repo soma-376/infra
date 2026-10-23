@@ -14,8 +14,12 @@ groups:
         expr: histogram_quantile(0.95, sum by (environment, cluster, namespace, service, pod, stage, outcome, le) (rate(pulsemetry_pipeline_stage_duration_seconds_bucket[1m])))
       - record: pulsemetry:pipeline_completion:p95
         expr: histogram_quantile(0.95, sum by (environment, cluster, namespace, service, pod, signal, le) (rate(pulsemetry_pipeline_accepted_to_completion_seconds_bucket[1m])))
-      - record: pulsemetry:msk_messages:rate1m
-        expr: sum by (environment, cluster, msk_cluster, topic) (rate(kafka_server_BrokerTopicMetrics_Count{job="msk-jmx",name="MessagesInPerSec",topic!=""}[1m]))
+      # msk-jmx는 60초 간격이라 rate 범위는 표본 4개 이상인 5분이다.
+      - record: pulsemetry:msk_messages:rate5m
+        expr: sum by (environment, cluster, msk_cluster, topic) (rate(kafka_server_BrokerTopicMetrics_Count{job="msk-jmx",name="MessagesInPerSec",topic!=""}[5m]))
+      # 예정된 scrape 중 성공한 비율이다. target이 사라지면 표본이 없어 값도 없다(성공률 0과 다르다).
+      - record: pulsemetry:msk_scrape_success:ratio15m
+        expr: avg by (environment, cluster, msk_cluster, job, instance) (avg_over_time(up{job=~"msk-jmx|msk-node"}[15m]))
       - record: pulsemetry:clickhouse_inserted_rows:rate1m
         expr: sum by (environment, cluster, namespace, service, pod) (rate(ClickHouseProfileEvents_InsertedRows{job="clickhouse"}[1m]))
   - name: pulsemetry.alerts
@@ -42,9 +46,10 @@ groups:
           severity: warning
         annotations:
           summary: ClickHouse 지표를 수집할 수 없다
+      # 60초 간격에서 429 한 번은 up=0이 1분 유지된다. 연속 3회 실패부터 경보하고 간헐 실패는 성공률 패널로 본다.
       - alert: MskJmxTargetSetIncomplete
         expr: (count(up{job="msk-jmx"}) != 3) or absent(up{job="msk-jmx"}) or (up{job="msk-jmx"} == 0)
-        for: 1m
+        for: 3m
         labels:
           severity: warning
         annotations:

@@ -195,7 +195,7 @@
     {
       "type": "timeseries",
       "title": "JMX / Node 전체 broker 수집 상태",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+      "description": "현재 scrape 성공(1)·실패(0)다. msk-jmx는 60초, msk-node는 10초 간격이다. JMX endpoint가 HTTP 429로 거부하면 0이 된다. 간헐 실패의 비율은 옆 패널에서 본다. 빈 시계열은 대상 미설정이다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -252,8 +252,8 @@
     },
     {
       "type": "timeseries",
-      "title": "topic별 Kafka records / 초",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+      "title": "broker별 최근 15분 수집 성공률",
+      "description": "예정된 scrape 중 성공한 비율(최근 15분)이다. 1 미만이면 그 broker의 지표에 수집 공백이 있다. MSK JMX의 HTTP 429 거부가 주원인이며, 해당 구간의 JMX 패널 값은 마지막 성공 표본이다. 빈 시계열은 대상 미설정이다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -261,7 +261,68 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "pulsemetry:msk_messages:rate1m{environment=\"$environment\",topic=\"$topic\",cluster=\"$cluster\",msk_cluster=\"$msk_cluster\"}",
+          "expr": "pulsemetry:msk_scrape_success:ratio15m{environment=\"$environment\",cluster=\"$cluster\",msk_cluster=\"$msk_cluster\"}",
+          "legendFormat": "{{job}} {{instance}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never"
+          },
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "min"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 17,
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "links": [
+        {
+          "title": "같은 시간·서비스·Pod의 진단 로그",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "topic별 Kafka records / 초",
+      "description": "MSK JMX MessagesInPerSec의 5분 rate다(JMX 60초 간격). 빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pulsemetry:msk_messages:rate5m{environment=\"$environment\",topic=\"$topic\",cluster=\"$cluster\",msk_cluster=\"$msk_cluster\"}",
           "legendFormat": "{{topic}}",
           "range": true
         }
@@ -295,9 +356,9 @@
       },
       "id": 2,
       "gridPos": {
-        "x": 12,
-        "y": 0,
-        "w": 12,
+        "x": 0,
+        "y": 8,
+        "w": 24,
         "h": 8
       },
       "links": [
@@ -354,7 +415,7 @@
       "id": 3,
       "gridPos": {
         "x": 0,
-        "y": 8,
+        "y": 16,
         "w": 12,
         "h": 8
       },
@@ -364,7 +425,8 @@
           "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
           "targetBlank": false
         }
-      ]
+      ],
+      "interval": "1m"
     },
     {
       "type": "timeseries",
@@ -412,7 +474,7 @@
       "id": 4,
       "gridPos": {
         "x": 12,
-        "y": 8,
+        "y": 16,
         "w": 12,
         "h": 8
       },
@@ -422,7 +484,8 @@
           "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
           "targetBlank": false
         }
-      ]
+      ],
+      "interval": "1m"
     },
     {
       "type": "timeseries",
@@ -477,7 +540,7 @@
       "id": 5,
       "gridPos": {
         "x": 0,
-        "y": 16,
+        "y": 24,
         "w": 12,
         "h": 8
       },
@@ -542,7 +605,7 @@
       "id": 6,
       "gridPos": {
         "x": 12,
-        "y": 16,
+        "y": 24,
         "w": 12,
         "h": 8
       },
@@ -607,7 +670,7 @@
       "id": 7,
       "gridPos": {
         "x": 0,
-        "y": 24,
+        "y": 32,
         "w": 12,
         "h": 8
       },
@@ -671,7 +734,7 @@
       "id": 8,
       "gridPos": {
         "x": 12,
-        "y": 24,
+        "y": 32,
         "w": 12,
         "h": 8
       },
@@ -729,7 +792,7 @@
       "id": 9,
       "gridPos": {
         "x": 0,
-        "y": 32,
+        "y": 40,
         "w": 12,
         "h": 8
       },
@@ -793,7 +856,7 @@
       "id": 10,
       "gridPos": {
         "x": 12,
-        "y": 32,
+        "y": 40,
         "w": 12,
         "h": 8
       },
@@ -851,7 +914,7 @@
       "id": 11,
       "gridPos": {
         "x": 0,
-        "y": 40,
+        "y": 48,
         "w": 12,
         "h": 8
       },
@@ -861,7 +924,8 @@
           "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
           "targetBlank": false
         }
-      ]
+      ],
+      "interval": "1m"
     },
     {
       "type": "timeseries",
@@ -909,7 +973,7 @@
       "id": 12,
       "gridPos": {
         "x": 12,
-        "y": 40,
+        "y": 48,
         "w": 12,
         "h": 8
       },
@@ -919,7 +983,8 @@
           "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
           "targetBlank": false
         }
-      ]
+      ],
+      "interval": "1m"
     },
     {
       "type": "timeseries",
@@ -972,7 +1037,7 @@
       "id": 13,
       "gridPos": {
         "x": 0,
-        "y": 48,
+        "y": 56,
         "w": 12,
         "h": 8
       },
@@ -1036,7 +1101,7 @@
       "id": 14,
       "gridPos": {
         "x": 12,
-        "y": 48,
+        "y": 56,
         "w": 12,
         "h": 8
       },
@@ -1094,7 +1159,7 @@
       "id": 15,
       "gridPos": {
         "x": 0,
-        "y": 56,
+        "y": 64,
         "w": 12,
         "h": 8
       },
@@ -1152,7 +1217,7 @@
       "id": 16,
       "gridPos": {
         "x": 12,
-        "y": 56,
+        "y": 64,
         "w": 12,
         "h": 8
       },

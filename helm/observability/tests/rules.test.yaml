@@ -27,32 +27,83 @@ tests:
               job: telemetry-gateway
             exp_annotations:
               summary: Gateway 지표를 수집할 수 없다
-  - interval: 10s
+  # msk-jmx는 60초 간격이다. broker 하나가 빠진 상태는 3분 지속 뒤 경보한다.
+  - interval: 1m
     input_series:
       - series: up{job="msk-jmx",instance="b-1:11001"}
-        values: 1+0x18
+        values: 1+0x8
       - series: up{job="msk-jmx",instance="b-2:11001"}
-        values: 1+0x18
+        values: 1+0x8
     alert_rule_test:
       - eval_time: 2m
+        alertname: MskJmxTargetSetIncomplete
+        exp_alerts: []
+      - eval_time: 4m
         alertname: MskJmxTargetSetIncomplete
         exp_alerts:
           - exp_labels:
               severity: warning
             exp_annotations:
               summary: MSK broker 3개의 JMX 수집을 확인할 수 없다
-  - interval: 10s
+  - interval: 1m
     input_series:
       - series: up{job="msk-jmx",instance="b-1:11001"}
-        values: 1+0x18
+        values: 1+0x8
       - series: up{job="msk-jmx",instance="b-2:11001"}
-        values: 1+0x18
+        values: 1+0x8
       - series: up{job="msk-jmx",instance="b-3:11001"}
-        values: 1+0x18
+        values: 1+0x8
     alert_rule_test:
-      - eval_time: 2m
+      - eval_time: 4m
         alertname: MskJmxTargetSetIncomplete
         exp_alerts: []
+  # 429로 한 번씩 실패하는 broker는 경보 대신 성공률로 드러난다. 연속 3회 실패는 경보한다.
+  - interval: 1m
+    input_series:
+      - series: up{job="msk-jmx",environment="dev",cluster="eks",msk_cluster="msk",instance="b-1:11001"}
+        values: 1 0 1 1 0 1 1 0 1 1 0 1 1 0 1 1
+      - series: up{job="msk-jmx",environment="dev",cluster="eks",msk_cluster="msk",instance="b-2:11001"}
+        values: 1+0x15
+      - series: up{job="msk-jmx",environment="dev",cluster="eks",msk_cluster="msk",instance="b-3:11001"}
+        values: 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0
+    promql_expr_test:
+      - expr: pulsemetry:msk_scrape_success:ratio15m{instance="b-1:11001"}
+        eval_time: 14m
+        exp_samples:
+          - labels: pulsemetry:msk_scrape_success:ratio15m{job="msk-jmx",environment="dev",cluster="eks",msk_cluster="msk",instance="b-1:11001"}
+            value: 0.6666666666666666
+      - expr: pulsemetry:msk_scrape_success:ratio15m{instance="b-2:11001"}
+        eval_time: 14m
+        exp_samples:
+          - labels: pulsemetry:msk_scrape_success:ratio15m{job="msk-jmx",environment="dev",cluster="eks",msk_cluster="msk",instance="b-2:11001"}
+            value: 1
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: MskJmxTargetSetIncomplete
+        exp_alerts: []
+      - eval_time: 14m
+        alertname: MskJmxTargetSetIncomplete
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: msk-jmx
+              environment: dev
+              cluster: eks
+              msk_cluster: msk
+              instance: b-3:11001
+            exp_annotations:
+              summary: MSK broker 3개의 JMX 수집을 확인할 수 없다
+  # 60초 간격 counter의 rate는 5분 범위에서 계산된다.
+  - interval: 1m
+    input_series:
+      - series: kafka_server_BrokerTopicMetrics_Count{job="msk-jmx",name="MessagesInPerSec",environment="dev",cluster="eks",msk_cluster="msk",topic="t",instance="b-1:11001"}
+        values: 0+60x10
+    promql_expr_test:
+      - expr: pulsemetry:msk_messages:rate5m
+        eval_time: 8m
+        exp_samples:
+          - labels: pulsemetry:msk_messages:rate5m{environment="dev",cluster="eks",msk_cluster="msk",topic="t"}
+            value: 1
   - interval: 10s
     input_series:
       - series: pulsemetry_gateway_requests_total{environment="dev"}

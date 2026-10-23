@@ -85,6 +85,8 @@ for (const [i, port] of [11001, 11002].entries()) {
   assert.equal(scrape[i].static_configs[0].targets.length, 3);
   assert.ok(scrape[i].static_configs[0].targets.every(x => x.endsWith(`:${port}`)));
 }
+// MSK JMX endpoint는 10초 간격에서 429로 표본을 거부했다. 간격을 되돌리면 JMX rate 패널의 범위도 다시 정해야 한다.
+assert.deepEqual([scrape[0].job_name, scrape[0].scrape_interval, scrape[0].scrape_timeout], ['msk-jmx', '60s', '10s']);
 writeFileSync(resolve(temp, 'prometheus.yaml'), dump({scrape_configs:scrape}));
 checked(promtool, ['check', 'config', resolve(temp, 'prometheus.yaml')]);
 checked(promtool, ['check', 'rules', resolve(chart, 'rules/pulsemetry.yaml')]);
@@ -108,6 +110,8 @@ for (const dashboard of dashboards) {
     for (const target of panel.targets ?? []) {
       if (target.expr) {
         assert.doesNotMatch(target.expr, /or\s+vector\s*\(\s*0\s*\)/);
+        // datasource 기본 간격(10s)의 $__rate_interval은 60초 JMX 표본을 담지 못한다.
+        if (target.expr.includes('job="msk-jmx"')) assert.equal(panel.interval, '1m', `${dashboard.uid}/${panel.title} JMX 최소 간격`);
         const expr = target.expr.replaceAll('$__rate_interval', '1m').replaceAll('$__range', '5m');
         expressions.push({record:`dashboard_query_${expressions.length}`,expr});
         for (const metric of expr.match(/\bpulsemetry_[A-Za-z0-9_]+/g) ?? []) usedCustomMetrics.add(metric);
