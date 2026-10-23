@@ -1,0 +1,95 @@
+# Loki 단일 바이너리(ADR-0039). upstream chart 값은 `loki:` 아래에 둔다.
+# dev 소량 운영의 시작점이다. HA·장기 보관·수평 확장은 보장하지 않는다.
+loki:
+  deploymentMode: Monolithic
+  # Grafana·Fluent Bit이 쓰는 고정 주소 `pulsemetry-loki.pulsemetry-observability.svc:3100`.
+  fullnameOverride: pulsemetry-loki
+  # 단일 replica가 준비되기 전에도 memberlist가 자기 주소를 찾게 한다. 그렇지 않으면 첫 기동에서 cluster join이 실패할 수 있다.
+  memberlist:
+    service:
+      publishNotReadyAddresses: true
+  # 규칙 sidecar를 끄므로 namespace 밖을 볼 ClusterRole이 필요 없다.
+  rbac:
+    namespaced: true
+  loki:
+    image:
+      tag: 3.7.8
+      digest: sha256:1107dd5274e0ada47e42472b7a7e71f3b2a2fe878878108f3e2f9e51528f0193
+    auth_enabled: false
+    commonConfig:
+      replication_factor: 1
+      path_prefix: /var/loki
+    storage:
+      type: filesystem
+    schemaConfig:
+      configs:
+        - from: "2026-10-01"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: loki_index_
+            period: 24h
+    # 보존은 디스크 상한이 아니다. 저장 증가량을 실측해 PVC·보존을 다시 정한다.
+    limits_config:
+      retention_period: 72h
+      reject_old_samples: true
+      reject_old_samples_max_age: 72h
+      max_query_lookback: 72h
+      # stream label은 environment·cluster·namespace·service_name·container 다섯이다.
+      max_label_names_per_series: 8
+      ingestion_rate_mb: 8
+      ingestion_burst_size_mb: 16
+    compactor:
+      retention_enabled: true
+      delete_request_store: filesystem
+      working_directory: /var/loki/compactor
+      compaction_interval: 10m
+      retention_delete_delay: 2h
+    analytics:
+      reporting_enabled: false
+  singleBinary:
+    replicas: 1
+    resources:
+      requests: {cpu: 250m, memory: 512Mi}
+      limits: {cpu: "1", memory: 1Gi}
+    nodeSelector:
+      kubernetes.io/arch: arm64
+      pulsemetry.io/workload: observability
+    tolerations:
+      - key: workload
+        operator: Equal
+        value: observability
+        effect: NoSchedule
+    persistence:
+      enabled: true
+      size: 20Gi
+      storageClass: gp3-observability
+      # upstream 기본값은 Delete다. StatefulSet 삭제·축소로 로그 PVC가 지워지지 않게 Retain을 명시한다.
+      enableStatefulSetAutoDeletePVC: true
+      whenDeleted: Retain
+      whenScaled: Retain
+  # 이번 범위에 필요 없는 구성요소는 끈다(ADR-0039). 검증기가 렌더 결과에서 다시 확인한다.
+  gateway:
+    enabled: false
+  lokiCanary:
+    enabled: false
+  test:
+    enabled: false
+  chunksCache:
+    enabled: false
+  resultsCache:
+    enabled: false
+  memcached:
+    enabled: false
+  minio:
+    enabled: false
+  sidecar:
+    rules:
+      enabled: false
+  read:
+    replicas: 0
+  write:
+    replicas: 0
+  backend:
+    replicas: 0

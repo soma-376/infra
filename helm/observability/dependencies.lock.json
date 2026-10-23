@@ -14,7 +14,10 @@
     "kubeStateMetrics": "2.18.0",
     "nodeExporter": "1.10.2",
     "fluentBit": "5.1.3",
-    "k6": "1.8.2"
+    "k6": "1.8.2",
+    "loki": "3.7.8",
+    "tempo": "3.1.0",
+    "otelCollectorK8s": "0.161.0"
   },
   "architecture": "linux/arm64",
   "runtimeVerification": "AWS_NOT_RUN",
@@ -28,6 +31,34 @@
   "imagePlatformVerification": {
     "status": "PASS",
     "evidence": "tests/fixtures/arm64-images.json",
+    "scope": "OCI index linux/arm64 manifests; not deployment readiness"
+  },
+  "charts": {
+    "loki": {
+      "name": "loki",
+      "version": "18.15.1",
+      "appVersion": "3.7.8",
+      "url": "https://github.com/grafana-community/helm-charts/releases/download/loki-18.15.1/loki-18.15.1.tgz",
+      "sha256": "bfa767447d2ebcae3f0a24836b1a0813104a32fcf8a2eabae5461f6d79edbe0a"
+    },
+    "tempo": {
+      "name": "tempo",
+      "version": "3.1.0",
+      "appVersion": "3.1.0",
+      "url": "https://github.com/grafana-community/helm-charts/releases/download/tempo-3.1.0/tempo-3.1.0.tgz",
+      "sha256": "cbc39dcd0f63ec244d4fea1c346dbecdd099ca8b0a9272240400ad0a91f8cc09"
+    },
+    "otel-platform": {
+      "name": "opentelemetry-collector",
+      "version": "0.175.1",
+      "appVersion": "0.161.0",
+      "url": "https://github.com/open-telemetry/opentelemetry-helm-charts/releases/download/opentelemetry-collector-0.175.1/opentelemetry-collector-0.175.1.tgz",
+      "sha256": "33996399f5d831193603f8a56ed46b7cd3f012eeb6df4d5046c5b560a554e21d"
+    }
+  },
+  "platformTraceImagePlatformVerification": {
+    "status": "PASS",
+    "evidence": "tests/fixtures/arm64-platform-trace-images.json",
     "scope": "OCI index linux/arm64 manifests; not deployment readiness"
   }
 }

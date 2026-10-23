@@ -1,0 +1,11 @@
+apiVersion: v2
+name: pulsemetry-otel-platform
+description: Pulsemetry 플랫폼 trace 전용 OpenTelemetry Collector — Gateway·ingest span을 Tempo로 보낸다 (ADR-0039)
+type: application
+version: 0.1.0
+dependencies:
+  # archive SHA256은 ../dependencies.lock.json이 고정한다. helm dependency update로 받지 않는다.
+  - name: opentelemetry-collector
+    alias: collector
+    version: 0.175.1
+    repository: https://open-telemetry.github.io/opentelemetry-helm-charts

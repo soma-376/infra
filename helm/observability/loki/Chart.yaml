@@ -1,0 +1,11 @@
+apiVersion: v2
+name: pulsemetry-loki
+description: Pulsemetry 관측 로그 저장소 — Loki 단일 바이너리 1 replica, filesystem PVC (ADR-0039)
+type: application
+version: 0.1.0
+dependencies:
+  # archive SHA256은 ../dependencies.lock.json이 고정한다. helm dependency update로 받지 않는다.
+  - name: loki
+    alias: loki
+    version: 18.15.1
+    repository: https://grafana-community.github.io/helm-charts

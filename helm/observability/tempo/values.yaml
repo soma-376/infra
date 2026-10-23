@@ -1,0 +1,89 @@
+# Tempo 3.x 단일 바이너리(ADR-0039). upstream chart 값은 `tempo:` 아래에 둔다.
+# 플랫폼 자체 span만 받는다. 업무용 MSK와 연결하지 않는다. 3→2 같은 major downgrade는 in-place rollback이 아니다.
+tempo:
+  # Grafana 조회 `pulsemetry-tempo...:3200`, Collector 송신 `pulsemetry-tempo...:4317`.
+  fullnameOverride: pulsemetry-tempo
+  replicas: 1
+  tempo:
+    repository: grafana/tempo
+    tag: "3.1.0@sha256:3076b8dcdfb32fd6bc5ccef85e7b7313e6199b9cb84366257fc17ecb696db5fd"
+    reportingEnabled: false
+    # backend_scheduler의 block_retention이다. 보존은 디스크 상한이 아니다.
+    retention: 48h
+    resources:
+      requests: {cpu: 250m, memory: 512Mi}
+      limits: {cpu: "1", memory: 1Gi}
+    # upstream Service 템플릿이 jaeger 항목을 nil 검사 없이 읽는다. Helm은 빈 맵을 기본값과 병합하므로 endpoint를 null로 지워 포트만 비운다.
+    # 실제 수신 설정은 아래 `config`가 OTLP/gRPC 하나로 고정하므로 이 값은 Tempo 설정에 들어가지 않는다.
+    receivers:
+      jaeger:
+        protocols:
+          grpc: {endpoint: null}
+          thrift_binary: {endpoint: null}
+          thrift_compact: {endpoint: null}
+          thrift_http: {endpoint: null}
+      otlp:
+        protocols:
+          grpc:
+            endpoint: "0.0.0.0:4317"
+          http: null
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop: [ALL]
+    storage:
+      trace:
+        backend: local
+        local:
+          path: /var/tempo/traces
+        wal:
+          path: /var/tempo/wal
+  # upstream 기본 설정 템플릿과 같고 distributor 수신만 OTLP/gRPC 4317로 고정한다(Collector → Tempo).
+  # Jaeger·Zipkin·OTLP/HTTP 수신은 열지 않는다. Service의 9411·55680 고정 포트에는 listener가 없다.
+  config: |
+    stream_over_http_enabled: {{ .Values.tempo.streamOverHttpEnabled }}
+    memberlist:
+      cluster_label: "{{ .Release.Name }}.{{ .Release.Namespace }}"
+    multitenancy_enabled: {{ .Values.tempo.multitenancyEnabled }}
+    usage_report:
+      reporting_enabled: {{ .Values.tempo.reportingEnabled }}
+    backend_scheduler:
+      provider:
+        compaction:
+          compaction:
+            block_retention: {{ .Values.tempo.retention }}
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: "0.0.0.0:4317"
+    server:
+      {{- toYaml .Values.tempo.server | nindent 6 }}
+    storage:
+      {{- toYaml .Values.tempo.storage | nindent 6 }}
+    querier:
+      {{- toYaml .Values.tempo.querier | nindent 6 }}
+    query_frontend:
+      {{- toYaml .Values.tempo.queryFrontend | nindent 6 }}
+    overrides:
+      {{- toYaml .Values.tempo.overrides | nindent 6 }}
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClassName: gp3-observability
+    # upstream은 이 값을 켜면 whenDeleted·whenScaled를 Delete로 둔다. 끈 채로 두어 Kubernetes 기본(Retain)을 쓴다.
+    enableStatefulSetAutoDeletePVC: false
+  nodeSelector:
+    kubernetes.io/arch: arm64
+    pulsemetry.io/workload: observability
+  tolerations:
+    - key: workload
+      operator: Equal
+      value: observability
+      effect: NoSchedule
+  tempoQuery:
+    enabled: false
+  serviceMonitor:
+    enabled: false

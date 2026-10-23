@@ -1,0 +1,8 @@
+{{- /* 고정 주소·단일 replica·부가 구성요소 비활성을 렌더 때 강제한다(ADR-0039). 리소스를 만들지 않는다. */ -}}
+{{- if ne .Release.Namespace "pulsemetry-observability" -}}{{ fail "Loki release namespace는 pulsemetry-observability여야 한다" }}{{- end -}}
+{{- $l := .Values.loki -}}
+{{- if ne $l.fullnameOverride "pulsemetry-loki" -}}{{ fail "Loki Service 이름은 pulsemetry-loki로 고정한다" }}{{- end -}}
+{{- if ne $l.deploymentMode "Monolithic" -}}{{ fail "Loki는 Monolithic 단일 바이너리만 허용한다" }}{{- end -}}
+{{- if ne (int $l.singleBinary.replicas) 1 -}}{{ fail "Loki는 단일 replica 영속 볼륨 구성을 사용한다" }}{{- end -}}
+{{- if or $l.gateway.enabled $l.minio.enabled $l.lokiCanary.enabled $l.chunksCache.enabled $l.resultsCache.enabled $l.memcached.enabled -}}{{ fail "gateway·MinIO·canary·cache는 이번 범위에서 켜지 않는다" }}{{- end -}}
+{{- if or (ne $l.singleBinary.persistence.whenDeleted "Retain") (ne $l.singleBinary.persistence.whenScaled "Retain") -}}{{ fail "Loki PVC는 Retain이다" }}{{- end -}}
