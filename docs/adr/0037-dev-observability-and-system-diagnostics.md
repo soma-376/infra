@@ -4,6 +4,7 @@
 
 Accepted (PROJ-191; 사용자 승인 설계의 로컬 구현. AWS 배포·실부하·장애 검증은 별도).
 ADR-0035의 관측 범위를 확장한다. MSK DEFAULT CloudWatch 경보와 broker 설정은 유지한다.
+Loki·Tempo·분산 tracing 제외 결정은 [ADR-0039](0039-dev-loki-tempo-and-platform-trace-collector.md)(Proposed)가 개정을 제안한다. 채택 전까지는 이 문서가 기준이다.
 
 [ADR-0028](0028-dev-eks-auto-mode-transition.md)의 두 결정을 부분 대체한다. 앱·ClickHouse 두 NodePool 구성에
 관측 전용 NodePool을 더한다. 앱 namespace stdout/stderr 원문만 `/eks/dev/application`에 보내던 Fluent Bit은
