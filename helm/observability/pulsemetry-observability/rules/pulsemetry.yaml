@@ -120,6 +120,8 @@ groups:
           severity: critical
         annotations:
           summary: MSK partition의 ISR이 최소 개수 미만이다
+      # 현재 MSK(KRaft)는 broker JMX로 이 지표를 내지 않아 평소에는 평가 대상이 없다.
+      # offline partition은 MSK 대시보드의 CloudWatch OfflinePartitionsCount로 본다. JMX가 지표를 내는 구성을 위해 남긴다.
       - alert: MskOfflinePartitions
         expr: max by (cluster, msk_cluster) (kafka_controller_KafkaController_Value{job="msk-jmx",name="OfflinePartitionsCount"}) > 0
         for: 1m

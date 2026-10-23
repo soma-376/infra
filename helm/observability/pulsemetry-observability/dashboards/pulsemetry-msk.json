@@ -358,7 +358,7 @@
       "gridPos": {
         "x": 0,
         "y": 8,
-        "w": 24,
+        "w": 12,
         "h": 8
       },
       "links": [
@@ -414,8 +414,8 @@
       },
       "id": 3,
       "gridPos": {
-        "x": 0,
-        "y": 16,
+        "x": 12,
+        "y": 8,
         "w": 12,
         "h": 8
       },
@@ -473,6 +473,65 @@
       },
       "id": 4,
       "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "links": [
+        {
+          "title": "같은 시간·서비스·Pod의 진단 로그",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ],
+      "interval": "1m"
+    },
+    {
+      "type": "timeseries",
+      "title": "Under minimum ISR · JMX",
+      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "kafka_server_ReplicaManager_Value{job=\"msk-jmx\",name=\"UnderMinIsrPartitionCount\",cluster=\"$cluster\",msk_cluster=\"$msk_cluster\"}",
+          "legendFormat": "{{instance}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 12,
+      "gridPos": {
         "x": 12,
         "y": 16,
         "w": 12,
@@ -486,6 +545,133 @@
         }
       ],
       "interval": "1m"
+    },
+    {
+      "type": "timeseries",
+      "title": "Offline partitions · CloudWatch 60초",
+      "description": "MSK(KRaft)는 broker JMX로 OfflinePartitionsCount를 내지 않는다(2026-10-23 24시간 표본 0). 이 CloudWatch 값이 offline partition의 기준이다. 원본 60초 해상도이며 미수집 값을 0으로 바꾸지 않는다.",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "pulsemetry-cloudwatch"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "pulsemetry-cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "region": "__AWS_REGION__",
+          "namespace": "AWS/Kafka",
+          "metricName": "OfflinePartitionsCount",
+          "dimensions": {
+            "Cluster Name": "$msk_cluster"
+          },
+          "statistic": "Maximum",
+          "period": "60",
+          "matchExact": true,
+          "metricEditorMode": 0,
+          "metricQueryType": 0
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "미수집",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "id": 13,
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "links": [
+        {
+          "title": "같은 시간·서비스·Pod의 진단 로그",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Under minimum ISR · CloudWatch 60초",
+      "description": "CloudWatch 원본 60초 해상도. 전송 지연을 포함하며 미수집 값을 0으로 바꾸지 않는다.",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "pulsemetry-cloudwatch"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "pulsemetry-cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "region": "__AWS_REGION__",
+          "namespace": "AWS/Kafka",
+          "metricName": "UnderMinIsrPartitionCount",
+          "dimensions": {
+            "Cluster Name": "$msk_cluster",
+            "Broker ID": "*"
+          },
+          "statistic": "Maximum",
+          "period": "60",
+          "matchExact": true,
+          "metricEditorMode": 0,
+          "metricQueryType": 0
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "미수집",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "id": 14,
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "links": [
+        {
+          "title": "같은 시간·서비스·Pod의 진단 로그",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
     },
     {
       "type": "timeseries",
@@ -540,7 +726,7 @@
       "id": 5,
       "gridPos": {
         "x": 0,
-        "y": 24,
+        "y": 32,
         "w": 12,
         "h": 8
       },
@@ -605,7 +791,7 @@
       "id": 6,
       "gridPos": {
         "x": 12,
-        "y": 24,
+        "y": 32,
         "w": 12,
         "h": 8
       },
@@ -670,7 +856,7 @@
       "id": 7,
       "gridPos": {
         "x": 0,
-        "y": 32,
+        "y": 40,
         "w": 12,
         "h": 8
       },
@@ -734,7 +920,7 @@
       "id": 8,
       "gridPos": {
         "x": 12,
-        "y": 32,
+        "y": 40,
         "w": 12,
         "h": 8
       },
@@ -792,7 +978,7 @@
       "id": 9,
       "gridPos": {
         "x": 0,
-        "y": 40,
+        "y": 48,
         "w": 12,
         "h": 8
       },
@@ -856,7 +1042,7 @@
       "id": 10,
       "gridPos": {
         "x": 12,
-        "y": 40,
+        "y": 48,
         "w": 12,
         "h": 8
       },
@@ -870,126 +1056,8 @@
     },
     {
       "type": "timeseries",
-      "title": "Offline partitions · JMX",
-      "description": "KRaft/MSK에서 해당 JMX metric 미방출 시 미수집이다. CloudWatch OfflinePartitionsCount와 대조한다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pulsemetry-prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "kafka_controller_KafkaController_Value{job=\"msk-jmx\",name=\"OfflinePartitionsCount\",cluster=\"$cluster\",msk_cluster=\"$msk_cluster\"}",
-          "legendFormat": "{{instance}}",
-          "range": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "noValue": "미수집",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 8,
-            "spanNulls": false,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "id": 11,
-      "gridPos": {
-        "x": 0,
-        "y": 48,
-        "w": 12,
-        "h": 8
-      },
-      "links": [
-        {
-          "title": "같은 시간·서비스·Pod의 진단 로그",
-          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
-          "targetBlank": false
-        }
-      ],
-      "interval": "1m"
-    },
-    {
-      "type": "timeseries",
-      "title": "Under minimum ISR · JMX",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pulsemetry-prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "kafka_server_ReplicaManager_Value{job=\"msk-jmx\",name=\"UnderMinIsrPartitionCount\",cluster=\"$cluster\",msk_cluster=\"$msk_cluster\"}",
-          "legendFormat": "{{instance}}",
-          "range": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "noValue": "미수집",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 8,
-            "spanNulls": false,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "id": 12,
-      "gridPos": {
-        "x": 12,
-        "y": 48,
-        "w": 12,
-        "h": 8
-      },
-      "links": [
-        {
-          "title": "같은 시간·서비스·Pod의 진단 로그",
-          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
-          "targetBlank": false
-        }
-      ],
-      "interval": "1m"
-    },
-    {
-      "type": "timeseries",
-      "title": "Offline partitions · CloudWatch60초",
-      "description": "CloudWatch 원본 60초 해상도. 전송 지연을 포함하며 미수집 값을 0으로 바꾸지 않는다.",
+      "title": "Broker 메모리 사용·여유 bytes · CloudWatch 60초",
+      "description": "MSK node exporter(11002)는 node_memory_* 계열을 내지 않는다(2026-10-23 broker 원본 확인). 같은 의미의 CloudWatch MemoryUsed·MemoryFree를 broker별로 보인다. 미수집 값을 0으로 바꾸지 않는다.",
       "datasource": {
         "type": "cloudwatch",
         "uid": "pulsemetry-cloudwatch"
@@ -1004,75 +1072,32 @@
           "queryMode": "Metrics",
           "region": "__AWS_REGION__",
           "namespace": "AWS/Kafka",
-          "metricName": "OfflinePartitionsCount",
-          "dimensions": {
-            "Cluster Name": "$msk_cluster"
-          },
-          "statistic": "Maximum",
-          "period": "60",
-          "matchExact": true,
-          "metricEditorMode": 0,
-          "metricQueryType": 0
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "noValue": "미수집",
-          "custom": {
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      },
-      "id": 13,
-      "gridPos": {
-        "x": 0,
-        "y": 56,
-        "w": 12,
-        "h": 8
-      },
-      "links": [
-        {
-          "title": "같은 시간·서비스·Pod의 진단 로그",
-          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
-          "targetBlank": false
-        }
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "Under minimum ISR · CloudWatch60초",
-      "description": "CloudWatch 원본 60초 해상도. 전송 지연을 포함하며 미수집 값을 0으로 바꾸지 않는다.",
-      "datasource": {
-        "type": "cloudwatch",
-        "uid": "pulsemetry-cloudwatch"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "cloudwatch",
-            "uid": "pulsemetry-cloudwatch"
-          },
-          "queryMode": "Metrics",
-          "region": "__AWS_REGION__",
-          "namespace": "AWS/Kafka",
-          "metricName": "UnderMinIsrPartitionCount",
+          "metricName": "MemoryUsed",
           "dimensions": {
             "Cluster Name": "$msk_cluster",
             "Broker ID": "*"
           },
-          "statistic": "Maximum",
+          "statistic": "Average",
+          "period": "60",
+          "matchExact": true,
+          "metricEditorMode": 0,
+          "metricQueryType": 0
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "pulsemetry-cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "region": "__AWS_REGION__",
+          "namespace": "AWS/Kafka",
+          "metricName": "MemoryFree",
+          "dimensions": {
+            "Cluster Name": "$msk_cluster",
+            "Broker ID": "*"
+          },
+          "statistic": "Average",
           "period": "60",
           "matchExact": true,
           "metricEditorMode": 0,
@@ -1081,7 +1106,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "bytes",
           "noValue": "미수집",
           "custom": {
             "spanNulls": false
@@ -1096,70 +1121,12 @@
         },
         "tooltip": {
           "mode": "multi"
-        }
-      },
-      "id": 14,
-      "gridPos": {
-        "x": 12,
-        "y": 56,
-        "w": 12,
-        "h": 8
-      },
-      "links": [
-        {
-          "title": "같은 시간·서비스·Pod의 진단 로그",
-          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
-          "targetBlank": false
-        }
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "Broker 메모리 사용 비율",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "pulsemetry-prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "1-node_memory_MemAvailable_bytes{job=\"msk-node\",cluster=\"$cluster\",msk_cluster=\"$msk_cluster\"}/node_memory_MemTotal_bytes{job=\"msk-node\",cluster=\"$cluster\",msk_cluster=\"$msk_cluster\"}",
-          "legendFormat": "{{instance}}",
-          "range": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "noValue": "미수집",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 8,
-            "spanNulls": false,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
         }
       },
       "id": 15,
       "gridPos": {
         "x": 0,
-        "y": 64,
+        "y": 56,
         "w": 12,
         "h": 8
       },
@@ -1173,18 +1140,32 @@
     },
     {
       "type": "timeseries",
-      "title": "Broker 네트워크 수신 bytes / 초",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+      "title": "Broker 클라이언트 수신 bytes / 초 · CloudWatch 60초",
+      "description": "MSK node exporter(11002)는 node_network_* 계열을 내지 않는다(2026-10-23 broker 원본 확인). CloudWatch BytesInPerSec(클라이언트가 보낸 bytes, broker 합계)로 대체한다. NIC 전체 수신량과는 다르다. 미수집 값을 0으로 바꾸지 않는다.",
       "datasource": {
-        "type": "prometheus",
-        "uid": "pulsemetry-prometheus"
+        "type": "cloudwatch",
+        "uid": "pulsemetry-cloudwatch"
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by(instance)(rate(node_network_receive_bytes_total{job=\"msk-node\",device!=\"lo\",cluster=\"$cluster\",msk_cluster=\"$msk_cluster\"}[$__rate_interval]))",
-          "legendFormat": "{{instance}}",
-          "range": true
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "pulsemetry-cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "region": "__AWS_REGION__",
+          "namespace": "AWS/Kafka",
+          "metricName": "BytesInPerSec",
+          "dimensions": {
+            "Cluster Name": "$msk_cluster",
+            "Broker ID": "*"
+          },
+          "statistic": "Average",
+          "period": "60",
+          "matchExact": true,
+          "metricEditorMode": 0,
+          "metricQueryType": 0
         }
       ],
       "fieldConfig": {
@@ -1192,11 +1173,7 @@
           "unit": "Bps",
           "noValue": "미수집",
           "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 8,
-            "spanNulls": false,
-            "showPoints": "never"
+            "spanNulls": false
           }
         },
         "overrides": []
@@ -1204,20 +1181,16 @@
       "options": {
         "legend": {
           "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
+          "placement": "bottom"
         },
         "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
+          "mode": "multi"
         }
       },
       "id": 16,
       "gridPos": {
         "x": 12,
-        "y": 64,
+        "y": 56,
         "w": 12,
         "h": 8
       },
