@@ -18,6 +18,9 @@ EKS 활성화 dev 경로의 실행·접속·스토리지·스택 경계는 [ADR 
 listener를 HTTPS와 선택적 HTTP redirect로 부분 대체한다. 인증서가 없는 기본 HTTP 경로와
 `DevNetworkStack`의 SG 소유권은 유지한다.
 
+[ADR 0038](0038-dev-databases-private-access-via-ssm-relay.md)이 공개 RDS와 CIDR 기반 DB 직접 접근을 부분 대체한다.
+DB 운영자 접속은 별도 SSM 릴레이를 사용하며 나머지 앱·데이터·환경 경계는 유지한다.
+
 ## Context
 
 PROJ-37 티켓이 dev 인프라에 **두 가지 제약을 명시**했다.

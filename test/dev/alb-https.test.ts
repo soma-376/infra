@@ -32,7 +32,7 @@ describe('dev EKS ALB 외부 ACM 인증서', () => {
   const baselineEdge = Template.fromStack(baseline.edge);
   const baselineNetwork = Template.fromStack(baseline.network);
 
-  test('인증서가 없으면 기존 80/8123 listener와 53개 앱 규칙을 유지한다', () => {
+  test('인증서가 없으면 기존 앱 80 listener와 53개 앱 규칙을 유지한다', () => {
     const listener = baselineEdge.toJSON().Resources[LISTENER_ID];
     expect(listener.Properties).toMatchObject({ Port: 80, Protocol: 'HTTP',
       DefaultActions: [{ Type: 'fixed-response', FixedResponseConfig: { StatusCode: '404' } }],
@@ -40,7 +40,7 @@ describe('dev EKS ALB 외부 ACM 인증서', () => {
     expect(listener.Properties.Certificates).toBeUndefined();
     expect(listener.Properties.SslPolicy).toBeUndefined();
     baselineEdge.resourceCountIs('AWS::ElasticLoadBalancingV2::ListenerRule', 53);
-    baselineEdge.resourceCountIs('AWS::ElasticLoadBalancingV2::Listener', 2);
+    baselineEdge.resourceCountIs('AWS::ElasticLoadBalancingV2::Listener', 1);
     expect(ingressRules(baselineNetwork).filter(rule => rule.FromPort === 443 && rule.CidrIp)).toEqual([]);
   });
 
@@ -54,7 +54,7 @@ describe('dev EKS ALB 외부 ACM 인증서', () => {
       SslPolicy: 'ELBSecurityPolicy-TLS13-1-2-Res-2021-06',
     });
     const listeners = Object.values(edge.findResources('AWS::ElasticLoadBalancingV2::Listener')) as any[];
-    expect(listeners).toHaveLength(3);
+    expect(listeners).toHaveLength(2);
     const redirects = listeners.filter(listener => listener.Properties.Port === 80);
     expect(redirects).toHaveLength(1);
     expect(redirects[0]).toMatchObject({ DependsOn: expect.arrayContaining([LISTENER_ID]), Properties: {
@@ -83,11 +83,11 @@ describe('dev EKS ALB 외부 ACM 인증서', () => {
     assertNoManagedCertificate(built);
   });
 
-  test.each([false, 'false'])('redirect=%j이면 HTTPS와 ClickHouse만 남긴다', value => {
+  test.each([false, 'false'])('redirect=%j이면 HTTPS만 남긴다', value => {
     const built = buildDevApp({ ...CONTEXT, devEksCertificateArn: CERTIFICATE_ARN, devHttpRedirectEnabled: value });
     const template = Template.fromStack(built.edge);
     const listeners = Object.values(template.findResources('AWS::ElasticLoadBalancingV2::Listener')) as any[];
-    expect(listeners.map(listener => listener.Properties.Port).sort((a, b) => a - b)).toEqual([443, 8123]);
+    expect(listeners.map(listener => listener.Properties.Port).sort((a, b) => a - b)).toEqual([443]);
     expect(template.findResources('AWS::ElasticLoadBalancingV2::ListenerRule')).toEqual(
       baselineEdge.findResources('AWS::ElasticLoadBalancingV2::ListenerRule'),
     );

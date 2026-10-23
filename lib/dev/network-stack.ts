@@ -23,13 +23,13 @@ import {
 export interface DevNetworkStackProps extends StackProps {
   readonly eksHttpsEnabled?: boolean;
   /**
-   * EKS ALB(80/선택적 443/8123)와 RDS(5432)의 인바운드 허용 소스.
+   * 앱 ALB(80/선택적 443)의 인바운드 허용 소스.
    */
   readonly allowedCidrs: readonly string[];
 }
 
 /**
- * dev VPC·RDS/EKS SG 여덟 개와 모든 cross-SG 규칙을 소유한다.
+ * dev VPC·RDS/EKS/DB 릴레이 SG 아홉 개와 모든 cross-SG 규칙을 소유한다.
  * 기존 EKS construct ID와 GroupDescription을 보존한다. (ADR-0035)
  */
 export class DevNetworkStack extends Stack {
@@ -38,6 +38,7 @@ export class DevNetworkStack extends Stack {
   public readonly eksClickhouseNodeSecurityGroup: SecurityGroup;
   public readonly eksValidationAlbSecurityGroup: SecurityGroup;
   public readonly eksRelaySecurityGroup: SecurityGroup;
+  public readonly dbRelaySecurityGroup: SecurityGroup;
   public readonly eksObservabilityNodeSecurityGroup: SecurityGroup;
   public readonly mskSubnets: readonly PrivateSubnet[];
   public readonly mskSecurityGroup: SecurityGroup;
@@ -88,9 +89,6 @@ export class DevNetworkStack extends Stack {
       allowAllOutbound: true,
     });
 
-    this.forEachAllowedCidr((peer, cidr) => {
-      this.rdsSecurityGroup.addIngressRule(peer, Port.tcp(PORTS.aurora), `Postgres from ${cidr}`);
-    });
     const sg = (name: string, description: string) => new SecurityGroup(this, name, {
       vpc: this.vpc, description, allowAllOutbound: true, disableInlineRules: true,
     });
@@ -106,6 +104,19 @@ export class DevNetworkStack extends Stack {
     // NAT 없는 public subnet에서 SSM과 private Kubernetes API의 HTTPS만 사용한다.
     this.eksRelaySecurityGroup.addEgressRule(Peer.anyIpv4(), Port.tcp(443), 'HTTPS to SSM and EKS API');
     this.eksControlPlaneSecurityGroup.addIngressRule(this.eksRelaySecurityGroup, Port.tcp(443), 'Kubernetes API from SSM relay');
+    this.dbRelaySecurityGroup = new SecurityGroup(this, 'DevDbRelaySg', {
+      vpc: this.vpc, description: 'dev database SSM relay',
+      allowAllOutbound: false, disableInlineRules: true,
+    });
+    this.dbRelaySecurityGroup.addEgressRule(Peer.anyIpv4(), Port.tcp(443), 'HTTPS to SSM');
+    this.dbRelaySecurityGroup.addEgressRule(this.rdsSecurityGroup, Port.tcp(PORTS.aurora), 'Postgres through DB relay');
+    this.dbRelaySecurityGroup.addEgressRule(this.eksClickhouseNodeSecurityGroup, Port.tcp(PORTS.clickhouseHttp), 'ClickHouse through DB relay');
+    // 기존 RDS SG의 inline 구성을 바꾸지 않고 SG peer 규칙을 별도로 소유한다.
+    new CfnSecurityGroupIngress(this, 'DbRelayToRds', {
+      groupId: this.rdsSecurityGroup.securityGroupId, sourceSecurityGroupId: this.dbRelaySecurityGroup.securityGroupId,
+      ipProtocol: 'tcp', fromPort: PORTS.aurora, toPort: PORTS.aurora, description: 'Postgres from DB relay',
+    });
+    this.eksClickhouseNodeSecurityGroup.addIngressRule(this.dbRelaySecurityGroup, Port.tcp(PORTS.clickhouseHttp), 'ClickHouse HTTP from DB relay');
     const cp = this.eksControlPlaneSecurityGroup;
     const apps = this.eksAppNodeSecurityGroup;
     const ch = this.eksClickhouseNodeSecurityGroup;
@@ -135,11 +146,9 @@ export class DevNetworkStack extends Stack {
       apps.addIngressRule(alb, Port.tcp(30080), 'EKS enrollment NodePort from ALB');
       apps.addIngressRule(alb, Port.tcp(DEV_EKS_NODE_PORTS.dashboard), 'EKS dashboard NodePort from ALB');
       apps.addIngressRule(alb, Port.tcp(DEV_EKS_NODE_PORTS.gateway), 'EKS telemetry gateway NodePort from ALB');
-      ch.addIngressRule(alb, Port.tcp(8123), 'EKS ClickHouse HTTP from ALB');
     }
     this.forEachAllowedCidr((peer, cidr) => {
       validation.addIngressRule(peer, Port.tcp(80), `Validation HTTP from ${cidr}`);
-      validation.addIngressRule(peer, Port.tcp(8123), `Validation ClickHouse from ${cidr}`);
       if (props.eksHttpsEnabled) {
         validation.addIngressRule(peer, Port.tcp(PORTS.https), `Validation HTTPS from ${cidr}`);
       }

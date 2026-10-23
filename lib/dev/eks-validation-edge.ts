@@ -1,6 +1,6 @@
-import { CfnOutput, Duration, Tags } from 'aws-cdk-lib/core';
+import { CfnOutput, Tags } from 'aws-cdk-lib/core';
 import { ISecurityGroup, IVpc, SubnetType } from 'aws-cdk-lib/aws-ec2';
-import { ApplicationLoadBalancer, ApplicationProtocol, ApplicationTargetGroup, ListenerAction, TargetType } from 'aws-cdk-lib/aws-elasticloadbalancingv2';
+import { ApplicationLoadBalancer, ApplicationProtocol, ApplicationTargetGroup, TargetType } from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import { CfnWebACLAssociation } from 'aws-cdk-lib/aws-wafv2';
 import { Construct } from 'constructs';
 import { DEV_DEREGISTRATION_DELAY } from './config';
@@ -29,7 +29,7 @@ export class DevEksValidationEdge extends Construct {
       const group = new ApplicationTargetGroup(this, id, {
         vpc: props.vpc, targetGroupName: `soma-376-dev-eks-${name}-v`,
         port, protocol: ApplicationProtocol.HTTP, targetType: type,
-        deregistrationDelay: type === TargetType.IP ? Duration.seconds(300) : DEV_DEREGISTRATION_DELAY,
+        deregistrationDelay: DEV_DEREGISTRATION_DELAY,
         healthCheck: { path, healthyHttpCodes: '200', port: 'traffic-port' },
       });
       // 이름과 태그 양쪽으로 LBC 등록 대상을 제한한다.
@@ -39,23 +39,19 @@ export class DevEksValidationEdge extends Construct {
     const ingest = tg('IngestTg', 'ingest', DEV_EKS_NODE_PORTS.ingest, '/api/v1/healthz', TargetType.INSTANCE);
     const enrollment = tg('EnrollmentTg', 'enroll', DEV_EKS_NODE_PORTS.enrollment, '/api/v1/healthz', TargetType.INSTANCE);
     const dashboard = tg('DashboardTg', 'dashboard', DEV_EKS_NODE_PORTS.dashboard, '/api/v1/healthz', TargetType.INSTANCE);
-    const clickhouse = tg('ClickhouseTg', 'ch', 8123, '/ping', TargetType.IP);
     // Gateway TG는 대상과 무관하게 항상 둔다. TGB가 미리 node를 등록하고 전환은 규칙 대상만 바꾼다.
     const gateway = tg('GatewayTg', 'gateway', DEV_EKS_NODE_PORTS.gateway, '/api/v1/healthz', TargetType.INSTANCE);
     const otlpTarget = props.otlpTarget ?? 'ingest';
     const http = addDevAppListener(alb, 'Http', props);
     // EKS는 기존 path/method/preflight 계약을 서로 독립된 TG에 연결한다. OTLP 규칙 ID는 대상과 무관하다.
     installDevAppRoutes(this, http, { enrollment, dashboard, ingest: otlpTarget === 'gateway' ? gateway : ingest }, 'Otlp');
-    alb.addListener('Clickhouse', { port: 8123, protocol: ApplicationProtocol.HTTP, open: false, defaultAction: ListenerAction.forward([clickhouse]) });
     new CfnWebACLAssociation(this, 'WafAssociation', { resourceArn: alb.loadBalancerArn, webAclArn: props.webAclArn });
     for (const [name, value] of Object.entries({
       ValidationAlbArn: alb.loadBalancerArn,
       ValidationPublicBaseUrl: `http://${alb.loadBalancerDnsName}`,
-      ValidationClickhouseUrl: `http://${alb.loadBalancerDnsName}:8123`,
       ValidationTelemetryIngestTargetGroupArn: ingest.targetGroupArn,
       ValidationEnrollmentApiTargetGroupArn: enrollment.targetGroupArn,
       ValidationDashboardApiTargetGroupArn: dashboard.targetGroupArn,
-      ValidationClickhouseTargetGroupArn: clickhouse.targetGroupArn,
       ValidationTelemetryGatewayTargetGroupArn: gateway.targetGroupArn,
       // values 생성기가 ingest 모드와 현재 OTLP 대상의 호환을 검사한다.
       ValidationOtlpTarget: otlpTarget,

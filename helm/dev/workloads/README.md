@@ -18,6 +18,10 @@ namespace `pulsemetry-dev`, NodePool과 StorageClass는 기반 platform release�
 이미지 digest를 전달하고 runtime overlay로 RDS·S3 참조와 CSI mount를 구성한다. chart는 이미지
 digest 형식을 검사하지만 registry manifest의 ARM64 포함 여부는 배포 전에 별도로 확인한다.
 ClickHouse의 `availabilityZone`은 CDK output의 첫 번째 AZ를 사용한다.
+PROJ-254부터 ClickHouse에는 TGB가 없으며 `vpcId`·`targetGroupBindings`를 입력하면 거부한다.
+새 생성기는 구 CDK outputs의 ClickHouse TG 키를 무시하지만 새 values에는 포함하지 않는다.
+기존 release는 새 values와 `--reset-values`로 갱신하고 TGB 삭제를 확인한 후 CDK TG를 제거한다.
+운영자 접속은 [DB SSM 릴레이 런북](../../../docs/runbooks/dev-database-access.md)을 따른다.
 
 PROJ-223은 dashboard NodePort를 30081로 정하고 CDK의 `DEV_EKS_NODE_PORTS.dashboard`와
 `EksDashboardApiNodePort` output, chart schema/helpers를 일치시킨다. 실제 클러스터에 이미 쓰는
@@ -65,7 +69,7 @@ JVM의 목록이 자동 갱신된다고 가정하지 않는다. replica 1·`Recr
 ConfigMap·mount·annotation 제거를 함께 수행한다. 자세한 적용·해제·복구는
 [EKS 런북 §12](../../../docs/runbooks/dev-eks-manual-deployment.md#12-dev-jvm의-임시-blockedcerts-공급)를 따른다.
 
-`targetGroupBindings`는 선택 사항이며 `stage`, `targetGroupARN`, `confirmExclusiveOwnership: true`를
+앱 chart의 `targetGroupBindings`는 선택 사항이며 `stage`, `targetGroupARN`, `confirmExclusiveOwnership: true`를
 받는다. `validation`과 `canary`는 각각 하나씩만 선언할 수 있고 서로 다른 전용 TG ARN을 써야 한다.
 `vpcId`를 함께 전달한다. ARN은 CDK가 만든 `soma-376-dev-eks-*` 이름만 허용한다. 기존 ECS TG의
 소유권은 공유하지 않는다. 이 확인 값은 운영자의 선언이며 실제 ECS binding 부재는 배포 관문에서

@@ -51,7 +51,6 @@ function outputs(prefix = 'eks_validation', otlpTarget = 'ingest') {
       ValidationPublicBaseUrl: 'http://validation-alb.example.test',
       ValidationEnrollmentApiTargetGroupArn: tg('enroll-v'),
       ValidationTelemetryIngestTargetGroupArn: tg('ingest-v'),
-      ValidationClickhouseTargetGroupArn: tg('ch-v'),
       ValidationDashboardApiTargetGroupArn: tg('dashboard-v'),
       ValidationTelemetryGatewayTargetGroupArn: tg('gateway-v'),
       ValidationOtlpTarget: otlpTarget,
@@ -119,6 +118,7 @@ describe('배포 output→values 변환', () => {
       appNodeSecurityGroupId: 'sg-0123456789abcdef0', clickhouseNodeSecurityGroupId: 'sg-0123456789abcdef1', clickhouseAvailabilityZone: 'ap-northeast-2a', observabilityNodeSecurityGroupId: 'sg-0123456789abcdef2',
     });
     expect(output.read('lbc.yaml')).toEqual({ clusterName: 'soma-376-dev-eks', region: 'ap-northeast-2', vpcId: 'vpc-0123456789abcdef0' });
+    expect(output.read('clickhouse.yaml')).toEqual({ availabilityZone: 'ap-northeast-2a', observability: { enabled: true } });
     const ingest = output.read('telemetry-ingest.yaml');
     const enrollment = output.read('enrollment-api.yaml');
     const dashboard = output.read('dashboard-api.yaml');
@@ -161,6 +161,20 @@ describe('배포 output→values 변환', () => {
     const source = outputs();
     const document = { Stacks: Object.entries(source).map(([StackName, values]) => ({ StackName, Outputs: Object.entries(values).map(([OutputKey, OutputValue]) => ({ OutputKey, OutputValue })) })) };
     expect(run(document).result.status).toBe(0);
+  });
+
+  test('공개 TG 삭제 전의 CDK output을 받아도 ClickHouse TG와 URL을 소비하지 않는다', () => {
+    const source = outputs();
+    const previous = { ...source, DevEdgeStack: { ...source.DevEdgeStack,
+      ValidationClickhouseTargetGroupArn: tg('ch-v'),
+      ValidationClickhouseUrl: 'http://validation-alb.example.test:8123',
+    } };
+    const current = run(source), old = run(previous);
+    expect(current.result.status).toBe(0);
+    expect(old.result.status).toBe(0);
+    for (const filename of readdirSync(current.dir)) {
+      expect(old.read(filename)).toEqual(current.read(filename));
+    }
   });
 
   test('OIDC는 CDK 원본의 부분집합을 정렬하고 enrollment에만 고정 버전·alias를 전달한다', () => {
@@ -300,7 +314,7 @@ describe('배포 output→values 변환', () => {
       (source: any) => { source.DevEdgeStack.EksClusterName = 'another-cluster'; },
       (source: any) => { source.DevEksStack.ArchivePrefix = '*'; },
       (source: any) => { source.DevEksStack.EksNodeRoleName = 'arn:aws:iam::111111111111:role/node'; },
-      (source: any) => { source.DevEdgeStack.ValidationClickhouseTargetGroupArn = source.DevEdgeStack.ValidationEnrollmentApiTargetGroupArn; },
+      (source: any) => { source.DevEdgeStack.ValidationTelemetryGatewayTargetGroupArn = source.DevEdgeStack.ValidationEnrollmentApiTargetGroupArn; },
     ]) {
       const source = outputs(); change(source);
       expect(run(source).result.status).toBe(1);
@@ -349,8 +363,30 @@ describe('배포 output→values 변환', () => {
     expect(pod.initContainers[0].args[0]).toContain('head -c 1');
     const authEnv = pod.containers[0].env.find((env: any) => env.name === 'SPRING_APPLICATION_JSON');
     expect(JSON.parse(authEnv.value).pulsemetry['user-auth']['public-key-files']).toEqual({ '[release-2026.10]': '/mnt/user-jwt/keys/release-2026-10.pem' });
-    render('clickhouse', 'helm/dev/workloads/clickhouse', [join(output.dir, 'clickhouse.yaml')]);
+    const clickhouse = render('clickhouse', 'helm/dev/workloads/clickhouse', [join(output.dir, 'clickhouse.yaml')]);
+    expect(clickhouse).not.toContain('kind: TargetGroupBinding');
+    expect(clickhouse).toContain('kind: StatefulSet');
+    expect(clickhouse).toContain('type: ClusterIP');
     render('pulsemetry-base', 'helm/dev/platform/base', [join(output.dir, 'base.yaml')]);
+  });
+
+  helmTest('ClickHouse의 폐기한 Helm 입력은 빈 값이라도 거부한다', () => {
+    const output = run(outputs());
+    expect(output.result.status).toBe(0);
+    for (const obsolete of [
+      { targetGroupBindings: [] },
+      { targetGroupBindings: [{ stage: 'validation', targetGroupARN: tg('ch-v'), confirmExclusiveOwnership: true }] },
+      { vpcId: '' },
+      { vpcId: 'vpc-0123456789abcdef0' },
+    ]) {
+      const values = join(output.temp, 'old-clickhouse.yaml');
+      writeFileSync(values, dump({ ...output.read('clickhouse.yaml'), ...obsolete }));
+      const result = spawnSync(process.env.HELM_BIN!, ['template', 'clickhouse', 'helm/dev/workloads/clickhouse',
+        '--namespace', 'pulsemetry-dev', '--kube-version', '1.36.0', '-f', values], { cwd: root, encoding: 'utf8' });
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toMatch(/additional propert/i);
+      expect(result.stderr).toContain(Object.keys(obsolete)[0]);
+    }
   });
 
   test('YAML 중복·알 수 없는 필드·비밀·잘못된 버전/alias/kid는 파일 생성 전에 거부한다', () => {

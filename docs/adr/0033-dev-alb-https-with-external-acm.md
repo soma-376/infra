@@ -9,6 +9,9 @@ Accepted (로컬 구현·검증 대상, 실제 AWS 배포·TLS 접속·애플리
 ADR-0022·0026·0028의 dev HTTP 전용 listener 결정을 인증서 입력이 있는 ALB에 한해 부분 대체한다.
 기존 라우팅·WAF·보안 그룹 소유권과 인증서 입력이 없는 ALB의 HTTP 동작은 유지한다.
 
+[ADR 0038](0038-dev-databases-private-access-via-ssm-relay.md)이 ClickHouse 8123 listener 보존 가정을 부분 대체한다.
+DB 운영자 접속은 별도 SSM 릴레이를 사용하며 나머지 앱·데이터·환경 경계는 유지한다.
+
 ## Context
 
 dev ECS ALB와 EKS 검증 ALB는 앱 트래픽을 HTTP 80에서 받는다. ACM 인증서는 이 레포 밖에서

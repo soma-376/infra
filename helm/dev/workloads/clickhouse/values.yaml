@@ -11,8 +11,5 @@ resources:
   limits:
     cpu: "1"
     memory: 2Gi
-targetGroupBindings: []
-vpcId: ""
-
 observability:
   enabled: false

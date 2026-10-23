@@ -6,6 +6,7 @@ import {
   StackProps,
 } from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
+import { DevDbRelay } from './db-relay';
 import { ISecurityGroup, IVpc, SubnetType } from 'aws-cdk-lib/aws-ec2';
 import {
   Credentials,
@@ -52,6 +53,7 @@ const ADMIN_API_TOKEN_LENGTH = 64;
 export interface DevDataStackProps extends StackProps {
   readonly vpc: IVpc;
   readonly rdsSecurityGroup: ISecurityGroup;
+  readonly dbRelaySecurityGroup: ISecurityGroup;
   readonly oidcClientKeys?: readonly string[];
 }
 
@@ -59,8 +61,8 @@ export interface DevDataStackProps extends StackProps {
  * DevDataStack: RDS PostgreSQL 단일 인스턴스 + Raw Signal S3 + dev Secret 원본.
  *
  * 운영은 Aurora Serverless v2 지만 dev 는 `DatabaseInstance` 다 (ADR-0022 6번).
- * 최소 0.5 ACU 상시 과금이 개발용으로 과하고, 이 선택의 목적인
- * `publiclyAccessible` 직접 접속에는 단일 인스턴스가 더 단순하기 때문이다.
+ * 최소 0.5 ACU 상시 과금이 개발용으로 과하기 때문이다. 운영자 접속은
+ * 공개 endpoint 대신 별도 SSM 릴레이를 거친다. (ADR-0038)
  * **앱이 보는 계약(PostgreSQL 16, `controlplane`, `sslmode=require`)은 운영과
  * 같으므로 잃는 것이 없다.**
  *
@@ -103,11 +105,9 @@ export class DevDataStack extends Stack {
       }),
       instanceType: DEV_RDS_INSTANCE_TYPE,
       vpc: props.vpc,
-      // 퍼블릭 서브넷 + publiclyAccessible 이 이 선택의 목적이다 - 로컬에서 psql 로
-      // 직접 붙어 스키마를 만들고 데이터를 확인할 수 있어야 한다. 접근 통제는
-      // 전적으로 `DevRdsSg` 의 허용 CIDR 에 달려 있다. (ADR-0022 6번)
+      // 기존 subnet group을 보존하고 public IP만 제거한다. 운영자는 DB 릴레이를 사용한다.
       vpcSubnets: { subnetType: SubnetType.PUBLIC },
-      publiclyAccessible: true,
+      publiclyAccessible: false,
       securityGroups: [props.rdsSecurityGroup],
       // `control` 은 RDS 가 엔진 예약어로 거부한다. 운영과 같은 상수를 쓴다. (ADR-0012)
       databaseName: CONTROL_DB_NAME,
@@ -121,6 +121,15 @@ export class DevDataStack extends Stack {
       deletionProtection: false,
       removalPolicy: RemovalPolicy.DESTROY,
     });
+
+    const relay = new DevDbRelay(this, 'DbRelay', {
+      vpc: props.vpc, securityGroup: props.dbRelaySecurityGroup,
+      postgresEndpoint: this.database.dbInstanceEndpointAddress,
+    });
+    new CfnOutput(this, 'DbRelayInstanceId', { value: relay.instance.instanceId });
+    new CfnOutput(this, 'DbOperatorRoleArn', { value: relay.operatorRole.roleArn });
+    new CfnOutput(this, 'DbRelayPostgresSessionDocumentName', { value: relay.postgresSessionDocument.ref });
+    new CfnOutput(this, 'DbRelayClickHouseSessionDocumentName', { value: relay.clickHouseSessionDocument.ref });
 
     // 마스터 시크릿은 참조(ISecret)만 노출한다. 합성 시점에 값을 평문으로 읽어
     // 다른 리소스 속성에 박는 코드는 두지 않는다.

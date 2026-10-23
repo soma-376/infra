@@ -45,30 +45,16 @@ const { dump, load } = require('js-yaml');
   };
   if (scenario !== 'omitted') input.oidc.allowInsecureLocalhost = local;
   const secret = name => `arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:${name}-abc123`;
-  const tg = name => `arn:aws:elasticloadbalancing:ap-northeast-2:111111111111:targetgroup/soma-376-dev-eks-${name}/0123456789abcdef`;
-  const outputs = {
-    DevDataStack: { OidcClientSecretArns: JSON.stringify(Object.fromEntries(input.oidc.clients.map(c => [c.key, secret('soma-376/dev/oidc/clients/' + c.key)]))) },
-    DevEksStack: {
-      EksDashboardApiNodePort: '30081',
-      DashboardRdsSourceSecretArn: secret('dashboard-rds-source'), DashboardRdsCacheSecretArn: secret('dashboard-rds-cache'),
-      DashboardClickHouseSourceSecretArn: secret('dashboard-ch-source'), DashboardClickHouseCacheSecretArn: secret('dashboard-ch-cache'),
-      UserJwtPrivateKeySecretArn: secret('jwt-private'), UserJwtPublicKeysSecretArn: secret('jwt-public'),
-      EksClusterName: 'soma-376-dev-eks', EksRegion: 'ap-northeast-2', EksVpcId: 'vpc-0123456789abcdef0',
-      EksSubnetIds: 'subnet-0123456789abcdef0,subnet-0123456789abcdef1',
-      EksAppNodeSecurityGroupId: 'sg-0123456789abcdef0', EksClickhouseNodeSecurityGroupId: 'sg-0123456789abcdef1',
-      EksClickhouseAvailabilityZone: 'ap-northeast-2a', EksNodeRoleName: 'soma-376-dev-eks-node',
-      DbEndpoint: 'database.example.invalid', DbSecretArn: secret('db'), TokenHashSecretArn: secret('hmac'),
-      AdminApiTokenSecretArn: secret('admin'), RawSignalBucketName: 'fixture-raw-signals',
-      ApplicationLogGroupName: '/eks/dev/application', ArchivePrefix: 'eks_validation',
-    },
-    DevEdgeStack: {
-      ValidationPublicBaseUrl: 'http://validation-alb.example.invalid',
-      ValidationEnrollmentApiTargetGroupArn: tg('enroll-v'), ValidationTelemetryIngestTargetGroupArn: tg('ingest-v'),
-      ValidationClickhouseTargetGroupArn: tg('ch-v'), ValidationDashboardApiTargetGroupArn: tg('dashboard-v'),
-    },
-  };
+  // Gateway·MSK·관측을 포함한 현재 generator 계약은 공유 output fixture에서 가져온다.
+  const outputs = JSON.parse(fs.readFileSync('test/scripts/fixtures/eks-outputs.json', 'utf8'));
+  outputs.DevDataStack.OidcClientSecretArns = JSON.stringify(Object.fromEntries(
+    input.oidc.clients.map(c => [c.key, secret('soma-376/dev/oidc/clients/' + c.key)])));
   const image = name => `111111111111.dkr.ecr.ap-northeast-2.amazonaws.com/soma-376/${name}@sha256:${'a'.repeat(64)}`;
-  const values = generateValues(outputs, image('enrollment-api'), image('telemetry-ingest'), image('dashboard-api'), input);
+  const values = generateValues(outputs, {
+    enrollment: image('enrollment-api'), ingest: image('telemetry-ingest'),
+    dashboard: image('dashboard-api'), gateway: image('telemetry-gateway'),
+  }, input, fs.readFileSync('test/scripts/fixtures/msk-bootstrap.json', 'utf8'),
+  fs.readFileSync('test/scripts/fixtures/msk-nodes.json', 'utf8'));
   for (const [name, value] of Object.entries(values)) fs.writeFileSync(path.join(process.argv[1], name), dump(value));
   process.stdout.write(JSON.stringify({ values }));
 })().catch(error => { console.error(error.message); process.exitCode = 1; });
@@ -153,9 +139,10 @@ def validate_case(args, classpath, scenario):
             if not item or item.get("objectVersion") != clients[key]["versionId"] or item.get("objectName") != clients[key]["secretArn"] or "jmesPath" in item:
                 raise RuntimeError("실제 SPC의 OIDC 원본·고정 버전·전체 문자열 alias가 일치하지 않는다")
 
-        mount, keys = temp / "configtree", temp / "keys"
+        mount, keys, telemetry_keys = temp / "configtree", temp / "keys", temp / "telemetry-keys"
         mount.mkdir(mode=0o700)
         keys.mkdir(mode=0o700)
+        telemetry_keys.mkdir(mode=0o700)
         required = emitted["values"]["enrollment-api.yaml"]["runtime"]["requiredFiles"]
         if not set(aliases.values()).issubset(required):
             raise RuntimeError("OIDC alias가 실제 필수 파일 목록에서 빠졌다")
@@ -166,9 +153,10 @@ def validate_case(args, classpath, scenario):
             (mount / alias).chmod(0o600)
             (mount / alias).write_text(SYNTHETIC[key])
             (mount / alias).chmod(0o444)
-        for filename in ("private.pem", "release-2026-10.pem"):
-            (keys / filename).write_text("fixture-only-no-key-parsing")
-        command = pod["initContainers"][0]["args"][0].replace("/mnt/secrets-store", str(mount)).replace("/mnt/user-jwt/keys", str(keys))
+        for name, directory in (("jwt", keys), ("telemetryJwt", telemetry_keys)):
+            for filename in ("private.pem", *(key["alias"] for key in emitted["values"]["enrollment-api.yaml"][name]["publicKeys"])):
+                (directory / filename).write_text("fixture-only-no-key-parsing")
+        command = pod["initContainers"][0]["args"][0].replace("/mnt/secrets-store", str(mount)).replace("/mnt/user-jwt/keys", str(keys)).replace("/mnt/telemetry-jwt/keys", str(telemetry_keys))
         run(["/bin/sh", "-ec", command])
         modes = ("missing", "empty", "unreadable") if os.geteuid() != 0 else ("missing", "empty")
         for alias in aliases.values():

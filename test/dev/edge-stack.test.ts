@@ -43,16 +43,15 @@ describe('DevEdgeStack', () => {
     );
   });
 
-  // 인증을 우회하던 4318 리스너는 제거한다. 80은 앱별 경로, 8123은 기존
-  // ClickHouse 직접 쿼리용이며 둘 다 NetworkStack이 인바운드를 통제한다.
-  test('80과 8123 HTTP 리스너만 만들고 4318은 열지 않는다', () => {
+  // DB 운영자 접근은 별도 SSM 릴레이를 사용한다. (ADR-0038)
+  test('앱 HTTP 리스너만 만들고 DB 포트는 열지 않는다', () => {
     const ascending = (a: number, b: number) => a - b;
-    expect(listeners()).toHaveLength(2);
+    expect(listeners()).toHaveLength(1);
     expect(
       listeners()
         .map((listener: any) => listener.Properties.Port)
         .sort(ascending),
-    ).toEqual([PORTS.http, PORTS.clickhouseHttp].sort(ascending));
+    ).toEqual([PORTS.http]);
     expect(
       listeners().some(
         (listener: any) => listener.Properties.Port === PORTS.otlp,
@@ -105,16 +104,15 @@ describe('DevEdgeStack', () => {
     expect(listenerRules().length).toBeLessThanOrEqual(100);
   });
 
-  // EKS 앱은 NodePort, ClickHouse는 Pod IP를 타깃으로 등록한다.
-  test('최종 다섯 타깃 그룹의 타입과 포트가 네트워크 모드에 맞는다', () => {
-    expect(Object.keys(targetGroups())).toHaveLength(5);
+  // 앱 네 개의 NodePort 타깃만 유지한다.
+  test('네 앱 타깃 그룹의 타입과 포트가 네트워크 모드에 맞는다', () => {
+    expect(Object.keys(targetGroups())).toHaveLength(4);
 
     for (const [prefix, targetType, port] of [
       ['EksValidationIngestTg', 'instance', DEV_EKS_NODE_PORTS.ingest],
       ['EksValidationEnrollmentTg', 'instance', DEV_EKS_NODE_PORTS.enrollment],
       ['EksValidationDashboardTg', 'instance', DEV_EKS_NODE_PORTS.dashboard],
       ['EksValidationGatewayTg', 'instance', DEV_EKS_NODE_PORTS.gateway],
-      ['EksValidationClickhouseTg', 'ip', PORTS.clickhouseHttp],
     ] as const) {
       expect(targetGroupByPrefix(prefix)[1].Properties).toMatchObject({
         TargetType: targetType,
@@ -156,16 +154,9 @@ describe('DevEdgeStack', () => {
     }
   });
 
-  test('ClickHouse 타깃 그룹은 ip/8123, /ping, 기본 drain을 유지한다', () => {
-    const clickhouse = targetGroupByPrefix('EksValidationClickhouseTg')[1].Properties;
-    expect(clickhouse).toMatchObject({
-      Port: PORTS.clickhouseHttp,
-      TargetType: 'ip',
-      HealthCheckPath: '/ping',
-    });
-    expect(clickhouse.TargetGroupAttributes).toEqual(expect.arrayContaining([
-      { Key: 'deregistration_delay.timeout_seconds', Value: '300' },
-    ]));
+  test('공개 ClickHouse listener와 타깃 그룹이 없다', () => {
+    expect(listeners().some(listener => listener.Properties.Port === PORTS.clickhouseHttp)).toBe(false);
+    expect(Object.keys(targetGroups()).some(id => id.includes('Clickhouse'))).toBe(false);
   });
 
   test('Cognito 와 CloudFront 를 하나도 만들지 않는다', () => {
@@ -183,11 +174,9 @@ describe('DevEdgeStack', () => {
     for (const outputName of [
       'ValidationAlbArn',
       'ValidationPublicBaseUrl',
-      'ValidationClickhouseUrl',
       'ValidationTelemetryIngestTargetGroupArn',
       'ValidationEnrollmentApiTargetGroupArn',
       'ValidationDashboardApiTargetGroupArn',
-      'ValidationClickhouseTargetGroupArn',
       'RdsEndpoint',
       'RdsSecretArn',
       'TokenHashSecretArn',
@@ -195,7 +184,7 @@ describe('DevEdgeStack', () => {
     ]) {
       template.hasOutput(outputName, {});
     }
-    for (const name of ['AlbDnsName', 'OtlpEndpoint', 'ClickhouseDebugUrl', 'OtlpDebugEndpoint']) {
+    for (const name of ['ValidationClickhouseUrl', 'ValidationClickhouseTargetGroupArn', 'AlbDnsName', 'OtlpEndpoint', 'ClickhouseDebugUrl', 'OtlpDebugEndpoint']) {
       expect(template.findOutputs(name)).toEqual({});
     }
     expect(template.findOutputs('ApiEndpoint')).toEqual({});

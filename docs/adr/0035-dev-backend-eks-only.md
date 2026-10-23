@@ -9,6 +9,9 @@ ADR 0001·0002·0003·0005·0006·0009·0016·0021·0022·0024·0026·0029·0030
 dev ECS 실행·스택·설정·배포 권한 가정도 해당 범위만 대체한다. prod와 frontend Terraform의 ECS,
 공유 데이터 원본, WAF 정책, EKS 리소스와 Helm 소유권, ADR 0034의 private API·SSM 접근은 유효하다.
 
+[ADR 0038](0038-dev-databases-private-access-via-ssm-relay.md)이 DB 공개 접근 경로와 관련 TG·SG·output 보존 범위을 부분 대체한다.
+DB 운영자 접속은 별도 SSM 릴레이를 사용하며 나머지 앱·데이터·환경 경계는 유지한다.
+
 ## Context
 
 [PROJ-247](https://team376.atlassian.net/browse/PROJ-247)은 DB 연결 한도 문제로 완전한 전환 검증을

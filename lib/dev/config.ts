@@ -80,10 +80,10 @@ export const DEV_WAF_RATE_EVALUATION_WINDOW_SECONDS = 300;
 /**
  * 실측값이나 AWS 권장값이 아닌 dev 초기 가설이다. OTLP는 배치·재시도·공유 NAT의 burst를
  * Count로 관찰하고 등록·토큰·초대 세 조건은 저빈도 등록·토큰 발급의 반복 호출을 제한한다.
- * remaining에는 새 인증·manifest·조직 관리·문의·업데이트와 bootstrap·다운로드·SQL 디버깅이
+ * remaining에는 새 인증·manifest·조직 관리·문의·업데이트와 bootstrap·다운로드가
  * 포함된다. 여러 설치 GET·반복 요청과 같은 NAT의
  * 동시 설치에 여유를 두되, 서로 다른 요청을 한 IP로 합산하는 한계는 실트래픽으로 재검토한다.
- * 요청 건수는 다운로드 바이트·비용·SQL 복잡도를 제한하지 않는다. (ADR-0027)
+ * 요청 건수는 다운로드 바이트·비용을 제한하지 않는다. (ADR-0027·0038)
  */
 export const DEV_WAF_RATE_LIMITS = {
   otlp: 10_000,
@@ -124,15 +124,20 @@ export const DEV_SUBNET_GROUP = {
  * dev ALB 타깃의 deregistration delay (ADR-0025).
  *
  * 교체 배포에서는 AWS 기본값 300초의 connection draining이 먼저 끝난 뒤 새 태스크를
- * 띄우므로 ClickHouse 외 ALB 타깃 그룹에는 MVP 초기 기준인 60초를 적용한다.
- * 이 값은 실트래픽으로 최적화한 결과나 AWS 공식 권장값이 아니다. ClickHouse는 장시간
- * 연결과 쿼리 특성을 별도로 검증하기 전까지 기본값 300초를 유지하고, prod 적용도
- * 관측 이후 결정한다.
+ * 띄우므로 앱 ALB 타깃 그룹에는 MVP 초기 기준인 60초를 적용한다.
+ * 이 값은 실트래픽으로 최적화한 결과나 AWS 공식 권장값이 아니며 prod 적용은
+ * 관측 이후 결정한다. ClickHouse ALB 타깃은 ADR-0038로 제거했다.
  */
 export const DEV_DEREGISTRATION_DELAY = Duration.seconds(60);
 
 /** RDS 할당 스토리지. gp3 최소 과금 구간이자 dev 스키마 검증에 충분한 크기다. */
 export const DEV_RDS_ALLOCATED_STORAGE_GIB = 20;
+
+/** DB 전용 SSM 릴레이. 기존 EKS API 릴레이의 이름·역할과 분리한다. (ADR-0038) */
+export const DEV_DB_RELAY_INSTANCE_TYPE = 't4g.micro';
+export const DEV_DB_OPERATOR_ROLE_NAME = 'soma-376-dev-db-operator';
+export const DEV_DB_RELAY_POSTGRES_SESSION_DOCUMENT_NAME = 'soma-376-dev-db-postgres-tunnel';
+export const DEV_DB_RELAY_CLICKHOUSE_SESSION_DOCUMENT_NAME = 'soma-376-dev-db-clickhouse-tunnel';
 
 /**
  * dashboard source/cache 접속용 자격 증명 원본. 실제 DB 사용자·권한은 런북으로
@@ -198,7 +203,7 @@ export const DEV_OPEN_CIDR = '0.0.0.0/0';
 export interface DevConfig {
   readonly eks: DevEksConfig;
   readonly edge: DevEdgeConfig;
-  /** ALB(80/선택적 443/8123)와 RDS(5432)의 인바운드 허용 소스. 항상 1개 이상이다. */
+  /** 앱 ALB(80/선택적 443)의 인바운드 허용 소스. 항상 1개 이상이다. */
   readonly allowedCidrs: readonly string[];
   /** 원본이 없는 경우에도 빈 배열을 명시한다. */
   readonly oidcClientKeys: readonly string[];
@@ -257,11 +262,8 @@ export function warnOnOpenIngress(
 
   Annotations.of(scope).addWarningV2(
     'infra:dev-open-ingress',
-    `devAllowedCidr 미지정(또는 ${DEV_OPEN_CIDR} 명시): ALB(80/선택적 443/8123)와 RDS(5432)의 ` +
-      '인바운드가 인터넷에 전면 공개된다. ClickHouse 의 default 유저는 비밀번호가 없고 ' +
-      'access_management=1 을 가지므로(ADR-0019) 8123 에 닿을 수 있는 주체는 사실상 ' +
-      '관리자이며, RDS 는 마스터 자격증명 무차별 대입에 노출된다. ' +
-      '앱 listener의 telemetry-ingest·enrollment-api·dashboard-api 경로도 같은 CIDR에 공개된다. ' +
-      '`-c devAllowedCidr=<내 IP>/32` 로 좁혀서 배포한다 (ADR-0022 9번).',
+    `devAllowedCidr 미지정(또는 ${DEV_OPEN_CIDR} 명시): 앱 ALB(80/선택적 443)의 ` +
+      '인바운드가 인터넷에 전면 공개된다. telemetry-ingest·telemetry-gateway·enrollment-api·dashboard-api ' +
+      '경로가 같은 CIDR에 공개되므로 `-c devAllowedCidr=<내 IP>/32` 로 좁혀서 배포한다 (ADR-0022 9번·0038).',
   );
 }

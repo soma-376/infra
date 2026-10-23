@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object", "additionalProperties": false,
-  "required": ["replicaCount", "availabilityZone", "storage", "resources", "targetGroupBindings", "vpcId"],
+  "required": ["replicaCount", "availabilityZone", "storage", "resources"],
   "properties": {
     "observability": {"type": "object", "additionalProperties": false, "required": ["enabled"], "properties": {"enabled": {"type": "boolean"}}},
     "replicaCount": {"const": 1},
@@ -22,19 +22,6 @@
           "properties": {"cpu": {"const": "1"}, "memory": {"const": "2Gi"}}
         }
       }
-    },
-    "targetGroupBindings": {
-      "type": "array", "maxItems": 2,
-      "items": {
-        "type": "object", "additionalProperties": false,
-        "required": ["stage", "targetGroupARN", "confirmExclusiveOwnership"],
-        "properties": {
-          "stage": {"enum": ["validation", "canary"]},
-          "targetGroupARN": {"type": "string", "pattern": "^arn:aws:elasticloadbalancing:ap-northeast-2:[0-9]{12}:targetgroup/soma-376-dev-eks-[a-z0-9-]+/[a-f0-9]{16}$"},
-          "confirmExclusiveOwnership": {"const": true}
-        }
-      }
-    },
-    "vpcId": {"type": "string", "pattern": "^(vpc-[a-f0-9]{8}([a-f0-9]{9})?)?$"}
+    }
   }
 }

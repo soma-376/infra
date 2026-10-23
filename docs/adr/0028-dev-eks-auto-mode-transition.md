@@ -25,6 +25,9 @@ ADR-0001·0002·0003·0005·0006·0009·0016·0021·0022·0026의 dev ECS 전용
 
 [ADR-0029](0029-dev-dashboard-api-ecs-and-eks-deployment.md)이 dashboard 포함 네 workload와 전용 검증 TG·runtime·수동 Helm 배포를 추가한다. 아래 세 workload·두 앱 설정 목록은 PROJ-206~212 기준이며 추가 구현은 PROJ-221~224다. 기존 CDK/Helm 경계, ECS TG 재사용 금지와 데이터 전환 결정은 유효하다.
 
+[ADR 0038](0038-dev-databases-private-access-via-ssm-relay.md)이 ClickHouse 공개 ALB/TG/TGB 경로을 부분 대체한다.
+DB 운영자 접속은 별도 SSM 릴레이를 사용하며 나머지 앱·데이터·환경 경계는 유지한다.
+
 ## Context
 
 기존 dev는 `telemetry-ingest`, `enrollment-api`, `clickhouse`를 ECS EC2에서 실행한다. AWS 리소스는 infra가 소유하고 backend는 앱 코드·이미지·Flyway를 소유한다. 실행 장소를 EKS로 옮기더라도 앱 API와 환경 설정 계약, prod, 기존 GitHub Actions ECS 배포 workflow를 바꿀 필요는 없다. 따라서 이 결정은 infra 단일 레포에 둔다.
