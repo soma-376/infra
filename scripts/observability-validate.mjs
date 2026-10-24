@@ -121,7 +121,11 @@ for (const dashboard of dashboards) {
       if (target.expr) {
         assert.doesNotMatch(target.expr, /or\s+vector\s*\(\s*0\s*\)/);
         // datasource 기본 간격(10s)의 $__rate_interval은 60초 JMX 표본을 담지 못한다.
-        if (target.expr.includes('job="msk-jmx"')) assert.equal(panel.interval, '1m', `${dashboard.uid}/${panel.title} JMX 최소 간격`);
+        if (target.expr.includes('job="msk-jmx"')) {
+          assert.equal(panel.interval, '1m', `${dashboard.uid}/${panel.title} JMX 최소 간격`);
+          // $__rate_interval의 scrape 간격 항은 쿼리 Min step(target.interval)만 따른다. 패널 Min interval은 반영되지 않는다.
+          if (target.expr.includes('$__rate_interval')) assert.equal(target.interval, '1m', `${dashboard.uid}/${panel.title} JMX rate 쿼리 Min step`);
+        }
         const expr = target.expr.replaceAll('$__rate_interval', '1m').replaceAll('$__range', '5m');
         expressions.push({record:`dashboard_query_${expressions.length}`,expr});
         for (const metric of expr.match(/\bpulsemetry_[A-Za-z0-9_]+/g) ?? []) usedCustomMetrics.add(metric);

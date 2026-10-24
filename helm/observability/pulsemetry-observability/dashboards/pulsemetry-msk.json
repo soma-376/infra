@@ -382,6 +382,7 @@
           "refId": "A",
           "expr": "sum by(instance)(rate(kafka_server_BrokerTopicMetrics_Count{job=\"msk-jmx\",name=\"BytesInPerSec\",topic=\"$topic\",cluster=\"$cluster\",msk_cluster=\"$msk_cluster\"}[$__rate_interval]))",
           "legendFormat": "{{instance}}",
+          "interval": "1m",
           "range": true
         }
       ],
