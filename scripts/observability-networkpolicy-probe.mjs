@@ -186,10 +186,15 @@ try {
     const controller = kubectl(['get', 'configmap', '-n', 'kube-system', 'amazon-vpc-cni', '-o', 'json']);
     evidence.controller = controller.status === 0 ? JSON.parse(controller.stdout).data : null;
     if (evidence.controller?.['enable-network-policy-controller'] !== 'true') throw new Error('controller ConfigMap이 켜져 있지 않다(N1 먼저)');
-    if (kubectl(['get', 'namespace', PROBE_NS]).status === 0) throw new Error(`${PROBE_NS}가 이미 있다. 다른 시험의 자원을 지우지 않는다`);
-    // 없음을 확인한 뒤 만든다. 이후 어느 단계에서 실패해도 이 실행이 만든 namespace만 지운다.
+    // 조회 실패(연결 오류 등)를 "없다"로 읽지 않는다. NotFound일 때만 만든다.
+    const lookup = kubectl(['get', 'namespace', PROBE_NS]);
+    if (lookup.status === 0) throw new Error(`${PROBE_NS}가 이미 있다. 다른 시험의 자원을 지우지 않는다`);
+    if (!/\(NotFound\)/.test(lookup.stderr)) throw new Error(`${PROBE_NS} 조회 실패 — 없다고 단정하지 않는다: ${lookup.stderr.trim().slice(0, 200)}`);
+    // apply는 이미 있는 namespace에도 성공하므로 create로 만든다. create가 성공했을 때만 이 실행이 만든 것으로 기록하고, 그것만 지운다.
+    const created = kubectl(['create', 'namespace', PROBE_NS]);
+    if (created.status !== 0) throw new Error(`${PROBE_NS}를 만들지 못했다(이미 있을 수 있다): ${created.stderr.trim().slice(0, 200)}`);
     createdNamespace = true;
-    apply(files('probe.yaml'));
+    apply(files('probe.yaml').filter(x => x.kind !== 'Namespace'));
     kube(['rollout', 'status', '-n', PROBE_NS, 'deploy/np-server', '--timeout=180s']);
     const step = async (label, spec, expect) => {
       const result = await runJob({ namespace: PROBE_NS, pool: 'apps', targets: N2_TARGET, ...spec });
@@ -203,16 +208,27 @@ try {
     // client가 120초 안에 TIMEOUT으로 바뀌는지 본다. 바뀐 뒤(정책이 강제되는 동안) server Ready를 5초마다 READY_SECONDS 동안 관찰한다.
     // Job 대기는 동기 호출이라 그 사이에 관찰할 수 없다 — 관찰은 별도 단계로 한다.
     await step('deny-all 뒤 label 없는 client', { name: 'np-n2-deny', labels: {}, expect: 'TIMEOUT', deadline: 120 }, 'TIMEOUT');
+    // 표본은 시작 시각 기준 5초 간격으로 잡는다. API 응답 시간이 간격에 쌓이지 않는다. 표본 시작이 READY_SECONDS에 닿을 때까지 본다.
+    // 판정은 표본 개수가 아니라 실제 관찰 구간(첫·마지막 표본 시작 간격)과 가장 긴 표본 간격(10초 이하)이다.
     const readiness = [];
-    const observeUntil = Date.now() + READY_SECONDS * 1000;
-    for (;;) {
-      readiness.push({ at: new Date().toISOString(), ...podsReady(PROBE_NS, 'app.kubernetes.io/name=np-server') });
-      if (Date.now() >= observeUntil) break;
-      await sleep(5000);
+    const observeStart = Date.now();
+    for (let k = 0; ; k++) {
+      const wait = observeStart + k * 5000 - Date.now();
+      if (wait > 0) await sleep(wait);
+      const t = (Date.now() - observeStart) / 1000;
+      try { readiness.push({ t, at: new Date().toISOString(), ...podsReady(PROBE_NS, 'app.kubernetes.io/name=np-server') }); } catch (error) {
+        readiness.push({ t, at: new Date().toISOString(), error: String(error.message).slice(0, 200) });
+      }
+      if (t >= READY_SECONDS) break;
     }
+    const spanSeconds = readiness.at(-1).t - readiness[0].t;
+    const maxGapSeconds = Math.max(0, ...readiness.slice(1).map((x, i) => x.t - readiness[i].t));
     evidence.readySeconds = READY_SECONDS;
+    evidence.readinessObservation = { samples: readiness.length, spanSeconds, maxGapSeconds };
     evidence.serverReadinessAfterDenyAll = readiness;
-    if (readiness.length < Math.floor(READY_SECONDS / 5) + 1 || !readiness.every(x => x.ready) || new Set(readiness.map(x => x.restarts)).size > 1) {
+    if (readiness.some(x => x.error)) fail('Ready 관찰 중 API 조회가 실패했다 — 관찰이 끊겨 판정할 수 없다');
+    else if (spanSeconds < READY_SECONDS || maxGapSeconds > 10) fail(`Ready 관찰 구간 ${spanSeconds}초·최대 간격 ${maxGapSeconds}초 — ${READY_SECONDS}초를 10초 이하 간격으로 보지 못했다`);
+    else if (!readiness.every(x => x.ready) || new Set(readiness.map(x => x.restarts)).size > 1) {
       fail(`deny-all 뒤 server가 ${READY_SECONDS}초 동안 Ready를 유지하지 못했다 — kubelet probe가 막혔을 수 있다. 노드 대역 ipBlock으로 우회하지 않는다`);
       evidence.events = kubectl(['get', 'events', '-n', PROBE_NS, '--sort-by=.lastTimestamp']).stdout.slice(-3000);
     }

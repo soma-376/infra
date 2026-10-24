@@ -219,10 +219,12 @@ node scripts/observability-networkpolicy-probe.mjs --phase n2 --output <새 증�
 ```
 
 스크립트 순서와 통과 기준:
-1. controller ConfigMap이 켜져 있고 `pulsemetry-np-probe`가 없어야 시작한다. 이 실행이 만든 namespace만 지운다(시작 전에 멈추면 지우지 않는다).
+1. controller ConfigMap이 켜져 있고 `pulsemetry-np-probe` 조회가 NotFound여야 시작한다. 조회 오류는 "없음"으로 보지 않고 멈춘다.
+   namespace는 `kubectl create`가 성공했을 때만 이 실행이 만든 것으로 기록하고, 그것만 지운다.
 2. 정책 전 label 없는 client가 `OPEN`이어야 한다.
 3. deny-all을 건 뒤 label 없는 client가 120초 안에 `TIMEOUT`으로 바뀌어야 한다. 고정 대기로 판단하지 않고 5초마다 다시 본다.
-4. `TIMEOUT`을 확인한 뒤(정책이 강제되는 동안) server를 5초마다 70초 동안 관찰한다. 모든 표본이 Ready이고 restart가 늘지 않아야 한다(kubelet probe 통과).
+4. `TIMEOUT`을 확인한 뒤(정책이 강제되는 동안) server를 시작 시각 기준 5초 간격으로 70초 동안 관찰한다. 판정은 표본 개수가 아니라
+   실제 관찰 구간(70초 이상)과 최대 표본 간격(10초 이하)이다. 모든 표본이 Ready이고 restart가 늘지 않아야 한다(kubelet probe 통과).
 5. label 허용 정책을 더하면 허용 client는 120초 안에 `OPEN`, label 없는 client는 계속 `TIMEOUT`이어야 한다.
 6. 끝나면 `pulsemetry-np-probe` namespace만 지운다.
 

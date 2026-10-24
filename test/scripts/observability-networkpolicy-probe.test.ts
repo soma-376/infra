@@ -17,7 +17,7 @@ function probe(phase: 'n2' | 'n5', scenario: Record<string, unknown> = {}, extra
     chmodSync(join(dir, 'kubectl'), 0o755);
     const output = join(dir, 'evidence.json');
     const result = spawnSync(process.execPath, [script, '--phase', phase, '--output', output, ...extra], {
-      encoding: 'utf8', timeout: 60_000,
+      encoding: 'utf8', timeout: 85_000,
       env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, FAKE_KUBECTL_DIR: dir, FAKE_REPO_ROOT: root, FAKE_SCENARIO: JSON.stringify(scenario) },
     });
     const calls = readFileSync(join(dir, 'calls.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
@@ -41,6 +41,31 @@ describe('NetworkPolicy N2 시험 스크립트', () => {
     expect(run.evidence.status).toBe('FAIL');
     expect(deletedNamespace(run.calls)).toBe(false);
   });
+
+  test('namespace 조회가 연결 오류로 실패하면 없다고 보지 않는다 — 만들지도, 지우지도 않는다', () => {
+    const run = probe('n2', { namespaceLookupError: true });
+    expect(run.evidence.status).toBe('FAIL');
+    expect(run.evidence.failures.join('\n')).toContain('조회 실패');
+    expect(run.calls.some(c => c[0] === 'create')).toBe(false);
+    expect(run.calls.some(c => c[0] === 'apply')).toBe(false);
+    expect(deletedNamespace(run.calls)).toBe(false);
+  });
+
+  test('조회 뒤 다른 쪽이 먼저 만들어 create가 실패하면 지우지 않는다', () => {
+    const run = probe('n2', { namespaceCreateConflict: true });
+    expect(run.evidence.status).toBe('FAIL');
+    expect(deletedNamespace(run.calls)).toBe(false);
+  });
+
+  test('API 응답이 느려도 관찰 구간과 간격으로 판정한다 — 정상 server는 실패하지 않는다', () => {
+    // 응답 1초 지연. 이전 판정(5초 대기 + 응답, 표본 개수 고정)이면 30초에 6개만 모여 FAIL이었다.
+    const run = probe('n2', { podsDelayMs: 1000 }, ['--ready-seconds', '30']);
+    expect(run.evidence.failures).toEqual([]);
+    expect(run.evidence.status).toBe('SHORT_RUN');
+    const observation = (run.evidence as unknown as { readinessObservation: { spanSeconds: number; maxGapSeconds: number } }).readinessObservation;
+    expect(observation.spanSeconds).toBeGreaterThanOrEqual(30);
+    expect(observation.maxGapSeconds).toBeLessThanOrEqual(10);
+  }, 90_000);
 
   test('정책이 강제되지 않으면 FAIL이다', () => {
     const run = probe('n2', { noEnforcement: true }, ['--ready-seconds', '5']);

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // observability-networkpolicy-probe.mjs 회귀 시험용 모의 kubectl. 실제 클러스터에 붙지 않는다.
 // FAKE_KUBECTL_DIR에 호출 기록(calls.jsonl)과 상태(state.json)를 남긴다. FAKE_SCENARIO(JSON)로 장애를 흉내 낸다.
-//   controllerOff, namespaceExists, noEnforcement, serverNotReady,
+//   controllerOff, namespaceExists, namespaceLookupError(조회만 연결 오류, 실제로는 있음), namespaceCreateConflict(조회 뒤 누가 먼저 만듦),
+//   noEnforcement, serverNotReady, podsDelayMs(np-server Pod 조회 응답 지연),
 //   portControl: { grafana: { 'loki-3100': 'TIMEOUT' } }, functionalZero: true, stranger: { 'loki-3100': 'OPEN' }
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -40,7 +41,16 @@ if (has('get', 'configmap', 'amazon-vpc-cni')) {
   if (scenario.controllerOff) { process.stderr.write('NotFound'); exit(1); }
   out({ data: { 'enable-network-policy-controller': 'true' } });
 }
-if (has('get', 'namespace', 'pulsemetry-np-probe')) exit(scenario.namespaceExists || state.namespace ? 0 : 1);
+const namespaceExists = () => scenario.namespaceExists || scenario.namespaceLookupError || state.namespace;
+if (has('get', 'namespace', 'pulsemetry-np-probe')) {
+  if (scenario.namespaceLookupError) { process.stderr.write('Unable to connect to the server: read tcp 127.0.0.1:52100->127.0.0.1:8443: read: connection reset by peer'); exit(1); }
+  if (namespaceExists()) out('NAME STATUS AGE\npulsemetry-np-probe Active 5m\n');
+  process.stderr.write('Error from server (NotFound): namespaces "pulsemetry-np-probe" not found'); exit(1);
+}
+if (has('create', 'namespace', 'pulsemetry-np-probe')) {
+  if (namespaceExists() || scenario.namespaceCreateConflict) { process.stderr.write('Error from server (AlreadyExists): namespaces "pulsemetry-np-probe" already exists'); exit(1); }
+  state.namespace = true; save(); out('namespace/pulsemetry-np-probe created\n');
+}
 if (args[0] === 'apply') {
   for (const doc of loadAll(readFileSync(0, 'utf8')).filter(Boolean)) {
     if (doc.kind === 'Namespace') state.namespace = true;
@@ -63,6 +73,8 @@ if (has('get', 'events')) out('');
 if (args[0] === 'get' && args[1] === 'pods') {
   const selector = args[args.indexOf('-l') + 1];
   if (selector === 'app.kubernetes.io/name=np-server') {
+    // API 응답 지연을 흉내 낸다(동기 대기).
+    if (scenario.podsDelayMs) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, scenario.podsDelayMs);
     const p = pod('np-server-0');
     if (scenario.serverNotReady && state.denyAll) p.status.conditions[0].status = 'False';
     out({ items: [p] });
