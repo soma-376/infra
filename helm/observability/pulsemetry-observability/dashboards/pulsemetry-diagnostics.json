@@ -253,7 +253,7 @@
     {
       "type": "timeseries",
       "title": "마지막 종료 원인 OOMKilled",
-      "description": "현재 존재하는 Pod 컨테이너의 직전 종료 원인이 OOMKilled인지 보인다. 값이 없으면 현재 Pod들에 이전 종료 이력이 없다는 뜻이고, 과거 전체 기간에 OOM이 없었다는 뜻은 아니다. 삭제된 Pod의 OOM은 Kubernetes Events 로그로 확인한다.",
+      "description": "현재 존재하는 Pod 컨테이너의 직전 종료 원인이 OOMKilled인지 보인다. 값이 없으면 현재 Pod들에 직전 종료 이력이 없거나 kube-state-metrics 지표를 수집하지 못한 것이다. 어느 쪽인지 단정하지 않고 Prometheus target의 kube-state-metrics 상태를 확인한다. 과거 전체 기간에 OOM이 없었다는 뜻도 아니다. 삭제된 Pod의 OOM은 Kubernetes Events 로그로 확인한다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -269,7 +269,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "noValue": "종료 이력 없음 · 현재 Pod 기준",
+          "noValue": "값 없음 · 종료 이력 없음 또는 미수집",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -427,7 +427,7 @@
     {
       "type": "timeseries",
       "title": "앱 JVM heap",
-      "description": "빈 시계열은 수집 대상이 없거나(배포·metrics 설정 전) 아직 해당 이벤트가 없다는 뜻이다. 어느 쪽인지는 수집 경로와 k6 첫 화면의 수집 상태 표에서 구분한다. 0으로 대체하지 않으며 시각은 UTC다.",
+      "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 수집 경로와 k6 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"

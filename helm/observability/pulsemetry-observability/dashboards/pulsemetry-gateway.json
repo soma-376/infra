@@ -1,7 +1,7 @@
 {
   "uid": "pulsemetry-gateway",
   "title": "Pulsemetry · Gateway",
-  "description": "빈 시계열은 수집 대상이 없거나(배포·metrics 설정 전) 아직 해당 이벤트가 없다는 뜻이다. 어느 쪽인지는 수집 경로와 k6 첫 화면의 수집 상태 표에서 구분한다. 0으로 대체하지 않으며 시각은 UTC다. Gateway는 DB를 쓰지 않아 Hikari 지표가 없다. JVM 수집 대상은 Gateway·ingest뿐이며 enrollment·dashboard-api는 수집하지 않는다.",
+  "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 수집 경로와 k6 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다. Gateway는 DB를 쓰지 않아 Hikari 지표가 없다. JVM 수집 대상은 Gateway·ingest뿐이며 enrollment·dashboard-api는 수집하지 않는다.",
   "tags": [
     "pulsemetry",
     "PROJ-191"
@@ -195,7 +195,7 @@
     {
       "type": "timeseries",
       "title": "요청 결과 / 초",
-      "description": "빈 시계열은 수집 대상이 없거나(배포·metrics 설정 전) 아직 해당 이벤트가 없다는 뜻이다. 어느 쪽인지는 수집 경로와 k6 첫 화면의 수집 상태 표에서 구분한다. 0으로 대체하지 않으며 시각은 UTC다.",
+      "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 수집 경로와 k6 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -253,7 +253,7 @@
     {
       "type": "timeseries",
       "title": "응답 p99",
-      "description": "빈 시계열은 수집 대상이 없거나(배포·metrics 설정 전) 아직 해당 이벤트가 없다는 뜻이다. 어느 쪽인지는 수집 경로와 k6 첫 화면의 수집 상태 표에서 구분한다. 0으로 대체하지 않으며 시각은 UTC다. 요청·처리가 없으면 분위수는 계산되지 않는다. 빈 구간은 0초가 아니다.",
+      "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 수집 경로와 k6 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다. 요청·처리가 없으면 분위수는 계산되지 않는다. 빈 구간은 0초가 아니다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -311,7 +311,7 @@
     {
       "type": "timeseries",
       "title": "동시 처리 요청",
-      "description": "빈 시계열은 수집 대상이 없거나(배포·metrics 설정 전) 아직 해당 이벤트가 없다는 뜻이다. 어느 쪽인지는 수집 경로와 k6 첫 화면의 수집 상태 표에서 구분한다. 0으로 대체하지 않으며 시각은 UTC다.",
+      "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 수집 경로와 k6 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -427,7 +427,7 @@
     {
       "type": "timeseries",
       "title": "Kafka publish ACK / 실패",
-      "description": "빈 시계열은 수집 대상이 없거나(배포·metrics 설정 전) 아직 해당 이벤트가 없다는 뜻이다. 어느 쪽인지는 수집 경로와 k6 첫 화면의 수집 상태 표에서 구분한다. 0으로 대체하지 않으며 시각은 UTC다.",
+      "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 수집 경로와 k6 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -485,7 +485,7 @@
     {
       "type": "timeseries",
       "title": "Kafka publish p95",
-      "description": "빈 시계열은 수집 대상이 없거나(배포·metrics 설정 전) 아직 해당 이벤트가 없다는 뜻이다. 어느 쪽인지는 수집 경로와 k6 첫 화면의 수집 상태 표에서 구분한다. 0으로 대체하지 않으며 시각은 UTC다. 요청·처리가 없으면 분위수는 계산되지 않는다. 빈 구간은 0초가 아니다.",
+      "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 수집 경로와 k6 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다. 요청·처리가 없으면 분위수는 계산되지 않는다. 빈 구간은 0초가 아니다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -543,7 +543,7 @@
     {
       "type": "timeseries",
       "title": "JVM heap 사용량",
-      "description": "빈 시계열은 수집 대상이 없거나(배포·metrics 설정 전) 아직 해당 이벤트가 없다는 뜻이다. 어느 쪽인지는 수집 경로와 k6 첫 화면의 수집 상태 표에서 구분한다. 0으로 대체하지 않으며 시각은 UTC다.",
+      "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 수집 경로와 k6 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -601,7 +601,7 @@
     {
       "type": "timeseries",
       "title": "HTTP 처리 thread",
-      "description": "빈 시계열은 수집 대상이 없거나(배포·metrics 설정 전) 아직 해당 이벤트가 없다는 뜻이다. 어느 쪽인지는 수집 경로와 k6 첫 화면의 수집 상태 표에서 구분한다. 0으로 대체하지 않으며 시각은 UTC다.",
+      "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 수집 경로와 k6 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -659,7 +659,7 @@
     {
       "type": "timeseries",
       "title": "Kafka producer buffer 남은 bytes",
-      "description": "빈 시계열은 수집 대상이 없거나(배포·metrics 설정 전) 아직 해당 이벤트가 없다는 뜻이다. 어느 쪽인지는 수집 경로와 k6 첫 화면의 수집 상태 표에서 구분한다. 0으로 대체하지 않으며 시각은 UTC다.",
+      "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 수집 경로와 k6 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -717,7 +717,7 @@
     {
       "type": "timeseries",
       "title": "Kafka producer buffer 대기 비율",
-      "description": "빈 시계열은 수집 대상이 없거나(배포·metrics 설정 전) 아직 해당 이벤트가 없다는 뜻이다. 어느 쪽인지는 수집 경로와 k6 첫 화면의 수집 상태 표에서 구분한다. 0으로 대체하지 않으며 시각은 UTC다.",
+      "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 수집 경로와 k6 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"

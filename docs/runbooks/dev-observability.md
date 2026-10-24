@@ -96,13 +96,14 @@ MSK INFO를 유지하며 부하 측정 중 DEBUG/TRACE를 켜지 않는다.
 
 | 상태 | 의미 | 다음 조치 |
 |---|---|---|
-| 정상 | 기대 target이 모두 UP | 패널이 비면 선택 기간에 해당 이벤트가 없는 것이다 |
+| 정상 | 기대 target이 모두 UP | 패널이 비면 패널 설명의 원인 후보(지표 미적용·필터 불일치·표본 부족)를 본다. 이벤트 없음은 원천 지표를 직접 확인한 뒤에만 판단한다 |
 | 일부 실패 | 일부 target down, MSK는 3개 미만 | 해당 target의 `lastError`와 성공률 확인 |
 | 전체 실패 | target은 있으나 모두 down | Service·port·NetworkPolicy·SG 확인 |
 | 대상 없음 | target 자체가 없음 | workload 배포·`metrics.enabled`·ServiceMonitor label 확인 |
 | 최근 수신 없음 | k6 표본이 최근 5분에 없음 | 실행 여부·remote-write 경로 확인 |
 
 - 앱 패널의 `값 없음 · 첫 화면 수집 상태 확인`은 위 표에서 구성요소가 정상인지 먼저 보라는 뜻이다.
+  target UP은 scrape 성공만 뜻한다. 특정 지표 누락·label 필터 불일치·rate 창의 표본 부족은 UP이어도 빈 패널을 만든다.
 - Pipeline 맨 위 `현재 ingest 모드`가 `http`면 Kafka 소비 패널(Consumer·lag·commit)은 해당 없음이다.
   모드는 telemetry-ingest Pod annotation `pulsemetry.io/ingest-mode`를 ServiceMonitor가 `ingest_mode` label로 옮긴 값이다.
   이 annotation을 처음 적용하면 ingest Pod가 한 번 재생성된다.

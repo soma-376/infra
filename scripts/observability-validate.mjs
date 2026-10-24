@@ -98,9 +98,9 @@ const noValueTexts = new Set([
   '미수집',
   '값 없음 · 첫 화면 수집 상태 확인',
   'Kafka 미적용(http) 또는 미수집 · 모드 패널 확인',
-  '종료 이력 없음 · 현재 Pod 기준',
+  '값 없음 · 종료 이력 없음 또는 미수집',
   '값 없음 · Gateway는 Hikari 미적용',
-  'k6 실행 없음 · testid·기간 확인',
+  '값 없음 · k6 미실행 또는 미수신 · testid·기간 확인',
 ]);
 const expressions = [];
 const usedCustomMetrics = new Set();

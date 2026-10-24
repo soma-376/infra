@@ -94,7 +94,7 @@ STABLE/EMPTY와 committed offset 조건이 맞지 않으면 시계열이 없을 
 committed lag로 바꿔 부르지 않는다. JMX offline/minISR가 실제 MSK에서 빠지면 CloudWatch 패널과 실제 endpoint를 대조한다.
 
 0은 실제 표본이 0일 때만 표시한다. 미방출·수집 장애·histogram 표본 부족은 빈 패널로 남긴다.
-빈 패널 문구는 이유별 고정 집합이다(`미수집`, `값 없음 · 첫 화면 수집 상태 확인`, http 모드 Kafka 해당 없음, 현재 Pod 종료 이력 없음, Gateway Hikari 미적용, k6 실행 없음). 검증기가 이 집합만 허용한다. 수집 경로와 k6 첫 행의 상태 표(`pulsemetry:collection_*` rule)로 대상 없음·수집 실패·정상을 먼저 구분한다.
+빈 패널 문구는 이유별 고정 집합이다(`미수집`, `값 없음 · 첫 화면 수집 상태 확인`, http 모드 Kafka 해당 없음, 종료 이력 없음 또는 미수집, Gateway Hikari 미적용, k6 미실행 또는 미수신). 검증기가 이 집합만 허용한다. 수집 경로와 k6 첫 행의 상태 표(`pulsemetry:collection_*` rule)로 대상 없음·수집 실패·정상을 먼저 구분한다. 상태가 정상이어도 지표 미적용·필터 불일치·표본 부족으로 빌 수 있으므로 빈 패널을 이벤트 없음으로 단정하지 않는다.
 `or vector(0)`, null 연결, percentiles의 평균은 쓰지 않는다. app latency는 선택 Pod의 bucket을 합산한 뒤 quantile을 계산한다.
 GC는 실제 exporter의 summary `sum/count` 평균이며 p95가 아니다. Kafka records, OTLP event/point rows,
 Pipeline attempts, CH physical inserts를 서로 빼 유실률을 만들지 않는다. 최종 정합성은 기존 verifier의 논리 `FINAL` readback으로 판단한다.
