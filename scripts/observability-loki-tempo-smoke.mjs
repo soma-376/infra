@@ -2,15 +2,15 @@
 // AWS 없이 고정 ARM64 Loki·Tempo·플랫폼 Collector·Grafana를 렌더된 설정 그대로 띄워 합성 로그·trace 왕복을 검증한다(ADR-0039).
 // 증거에는 합성 trace ID·시각·고유 run ID만 남긴다. 고객 데이터와 비밀을 쓰지 않는다. 실제 dev 배포·부하 검증이 아니다.
 //
-//   HELM_BIN=/path/to/helm node scripts/observability-loki-tempo-smoke.mjs --output /tmp/loki-tempo-smoke-<new>.json [--wal-pressure]
+//   HELM_BIN=/path/to/helm node scripts/observability-loki-tempo-smoke.mjs --output /tmp/loki-tempo-smoke-<new>.json
 //
-// 모든 container는 chart의 memory limit(swap 없음)으로 뜬다. --wal-pressure는 Loki WAL을 복구 메모리 상한보다 많이 쌓은 뒤
-// SIGKILL 재시작을 upstream 기본값과 chart 값으로 비교한다(수 분 걸린다).
+// 모든 container는 chart의 memory limit(swap 없음)으로 뜬다. 필수 검사 하나라도 어기면 status는 PASS가 아니다.
+// Loki 수신 상한·burst·장시간 메모리·WAL 복구 부하는 scripts/observability-loki-capacity.mjs가 맡는다.
 // 먼저 `node scripts/observability-prepare.mjs`로 고정 chart archive를 준비한다. Docker가 필요하다.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,7 +23,6 @@ const output = resolve(process.argv[outputArg + 1]);
 if (existsSync(output)) throw new Error('기존 증거를 덮어쓰지 않는다. 새 --output 경로를 사용한다.');
 const helm = process.env.HELM_BIN;
 if (!helm) throw new Error('HELM_BIN을 고정 버전 실행 파일로 지정해야 한다');
-const walPressure = process.argv.includes('--wal-pressure');
 
 const NS = 'pulsemetry-observability';
 const GRAFANA = `grafana/grafana:12.3.1@sha256:${load(readFileSync(resolve(root, 'helm/observability/pulsemetry-observability/values.yaml'), 'utf8')).monitoring.grafana.image.sha}`;
@@ -64,13 +63,6 @@ const memory = value => {
   const size = `${match[1]}${match[2] === 'Gi' ? 'g' : 'm'}`;
   return ['--memory', size, '--memory-swap', size];
 };
-const mib = text => {
-  const match = /^([\d.]+)(B|KiB|MiB|GiB)$/.exec(text.trim());
-  return match ? Number(match[1]) * { B: 1 / 1024 / 1024, KiB: 1 / 1024, MiB: 1, GiB: 1024 }[match[2]] : 0;
-};
-const dirBytes = path => readdirSync(path, { withFileTypes: true })
-  .reduce((sum, entry) => sum + (entry.isDirectory() ? dirBytes(resolve(path, entry.name)) : statSync(resolve(path, entry.name)).size), 0);
-const round = value => Math.round(value * 10) / 10;
 const observability = render('observability', 'helm/observability/pulsemetry-observability', ['-f', resolve(root, 'helm/observability/tests/generated-values.yaml')]);
 const datasources = load(observability.find(x => x.kind === 'ConfigMap' && x.metadata.name === 'pulsemetry-grafana').data['datasources.yaml']);
 // 이 smoke에는 Prometheus·CloudWatch 백엔드가 없다. Loki·Tempo 두 항목은 렌더된 값을 그대로 쓴다.
@@ -167,7 +159,9 @@ try {
   assert.ok(keys.includes('pulsemetry.outcome') && !keys.includes('url.full') && !keys.includes('db.statement'), `민감 속성 삭제: ${keys}`);
   assert.ok(!JSON.stringify(spans).includes(`canary-${suffix}`));
   evidence.checks.tempoTraceRoundTrip = { status: 'PASS', seconds: (Date.now() - t1) / 1000, keptAttributes: [...new Set(keys)].sort() };
-  evidence.checks.within60Seconds = (Date.now() - t0) / 1000 <= 60 ? 'PASS' : 'FAIL';
+  const roundTripSeconds = (Date.now() - t0) / 1000;
+  assert.ok(roundTripSeconds <= 60, `로그·trace 왕복 ${roundTripSeconds}초 > 60초`);
+  evidence.checks.within60Seconds = 'PASS';
 
   // 3) Grafana가 렌더된 datasource 그대로 Loki·Tempo에 붙고 `$$` 매크로가 `$`로 남는다.
   for (const uid of ['pulsemetry-loki', 'pulsemetry-tempo']) {
@@ -216,119 +210,14 @@ try {
   assert.ok(await tempoSpans(traceA), 'Tempo 재시작 뒤 이전 trace');
   evidence.checks.tempoDataSurvivesRestart = 'PASS';
 
-  // 7) 선택: WAL을 복구 메모리 상한보다 많이 쌓고 SIGKILL로 재시작한다. upstream 기본(4GB)과 chart 값을 같은 limit에서 비교한다.
-  if (walPressure) {
-    // 같은 memberlist 주소를 쓰는 두 Loki가 한 ring에 섞이지 않게 앞의 Loki를 멈춘다.
-    docker('stop', loki);
-    const PRESSURE_MIB = 560;
-    const PRESSURE_RATE_MIB = 2.2;
-    const rendered = load(readFileSync(resolve(work, 'loki-conf', 'config.yaml'), 'utf8'));
-    const pressure = async (label, ceiling) => {
-      const conf = structuredClone(rendered);
-      if (ceiling === null) delete conf.ingester.wal.replay_memory_ceiling;
-      const confDir = dir(`pressure-${label}-conf`);
-      for (const name of readdirSync(resolve(work, 'loki-conf'))) writeFileSync(resolve(confDir, name), readFileSync(resolve(work, 'loki-conf', name)));
-      writeFileSync(resolve(confDir, 'config.yaml'), dump(conf));
-      const data = dir(`pressure-${label}-data`);
-      const id = start(`pressure-${label}`, [...memory(evidence.memoryLimits.loki),
-        '--network-alias', `pulsemetry-loki-memberlist.${NS}.svc.cluster.local`, '--tmpfs', '/tmp:uid=10001',
-        '-v', `${confDir}:/etc/loki/config:ro`, '-v', `${confDir}:/etc/loki/runtime-config:ro`, '-v', `${data}:/var/loki`,
-        '-p', '127.0.0.1::3100', evidence.images.loki, '-config.file=/etc/loki/config/config.yaml', '-config.expand-env=true', '-target=all']);
-      let lokiUrl = `http://127.0.0.1:${port(id, 3100)}`;
-      await until(`${label} Loki ready`, async () => (await http(`${lokiUrl}/ready`)).status === 200, 120_000);
-
-      // checkpoint(기본 5분) 전에 상한보다 많은 WAL을 쌓는다. 1Gi Pod가 버티는 속도로 고르게 넣고, 넣는 동안의 메모리도 표본한다.
-      const marker = `wal-pressure-${suffix}-${label}`;
-      const pushStarted = Date.now();
-      const sample = () => mib(run('docker', ['stats', '--no-stream', '--format', '{{.MemUsage}}', id]).stdout.split(' / ')[0] ?? '');
-      let sentBytes = 0;
-      let batch = 0;
-      let ingestPeakMiB = 0;
-      let lastSample = 0;
-      let ingestFailure = null;
-      const send = async (stream, values) => {
-        const body = JSON.stringify({ streams: [{ stream: { environment: 'dev', cluster: 'local-smoke', namespace: 'pulsemetry-dev', service_name: stream, container: 'pressure' }, values }] });
-        for (;;) {
-          const response = await fetch(`${lokiUrl}/loki/api/v1/push`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: AbortSignal.timeout(30_000) });
-          const text = await response.text();
-          if (response.status === 204) return body.length;
-          assert.equal(response.status, 429, `${label} push: ${text}`);
-          await sleep(250);
-        }
-      };
-      while (sentBytes < PRESSURE_MIB * 1024 * 1024) {
-        const noise = randomBytes(450_000).toString('hex');
-        const at = BigInt(Date.now()) * 1_000_000n;
-        try {
-          sentBytes += await send(`pressure-${batch++ % 8}`, Array.from({ length: 1000 }, (_, i) => [String(at + BigInt(i)), `${marker} ${noise.slice(i * 900, i * 900 + 900)}`]));
-        } catch (error) {
-          ingestFailure = String(error.cause?.code ?? error.message);
-          break;
-        }
-        if (Date.now() - lastSample > 5000) { ingestPeakMiB = Math.max(ingestPeakMiB, sample()); lastSample = Date.now(); }
-        const due = pushStarted + sentBytes / (PRESSURE_RATE_MIB * 1024 * 1024) * 1000;
-        if (due > Date.now()) await sleep(due - Date.now());
-      }
-      const pushSeconds = (Date.now() - pushStarted) / 1000;
-      const ingest = { pushedMiB: round(sentBytes / 1024 / 1024), pushSeconds, rateMiBPerSecond: PRESSURE_RATE_MIB, sampledIngestPeakMemoryMiB: round(ingestPeakMiB) };
-      if (ingestFailure) {
-        const state = JSON.parse(docker('inspect', '-f', '{{json .State}}', id));
-        run('docker', ['stop', id]);
-        return { replayMemoryCeiling: ceiling ?? 'upstream 기본값(4GB)', ...ingest, ingestFailure, oomKilled: state.OOMKilled, exitCode: state.ExitCode, ready: false, markerFound: false };
-      }
-      const last = `${marker}-last`;
-      await send('pressure-0', [[String(BigInt(Date.now()) * 1_000_000n), last]]);
-      const walMiB = dirBytes(resolve(data, 'wal')) / 1024 / 1024;
-
-      // 복구 중 메모리를 1초 간격으로 표본한다(최대값은 표본의 최대다).
-      docker('kill', '--signal', 'KILL', id);
-      const replayStarted = Date.now();
-      docker('start', id);
-      let peakMiB = 0;
-      let ready = false;
-      while (Date.now() - replayStarted < 300_000) {
-        if (!JSON.parse(docker('inspect', '-f', '{{json .State}}', id)).Running) break;
-        peakMiB = Math.max(peakMiB, sample());
-        try {
-          lokiUrl = `http://127.0.0.1:${port(id, 3100)}`;
-          if ((await http(`${lokiUrl}/ready`)).status === 200) { ready = true; break; }
-        } catch { /* 복구 중이다 */ }
-        await sleep(1000);
-      }
-      const replaySeconds = (Date.now() - replayStarted) / 1000;
-      let markerFound = false;
-      if (ready) {
-        const q = new URLSearchParams({ query: `{service_name="pressure-0"} |= "${last}"`, start: String(BigInt(pushStarted - 60_000) * 1_000_000n), end: String(BigInt(Date.now() + 60_000) * 1_000_000n) });
-        markerFound = await until(`${label} 마지막 로그`, async () => JSON.parse((await http(`${lokiUrl}/loki/api/v1/query_range?${q}`)).text).data.result.length > 0, 60_000).catch(() => false);
-      }
-      const state = JSON.parse(docker('inspect', '-f', '{{json .State}}', id));
-      const logs = run('docker', ['logs', id]);
-      run('docker', ['stop', id]);
-      return {
-        replayMemoryCeiling: ceiling ?? 'upstream 기본값(4GB)', ...ingest, walMiB: round(walMiB),
-        replaySeconds, sampledReplayPeakMemoryMiB: round(peakMiB), oomKilled: state.OOMKilled, exitCode: state.ExitCode, ready, markerFound,
-        ceilingLogLines: `${logs.stdout}\n${logs.stderr}`.split('\n').filter(x => /ceiling/i.test(x)).length,
-      };
-    };
-    evidence.checks.walPressure = { targetMiB: PRESSURE_MIB, rateMiBPerSecond: PRESSURE_RATE_MIB, memoryLimit: evidence.memoryLimits.loki, runs: {} };
-    for (const [label, ceiling] of [['upstreamDefault', null], ['chart', rendered.ingester.wal.replay_memory_ceiling]]) {
-      evidence.checks.walPressure.runs[label] = await pressure(label, ceiling);
-    }
-    const chart = evidence.checks.walPressure.runs.chart;
-    assert.ok(!chart.ingestFailure, `chart 값으로 수신 중 실패: ${JSON.stringify(chart)}`);
-    assert.ok(chart.walMiB > parseInt(rendered.ingester.wal.replay_memory_ceiling, 10), `WAL이 상한보다 커야 비교가 된다: ${chart.walMiB}MiB`);
-    assert.ok(chart.ready && chart.markerFound && chart.oomKilled === false, `chart 상한으로 복구: ${JSON.stringify(chart)}`);
-    evidence.checks.walPressure.status = 'PASS';
-  }
-
   evidence.coverage = {
     verified: [
       'chart memory limit(swap 없음) 아래 기동', 'Loki push·조회', 'Collector→Tempo 왕복과 민감 속성 삭제', 'Grafana datasource health·$$ 매크로·Loki 조회',
-      'Loki SIGKILL 재시작의 WAL 복구', 'Collector queue 재시작 보존', 'Tempo 재시작 보존', ...(walPressure ? ['WAL 복구 메모리 상한 비교'] : []),
+      'Loki SIGKILL 재시작의 WAL 복구', 'Collector queue 재시작 보존', 'Tempo 재시작 보존',
     ],
     notVerified: [
-      'Fluent Bit 병행 배송(별도 dry-run·로컬 Loki label 확인만 했다)', 'Grafana UI의 로그↔trace 클릭', '실제 앱 요청의 Kafka commit·ClickHouse 저장',
-      'NetworkPolicy 강제·차단', 'dev 배포', ...(walPressure ? [] : ['WAL 복구 메모리 상한 비교(--wal-pressure)']),
+      'Fluent Bit 병행 배송(observability-fluent-bit-loki-harness.mjs가 CloudWatch 대역으로 맡는다. 실제 CloudWatch는 live)', 'Grafana UI의 로그↔trace 클릭', '실제 앱 요청의 Kafka commit·ClickHouse 저장',
+      'NetworkPolicy 강제·차단', 'dev 배포', 'Loki 수신 상한·장시간 메모리·WAL 복구 부하(observability-loki-capacity.mjs가 맡는다)',
     ],
   };
   evidence.syntheticTraceIds = [traceA, traceB];
@@ -342,4 +231,4 @@ try {
   if (createdNetwork) run('docker', ['network', 'rm', network]);
   rmSync(work, { recursive: true, force: true });
 }
-console.log(`${evidence.status}: Loki·Tempo·Collector·Grafana 로컬 왕복과 재시작 복구${walPressure ? '·WAL 복구 상한 비교' : ''} (${output})`);
+console.log(`${evidence.status}: Loki·Tempo·Collector·Grafana 로컬 왕복과 재시작 복구 (${output})`);
