@@ -1,7 +1,7 @@
 {
   "uid": "pulsemetry-traces",
   "title": "Pulsemetry · Traces",
-  "description": "플랫폼 처리 경로의 trace를 Tempo에서 찾는다. sampling·보존 때문에 비어 있을 수 있다. 시각은 UTC다.",
+  "description": "플랫폼 처리 경로의 trace를 Tempo에서 찾는다. tracing 꺼짐(기본값)·sampling·보존·Collector와 Tempo 수집 실패로 비어 있을 수 있어 trace가 없다고 단정하지 않는다. 시각은 UTC다.",
   "tags": [
     "pulsemetry",
     "PROJ-256"
@@ -238,7 +238,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "noValue": "선택 기간에 trace 없음 · sampling·보존 확인",
+          "noValue": "값 없음 · tracing 설정·sampling·보존·수집 상태 확인",
           "custom": {
             "align": "auto"
           }
@@ -283,7 +283,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "noValue": "선택 기간에 trace 없음 · sampling·보존 확인",
+          "noValue": "값 없음 · tracing 설정·sampling·보존·수집 상태 확인",
           "custom": {
             "align": "auto"
           }
@@ -328,7 +328,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "noValue": "선택 기간에 trace 없음 · sampling·보존 확인",
+          "noValue": "값 없음 · tracing 설정·sampling·보존·수집 상태 확인",
           "custom": {
             "align": "auto"
           }
