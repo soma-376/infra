@@ -1,0 +1,11 @@
+{{- /* EKS Auto Mode의 NetworkPolicy controller를 켠다(ADR-0039). NodeClass의 networkPolicy 기본값(DefaultAllow)은 그대로라
+       정책이 없는 namespace의 통신은 바뀌지 않는다. NodeClass는 바꾸지 않는다 — 바꾸면 노드가 교체된다. */ -}}
+{{- if .Values.networkPolicyController.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: amazon-vpc-cni
+  namespace: kube-system
+data:
+  enable-network-policy-controller: "true"
+{{- end }}

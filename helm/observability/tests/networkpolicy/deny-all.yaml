@@ -1,0 +1,11 @@
+# np-server로 들어오는 통신을 모두 막는다. 강제되면 client는 timeout이고 server는 Ready를 유지해야 한다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: np-deny-all
+  namespace: pulsemetry-np-probe
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: np-server
+  policyTypes: [Ingress]

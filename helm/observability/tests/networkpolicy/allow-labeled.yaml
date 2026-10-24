@@ -1,0 +1,19 @@
+# label이 있는 client만 9090에 닿게 한다. deny-all과 함께 두면 합집합이라 label 있는 client만 통과한다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: np-allow-labeled
+  namespace: pulsemetry-np-probe
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: np-server
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              np-probe/allowed: "true"
+      ports:
+        - protocol: TCP
+          port: 9090

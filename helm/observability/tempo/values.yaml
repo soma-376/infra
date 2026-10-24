@@ -87,3 +87,24 @@ tempo:
     enabled: false
   serviceMonitor:
     enabled: false
+
+# 수신 허용 송신자(ADR-0039). 다른 chart Pod의 실제 label이다 — 검증기가 렌더 결과와 dev label fixture로 대조한다.
+# chart가 열어 두는 jaeger·zipkin·legacy 포트는 수신하지 않으며 정책도 허용하지 않는다.
+networkPolicy:
+  enabled: true
+  name: pulsemetry-tempo-ingress
+  podSelector:
+    app.kubernetes.io/name: tempo
+  ingress:
+    # 플랫폼 Collector의 OTLP/gRPC 전송.
+    - ports: [4317]
+      from:
+        - {namespace: pulsemetry-observability, podLabels: {app.kubernetes.io/name: collector, component: statefulset-collector}}
+    # Grafana 조회·Prometheus scrape.
+    - ports: [3200]
+      from:
+        - {namespace: pulsemetry-observability, podLabels: {app.kubernetes.io/name: grafana}}
+        - {namespace: pulsemetry-observability, podLabels: {app.kubernetes.io/name: prometheus}}
+    # 내부 통신은 Tempo 자신만 쓴다.
+    - from:
+        - {namespace: pulsemetry-observability, podLabels: {app.kubernetes.io/name: tempo}}

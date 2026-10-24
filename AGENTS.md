@@ -37,6 +37,7 @@ TGB를 Helm에서 먼저 제거하고 삭제/finalizer 완료 후 Edge TG를 제
 독립 release를 더하고 Fluent Bit이 CloudWatch와 Loki에 함께 보내는 구성을 제안한다. 채택 전까지 ADR-0037이 기준이다.
 세 chart는 `helm/observability/{loki,tempo,otel-platform}` wrapper가 upstream chart를 감싸고, chart checksum·이미지 digest를 lock에 고정한다.
 apps·ClickHouse SG → 관측 SG 3100, apps SG → 관측 SG 4318 두 규칙만 더한다. Gateway·ingest의 trace 설정은 backend ADR 0069 계약을 생성기가 공급한다.
+SG는 노드 단위라 세 release가 수신 NetworkPolicy를 두고, platform chart가 `kube-system/amazon-vpc-cni` ConfigMap으로 controller를 켠다. NodeClass는 바꾸지 않는다(노드 교체).
 AWS 배포·실제 로그/trace 수집은 아직 수행하지 않았다.
 
 ## PROJ-191 관측 로컬 구현 보충

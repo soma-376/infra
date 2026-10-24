@@ -148,11 +148,14 @@ PROJ-255 live 적용이 끝난 뒤 진행한다. 각 단계는 diff를 보고 �
 |---|---|---|
 | 1 | DevNetworkStack diff → 배포(apps·ClickHouse → 관측 3100, apps → 관측 4318만 추가) | 다른 SG 변경 없음 |
 | 2 | 관측 NodePool 여유 확인. 세 release request 합계 600m·1280Mi, PVC 41Gi | 한 노드에 안 들어가면 노드가 늘어난다. 비용·AZ를 기록 |
-| 3 | `loki` → `tempo` → `otel-platform` 순서로 설치(아래 명령) | PVC Bound·Pod Ready·고정 digest |
-| 4 | 관측 차트 upgrade(datasource 4개·Traces 대시보드·ServiceMonitor·rule) | Grafana Recreate 뒤 로그인·기존 Prometheus/CloudWatch, Loki·Tempo health |
-| 5 | Fluent Bit: 정적 values → `fluent-bit-loki-values.yaml` → generated | 새 로그가 CloudWatch와 Loki 양쪽에 보인다 |
-| 6 | tracing 이미지(backend ADR 0069) digest와 runtime-values `platformTracing: {enabled: true, sampleProbability: 1}`로 Gateway·ingest 갱신 | 소량 요청의 trace·Kafka commit·ClickHouse 저장 대조 |
-| 7 | `sampleProbability`를 생략(0.1)해 다시 갱신하고 30분 관찰 | export 오류·queue·OOM·PVC 증가 없음 |
+| 3 | NetworkPolicy 기준선(N0)과 controller 활성화(N1, 아래) | ConfigMap 하나만 는다. 10분간 nodeclaim 그대로·Drifted 없음 |
+| 4 | 강제 여부 시험(N2, 아래) | deny-all에서 막히고 server는 Ready, label 허용에서 통과 |
+| 5 | `loki` → `tempo` → `otel-platform` 순서로 설치(아래 명령, 수신 정책 포함) | PVC Bound·Pod Ready·고정 digest·NetworkPolicy 3개 |
+| 6 | 관측 차트 upgrade(datasource 4개·Traces 대시보드·ServiceMonitor·rule) | Grafana Recreate 뒤 로그인·기존 Prometheus/CloudWatch, Loki·Tempo health |
+| 7 | Fluent Bit: 정적 values → `fluent-bit-loki-values.yaml` → generated | 새 로그가 CloudWatch와 Loki 양쪽에 보인다 |
+| 8 | 허용·차단 시험(N4·N5, 아래) | 허용 송신자만 닿는다 |
+| 9 | tracing 이미지(backend ADR 0069) digest와 runtime-values `platformTracing: {enabled: true, sampleProbability: 1}`로 Gateway·ingest 갱신 | 소량 요청의 trace·Kafka commit·ClickHouse 저장 대조. 실패 span은 `status = error`로 찾힌다 |
+| 10 | `sampleProbability`를 생략(0.1)해 다시 갱신하고 30분 관찰 | export 오류·queue·OOM·PVC 증가 없음 |
 
 ```bash
 node scripts/observability-prepare.mjs
@@ -170,7 +173,78 @@ PVC는 Retain이라 uninstall·rollback으로 지워지지 않는다.
 - Loki 도입 전 로그·Kubernetes Events·EKS control-plane·MSK broker 로그는 CloudWatch에만 있다. 과거 로그를 Loki로 옮기지 않는다.
 - trace는 sampling(기본 10%)과 보존(48h) 때문에 없을 수 있다. trace 부재만으로 처리 실패를 판단하지 않는다.
 
+### 수신 NetworkPolicy (ADR-0039)
+
+세 서비스의 **수신만** 제한한다. 허용 송신자는 아래 표가 전부다. 송신 정책은 없다.
+
+| 대상 | 포트 | 허용 송신자 |
+|---|---|---|
+| Loki | 3100 | Fluent Bit(`pulsemetry-dev-logs`), Grafana, Prometheus |
+| Tempo | 4317 / 3200 | Collector / Grafana, Prometheus |
+| Collector | 4318 / 8888 | telemetry-gateway·telemetry-ingest(`pulsemetry-dev`) / Prometheus |
+
+Loki·Tempo는 자기 자신에게 모든 포트를 연다. dev NodeClass 셋은 이미 `networkPolicy: DefaultAllow`다(2026-10-25 조회).
+NodeClass는 바꾸지 않는다 — 바꾸면 노드가 교체된다.
+
+**N0 기준선**
+
+```bash
+kubectl get networkpolicy,policyendpoints -A
+kubectl -n kube-system get configmap amazon-vpc-cni          # 없어야 한다
+kubectl get nodeclasses.eks.amazonaws.com -o custom-columns=NAME:.metadata.name,NETPOL:.spec.networkPolicy,LOG:.spec.networkPolicyEventLogs
+kubectl get nodeclaims -o custom-columns=NAME:.metadata.name,CREATED:.metadata.creationTimestamp,DRIFTED:'.status.conditions[?(@.type=="Drifted")].status'
+```
+
+**N1 controller 활성화.** platform release(`pulsemetry-dev-platform`, `kube-system`)의 현재 manifest와 새 렌더를 비교해
+`amazon-vpc-cni` ConfigMap 하나만 느는지 확인하고 승인받은 뒤 같은 values로 upgrade한다. 적용 뒤 10분간 위 nodeclaim 이름·생성 시각이
+그대로이고 Drifted가 없어야 한다. **노드 교체 징후가 보이면 즉시 멈추고 보고한다.**
+
+**N2 강제 여부.** 일회용 namespace에서 확인한다(`helm/observability/tests/networkpolicy/`).
+
+```bash
+D=helm/observability/tests/networkpolicy
+IMAGE=$(awk '/image:/ {print $2; exit}' $D/probe.yaml)   # 관측 chart가 고정한 Prometheus digest
+probe() {  # $1=label(또는 빈 값). 성공하면 0이다.
+  kubectl -n pulsemetry-np-probe run "np-client-$RANDOM" --rm -i --restart=Never --image="$IMAGE" ${1:+--labels="$1"} \
+    --overrides='{"spec":{"nodeSelector":{"pulsemetry.io/workload":"apps"}}}' --command -- wget -T 5 -qO- http://np-server:9090/-/ready
+}
+kubectl apply -f $D/probe.yaml && kubectl -n pulsemetry-np-probe wait pod/np-server --for=condition=Ready --timeout=120s
+probe                                               # 정책 전: 통과
+kubectl apply -f $D/deny-all.yaml && sleep 30
+probe; echo "deny-all exit=$?"                      # 막혀야 한다(timeout)
+kubectl -n pulsemetry-np-probe get pod np-server    # 60초 동안 Ready 유지 → kubelet probe가 막히지 않는다
+kubectl apply -f $D/allow-labeled.yaml && sleep 30
+probe np-probe/allowed=true                         # 통과
+probe; echo "label 없음 exit=$?"                     # 막혀야 한다
+kubectl delete namespace pulsemetry-np-probe
+```
+
+- deny-all에서도 통과하면 **강제되지 않는 것이다.** 멈추고 "Pod 단위 접근 제한 없음(SG 범위만)"으로 보고한다. 대안은 다시 정한다.
+- server가 NotReady가 되면 **kubelet probe가 막힌 것이다.** 멈춘다. 노드와 Pod가 같은 subnet을 쓰므로 노드 대역 ipBlock 허용은
+  정책을 무력화한다 — 그렇게 고치지 않는다.
+
+**N4 허용 시험(5~7단계 뒤).** Prometheus에서 `up{job=~"loki|tempo|otel-platform"}`이 모두 1이고, Fluent Bit의 Loki 출력
+`fluentbit_output_errors_total`·`fluentbit_output_retries_failed_total`이 늘지 않으며 Loki 수신 줄 수가 는다.
+Grafana의 Loki·Tempo datasource health가 OK다. tracing을 켠 뒤에는 Collector의 `otelcol_receiver_accepted_spans`가 는다.
+
+**N5 차단 시험.** 허용 label이 없는 일회용 Pod에서 모두 timeout이어야 한다.
+
+```bash
+for ns in pulsemetry-dev pulsemetry-dev-logs; do
+  kubectl -n "$ns" run "np-stranger-$RANDOM" --rm -i --restart=Never --image="$IMAGE" --labels=app.kubernetes.io/name=np-probe \
+    --overrides='{"spec":{"nodeSelector":{"pulsemetry.io/workload":"apps"}}}' --command -- sh -c '
+      for t in pulsemetry-loki.pulsemetry-observability.svc:3100 pulsemetry-tempo.pulsemetry-observability.svc:3200 \
+               pulsemetry-tempo.pulsemetry-observability.svc:4317 pulsemetry-otel-platform.pulsemetry-observability.svc:4318; do
+        if nc -z -w 5 ${t%:*} ${t#*:}; then echo "OPEN $t"; else echo "blocked $t"; fi
+      done'
+done
+```
+
+`OPEN`이 하나라도 나오면 정책·selector를 확인하고, 고치기 전에는 내부 접근이 제한됐다고 보고하지 않는다.
+
 복구는 단계 역순이다.
+0. NetworkPolicy: 먼저 세 release를 `--set networkPolicy.enabled=false`로 upgrade하고 `kubectl get networkpolicy,policyendpoints -n pulsemetry-observability`가
+   비었는지 본다. 그다음 platform release를 `--set networkPolicyController.enabled=false`로 upgrade한다. 정책을 남긴 채 controller만 끄지 않는다.
 1. trace 문제: runtime-values의 `platformTracing`을 지우고 생성기·앱을 다시 적용한다(앱은 Tracer NOOP으로 돌아간다). Kafka payload·offset·모드는 바꾸지 않는다.
 2. Loki 출력 문제: Fluent Bit을 overlay 없이 정적 → generated로 다시 적용한다. CloudWatch·tail DB·buffer는 그대로다.
 3. Grafana: 이전 관측 chart revision으로 되돌리면 `prune`이 Loki·Tempo datasource를 지운다. 대시보드 링크를 확인한다.

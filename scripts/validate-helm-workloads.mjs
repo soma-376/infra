@@ -324,7 +324,15 @@ function checkPlatform() {
   const args = chartArgs('pulsemetry-dev-platform', chart, values);
   checked(helm, ['lint', chart, '--strict', ...args.slice(2)]);
   const documents = yaml.loadAll(checked(helm, ['template', ...args])).filter(Boolean);
-  assert.equal(documents.length, 10);
+  assert.equal(documents.length, 11);
+  // NetworkPolicy controller는 ConfigMap 하나로 켠다(ADR-0039). NodeClass에 networkPolicy 필드를 쓰지 않는다 — 바꾸면 노드가 교체된다.
+  const controller = find(documents, 'ConfigMap', 'amazon-vpc-cni');
+  assert.equal(controller.metadata.namespace, 'kube-system');
+  assert.deepEqual(controller.data, { 'enable-network-policy-controller': 'true' });
+  for (const nodeClass of documents.filter(document => document.kind === 'NodeClass')) {
+    assert.equal(nodeClass.spec.networkPolicy, undefined);
+    assert.equal(nodeClass.spec.networkPolicyEventLogs, undefined);
+  }
   const namespace = find(documents, 'Namespace', 'pulsemetry-dev');
   assert.equal(namespace.metadata.annotations['helm.sh/resource-policy'], 'keep');
   const storage = find(documents, 'StorageClass', 'pulsemetry-dev-gp3');
@@ -377,7 +385,7 @@ function checkPlatform() {
   assert.deepEqual(observationPool.spec.template.spec.taints, [{ key: 'workload', value: 'observability', effect: 'NoSchedule' }]);
   assert.deepEqual(observationPool.spec.template.metadata.labels, { 'pulsemetry.io/workload': 'observability' });
   assert.deepEqual(observationPool.spec.template.spec.requirements.find(rule => rule.key === 'node.kubernetes.io/instance-type').values, ['m7g.large']);
-  checkSchema([namespace, storage, observationStorage, find(documents, 'Namespace', 'pulsemetry-observability')]);
+  checkSchema([namespace, storage, observationStorage, controller, find(documents, 'Namespace', 'pulsemetry-observability')]);
   return documents.length;
 }
 

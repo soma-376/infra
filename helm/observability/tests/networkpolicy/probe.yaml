@@ -1,0 +1,46 @@
+# NetworkPolicy 강제 여부를 확인하는 일회용 자원이다(ADR-0039, 관측 런북 PROJ-256 N2). 관측·앱 namespace를 건드리지 않는다.
+# 이미지는 관측 chart가 이미 고정한 Prometheus digest다(busybox의 wget·nc가 들어 있다). 확인이 끝나면 namespace째 지운다.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pulsemetry-np-probe
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: np-server
+  namespace: pulsemetry-np-probe
+  labels:
+    app.kubernetes.io/name: np-server
+spec:
+  nodeSelector:
+    kubernetes.io/arch: arm64
+    pulsemetry.io/workload: apps
+  containers:
+    - name: server
+      image: quay.io/prometheus/prometheus:v3.9.1@sha256:1f0f50f06acaceb0f5670d2c8a658a599affe7b0d8e78b898c1035653849a702
+      ports:
+        - name: http
+          containerPort: 9090
+      # deny-all 아래에서도 Ready가 유지되는지로 kubelet probe 허용 여부를 본다.
+      readinessProbe:
+        httpGet:
+          path: /-/ready
+          port: http
+        periodSeconds: 5
+      resources:
+        requests: {cpu: 50m, memory: 64Mi}
+        limits: {cpu: 200m, memory: 256Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: np-server
+  namespace: pulsemetry-np-probe
+spec:
+  selector:
+    app.kubernetes.io/name: np-server
+  ports:
+    - name: http
+      port: 9090
+      targetPort: http

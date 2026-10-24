@@ -30,17 +30,17 @@ const checked = args => {
 // release별 기대값. 렌더 결과에 이 밖의 리소스 종류가 생기면 실패한다(MinIO·gateway·canary·cache·test·ClusterRole 등).
 const RELEASES = {
   loki: {
-    kinds: { ConfigMap: 2, Service: 3, ServiceAccount: 1, StatefulSet: 1 },
+    kinds: { ConfigMap: 2, NetworkPolicy: 1, Service: 3, ServiceAccount: 1, StatefulSet: 1 },
     service: 'pulsemetry-loki', ports: [3100], pvc: ['storage', '20Gi'],
     requests: { cpu: 250, memory: 512 }, limits: { cpu: 1000, memory: 1024 },
   },
   tempo: {
-    kinds: { ConfigMap: 1, Service: 2, ServiceAccount: 1, StatefulSet: 1 },
+    kinds: { ConfigMap: 1, NetworkPolicy: 1, Service: 2, ServiceAccount: 1, StatefulSet: 1 },
     service: 'pulsemetry-tempo', ports: [3200, 4317], pvc: ['storage', '20Gi'],
     requests: { cpu: 250, memory: 512 }, limits: { cpu: 1000, memory: 1024 },
   },
   'otel-platform': {
-    kinds: { ConfigMap: 1, Service: 1, ServiceAccount: 1, StatefulSet: 1 },
+    kinds: { ConfigMap: 1, NetworkPolicy: 1, Service: 1, ServiceAccount: 1, StatefulSet: 1 },
     service: 'pulsemetry-otel-platform', ports: [4318, 8888], pvc: ['queue', '1Gi'],
     requests: { cpu: 100, memory: 256 }, limits: { cpu: 500, memory: 512 },
   },
@@ -144,6 +144,52 @@ for (const key of ['url.full', 'url.query', 'db.statement', 'db.query.text', 'ht
 const queueMount = rendered['otel-platform'].find(x => x.kind === 'StatefulSet').spec.template.spec.containers[0].volumeMounts;
 assert.ok(queueMount.some(x => x.name === 'queue' && x.mountPath === '/var/lib/otelcol/queue'));
 
+// 수신 NetworkPolicy(ADR-0039). selector 오타 하나로 정상 송신자가 조용히 막히지 않게 실제 Pod label과 대조한다.
+// Fluent Bit·Prometheus·ingest는 dev 읽기 전용 조회 label, Grafana는 관측 chart 렌더, Gateway는 spring-app의 workload 값이다.
+const devPods = JSON.parse(readFileSync(resolve(root, 'helm/observability/tests/fixtures/dev-pod-labels.json'), 'utf8')).pods;
+const podOf = wrapper => ({ namespace, labels: rendered[wrapper].find(x => x.kind === 'StatefulSet').spec.template.metadata.labels });
+const observabilityDocs = loadAll(checked(['template', 'observability', resolve(root, 'helm/observability/pulsemetry-observability'), '-n', namespace,
+  '-f', resolve(root, 'helm/observability/tests/generated-values.yaml')])).filter(Boolean);
+const grafanaLabels = observabilityDocs.find(x => x.kind === 'Deployment' && x.metadata.name === 'pulsemetry-grafana').spec.template.metadata.labels;
+const workloadName = name => load(readFileSync(resolve(root, `helm/dev/workloads/${name}.yaml`), 'utf8')).workload;
+assert.equal(grafanaLabels['app.kubernetes.io/name'], devPods.grafana.labels['app.kubernetes.io/name'], 'Grafana 렌더 label과 dev label');
+assert.equal(workloadName('telemetry-ingest'), devPods['telemetry-ingest'].labels['app.kubernetes.io/name'], 'spring-app workload label과 dev label');
+const senders = {
+  'fluent-bit': devPods['fluent-bit'], grafana: { namespace, labels: grafanaLabels }, prometheus: devPods.prometheus,
+  loki: podOf('loki'), tempo: podOf('tempo'), collector: podOf('otel-platform'),
+  'telemetry-gateway': { namespace: 'pulsemetry-dev', labels: { 'app.kubernetes.io/name': workloadName('telemetry-gateway') } },
+  'telemetry-ingest': devPods['telemetry-ingest'],
+};
+const stranger = { namespace: 'pulsemetry-dev', labels: { 'app.kubernetes.io/name': 'np-probe' } };
+const matches = (peer, pod) => peer.namespaceSelector?.matchLabels?.['kubernetes.io/metadata.name'] === pod.namespace
+  && Object.entries(peer.podSelector?.matchLabels ?? {}).every(([key, value]) => pod.labels[key] === value);
+// 포트별 허용 송신자. 표에 없는 조합은 막혀야 한다. 자기 자신은 모든 포트에 닿는다.
+const ALLOW = {
+  loki: { self: 'loki', ports: { 3100: ['fluent-bit', 'grafana', 'prometheus'], 7946: [], 9095: [] } },
+  tempo: { self: 'tempo', ports: { 4317: ['collector'], 3200: ['grafana', 'prometheus'], 9411: [], 14268: [], 4318: [] } },
+  'otel-platform': { self: null, ports: { 4318: ['telemetry-gateway', 'telemetry-ingest'], 8888: ['prometheus'], 13133: [] } },
+};
+for (const [wrapper, expected] of Object.entries(ALLOW)) {
+  const policy = rendered[wrapper].find(x => x.kind === 'NetworkPolicy');
+  assert.deepEqual(policy.spec.policyTypes, ['Ingress'], `${wrapper}: 수신만 제한한다`);
+  const own = podOf(wrapper).labels;
+  assert.ok(Object.entries(policy.spec.podSelector.matchLabels).every(([key, value]) => own[key] === value), `${wrapper}: 정책이 자기 Pod를 고른다`);
+  for (const rule of policy.spec.ingress) {
+    assert.ok(rule.from?.length, `${wrapper}: 빈 from은 모두 허용이다`);
+    for (const peer of rule.from) {
+      assert.ok(!peer.ipBlock && peer.namespaceSelector && peer.podSelector, `${wrapper}: 송신자는 namespace와 Pod label로만 고른다`);
+      assert.ok(Object.values(senders).some(pod => matches(peer, pod)), `${wrapper}: 실제 Pod와 맞지 않는 송신자 ${JSON.stringify(peer)}`);
+    }
+  }
+  const allowed = (pod, port) => policy.spec.ingress.some(rule => (!rule.ports || rule.ports.some(x => x.port === port)) && rule.from.some(peer => matches(peer, pod)));
+  for (const [port, names] of Object.entries(expected.ports)) {
+    for (const [name, pod] of Object.entries(senders)) {
+      assert.equal(allowed(pod, Number(port)), name === expected.self || names.includes(name), `${wrapper}:${port} ← ${name}`);
+    }
+    assert.equal(allowed(stranger, Number(port)), false, `${wrapper}:${port} ← 허용 label 없는 Pod`);
+  }
+}
+
 // 잘못된 입력은 렌더 단계에서 거부한다.
 const rejects = [
   ['loki', ['--set', 'loki.singleBinary.replicas=2']],
@@ -154,6 +200,7 @@ const rejects = [
   ['loki', ['--set', 'loki.loki.ingester.wal.replay_memory_ceiling=null']],
   ['loki', ['--set', 'loki.loki.ingester.wal.replay_memory_ceiling=4GB']],
   ['loki', ['--set', 'loki.loki.ingester.wal.replay_memory_ceiling=768MB']],
+  ['loki', ['--set-json', 'networkPolicy.ingress=[{"ports":[3100]}]']],
   ['tempo', ['--set', 'tempo.persistence.enableStatefulSetAutoDeletePVC=true']],
   ['tempo', ['--set', 'tempo.replicas=2']],
   ['tempo', ['--set', 'tempo.tempo.tag=3.1.0']],
@@ -171,12 +218,18 @@ for (const wrapper of Object.keys(RELEASES)) {
   assert.notEqual(result.status, 0, `${wrapper}: 다른 namespace가 허용됨`);
 }
 
+// live N2 강제 시험 자원(관측 런북): 일회용 namespace와 이미 고정한 Prometheus 이미지만 쓴다.
+const probeFiles = ['probe.yaml', 'deny-all.yaml', 'allow-labeled.yaml'].map(name => resolve(root, 'helm/observability/tests/networkpolicy', name));
+const probeDocs = probeFiles.flatMap(path => loadAll(readFileSync(path, 'utf8')).filter(Boolean));
+assert.ok(probeDocs.every(x => (x.kind === 'Namespace' ? x.metadata.name : x.metadata.namespace) === 'pulsemetry-np-probe'), 'N2 시험은 일회용 namespace만 쓴다');
+assert.equal(probeDocs.find(x => x.kind === 'Pod').spec.containers[0].image, lock.localRemoteWriteVerification.prometheusImage, 'N2 시험 이미지는 고정 digest다');
+
 if (process.env.KUBECONFORM_BIN) {
   const path = resolve(temp, 'platform-trace.yaml');
   writeFileSync(path, Object.values(rendered).flat().map(x => dump(x)).join('---\n'));
   const args = ['-strict', '-summary', '-kubernetes-version', '1.36.0'];
   if (process.env.KUBERNETES_SCHEMA_LOCATION) args.push('-schema-location', process.env.KUBERNETES_SCHEMA_LOCATION);
-  const result = spawnSync(process.env.KUBECONFORM_BIN, [...args, path], { encoding: 'utf8', timeout: 120_000 });
+  const result = spawnSync(process.env.KUBECONFORM_BIN, [...args, path, ...probeFiles], { encoding: 'utf8', timeout: 120_000 });
   assert.equal(result.status, 0, `kubeconform\n${result.stdout}\n${result.stderr}`);
 }
 console.log(`Loki·Tempo·플랫폼 Collector wrapper 3개/${Object.values(rendered).flat().length}개 resource/${rejects.length + 3}개 실패 입력/고정 digest·PVC 보존·자원 예산 통과 (live 미실행)`);

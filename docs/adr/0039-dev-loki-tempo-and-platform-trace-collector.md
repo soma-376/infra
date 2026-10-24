@@ -80,8 +80,16 @@ endpoint·서비스 이름·sampling·속성은 backend와 infra가 함께 지�
 - NetworkStack이 cross-SG 규칙을 소유한다(0037). 다음 두 규칙만 더한다.
   - apps·ClickHouse 노드 SG → 관측 SG: Loki 3100 (각 노드의 Fluent Bit).
   - apps 노드 SG → 관측 SG: Collector 4318 (Gateway·ingest).
-- ClusterIP는 인증 장벽이 아니다. NetworkPolicy 강제 여부를 dev에서 확인한다.
-  강제되지 않으면 내부 접근 제한이 됐다고 보고하지 않고 SG 범위로만 설명한다.
+- SG는 노드 단위라 같은 노드의 모든 Pod를 허용한다. ClusterIP도 인증 장벽이 아니다. 송신자 제한은 수신 NetworkPolicy가 맡는다.
+  - 세 release가 각자 `Ingress` 정책 하나를 둔다. 송신 정책은 두지 않는다 — DNS·Tempo 전송을 막지 않는다.
+  - Loki 3100은 Fluent Bit·Grafana·Prometheus만 받는다. Tempo는 4317을 Collector에게, 3200을 Grafana·Prometheus에게만 연다.
+    Collector는 4318을 Gateway·ingest에게, 8888을 Prometheus에게만 연다. Loki·Tempo는 자기 자신에게 모든 포트를 연다.
+  - 송신자는 namespace와 Pod label로 고른다. 검증기가 렌더 결과와 dev 조회 label로 대조해 오타로 막히는 일을 막는다.
+- 강제는 Auto Mode의 NetworkPolicy controller가 맡는다. platform chart가 `kube-system/amazon-vpc-cni` ConfigMap으로 켠다.
+  - NodeClass의 `networkPolicy`는 바꾸지 않는다. dev 세 NodeClass는 이미 기본값 `DefaultAllow`다(2026-10-25 조회). 바꾸면 노드가 교체된다.
+  - 정책이 없는 namespace의 통신은 그대로다. ADR-0036의 "앱 NetworkPolicy는 범위 밖"은 유효하다.
+- 강제·차단·kubelet probe 통과는 live에서 시험한다(관측 런북). 강제되지 않거나 probe가 막히면 멈추고, 내부 접근 제한이 됐다고 보고하지 않는다.
+  노드와 Pod가 같은 subnet을 쓰므로 노드 대역을 ipBlock으로 허용하면 정책이 무력해진다. 그때 대안을 다시 정한다.
 
 ### Grafana
 
@@ -110,12 +118,14 @@ endpoint·서비스 이름·sampling·속성은 backend와 infra가 함께 지�
 - Fluent Bit은 두 목적지에 보낸다. 프로세스·디스크를 공유하므로 Loki 장애가 CloudWatch 배송에 영향을 주는지 시험해야 한다.
 - 단일 replica라 Loki·Tempo·Collector 재시작 중 수집 공백이 생긴다. retention은 디스크 상한이 아니다.
 - 기존 앱 Pod는 trace 설정 env·annotation 변경으로 한 번 재생성된다.
+- NetworkPolicy controller는 클러스터 전체 설정이다. 정책을 둔 세 서비스 밖으로는 효과가 없지만, 끌 때는 정책을 먼저 지워야 한다.
+- 새 송신자(예: 다른 수집기)를 붙이려면 정책 values와 검증기의 허용 표를 함께 고쳐야 한다.
 
 ## Follow-up
 
 - 저장 증가량을 실측해 PVC·보존을 다시 정한다(70% 경고, 85% 위험).
 - 허브 계약에 endpoint·서비스 이름·속성 허용목록을 옮긴다.
-- NetworkPolicy 강제 여부를 확인하고, 불가하면 인증 proxy 같은 대안을 별도 결정으로 다룬다.
+- live에서 NetworkPolicy 강제와 kubelet probe 통과를 확인한다. 불가하면 인증 proxy 같은 대안을 별도 결정으로 다룬다.
 
 ## Acceptance Criteria
 
