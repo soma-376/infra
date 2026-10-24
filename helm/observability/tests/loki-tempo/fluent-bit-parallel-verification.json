@@ -1,10 +1,25 @@
 {
   "scope": "local-fluent-bit-loki-parallel-delivery",
-  "runId": "fb-loki-harness/8c089240ea",
+  "runId": "fb-loki-harness/4f48368e20",
   "status": "PASS",
   "images": {
     "fluentBit": "cr.fluentbit.io/fluent/fluent-bit:5.1.3@sha256:c5542543523c9678398dd78d927c05e8425ec15b038f226b67b3b019b1a70845",
     "loki": "docker.io/grafana/loki@sha256:1107dd5274e0ada47e42472b7a7e71f3b2a2fe878878108f3e2f9e51528f0193"
+  },
+  "limits": {
+    "fluentBit": {
+      "cpu": "200m",
+      "memory": "256Mi"
+    },
+    "fluentBitInstances": 3,
+    "loki": {
+      "cpu": "1",
+      "memory": "1Gi"
+    }
+  },
+  "scripts": {
+    "scripts/observability-fluent-bit-loki-harness.mjs": "fac17364178d765f35d33ea02a4c5892d52cb766f6951a7cc4aebb6b85dc56ba",
+    "scripts/lib/observability-load-judge.mjs": "48b7339488fdd785ba6e948e8410f8b494e778ea994664a2dc99418e12e9e564"
   },
   "substitution": "CloudWatch application 출력을 같은 Match·Retry_Limit·storage.total_limit_size의 http 출력(로컬 대역 서버)으로 바꿨다. 실제 CloudWatch 배송·권한·속도 제한은 live 검증 대기다.",
   "settings": {
@@ -26,23 +41,23 @@
     "normal": {
       "linesPerSecond": 200,
       "seconds": 60,
-      "written": 11983,
-      "standInCount": 11983,
-      "lokiCount": 11983,
-      "drainSeconds": 10.15,
+      "written": 11998,
+      "standInCount": 11998,
+      "lokiCount": 11998,
+      "drainSeconds": 10.157,
       "standInDuplicates": 0,
       "lokiLost": 0,
       "standInMissing": 0,
       "fluentBit": {
         "http": {
-          "proc_records_total": 11983,
+          "proc_records_total": 11998,
           "retries_total": 0,
           "retries_failed_total": 0,
           "dropped_records_total": 0,
           "errors_total": 0
         },
         "loki": {
-          "proc_records_total": 11983,
+          "proc_records_total": 11998,
           "retries_total": 0,
           "retries_failed_total": 0,
           "dropped_records_total": 0,
@@ -53,26 +68,26 @@
     "overload": {
       "linesPerSecond": 11000,
       "seconds": 60,
-      "written": 659076,
-      "standInCount": 659076,
-      "lokiCount": 374970,
-      "drainSeconds": 137.641,
+      "written": 659813,
+      "standInCount": 659813,
+      "lokiCount": 647176,
+      "drainSeconds": 324.68,
       "standInDuplicates": 0,
-      "lokiLost": 284106,
+      "lokiLost": 12637,
       "standInMissing": 0,
       "fluentBit": {
         "http": {
-          "proc_records_total": 659076,
+          "proc_records_total": 659813,
           "retries_total": 0,
           "retries_failed_total": 0,
           "dropped_records_total": 0,
           "errors_total": 0
         },
         "loki": {
-          "proc_records_total": 374970,
-          "retries_total": 243,
-          "retries_failed_total": 0,
-          "dropped_records_total": 284106,
+          "proc_records_total": 647176,
+          "retries_total": 539,
+          "retries_failed_total": 4,
+          "dropped_records_total": 12637,
           "errors_total": 0
         }
       }
@@ -84,24 +99,24 @@
         30,
         150
       ],
-      "written": 35981,
-      "standInCount": 35981,
-      "lokiCount": 35981,
-      "drainSeconds": 116.595,
+      "written": 35987,
+      "standInCount": 35987,
+      "lokiCount": 35987,
+      "drainSeconds": 120.299,
       "standInDuplicates": 0,
       "lokiLost": 0,
       "standInMissing": 0,
       "fluentBit": {
         "http": {
-          "proc_records_total": 35981,
+          "proc_records_total": 35987,
           "retries_total": 0,
           "retries_failed_total": 0,
           "dropped_records_total": 0,
           "errors_total": 0
         },
         "loki": {
-          "proc_records_total": 35981,
-          "retries_total": 92,
+          "proc_records_total": 35987,
+          "retries_total": 211,
           "retries_failed_total": 0,
           "dropped_records_total": 0,
           "errors_total": 0
@@ -114,6 +129,6 @@
     "running": true,
     "oomKilled": false
   },
-  "seconds": 585.895,
-  "finishedAt": "2026-10-24T21:29:33.865Z"
+  "seconds": 779.285,
+  "finishedAt": "2026-10-24T23:06:34.659Z"
 }

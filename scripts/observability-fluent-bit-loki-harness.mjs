@@ -2,16 +2,19 @@
 // Fluent Bit이 CloudWatch와 Loki로 함께 보낼 때 Loki 수신 제한·일시 장애가 다른 출력과 Loki 손실에 주는 영향을 로컬에서 잰다(ADR-0039).
 // Fluent Bit 이미지·[SERVICE]·Loki [OUTPUT]은 chart values를 그대로 쓴다. CloudWatch는 AWS 없이 시험할 수 없어 같은 Match·Retry·
 // storage 상한을 둔 http 출력(로컬 대역 서버)으로 바꾼다. 실제 CloudWatch 배송은 live 검증 대기다.
+// dev처럼 노드마다 하나인 Fluent Bit을 FLUENT_BITS개 띄우고, 각자 chart의 CPU·memory limit으로 돌린다. Loki도 chart limit이다.
+// 필수 단계(normal·overload·outage)를 모두 마쳐야 PASS다. 판정은 scripts/lib/observability-load-judge.mjs다.
 //
-//   HELM_BIN=/path/to/helm node scripts/observability-fluent-bit-loki-harness.mjs --output <새 증거 파일>
+//   HELM_BIN=/path/to/helm node scripts/observability-fluent-bit-loki-harness.mjs --output <새 증거 파일> [--phases normal,overload,outage]
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dump, load, loadAll } from 'js-yaml';
+import { finalStatus, judgeHarness, uniquePhases } from './lib/observability-load-judge.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const outputIndex = process.argv.indexOf('--output');
@@ -21,8 +24,10 @@ if (existsSync(output)) throw new Error('기존 증거를 덮어쓰지 않는다
 const helm = process.env.HELM_BIN;
 if (!helm) throw new Error('HELM_BIN을 고정 버전 실행 파일로 지정해야 한다');
 const NS = 'pulsemetry-observability';
+const REQUIRED = ['normal', 'overload', 'outage'];
 const phasesIndex = process.argv.indexOf('--phases');
-const phases = (phasesIndex > 0 ? process.argv[phasesIndex + 1] : 'normal,overload,outage').split(',');
+const phases = uniquePhases(phasesIndex > 0 ? process.argv[phasesIndex + 1] : REQUIRED.join(','));
+const FLUENT_BITS = 3;
 const MiB = 1024 * 1024;
 const run = (bin, args, options = {}) => spawnSync(bin, args, { encoding: 'utf8', timeout: 300_000, maxBuffer: 64 * MiB, ...options });
 const checked = (bin, args) => { const r = run(bin, args); assert.equal(r.status, 0, `${bin} ${args.join(' ')}\n${r.stdout}\n${r.stderr}`); return r.stdout.trim(); };
@@ -42,6 +47,10 @@ async function until(label, probe, timeoutMs) {
 const fbValues = load(readFileSync(resolve(root, 'helm/dev/runtime/fluent-bit-values.yaml'), 'utf8'));
 const lokiOverlay = load(readFileSync(resolve(root, 'helm/dev/runtime/fluent-bit-loki-values.yaml'), 'utf8'));
 const FB_IMAGE = `${fbValues.image.repository}:${fbValues.image.tag}@${fbValues.image.digest}`;
+const cpus = text => (String(text).endsWith('m') ? Number(String(text).slice(0, -1)) / 1000 : Number(text));
+const mebibytes = text => { const m = /^(\d+)(Mi|Gi)$/.exec(String(text)); assert.ok(m, `memory limit 형식: ${text}`); return Number(m[1]) * (m[2] === 'Gi' ? 1024 : 1); };
+const limitArgs = limits => ['--cpus', String(cpus(limits.cpu)), '--memory', `${mebibytes(limits.memory)}m`, '--memory-swap', `${mebibytes(limits.memory)}m`];
+const sha256 = path => createHash('sha256').update(readFileSync(resolve(root, path))).digest('hex');
 const blocks = text => text.split(/(?=^\[OUTPUT\])/m).map(x => x.trim()).filter(Boolean);
 const lokiOutput = blocks(lokiOverlay.config.outputs).find(x => /^\s*Name\s+loki\s*$/m.test(x));
 const cloudwatchApp = blocks(lokiOverlay.config.outputs).find(x => /Match application\.\*/.test(x) && /cloudwatch_logs/.test(x));
@@ -55,7 +64,6 @@ const lokiDocs = loadAll(checked(helm, ['template', 'loki', resolve(root, 'helm/
 const lokiFiles = Object.assign({}, ...lokiDocs.filter(x => x.kind === 'ConfigMap').map(x => x.data));
 const lokiContainer = lokiDocs.find(x => x.kind === 'StatefulSet').spec.template.spec.containers[0];
 const lokiConfig = load(lokiFiles['config.yaml']);
-const lokiMemory = `${Number(/^(\d+)Gi$/.exec(lokiContainer.resources.limits.memory)[1]) * 1024}m`;
 
 const runId = randomBytes(5).toString('hex');
 const network = `proj256-fbh-${runId}`;
@@ -65,6 +73,8 @@ const containers = [];
 const evidence = {
   scope: 'local-fluent-bit-loki-parallel-delivery', runId: `fb-loki-harness/${runId}`, status: 'NOT_RUN',
   images: { fluentBit: FB_IMAGE, loki: lokiContainer.image },
+  limits: { fluentBit: fbValues.resources.limits, fluentBitInstances: FLUENT_BITS, loki: lokiContainer.resources.limits },
+  scripts: Object.fromEntries(['scripts/observability-fluent-bit-loki-harness.mjs', 'scripts/lib/observability-load-judge.mjs'].map(path => [path, sha256(path)])),
   substitution: 'CloudWatch application 출력을 같은 Match·Retry_Limit·storage.total_limit_size의 http 출력(로컬 대역 서버)으로 바꿨다. 실제 CloudWatch 배송·권한·속도 제한은 live 검증 대기다.',
   settings: { loki: { ingestionRateMiBPerSecond: lokiConfig.limits_config.ingestion_rate_mb, burstMiB: lokiConfig.limits_config.ingestion_burst_size_mb, memoryLimit: lokiContainer.resources.limits.memory },
     fluentBitLokiOutput: { retryLimit: setting(lokiOutput, 'Retry_Limit'), storageTotalLimit: setting(lokiOutput, 'storage.total_limit_size') },
@@ -121,7 +131,7 @@ ${lokiOutput}
 const startLoki = () => {
   const conf = dir('loki-conf');
   for (const [name, text] of Object.entries(lokiFiles)) writeFileSync(resolve(conf, name), text);
-  const id = docker('run', '-d', '--network', network, '--name', `${network}-loki`, '--memory', lokiMemory, '--memory-swap', lokiMemory, '--read-only',
+  const id = docker('run', '-d', '--network', network, '--name', `${network}-loki`, ...limitArgs(lokiContainer.resources.limits), '--read-only',
     '--user', '10001:10001', '--tmpfs', '/tmp:uid=10001', '--network-alias', `pulsemetry-loki.${NS}.svc`, '--network-alias', `pulsemetry-loki-memberlist.${NS}.svc.cluster.local`,
     '-v', `${conf}:/etc/loki/config:ro`, '-v', `${conf}:/etc/loki/runtime-config:ro`, '-v', `${dir('loki-data')}:/var/loki`, '-p', '127.0.0.1::3100',
     lokiContainer.image, '-config.file=/etc/loki/config/config.yaml', '-config.expand-env=true', '-target=all');
@@ -134,6 +144,11 @@ const countLoki = async (id, prefix) => {
   const r = await http(`${lokiUrl(id)}/loki/api/v1/query?${q}`);
   assert.equal(r.status, 200, r.text.slice(0, 200));
   return Number(JSON.parse(r.text).data.result[0]?.value[1] ?? 0);
+};
+// Fluent Bit 지표. 여러 instance는 더한다.
+const metricsOf = async ports => {
+  const all = await Promise.all(ports.map(port => metrics(port)));
+  return Object.fromEntries(['http', 'loki'].map(plugin => [plugin, Object.fromEntries(Object.keys(all[0][plugin]).map(k => [k, all.reduce((n, m) => n + m[plugin][k], 0)]))]));
 };
 const metrics = async port => {
   const text = (await http(`http://127.0.0.1:${port}/api/v1/metrics/prometheus`)).text;
@@ -150,9 +165,9 @@ const metrics = async port => {
 const diff = (after, before) => Object.fromEntries(Object.entries(after).map(([plugin, m]) => [plugin, Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v - before[plugin][k]]))]));
 
 // 대표 envelope 줄을 정해진 속도로 파일에 쓴다. 줄마다 phase·순번 식별자가 있다.
-const inbox = dir('in');
-const logFile = resolve(inbox, 'app.log');
-writeFileSync(logFile, '');
+// instance마다 tail할 파일이 따로 있다. 줄은 instance에 고르게 나눠 쓴다.
+const inboxes = Array.from({ length: FLUENT_BITS }, (_, i) => dir(`in-${i}`));
+const logFiles = inboxes.map(inbox => { const file = resolve(inbox, 'app.log'); writeFileSync(file, ''); return file; });
 const line = (phase, seq) => JSON.stringify({
   log: `${new Date().toISOString()}  INFO 1 --- [pulsemetry-telemetry-ingest] [Container-0-C-1] c.t.p.t.consumer.TelemetryRecordListener : event=platform_trace_completed stage=ingest signal=logs outcome=completed attempt=1 trace_id=${randomBytes(16).toString('hex')} span_id=${randomBytes(8).toString('hex')}`,
   stream: 'stdout', environment: 'dev', cluster: 'local-harness', harness: `fbh-${runId}-${phase}-${seq}`,
@@ -165,9 +180,9 @@ async function write(phase, linesPerSecond, seconds, onTick) {
   while (Date.now() - started < seconds * 1000) {
     const due = Math.floor(((Date.now() - started) / 1000) * linesPerSecond);
     if (due > seq) {
-      const chunk = [];
-      for (; seq < due; seq++) chunk.push(line(phase, seq));
-      appendFileSync(logFile, chunk.join('\n') + '\n');
+      const chunks = logFiles.map(() => []);
+      for (; seq < due; seq++) chunks[seq % FLUENT_BITS].push(line(phase, seq));
+      chunks.forEach((chunk, i) => { if (chunk.length) appendFileSync(logFiles[i], chunk.join('\n') + '\n'); });
     }
     if (onTick) await onTick((Date.now() - started) / 1000);
     await sleep(100);
@@ -207,50 +222,52 @@ try {
   let loki = startLoki();
   await until('Loki ready', async () => (await http(`${lokiUrl(loki)}/ready`)).status === 200, 180_000);
   writeFileSync(resolve(work, 'harness-conf', 'fluent-bit.conf'), fluentConf());
-  const fb = docker('run', '-d', '--network', network, '--name', `${network}-fluent-bit`,
-    '-v', `${resolve(work, 'harness-conf')}:/harness-conf:ro`, '-v', `${inbox}:/harness-in:ro`, '-v', `${dir('fb-state')}:/var/fluent-bit/state`,
-    '-p', '127.0.0.1::2020', FB_IMAGE, '/fluent-bit/bin/fluent-bit', '-c', '/harness-conf/fluent-bit.conf');
-  containers.push(fb);
-  const fbPort = docker('port', fb, '2020/tcp').split('\n')[0].split(':').pop();
-  await until('Fluent Bit metrics', async () => (await http(`http://127.0.0.1:${fbPort}/api/v1/metrics/prometheus`)).status === 200, 60_000);
+  const fbPorts = [];
+  for (let i = 0; i < FLUENT_BITS; i++) {
+    const fb = docker('run', '-d', '--network', network, '--name', `${network}-fluent-bit-${i}`, ...limitArgs(fbValues.resources.limits),
+      '-v', `${resolve(work, 'harness-conf')}:/harness-conf:ro`, '-v', `${inboxes[i]}:/harness-in:ro`, '-v', `${dir(`fb-state-${i}`)}:/var/fluent-bit/state`,
+      '-p', '127.0.0.1::2020', FB_IMAGE, '/fluent-bit/bin/fluent-bit', '-c', '/harness-conf/fluent-bit.conf');
+    containers.push(fb);
+    const port = docker('port', fb, '2020/tcp').split('\n')[0].split(':').pop();
+    await until('Fluent Bit metrics', async () => (await http(`http://127.0.0.1:${port}/api/v1/metrics/prometheus`)).status === 200, 60_000);
+    fbPorts.push(port);
+  }
 
   const phase = async (name, plan) => {
-    const before = await metrics(fbPort);
+    const before = await metricsOf(fbPorts);
     const written = await plan.write();
     const drained = await drain(name, written, loki, plan.drainMs);
-    const after = await metrics(fbPort);
+    const after = await metricsOf(fbPorts);
     const result = { ...plan.describe, written, ...drained, standInDuplicates: duplicates(name), lokiLost: written - drained.lokiCount,
       standInMissing: written - drained.standInCount, fluentBit: diff(after, before) };
     evidence.phases[name] = result;
+    for (const reason of judgeHarness(name, result)) evidence.failures.push(`${name}: ${reason}`);
     return result;
   };
 
   // 1) 평상시: dev 실측(0.3KB/s 이하)보다 훨씬 큰 200줄/초(약 70KB/s)도 손실·재시도 없이 두 출력에 간다.
   if (phases.includes('normal')) {
-  const normal = await phase('normal', { describe: { linesPerSecond: 200, seconds: 60 }, drainMs: 180_000, write: () => write('normal', 200, 60) });
-  if (normal.standInMissing || normal.lokiLost) evidence.failures.push(`normal: 대역 누락 ${normal.standInMissing}, Loki 누락 ${normal.lokiLost}`);
+  await phase('normal', { describe: { linesPerSecond: 200, seconds: 60 }, drainMs: 180_000, write: () => write('normal', 200, 60) });
   }
 
-  // 2) Loki 수신 상한 초과: 약 4MB/s로 60초 쓴다. 대역 출력은 모두 받아야 하고, Loki 손실은 측정해 남긴다.
+  // 2) Loki 수신 상한 초과: instance 셋이 합쳐 약 4MB/s로 60초 쓴다. 대역 출력은 모두 받아야 하고, Loki 손실은 drop 지표로 설명돼야 한다.
   if (phases.includes('overload')) {
-  const overload = await phase('overload', { describe: { linesPerSecond: 11_000, seconds: 60 }, drainMs: 600_000, write: () => write('overload', 11_000, 60) });
-  if (overload.standInMissing) evidence.failures.push(`overload: 대역 출력 누락 ${overload.standInMissing}`);
+  await phase('overload', { describe: { linesPerSecond: 11_000, seconds: 60 }, drainMs: 600_000, write: () => write('overload', 11_000, 60) });
   }
 
   // 3) Loki 일시 장애: 200줄/초로 180초 쓰는 중 30초부터 120초 동안 Loki를 멈춘다. 대역 출력은 끊기지 않아야 한다.
   if (phases.includes('outage')) {
   let stopped = false; let restarted = false;
-  const outage = await phase('outage', { describe: { linesPerSecond: 200, seconds: 180, lokiStoppedSeconds: [30, 150] }, drainMs: 600_000, write: () => write('outage', 200, 180, async t => {
+  await phase('outage', { describe: { linesPerSecond: 200, seconds: 180, lokiStoppedSeconds: [30, 150] }, drainMs: 600_000, write: () => write('outage', 200, 180, async t => {
     if (!stopped && t >= 30) { docker('stop', loki); stopped = true; }
     if (stopped && !restarted && t >= 150) { docker('start', loki); restarted = true; await until('Loki 재기동', async () => (await http(`${lokiUrl(loki)}/ready`)).status === 200, 180_000); }
   }) });
-  if (outage.standInMissing) evidence.failures.push(`outage: 대역 출력 누락 ${outage.standInMissing}`);
   }
 
   const lokiState = JSON.parse(docker('inspect', '-f', '{{json .State}}', loki));
   evidence.lokiState = { running: lokiState.Running, oomKilled: lokiState.OOMKilled };
   if (lokiState.OOMKilled) evidence.failures.push('Loki OOMKilled');
-  evidence.status = evidence.failures.length ? 'FAIL' : phases.length < 3 ? 'SHORT_RUN' : 'PASS';
+  evidence.status = finalStatus({ required: REQUIRED, completed: Object.keys(evidence.phases), full: true, failures: evidence.failures });
 } catch (error) {
   evidence.status = 'FAIL';
   evidence.failures.push(`실행 오류: ${error.message}`);

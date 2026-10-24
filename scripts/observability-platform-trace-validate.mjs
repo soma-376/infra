@@ -115,8 +115,8 @@ assert.equal(loki.analytics.reporting_enabled, false);
 const lokiLimitMib = mib(rendered.loki.find(x => x.kind === 'StatefulSet').spec.template.spec.containers[0].resources.limits.memory);
 assert.match(String(loki.ingester.wal.replay_memory_ceiling), /^\d+MB$/);
 assert.ok(parseInt(loki.ingester.wal.replay_memory_ceiling, 10) * 2 <= lokiLimitMib, 'Loki WAL 복구 메모리는 limit의 절반 이하다');
-// 수신 상한은 limit 1Gi에서 잰 값이다(observability-loki-capacity.mjs 증거). burst는 Fluent Bit chunk(최대 약 2MB)의 두 배 이상이다 —
-// burst보다 큰 요청은 기다려도 받지 않는다.
+// 수신 상한은 limit 1Gi·CPU 1에서 잰 값이다(observability-loki-capacity.mjs 증거). burst는 Fluent Bit chunk(보통 약 2MB, 엄격한 상한 아님)의
+// 두 배다 — burst보다 큰 요청은 기다려도 받지 않는다.
 assert.deepEqual([loki.limits_config.ingestion_rate_mb, loki.limits_config.ingestion_burst_size_mb, lokiLimitMib], [2, 4, 1024], 'Loki 수신 상한·burst·limit은 측정한 조합이다');
 
 const tempo = configOf('tempo', 'tempo.yaml');

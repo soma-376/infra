@@ -173,13 +173,16 @@ PVC는 Retain이라 uninstall·rollback으로 지워지지 않는다.
 - Loki 도입 전 로그·Kubernetes Events·EKS control-plane·MSK broker 로그는 CloudWatch에만 있다. 과거 로그를 Loki로 옮기지 않는다.
 - trace는 sampling(기본 10%)과 보존(48h) 때문에 없을 수 있다. trace 부재만으로 처리 실패를 판단하지 않는다.
 - Loki 수신 상한은 `ingestion_rate_mb: 2`·`ingestion_burst_size_mb: 4`·limit 1Gi다. 이전 8MB/s 상한에서는 초당 약 5MB 지속 수신에 1분 안에 OOM이 났다.
-  [용량 증거](../../helm/observability/tests/loki-tempo/capacity-verification.json)(로컬, 대표 로그 16 stream):
-  30분 1.9MiB/s에서 anon 표본 최대 limit의 42%·기울기 평탄, 5.5MiB/s 10분 제공에서 수락 1.91MiB/s·OOM 없음, burst 경계대로 수락·거절,
-  상한보다 큰 WAL(588MiB)의 SIGKILL 복구 21초·수락 줄 전부 재조회. dev 앱 로그는 7일 평균 0.1KB/s다.
+  [용량 증거](../../helm/observability/tests/loki-tempo/capacity-verification.json)(로컬 Docker, Loki CPU 1·memory 1Gi, 대표 로그 label 조합 8개 stream):
+  30분 1.9MiB/s에서 anon 표본 최대 limit의 39%·기울기 평탄, 5.5MiB/s 10분 제공에서 수락 2.0MiB/s(부하 시간 기준)·OOM 없음,
+  burst 경계대로 수락·거절, 상한보다 큰 588MiB 수락 뒤 SIGKILL 복구 21초·수락 줄 전부 재조회. dev 앱 로그는 7일 평균 0.1KB/s다.
 - 상한을 넘으면 Loki가 429를 낸다. Fluent Bit은 Loki 출력만 재시도하며 쌓고, 출력별 버퍼 상한(128M)을 넘은 chunk는 버린다.
-  CloudWatch 출력은 영향을 받지 않는다([병행 배송 증거](../../helm/observability/tests/loki-tempo/fluent-bit-parallel-verification.json), CloudWatch는 로컬 대역).
-  - 약 4MB/s로 60초를 쓰면 대역은 전부 받았고, Loki는 57%를 받았으며 나머지는 버려졌다(`fluentbit_output_dropped_records_total`).
+  CloudWatch 출력은 영향을 받지 않는다([병행 배송 증거](../../helm/observability/tests/loki-tempo/fluent-bit-parallel-verification.json),
+  Fluent Bit 3개·각 CPU 200m·256Mi, CloudWatch는 로컬 대역).
+  - 합쳐 약 4MB/s로 60초를 쓰면 대역은 전부 받았고, Loki는 98%를 받았다. 나머지 약 2%는 Fluent Bit이 버렸고 drop 지표와 정확히 맞았다.
   - Loki를 120초 멈춘 뒤 되살리면 재시도로 전부 도착했다. Loki의 로그는 폭주 때 손실될 수 있고 CloudWatch가 기준이다.
+  - Fluent Bit chunk는 보통 약 2MB지만 엄격한 상한이 아니다. burst(4MiB)보다 큰 요청은 받지 않으므로 drop·`rate_limited` 지표로 본다.
+  - Docker 시험은 k8s 스케줄링·EBS·노드 간 네트워크를 재현하지 않는다. 실제 CloudWatch 배송은 live에서 확인한다.
   로그 폭주 때는 `loki_discarded_samples_total{reason="rate_limited"}`·Loki 메모리·재시작을 먼저 본다.
 
 ### 수신 NetworkPolicy (ADR-0039)

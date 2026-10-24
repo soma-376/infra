@@ -1,20 +1,23 @@
 #!/usr/bin/env node
 // Loki 단일 바이너리의 수신 상한·burst·메모리·WAL 복구를 chart 설정 그대로 로컬 Docker에서 잰다(ADR-0039). AWS에 연결하지 않는다.
-// 로그는 앱 JSON envelope 형태의 대표 줄(16 stream)이다. 메모리는 Docker cgroup v2 값을 읽는다:
+// 로그는 앱 JSON envelope 형태의 대표 줄이다(Loki stream은 label 조합 8개, Pod 이름 16개). Loki는 chart의 memory·CPU limit으로 뜬다.
+// 메모리는 Docker cgroup v2 값을 읽는다:
 // memory.peak(커널이 기록한 최대, page cache 포함)·memory.events(oom_kill)와 5초 표본의 memory.current·memory.stat anon.
 //
 //   HELM_BIN=/path/to/helm node scripts/observability-loki-capacity.mjs --output <새 증거 파일>
 //       [--phases sustained,overload,burst,wal] [--sustained-minutes 30] [--overload-minutes 10]
 //
-// 기본 시간보다 짧게 돌리면 status가 SHORT_RUN이다. 필수 기준 하나라도 어기면 FAIL이고 종료 코드가 1이다.
+// 필수 단계(sustained·overload·burst·wal)를 기본 시간으로 모두 마쳐야 PASS다. 판정은 scripts/lib/observability-load-judge.mjs다.
+// 빠진 단계나 짧은 시간은 SHORT_RUN, 기준 하나라도 어기면 FAIL이고 종료 코드가 1이다.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dump, load, loadAll } from 'js-yaml';
+import { finalStatus, judgeCapacity, judgeHealth, uniquePhases } from './lib/observability-load-judge.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const argument = (name, fallback) => { const i = process.argv.indexOf(`--${name}`); return i < 0 ? fallback : process.argv[i + 1]; };
@@ -25,7 +28,8 @@ const helm = process.env.HELM_BIN;
 if (!helm) throw new Error('HELM_BIN을 고정 버전 실행 파일로 지정해야 한다');
 const DEFAULT_MINUTES = { sustained: 30, overload: 10 };
 const minutes = { sustained: Number(argument('sustained-minutes', DEFAULT_MINUTES.sustained)), overload: Number(argument('overload-minutes', DEFAULT_MINUTES.overload)) };
-const phases = argument('phases', 'sustained,overload,burst,wal').split(',');
+const REQUIRED = ['sustained', 'overload', 'burst', 'wal'];
+const phases = uniquePhases(argument('phases', REQUIRED.join(',')));
 const MiB = 1024 * 1024;
 // 통과 기준. 표본 anon 최대가 limit의 80% 이하이고, 지속 수신 후반의 anon 증가 기울기가 분당 2MiB 이하여야 한다.
 const CRITERIA = { anonPeakRatio: 0.8, anonSlopeMiBPerMinute: 2, overloadOfferedMiBPerSecond: 5.5 };
@@ -66,6 +70,10 @@ assert.ok(limitBytes > 0, `memory limit 형식: ${limitText}`);
 const rate = config.limits_config.ingestion_rate_mb * MiB;
 const burst = config.limits_config.ingestion_burst_size_mb * MiB;
 const dockerMemory = `${limitBytes / MiB}m`;
+const cpuText = String(container.resources.limits.cpu);
+const dockerCpus = cpuText.endsWith('m') ? Number(cpuText.slice(0, -1)) / 1000 : Number(cpuText);
+assert.ok(dockerCpus > 0, `CPU limit 형식: ${cpuText}`);
+const sha256 = path => createHash('sha256').update(readFileSync(resolve(root, path))).digest('hex');
 // cgroup을 읽는 보조 container는 이미 고정한 Prometheus 이미지(busybox)다.
 const helperImage = JSON.parse(readFileSync(resolve(root, 'helm/observability/dependencies.lock.json'), 'utf8')).localRemoteWriteVerification.prometheusImage;
 
@@ -75,7 +83,8 @@ const work = mkdtempSync(resolve(tmpdir(), 'proj256-loki-capacity-'));
 const containers = [];
 const evidence = {
   scope: 'local-loki-single-binary-capacity', runId: `loki-capacity/${runId}`, status: 'NOT_RUN', image: container.image,
-  settings: { memoryLimit: limitText, ingestionRateMiBPerSecond: rate / MiB, burstMiB: burst / MiB, walReplayCeiling: config.ingester.wal.replay_memory_ceiling },
+  settings: { memoryLimit: limitText, cpuLimit: cpuText, ingestionRateMiBPerSecond: rate / MiB, burstMiB: burst / MiB, walReplayCeiling: config.ingester.wal.replay_memory_ceiling },
+  scripts: Object.fromEntries(['scripts/observability-loki-capacity.mjs', 'scripts/lib/observability-load-judge.mjs'].map(path => [path, sha256(path)])),
   measurement: {
     method: 'Docker cgroup v2 /sys/fs/cgroup/docker/<id>: memory.peak(커널 최대, page cache 포함)·memory.events oom_kill, memory.current·memory.stat anon 5초 표본',
     sampleIntervalSeconds: 5, note: '표본 최대값은 절대 최대가 아니다. 절대 최대는 memory.peak뿐이며 page cache를 포함한다.',
@@ -89,6 +98,7 @@ const SERVICES = [
   ['pulsemetry-dev', 'clickhouse'], ['pulsemetry-observability', 'grafana'], ['pulsemetry-observability', 'prometheus'], ['pulsemetry-dev-logs', 'fluent-bit'],
 ];
 const STREAMS = SERVICES.flatMap(([namespace, service]) => ['a', 'b'].map(shard => ({ namespace, service, pod: `${service}-${randomBytes(4).toString('hex')}-${shard}${randomBytes(2).toString('hex')}` })));
+evidence.streams = { labelSets: new Set(STREAMS.map(x => `${x.namespace}/${x.service}`)).size, podNames: STREAMS.length };
 const hex = n => randomBytes(n).toString('hex');
 const message = (service, batchMarker) => {
   const at = new Date().toISOString();
@@ -136,7 +146,7 @@ const startLoki = (label, override = conf => conf) => {
   for (const dir of [confDir, data]) { mkdirSync(dir, { recursive: true }); chmodSync(dir, 0o777); }
   for (const [name, text] of Object.entries(configFiles)) writeFileSync(resolve(confDir, name), text);
   writeFileSync(resolve(confDir, 'config.yaml'), dump(override(structuredClone(config))));
-  const id = docker('run', '-d', '--network', network, '--name', `${network}-${label}`, '--memory', dockerMemory, '--memory-swap', dockerMemory,
+  const id = docker('run', '-d', '--network', network, '--name', `${network}-${label}`, '--memory', dockerMemory, '--memory-swap', dockerMemory, '--cpus', String(dockerCpus),
     '--read-only', '--user', '10001:10001', '--tmpfs', '/tmp:uid=10001', '--network-alias', `pulsemetry-loki-memberlist.${NS}.svc.cluster.local`,
     '-v', `${confDir}:/etc/loki/config:ro`, '-v', `${confDir}:/etc/loki/runtime-config:ro`, '-v', `${data}:/var/loki`, '-p', '127.0.0.1::3100',
     container.image, '-config.file=/etc/loki/config/config.yaml', '-config.expand-env=true', '-target=all');
@@ -174,17 +184,19 @@ async function drive(loki, phase, { offeredBytesPerSecond, durationMs, batchByte
   let sentBytes = 0;
   let sequence = 0;
   let stop = false;
+  // 부하가 끝나면 1초 안에 멈춘다. 끝난 뒤 기다린 시간이 처리율 분모에 들어가지 않게 한다.
+  const pause = async ms => { for (const until = Date.now() + ms; !stop && Date.now() < until;) await sleep(Math.min(1000, until - Date.now())); };
   const sampler = (async () => {
     while (!stop) {
       try { const c = cgroup(loki.id); samples.push({ t: (Date.now() - started) / 1000, currentMiB: round(c.current / MiB), anonMiB: round(c.anon / MiB), fileMiB: round(c.file / MiB) }); } catch { /* 종료 중이다 */ }
-      await sleep(5000);
+      await pause(5000);
     }
   })();
   const querier = (async () => {
     let first = true;
     while (!stop && queryEveryMs) {
       // 첫 조회는 30초 뒤, 이후 queryEveryMs마다 한다.
-      await sleep(first ? 30_000 : queryEveryMs);
+      await pause(first ? 30_000 : queryEveryMs);
       first = false;
       if (stop) break;
       const t0 = Date.now();
@@ -211,9 +223,10 @@ async function drive(loki, phase, { offeredBytesPerSecond, durationMs, batchByte
     }
   };
   await Promise.all(Array.from({ length: concurrency }, worker));
+  const pushSeconds = (Date.now() - started) / 1000;
   stop = true;
   await Promise.all([sampler, querier]);
-  return { ledger, samples, queries, seconds: (Date.now() - started) / 1000, offeredMiB: round(sentBytes / MiB) };
+  return { ledger, samples, queries, pushSeconds, offeredBytes: sentBytes, acceptedBytes: ledger.accepted.reduce((n, x) => n + x.bytes, 0) };
 }
 
 // 후반부 anon 기울기(MiB/분, 최소제곱).
@@ -246,13 +259,21 @@ const memorySummary = (id, samples) => {
   return { peakMiB: round(c.peak / MiB), peakRatio: round(c.peak / limitBytes * 100) / 100, sampledAnonMaxMiB: anonMax,
     sampledAnonMaxRatio: round(anonMax * MiB / limitBytes * 100) / 100, oomKill: c.oomKill, anonSlopeMiBPerMinute: slope(samples) };
 };
-const fail = (phase, reason) => evidence.failures.push(`${phase}: ${reason}`);
-const health = (phase, loki, memory) => {
+const lokiState = loki => {
   const s = state(loki.id);
-  if (!s.Running || s.OOMKilled || s.Restarting) fail(phase, `Loki 상태 ${JSON.stringify({ running: s.Running, oomKilled: s.OOMKilled })}`);
-  if (memory.oomKill > 0) fail(phase, `oom_kill ${memory.oomKill}`);
-  if (memory.sampledAnonMaxRatio > CRITERIA.anonPeakRatio) fail(phase, `anon 표본 최대 ${memory.sampledAnonMaxMiB}MiB가 limit의 ${CRITERIA.anonPeakRatio * 100}%를 넘었다`);
-  return { running: s.Running, oomKilled: s.OOMKilled, restartCount: Number(docker('inspect', '-f', '{{.RestartCount}}', loki.id)) };
+  return { running: s.Running && !s.Restarting, oomKilled: s.OOMKilled, restartCount: Number(docker('inspect', '-f', '{{.RestartCount}}', loki.id)) };
+};
+// 부하 결과를 증거 형태로 남긴다. 처리율은 부하를 넣은 시간(pushSeconds)으로 나눈다.
+const summarize = (result, extra) => ({
+  ...extra, pushSeconds: result.pushSeconds, offeredBytes: result.offeredBytes, acceptedBytes: result.acceptedBytes,
+  offeredMiBPerSecond: round(result.offeredBytes / result.pushSeconds / MiB * 10) / 10, acceptedMiBPerSecond: round(result.acceptedBytes / result.pushSeconds / MiB * 10) / 10,
+  samples: result.samples, queries: result.queries,
+});
+const judgeContext = { rate, burst, ceilingBytes: parseInt(config.ingester.wal.replay_memory_ceiling, 10) * MiB, criteria: CRITERIA };
+const record = (name, phase, targetBytesPerSecond, health) => {
+  evidence.phases[name] = phase;
+  const failures = [...judgeCapacity(name, phase, { ...judgeContext, targetBytesPerSecond }), ...health.flatMap(([label, input, ratio]) => judgeHealth(input, { anonPeakRatio: ratio }).map(x => `${label}: ${x}`))];
+  for (const reason of failures) evidence.failures.push(`${name}: ${reason}`);
 };
 
 const started = Date.now();
@@ -269,11 +290,8 @@ try {
     await sleep(5000);
     const memory = memorySummary(loki.id, result.samples);
     const lines = await reconcile(loki, 'sustained', result.ledger);
-    const phase = { offeredMiBPerSecond: round(rate * 0.95 / MiB * 100) / 100, minutes: minutes.sustained, ...result, ledger: undefined, lines, memory, state: health('sustained', loki, memory) };
-    if (memory.anonSlopeMiBPerMinute !== null && memory.anonSlopeMiBPerMinute > CRITERIA.anonSlopeMiBPerMinute) fail('sustained', `후반 anon 증가 ${memory.anonSlopeMiBPerMinute}MiB/분`);
-    if (!lines.matches || lines.errorBatches) fail('sustained', '수락 로그와 조회 결과가 다르거나 오류 batch가 있다');
-    if (phase.queries.some(x => x.status !== 200) || !phase.queries.length) fail('sustained', '대표 조회 실패');
-    evidence.phases.sustained = phase;
+    const phase = summarize(result, { minutes: minutes.sustained, targetMiBPerSecond: round(rate * 0.95 / MiB * 10) / 10, lines, memory, state: lokiState(loki) });
+    record('sustained', phase, rate * 0.95, [['수신', phase, CRITERIA.anonPeakRatio]]);
     docker('stop', loki.id);
   }
 
@@ -285,14 +303,8 @@ try {
     await sleep(5000);
     const memory = memorySummary(loki.id, result.samples);
     const lines = await reconcile(loki, 'overload', result.ledger);
-    const acceptedRate = lines.acceptedMiB * MiB / result.seconds;
-    const phase = { offeredMiBPerSecond: CRITERIA.overloadOfferedMiBPerSecond, minutes: minutes.overload, ...result, ledger: undefined, lines, memory,
-      acceptedMiBPerSecond: round(acceptedRate / MiB * 100) / 100, state: health('overload', loki, memory) };
-    // 수락량은 상한과 burst를 넘지 않아야 한다(5% 여유).
-    if (acceptedRate > rate * 1.05 + burst / result.seconds) fail('overload', `수락 속도 ${phase.acceptedMiBPerSecond}MiB/s가 상한을 넘었다`);
-    if (!lines.rejectedBatches) fail('overload', '429가 나지 않았다 — 제한이 동작했는지 알 수 없다');
-    if (!lines.matches || lines.errorBatches) fail('overload', '수락·거절과 조회 결과가 다르거나 오류 batch가 있다');
-    evidence.phases.overload = phase;
+    const phase = summarize(result, { minutes: minutes.overload, targetMiBPerSecond: CRITERIA.overloadOfferedMiBPerSecond, lines, memory, state: lokiState(loki) });
+    record('overload', phase, offered, [['수신', phase, CRITERIA.anonPeakRatio]]);
     docker('stop', loki.id);
   }
 
@@ -319,12 +331,8 @@ try {
     await sleep(3000);
     const memory = memorySummary(loki.id, []);
     for (const c of cases) c.found = await countLines(loki, c.id);
-    const phase = { refillSeconds: refillMs / 1000, cases, memory, state: health('burst', loki, { ...memory, sampledAnonMaxRatio: 0 }) };
-    for (const c of cases) {
-      if (c.actual !== c.expect) fail('burst', `${c.label}: 기대 ${c.expect}, 실제 ${c.actual}`);
-      if (c.found !== (c.actual === 'accepted' ? c.lines : 0)) fail('burst', `${c.label}: 조회 ${c.found}줄`);
-    }
-    evidence.phases.burst = phase;
+    const phase = { refillSeconds: refillMs / 1000, cases, memory, state: lokiState(loki) };
+    record('burst', phase, 0, [['burst', phase, null]]);
     docker('stop', loki.id);
   }
 
@@ -336,6 +344,7 @@ try {
     const result = await drive(loki, 'wal', { offeredBytesPerSecond: rate * 0.98, durationMs: 300_000, batchBytes: 512 * 1024, concurrency: 2, retry: true, queryEveryMs: 0 });
     const walMiB = round(dirBytes(resolve(loki.data, 'wal')) / MiB);
     const before = memorySummary(loki.id, result.samples);
+    const beforeState = lokiState(loki);
     docker('kill', '--signal', 'KILL', loki.id);
     const restarted = Date.now();
     docker('start', loki.id);
@@ -350,21 +359,14 @@ try {
     const replaySeconds = (Date.now() - restarted) / 1000;
     const memory = memorySummary(loki.id, replaySamples);
     const lines = isReady ? await reconcile(loki, 'wal', result.ledger) : null;
-    const ceilingMiB = parseInt(config.ingester.wal.replay_memory_ceiling, 10);
-    const phase = { walMiB, ceiling: config.ingester.wal.replay_memory_ceiling, checkpointDurationForTest: '10m', ingest: { ...before, seconds: result.seconds, offeredMiB: result.offeredMiB },
-      replaySeconds, replaySampleIntervalSeconds: 1, replaySamples, replayMemory: memory, lines, ready: isReady, state: health('wal', loki, memory) };
-    // 복구 상한은 메모리에 올린 양이다. 디스크 WAL은 압축될 수 있어 수락한 줄 bytes로 비교한다.
-    const acceptedMiB = result.ledger.accepted.reduce((n, x) => n + x.bytes, 0) / MiB;
-    phase.acceptedMiBBeforeKill = round(acceptedMiB);
-    if (acceptedMiB <= ceilingMiB) fail('wal', `수락량 ${round(acceptedMiB)}MiB가 복구 상한 ${ceilingMiB}MB보다 작아 상한을 시험하지 못했다`);
-    if (!isReady) fail('wal', '재시작 뒤 Ready가 되지 않았다');
-    if (lines && !lines.matches) fail('wal', '수락한 줄이 재시작 뒤 모두 조회되지 않았다');
-    evidence.phases.wal = phase;
+    const phase = { ...summarize(result, { walMiB, ceiling: config.ingester.wal.replay_memory_ceiling, checkpointDurationForTest: '10m', ingestMemory: before }),
+      replaySeconds, replaySampleIntervalSeconds: 1, replaySamples, memory, lines: lines ?? { matches: false }, ready: isReady, state: lokiState(loki) };
+    record('wal', phase, rate * 0.98, [['수신', { memory: before, state: beforeState }, CRITERIA.anonPeakRatio], ['복구', phase, CRITERIA.anonPeakRatio]]);
     docker('stop', loki.id);
   }
 
-  const short = minutes.sustained < DEFAULT_MINUTES.sustained || minutes.overload < DEFAULT_MINUTES.overload || phases.length < 4;
-  evidence.status = evidence.failures.length ? 'FAIL' : short ? 'SHORT_RUN' : 'PASS';
+  const full = minutes.sustained >= DEFAULT_MINUTES.sustained && minutes.overload >= DEFAULT_MINUTES.overload;
+  evidence.status = finalStatus({ required: REQUIRED, completed: Object.keys(evidence.phases), full, failures: evidence.failures });
 } catch (error) {
   evidence.status = 'FAIL';
   evidence.failures.push(`실행 오류: ${error.message}`);
