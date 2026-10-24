@@ -111,6 +111,10 @@ assert.equal(loki.compactor.delete_request_store, 'filesystem');
 assert.ok(loki.compactor.working_directory.startsWith('/var/loki/'), '압축·삭제 작업 경로도 PVC 아래다');
 assert.equal(loki.limits_config.retention_period, '72h');
 assert.equal(loki.analytics.reporting_enabled, false);
+// WAL 복구 메모리는 Pod limit의 절반 이하다. 기본 4GB면 WAL이 쌓인 뒤 재시작할 때 복구 중 OOM이 날 수 있다.
+const lokiLimitMib = mib(rendered.loki.find(x => x.kind === 'StatefulSet').spec.template.spec.containers[0].resources.limits.memory);
+assert.match(String(loki.ingester.wal.replay_memory_ceiling), /^\d+MB$/);
+assert.ok(parseInt(loki.ingester.wal.replay_memory_ceiling, 10) * 2 <= lokiLimitMib, 'Loki WAL 복구 메모리는 limit의 절반 이하다');
 
 const tempo = configOf('tempo', 'tempo.yaml');
 assert.deepEqual(Object.keys(tempo.distributor.receivers), ['otlp']);
@@ -147,6 +151,9 @@ const rejects = [
   ['loki', ['--set', 'loki.gateway.enabled=true']],
   ['loki', ['--set', 'loki.fullnameOverride=loki']],
   ['loki', ['--set', 'loki.singleBinary.persistence.whenDeleted=Delete']],
+  ['loki', ['--set', 'loki.loki.ingester.wal.replay_memory_ceiling=null']],
+  ['loki', ['--set', 'loki.loki.ingester.wal.replay_memory_ceiling=4GB']],
+  ['loki', ['--set', 'loki.loki.ingester.wal.replay_memory_ceiling=768MB']],
   ['tempo', ['--set', 'tempo.persistence.enableStatefulSetAutoDeletePVC=true']],
   ['tempo', ['--set', 'tempo.replicas=2']],
   ['tempo', ['--set', 'tempo.tempo.tag=3.1.0']],

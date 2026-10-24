@@ -6,3 +6,10 @@
 {{- if ne (int $l.singleBinary.replicas) 1 -}}{{ fail "Loki는 단일 replica 영속 볼륨 구성을 사용한다" }}{{- end -}}
 {{- if or $l.gateway.enabled $l.minio.enabled $l.lokiCanary.enabled $l.chunksCache.enabled $l.resultsCache.enabled $l.memcached.enabled -}}{{ fail "gateway·MinIO·canary·cache는 이번 범위에서 켜지 않는다" }}{{- end -}}
 {{- if or (ne $l.singleBinary.persistence.whenDeleted "Retain") (ne $l.singleBinary.persistence.whenScaled "Retain") -}}{{ fail "Loki PVC는 Retain이다" }}{{- end -}}
+{{- /* WAL 복구 메모리를 명시하지 않으면 기본 4GB로 Pod limit을 넘는다. 단일 바이너리라 limit의 절반 이하만 허용한다. */ -}}
+{{- $ceiling := toString (dig "ingester" "wal" "replay_memory_ceiling" "" $l.loki) -}}
+{{- if not (regexMatch "^[0-9]+MB$" $ceiling) -}}{{ fail "Loki WAL replay_memory_ceiling은 MB 단위로 명시한다(기본 4GB는 Pod limit보다 크다)" }}{{- end -}}
+{{- $limit := toString $l.singleBinary.resources.limits.memory -}}
+{{- if not (regexMatch "^[0-9]+(Mi|Gi)$" $limit) -}}{{ fail "Loki memory limit은 Mi 또는 Gi로 쓴다" }}{{- end -}}
+{{- $limitMi := ternary (mul (int (trimSuffix "Gi" $limit)) 1024) (int (trimSuffix "Mi" $limit)) (hasSuffix "Gi" $limit) -}}
+{{- if gt (mul (int (trimSuffix "MB" $ceiling)) 2) $limitMi -}}{{ fail "Loki WAL replay_memory_ceiling은 Pod memory limit의 절반 이하다" }}{{- end -}}

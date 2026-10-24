@@ -43,6 +43,8 @@ endpoint·서비스 이름·sampling·속성은 backend와 infra가 함께 지�
 - Collector 이미지는 `file_storage`와 속성 처리기가 있는 배포판(contrib 또는 k8s)이다. core 배포판에는 둘 다 없다.
 - 모두 ARM64, 관측 nodeSelector·toleration, 기존 `gp3-observability` StorageClass를 쓴다.
   PVC는 Helm 삭제·재설치로 지워지지 않도록 retain 정책을 명시한다.
+- Loki WAL 복구 메모리(`ingester.wal.replay_memory_ceiling`)는 Pod memory limit의 절반 이하로 명시한다(1Gi에 512MB).
+  기본 4GB로 두면 WAL이 쌓인 뒤 재시작할 때 복구 중 OOM이 날 수 있다. wrapper chart가 렌더 단계에서 강제한다.
 
 ### 고정 주소
 

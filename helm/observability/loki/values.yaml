@@ -30,6 +30,11 @@ loki:
           index:
             prefix: loki_index_
             period: 24h
+    # WAL 복구는 replay_memory_ceiling까지 메모리에 올리고 넘으면 그 자리에서 flush한다. 기본 4GB는 Pod limit 1Gi보다 커서
+    # WAL이 쌓인 뒤 재시작하면 복구 중 OOM이 날 수 있다. 단일 바이너리라 같은 프로세스가 index·compactor도 쓰므로 limit의 절반으로 둔다.
+    ingester:
+      wal:
+        replay_memory_ceiling: 512MB
     # 보존은 디스크 상한이 아니다. 저장 증가량을 실측해 PVC·보존을 다시 정한다.
     limits_config:
       retention_period: 72h
