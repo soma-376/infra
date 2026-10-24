@@ -216,10 +216,10 @@ node scripts/observability-networkpolicy-probe.mjs --phase n2 --output <새 증�
 ```
 
 스크립트 순서와 통과 기준:
-1. controller ConfigMap이 켜져 있고 `pulsemetry-np-probe`가 없어야 시작한다. 다른 시험 자원을 지우지 않는다.
+1. controller ConfigMap이 켜져 있고 `pulsemetry-np-probe`가 없어야 시작한다. 이 실행이 만든 namespace만 지운다(시작 전에 멈추면 지우지 않는다).
 2. 정책 전 label 없는 client가 `OPEN`이어야 한다.
 3. deny-all을 건 뒤 label 없는 client가 120초 안에 `TIMEOUT`으로 바뀌어야 한다. 고정 대기로 판단하지 않고 5초마다 다시 본다.
-4. 그동안 server를 5초마다 70초 동안 관찰한다. 모든 표본이 Ready이고 restart가 늘지 않아야 한다(kubelet probe 통과).
+4. `TIMEOUT`을 확인한 뒤(정책이 강제되는 동안) server를 5초마다 70초 동안 관찰한다. 모든 표본이 Ready이고 restart가 늘지 않아야 한다(kubelet probe 통과).
 5. label 허용 정책을 더하면 허용 client는 120초 안에 `OPEN`, label 없는 client는 계속 `TIMEOUT`이어야 한다.
 6. 끝나면 `pulsemetry-np-probe` namespace만 지운다.
 
@@ -252,7 +252,8 @@ SG만으로도 생기므로 정책 증거가 아니다. 관측 풀(toleration �
   SG가 막는 경로는 `SG_ALSO_BLOCKS`로 남기고, 그 밖의 실패는 `INCONCLUSIVE`다. `OPEN`은 `NOT_BLOCKED`이며 실패다.
 - 포트 연결 대조와 동작 대조를 따로 기록한다. 동작 대조가 0이면 통신량이 없는 것이라 `PENDING`이다(trace를 켜기 전 4317·4318).
   9단계(tracing) 뒤에 n5를 다시 돌려 `PENDING`을 닫는다.
-- 증거에는 송신자의 namespace·label·노드 풀, 목적지·포트, 기대·실제 결과와 판정이 남는다. 시험 Job은 표시 label로만 지운다.
+- 허용 송신자는 하나하나 성공해야 한다. 같은 목적지에 다른 송신자가 닿았다고 대신하지 않는다(예: Grafana → Loki가 막히면 FAIL).
+- 증거에는 송신자의 namespace·label·노드 풀, 목적지·포트, 기대·실제 결과와 판정이 남는다. 시험 Job은 이 실행의 run label로만 지운다.
 - `NOT_BLOCKED`가 나오면 정책·selector를 고치기 전에는 내부 접근이 제한됐다고 보고하지 않는다.
 
 **동작 확인(N4, 5~10단계에 걸쳐).** Prometheus에서 `up{job=~"loki|tempo|otel-platform"}`이 모두 1이고, Fluent Bit Loki 출력의

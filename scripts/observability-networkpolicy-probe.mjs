@@ -19,6 +19,8 @@ import { dump, loadAll } from 'js-yaml';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const argument = name => { const i = process.argv.indexOf(`--${name}`); return i < 0 ? undefined : process.argv[i + 1]; };
 const renderOnly = process.argv.includes('--render-only');
+// deny-all 뒤 server Ready 관찰 시간. 기본 70초이고, 짧게 주면(회귀 시험) status는 PASS가 아니라 SHORT_RUN이다.
+const READY_SECONDS = Number(argument('ready-seconds') ?? 70);
 const phase = argument('phase');
 const output = argument('output') && resolve(argument('output'));
 if (!renderOnly) {
@@ -29,6 +31,9 @@ if (!renderOnly) {
 const NS = 'pulsemetry-observability';
 const PROBE_NS = 'pulsemetry-np-probe';
 const MARK = 'pulsemetry.io/np-probe';
+// 실행마다 다른 값이다. 정리는 이 값으로만 한다 — 다른 실행의 Job을 지우지 않는다.
+const RUN_MARK = 'pulsemetry.io/np-probe-run';
+const suffix = renderOnly ? 'render-only' : randomBytes(3).toString('hex');
 const lock = JSON.parse(readFileSync(resolve(root, 'helm/observability/dependencies.lock.json'), 'utf8'));
 const IMAGE = lock.localRemoteWriteVerification.prometheusImage;
 const files = name => loadAll(readFileSync(resolve(root, 'helm/observability/tests/networkpolicy', name), 'utf8')).filter(Boolean);
@@ -95,11 +100,11 @@ done`;
 
 const job = ({ name, namespace, pool, labels, targets, expect = '', deadline = 0 }) => ({
   apiVersion: 'batch/v1', kind: 'Job',
-  metadata: { name, namespace, labels: { [MARK]: 'true' } },
+  metadata: { name, namespace, labels: { [MARK]: 'true', [RUN_MARK]: suffix } },
   spec: {
     backoffLimit: 0, ttlSecondsAfterFinished: 900, activeDeadlineSeconds: 60 + deadline + 15 * targets.split(' ').length,
     template: {
-      metadata: { labels: { [MARK]: 'true', ...labels } },
+      metadata: { labels: { [MARK]: 'true', [RUN_MARK]: suffix, ...labels } },
       spec: {
         restartPolicy: 'Never', ...POOLS[pool], securityContext: { runAsNonRoot: true, runAsUser: 65534 },
         containers: [{
@@ -134,7 +139,7 @@ const kube = (args, input) => {
 const kubeJson = args => JSON.parse(kube([...args, '-o', 'json']));
 const apply = docs => kube(['apply', '-f', '-'], docs.map(x => dump(x)).join('---\n'));
 const sleep = ms => new Promise(done => setTimeout(done, ms));
-const suffix = randomBytes(3).toString('hex');
+let createdNamespace = false;
 const evidence = { phase, runId: `np-probe/${phase}/${suffix}`, context: kube(['config', 'current-context']).trim(), startedAt: new Date().toISOString(), image: IMAGE, status: 'NOT_RUN', steps: [], failures: [] };
 const fail = reason => evidence.failures.push(reason);
 const parseLines = text => text.split('\n').filter(x => x.startsWith('{')).map(x => JSON.parse(x));
@@ -182,6 +187,8 @@ try {
     evidence.controller = controller.status === 0 ? JSON.parse(controller.stdout).data : null;
     if (evidence.controller?.['enable-network-policy-controller'] !== 'true') throw new Error('controller ConfigMap이 켜져 있지 않다(N1 먼저)');
     if (kubectl(['get', 'namespace', PROBE_NS]).status === 0) throw new Error(`${PROBE_NS}가 이미 있다. 다른 시험의 자원을 지우지 않는다`);
+    // 없음을 확인한 뒤 만든다. 이후 어느 단계에서 실패해도 이 실행이 만든 namespace만 지운다.
+    createdNamespace = true;
     apply(files('probe.yaml'));
     kube(['rollout', 'status', '-n', PROBE_NS, 'deploy/np-server', '--timeout=180s']);
     const step = async (label, spec, expect) => {
@@ -193,17 +200,20 @@ try {
     };
     await step('정책 전 label 없는 client', { name: 'np-n2-before', labels: {} }, 'OPEN');
     apply(files('deny-all.yaml'));
-    // deny-all 뒤 70초 동안 5초마다 server Ready를 본다. 그동안 client가 TIMEOUT으로 바뀌는지 120초 안에서 확인한다.
-    const readiness = [];
-    const watch = (async () => {
-      const until = Date.now() + 70_000;
-      while (Date.now() < until) { readiness.push({ at: new Date().toISOString(), ...podsReady(PROBE_NS, 'app.kubernetes.io/name=np-server') }); await sleep(5000); }
-    })();
+    // client가 120초 안에 TIMEOUT으로 바뀌는지 본다. 바뀐 뒤(정책이 강제되는 동안) server Ready를 5초마다 READY_SECONDS 동안 관찰한다.
+    // Job 대기는 동기 호출이라 그 사이에 관찰할 수 없다 — 관찰은 별도 단계로 한다.
     await step('deny-all 뒤 label 없는 client', { name: 'np-n2-deny', labels: {}, expect: 'TIMEOUT', deadline: 120 }, 'TIMEOUT');
-    await watch;
+    const readiness = [];
+    const observeUntil = Date.now() + READY_SECONDS * 1000;
+    for (;;) {
+      readiness.push({ at: new Date().toISOString(), ...podsReady(PROBE_NS, 'app.kubernetes.io/name=np-server') });
+      if (Date.now() >= observeUntil) break;
+      await sleep(5000);
+    }
+    evidence.readySeconds = READY_SECONDS;
     evidence.serverReadinessAfterDenyAll = readiness;
-    if (readiness.length < 14 || !readiness.every(x => x.ready) || new Set(readiness.map(x => x.restarts)).size > 1) {
-      fail('deny-all 뒤 server가 70초 동안 Ready를 유지하지 못했다 — kubelet probe가 막혔을 수 있다. 노드 대역 ipBlock으로 우회하지 않는다');
+    if (readiness.length < Math.floor(READY_SECONDS / 5) + 1 || !readiness.every(x => x.ready) || new Set(readiness.map(x => x.restarts)).size > 1) {
+      fail(`deny-all 뒤 server가 ${READY_SECONDS}초 동안 Ready를 유지하지 못했다 — kubelet probe가 막혔을 수 있다. 노드 대역 ipBlock으로 우회하지 않는다`);
       evidence.events = kubectl(['get', 'events', '-n', PROBE_NS, '--sort-by=.lastTimestamp']).stdout.slice(-3000);
     }
     apply(files('allow-labeled.yaml'));
@@ -233,13 +243,19 @@ try {
       if (!t.ready) fail(`${name} 대상 Pod가 Ready가 아니다`);
       if (!t.portsMatch) fail(`${name}: Service port와 container port가 다르다(AWS 정책 적용 조건)`);
     }
+    const preconditionsOk = evidence.failures.length === 0;
 
     // 허용 송신자 대조: 포트 수준(실행 중 container)과 동작 수준(지표·Tempo 검색)을 나눠 기록한다.
     const controls = {};
     for (const control of PORT_CONTROLS) {
       const result = execProbe(control, targetSpec(control.targets));
       evidence.steps.push({ kind: 'port-control', sender: control.sender, ...result });
-      for (const r of result.results) (controls[r.target] ??= []).push({ sender: control.sender, kind: 'port', ok: r.result === 'OPEN', result: r.result });
+      for (const target of control.targets) {
+        const actual = result.status !== 0 ? 'EXEC_FAILED' : result.results.find(r => r.target === target)?.result ?? 'NO_RESULT';
+        (controls[target] ??= []).push({ sender: control.sender, kind: 'port', ok: actual === 'OPEN', result: actual });
+        // 허용 송신자는 하나하나 닿아야 한다. 다른 송신자의 성공으로 대신하지 않는다.
+        if (actual !== 'OPEN') fail(`허용 송신자 ${control.sender} → ${target}: ${actual}`);
+      }
     }
     for (const control of FUNCTIONAL_CONTROLS) {
       let state;
@@ -260,11 +276,15 @@ try {
         const actual = result.results.find(r => r.target === name)?.result
           ?? (result.results.some(r => r.result === 'TOOL_ERROR') ? 'TOOL_ERROR' : result.complete ? 'NO_RESULT' : 'JOB_FAILED');
         const open = sgOpen(stranger.pool, TARGET_POOL, TARGETS[name].port);
-        const controlOk = (controls[name] ?? []).some(c => c.ok);
+        // 같은 목적지·포트의 필수 허용 송신자가 모두 성공해야 대조가 성립한다.
+        const required = controls[name] ?? [];
+        const controlOk = required.length > 0 && required.every(c => c.ok);
+        const controlPending = required.some(c => c.result === 'PENDING') && required.every(c => c.ok || c.result === 'PENDING');
         const verdict = actual === 'OPEN' ? 'NOT_BLOCKED'
           : actual !== 'TIMEOUT' ? 'INCONCLUSIVE'
             : !open ? 'SG_ALSO_BLOCKS'
-              : !controlOk || evidence.failures.length ? 'INCONCLUSIVE' : 'BLOCKED_BY_POLICY';
+              : !preconditionsOk ? 'INCONCLUSIVE'
+                : controlOk ? 'BLOCKED_BY_POLICY' : controlPending ? 'PENDING_CONTROL' : 'INCONCLUSIVE';
         cases.push({ sender: { namespace: stranger.namespace, labels: STRANGER_LABELS, nodePool: stranger.pool }, target: name, sgOpen: open, expect: 'TIMEOUT', actual, controlOk, verdict });
         if (verdict === 'NOT_BLOCKED') fail(`${stranger.name} → ${name}: 허용 label 없는 Pod가 닿았다`);
       }
@@ -273,21 +293,23 @@ try {
     // 목적지·포트마다 SG가 여는 경로에서 정책 차단이 하나 이상 입증돼야 한다.
     for (const name of Object.keys(TARGETS)) {
       if (!cases.some(c => c.target === name && c.verdict === 'BLOCKED_BY_POLICY')) {
-        const pending = (controls[name] ?? []).every(c => c.result === 'PENDING');
+        const pending = cases.some(c => c.target === name && c.verdict === 'PENDING_CONTROL');
         evidence.steps.push({ kind: 'verdict', target: name, state: pending ? 'PENDING' : 'NOT_PROVEN' });
         if (!pending) fail(`${name}: 정책 차단을 입증하지 못했다(대조·사전조건 확인)`);
       }
     }
   }
   const pending = evidence.steps.some(x => x.state === 'PENDING');
-  evidence.status = evidence.failures.length ? 'FAIL' : pending ? 'PENDING' : 'PASS';
+  const short = phase === 'n2' && READY_SECONDS < 70;
+  evidence.status = evidence.failures.length ? 'FAIL' : short ? 'SHORT_RUN' : pending ? 'PENDING' : 'PASS';
 } catch (error) {
   evidence.status = 'FAIL';
   fail(`실행 오류: ${error.message.slice(0, 500)}`);
 } finally {
-  // 이 시험이 만든 자원만 지운다. N2는 일회용 namespace, N5는 표시 label이 붙은 Job뿐이다.
-  if (phase === 'n2' && !evidence.failures.some(x => x.includes('이미 있다'))) kubectl(['delete', 'namespace', PROBE_NS, '--wait=false']);
-  if (phase === 'n5') for (const s of STRANGERS) kubectl(['delete', 'job', '-n', s.namespace, '-l', `${MARK}=true`, '--wait=false']);
+  // 이 실행이 만든 자원만 지운다. N2는 이 실행이 만든 일회용 namespace, N5는 이 실행의 run label이 붙은 Job뿐이다.
+  if (phase === 'n2' && createdNamespace) kubectl(['delete', 'namespace', PROBE_NS, '--wait=false']);
+  if (phase === 'n5') for (const s of STRANGERS) kubectl(['delete', 'job', '-n', s.namespace, '-l', `${RUN_MARK}=${suffix}`, '--wait=false']);
+  evidence.cleanup = { namespaceDeleted: phase === 'n2' && createdNamespace, jobSelector: phase === 'n5' ? `${RUN_MARK}=${suffix}` : null };
   evidence.finishedAt = new Date().toISOString();
   writeFileSync(output, JSON.stringify(evidence, null, 2) + '\n');
 }
