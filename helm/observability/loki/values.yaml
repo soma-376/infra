@@ -43,8 +43,11 @@ loki:
       max_query_lookback: 72h
       # stream label은 environment·cluster·namespace·service_name·container 다섯이다.
       max_label_names_per_series: 8
-      ingestion_rate_mb: 8
-      ingestion_burst_size_mb: 16
+      # limit 1Gi가 버티는 수신 속도로 묶는다. 로컬에서 5MB/s 지속 수신은 1분 안에 OOM이 났다(2026-10-25).
+      # dev 앱 로그는 7일 평균 0.1KB/s·1분 최대 0.3KB/s다(CloudWatch IncomingBytes). burst는 Fluent Bit chunk(최대 약 2MB) 하나가 늘 들어갈 크기다.
+      # 근거와 측정은 scripts/observability-loki-capacity.mjs의 증거 파일이다.
+      ingestion_rate_mb: 2
+      ingestion_burst_size_mb: 4
     compactor:
       retention_enabled: true
       delete_request_store: filesystem

@@ -42,6 +42,7 @@ ARM64 manifest 확인이며 실제 EKS 기동 검증과 구분한다. k6는 1.8.
 - Tempo 수신은 OTLP/gRPC 4317 하나다. upstream Service의 9411·55680 고정 포트에는 listener가 없다.
 - Collector는 trace pipeline 하나만 연다. 앱이 실수로 보낸 URL·SQL·인증 헤더·예외 메시지 속성은 저장 전에 지운다.
 - Loki WAL 복구 메모리는 512MB(limit 1Gi의 절반)로 명시한다. wrapper가 누락·초과를 렌더 단계에서 거부한다.
+- Loki 수신 상한 2MiB/s·burst 4MiB·limit 1Gi는 [용량 증거](tests/loki-tempo/capacity-verification.json)로 정한 조합이다. 검증기가 세 값을 함께 고정한다.
 - 각 wrapper가 수신 NetworkPolicy 하나를 둔다(`ingressPolicy` values). 허용 송신자 selector는 검증기가 렌더 결과와
   [dev 조회 label](tests/fixtures/dev-pod-labels.json)로 대조한다. 강제는 platform chart의 controller ConfigMap이 켜고, live 강제·차단 시험은
   `scripts/observability-networkpolicy-probe.mjs`(N2 일회용 namespace, N5 허용·차단 대조)와 [시험 자원](tests/networkpolicy/)으로 한다.

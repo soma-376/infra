@@ -172,8 +172,15 @@ PVC는 Retain이라 uninstall·rollback으로 지워지지 않는다.
   app label이 없는 Pod는 `service_name` 없이 `container`로 찾는다.
 - Loki 도입 전 로그·Kubernetes Events·EKS control-plane·MSK broker 로그는 CloudWatch에만 있다. 과거 로그를 Loki로 옮기지 않는다.
 - trace는 sampling(기본 10%)과 보존(48h) 때문에 없을 수 있다. trace 부재만으로 처리 실패를 판단하지 않는다.
-- Loki 메모리(로컬 측정, 2026-10-25): limit 1Gi에서 초당 약 5MB로 계속 넣으면 1분 안에 OOM이 났다. 초당 2.2MB에서는 수신 중
-  최대 약 600MiB였다. 현재 `ingestion_rate_mb: 8`은 이 한도보다 크다(조정은 결정 대기). 로그 폭주 때는 Loki 메모리·재시작을 먼저 본다.
+- Loki 수신 상한은 `ingestion_rate_mb: 2`·`ingestion_burst_size_mb: 4`·limit 1Gi다. 이전 8MB/s 상한에서는 초당 약 5MB 지속 수신에 1분 안에 OOM이 났다.
+  [용량 증거](../../helm/observability/tests/loki-tempo/capacity-verification.json)(로컬, 대표 로그 16 stream):
+  30분 1.9MiB/s에서 anon 표본 최대 limit의 42%·기울기 평탄, 5.5MiB/s 10분 제공에서 수락 1.91MiB/s·OOM 없음, burst 경계대로 수락·거절,
+  상한보다 큰 WAL(588MiB)의 SIGKILL 복구 21초·수락 줄 전부 재조회. dev 앱 로그는 7일 평균 0.1KB/s다.
+- 상한을 넘으면 Loki가 429를 낸다. Fluent Bit은 Loki 출력만 재시도하며 쌓고, 출력별 버퍼 상한(128M)을 넘은 chunk는 버린다.
+  CloudWatch 출력은 영향을 받지 않는다([병행 배송 증거](../../helm/observability/tests/loki-tempo/fluent-bit-parallel-verification.json), CloudWatch는 로컬 대역).
+  - 약 4MB/s로 60초를 쓰면 대역은 전부 받았고, Loki는 57%를 받았으며 나머지는 버려졌다(`fluentbit_output_dropped_records_total`).
+  - Loki를 120초 멈춘 뒤 되살리면 재시도로 전부 도착했다. Loki의 로그는 폭주 때 손실될 수 있고 CloudWatch가 기준이다.
+  로그 폭주 때는 `loki_discarded_samples_total{reason="rate_limited"}`·Loki 메모리·재시작을 먼저 본다.
 
 ### 수신 NetworkPolicy (ADR-0039)
 
@@ -265,6 +272,8 @@ Grafana의 Loki·Tempo datasource health가 OK다. 이것은 포트 시험이 �
 `HELM_BIN=... node scripts/observability-loki-tempo-smoke.mjs --output <새 파일> [--wal-pressure]`
 (chart memory limit 아래 고정 이미지 왕복·Loki SIGKILL 뒤 WAL 복구·Collector queue·Tempo 재시작, [증거](../../helm/observability/tests/loki-tempo/local-verification.json)).
 smoke는 Fluent Bit 병행 배송·Grafana UI 클릭·실제 앱 요청·NetworkPolicy 강제를 확인하지 않는다. 증거 파일의 `coverage`가 범위다.
+수신 상한·장시간 메모리·burst·WAL 복구 부하는 `HELM_BIN=... node scripts/observability-loki-capacity.mjs --output <새 파일>`(약 50분),
+Fluent Bit 병행 배송은 `HELM_BIN=... node scripts/observability-fluent-bit-loki-harness.mjs --output <새 파일>`(CloudWatch는 로컬 대역)이 맡는다.
 
 ## 로그 손실 경계와 회귀 검증
 

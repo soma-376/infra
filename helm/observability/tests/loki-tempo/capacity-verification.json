@@ -1,0 +1,3569 @@
+{
+  "scope": "local-loki-single-binary-capacity",
+  "runId": "loki-capacity/5414c80fa3",
+  "status": "PASS",
+  "image": "docker.io/grafana/loki@sha256:1107dd5274e0ada47e42472b7a7e71f3b2a2fe878878108f3e2f9e51528f0193",
+  "settings": {
+    "memoryLimit": "1Gi",
+    "ingestionRateMiBPerSecond": 2,
+    "burstMiB": 4,
+    "walReplayCeiling": "512MB"
+  },
+  "measurement": {
+    "method": "Docker cgroup v2 /sys/fs/cgroup/docker/<id>: memory.peak(커널 최대, page cache 포함)·memory.events oom_kill, memory.current·memory.stat anon 5초 표본",
+    "sampleIntervalSeconds": 5,
+    "note": "표본 최대값은 절대 최대가 아니다. 절대 최대는 memory.peak뿐이며 page cache를 포함한다."
+  },
+  "criteria": {
+    "anonPeakRatio": 0.8,
+    "anonSlopeMiBPerMinute": 2,
+    "overloadOfferedMiBPerSecond": 5.5
+  },
+  "requested": {
+    "phases": [
+      "sustained",
+      "overload",
+      "burst",
+      "wal"
+    ],
+    "minutes": {
+      "sustained": 30,
+      "overload": 10
+    }
+  },
+  "phases": {
+    "sustained": {
+      "offeredMiBPerSecond": 1.9,
+      "minutes": 30,
+      "samples": [
+        {
+          "t": 0.053,
+          "currentMiB": 39.1,
+          "anonMiB": 33.9,
+          "fileMiB": 4.2
+        },
+        {
+          "t": 5.096,
+          "currentMiB": 115.8,
+          "anonMiB": 94.5,
+          "fileMiB": 18.6
+        },
+        {
+          "t": 10.152,
+          "currentMiB": 126.9,
+          "anonMiB": 95.2,
+          "fileMiB": 28.8
+        },
+        {
+          "t": 15.204,
+          "currentMiB": 141,
+          "anonMiB": 99.1,
+          "fileMiB": 39.4
+        },
+        {
+          "t": 20.315,
+          "currentMiB": 149.1,
+          "anonMiB": 97.6,
+          "fileMiB": 49.2
+        },
+        {
+          "t": 25.383,
+          "currentMiB": 162.7,
+          "anonMiB": 101.9,
+          "fileMiB": 58.9
+        },
+        {
+          "t": 30.443,
+          "currentMiB": 185.2,
+          "anonMiB": 113.9,
+          "fileMiB": 69.2
+        },
+        {
+          "t": 35.502,
+          "currentMiB": 105.4,
+          "anonMiB": 101.7,
+          "fileMiB": 1.6
+        },
+        {
+          "t": 40.572,
+          "currentMiB": 128.8,
+          "anonMiB": 114.4,
+          "fileMiB": 11.4
+        },
+        {
+          "t": 45.658,
+          "currentMiB": 138.9,
+          "anonMiB": 114.7,
+          "fileMiB": 21.1
+        },
+        {
+          "t": 50.729,
+          "currentMiB": 160.4,
+          "anonMiB": 123.5,
+          "fileMiB": 34.5
+        },
+        {
+          "t": 55.798,
+          "currentMiB": 187.6,
+          "anonMiB": 125.5,
+          "fileMiB": 59.2
+        },
+        {
+          "t": 60.867,
+          "currentMiB": 214.7,
+          "anonMiB": 143.2,
+          "fileMiB": 68.9
+        },
+        {
+          "t": 65.947,
+          "currentMiB": 224.8,
+          "anonMiB": 143.7,
+          "fileMiB": 78.7
+        },
+        {
+          "t": 71.008,
+          "currentMiB": 246.7,
+          "anonMiB": 155.3,
+          "fileMiB": 88.9
+        },
+        {
+          "t": 76.072,
+          "currentMiB": 257.2,
+          "anonMiB": 156,
+          "fileMiB": 98.7
+        },
+        {
+          "t": 81.139,
+          "currentMiB": 165.7,
+          "anonMiB": 161.4,
+          "fileMiB": 1.9
+        },
+        {
+          "t": 86.22,
+          "currentMiB": 156.5,
+          "anonMiB": 138.9,
+          "fileMiB": 15
+        },
+        {
+          "t": 91.275,
+          "currentMiB": 220.6,
+          "anonMiB": 143.4,
+          "fileMiB": 74.4
+        },
+        {
+          "t": 96.34,
+          "currentMiB": 242.7,
+          "anonMiB": 155.8,
+          "fileMiB": 84.1
+        },
+        {
+          "t": 101.415,
+          "currentMiB": 247.3,
+          "anonMiB": 150.9,
+          "fileMiB": 93.9
+        },
+        {
+          "t": 106.481,
+          "currentMiB": 263.9,
+          "anonMiB": 157.1,
+          "fileMiB": 104.1
+        },
+        {
+          "t": 111.522,
+          "currentMiB": 274.4,
+          "anonMiB": 157.3,
+          "fileMiB": 114.3
+        },
+        {
+          "t": 116.585,
+          "currentMiB": 297.3,
+          "anonMiB": 160.1,
+          "fileMiB": 134.4
+        },
+        {
+          "t": 121.649,
+          "currentMiB": 326.4,
+          "anonMiB": 179.3,
+          "fileMiB": 144.2
+        },
+        {
+          "t": 126.703,
+          "currentMiB": 189.3,
+          "anonMiB": 180.1,
+          "fileMiB": 6.4
+        },
+        {
+          "t": 131.757,
+          "currentMiB": 199.3,
+          "anonMiB": 180.1,
+          "fileMiB": 16.2
+        },
+        {
+          "t": 136.809,
+          "currentMiB": 216.9,
+          "anonMiB": 182.2,
+          "fileMiB": 32.2
+        },
+        {
+          "t": 141.873,
+          "currentMiB": 231.2,
+          "anonMiB": 186.1,
+          "fileMiB": 42.4
+        },
+        {
+          "t": 146.93,
+          "currentMiB": 259.9,
+          "anonMiB": 192.6,
+          "fileMiB": 65.2
+        },
+        {
+          "t": 151.997,
+          "currentMiB": 275,
+          "anonMiB": 191.3,
+          "fileMiB": 79.3
+        },
+        {
+          "t": 157.094,
+          "currentMiB": 307.7,
+          "anonMiB": 214.2,
+          "fileMiB": 89.6
+        },
+        {
+          "t": 162.153,
+          "currentMiB": 306.5,
+          "anonMiB": 202.4,
+          "fileMiB": 99.3
+        },
+        {
+          "t": 167.221,
+          "currentMiB": 316,
+          "anonMiB": 202.4,
+          "fileMiB": 110.6
+        },
+        {
+          "t": 172.301,
+          "currentMiB": 217.7,
+          "anonMiB": 204.5,
+          "fileMiB": 10
+        },
+        {
+          "t": 177.384,
+          "currentMiB": 225.6,
+          "anonMiB": 202.5,
+          "fileMiB": 19.7
+        },
+        {
+          "t": 182.447,
+          "currentMiB": 229.3,
+          "anonMiB": 196.2,
+          "fileMiB": 30
+        },
+        {
+          "t": 187.514,
+          "currentMiB": 238.8,
+          "anonMiB": 196.2,
+          "fileMiB": 39.7
+        },
+        {
+          "t": 192.582,
+          "currentMiB": 252.3,
+          "anonMiB": 196.2,
+          "fileMiB": 52.9
+        },
+        {
+          "t": 197.659,
+          "currentMiB": 261.8,
+          "anonMiB": 196.2,
+          "fileMiB": 62.7
+        },
+        {
+          "t": 202.718,
+          "currentMiB": 281,
+          "anonMiB": 202.4,
+          "fileMiB": 75.5
+        },
+        {
+          "t": 207.786,
+          "currentMiB": 307.2,
+          "anonMiB": 213.7,
+          "fileMiB": 90.3
+        },
+        {
+          "t": 212.854,
+          "currentMiB": 343.8,
+          "anonMiB": 227.9,
+          "fileMiB": 112.6
+        },
+        {
+          "t": 217.931,
+          "currentMiB": 249.1,
+          "anonMiB": 240.9,
+          "fileMiB": 5.6
+        },
+        {
+          "t": 222.988,
+          "currentMiB": 265.8,
+          "anonMiB": 241,
+          "fileMiB": 22.3
+        },
+        {
+          "t": 228.04,
+          "currentMiB": 279.1,
+          "anonMiB": 241.3,
+          "fileMiB": 34.7
+        },
+        {
+          "t": 233.104,
+          "currentMiB": 294.8,
+          "anonMiB": 241.4,
+          "fileMiB": 50.3
+        },
+        {
+          "t": 238.164,
+          "currentMiB": 304.6,
+          "anonMiB": 241.4,
+          "fileMiB": 60.1
+        },
+        {
+          "t": 243.224,
+          "currentMiB": 327.1,
+          "anonMiB": 241.4,
+          "fileMiB": 80.5
+        },
+        {
+          "t": 248.283,
+          "currentMiB": 337.3,
+          "anonMiB": 241.4,
+          "fileMiB": 92.3
+        },
+        {
+          "t": 253.353,
+          "currentMiB": 352,
+          "anonMiB": 246,
+          "fileMiB": 100.6
+        },
+        {
+          "t": 258.415,
+          "currentMiB": 362.2,
+          "anonMiB": 246.6,
+          "fileMiB": 111.9
+        },
+        {
+          "t": 263.499,
+          "currentMiB": 266.6,
+          "anonMiB": 247.8,
+          "fileMiB": 14.4
+        },
+        {
+          "t": 268.564,
+          "currentMiB": 283.1,
+          "anonMiB": 252.9,
+          "fileMiB": 26.5
+        },
+        {
+          "t": 273.654,
+          "currentMiB": 347.8,
+          "anonMiB": 272,
+          "fileMiB": 72.8
+        },
+        {
+          "t": 278.709,
+          "currentMiB": 335.1,
+          "anonMiB": 249.5,
+          "fileMiB": 82.5
+        },
+        {
+          "t": 283.799,
+          "currentMiB": 372.3,
+          "anonMiB": 249.6,
+          "fileMiB": 119.5
+        },
+        {
+          "t": 288.856,
+          "currentMiB": 385.9,
+          "anonMiB": 250,
+          "fileMiB": 132.9
+        },
+        {
+          "t": 293.921,
+          "currentMiB": 404.6,
+          "anonMiB": 255.9,
+          "fileMiB": 144.8
+        },
+        {
+          "t": 298.968,
+          "currentMiB": 426.2,
+          "anonMiB": 257.8,
+          "fileMiB": 164.9
+        },
+        {
+          "t": 304.029,
+          "currentMiB": 452.7,
+          "anonMiB": 274.4,
+          "fileMiB": 174.7
+        },
+        {
+          "t": 309.072,
+          "currentMiB": 295.1,
+          "anonMiB": 275.1,
+          "fileMiB": 16.1
+        },
+        {
+          "t": 314.131,
+          "currentMiB": 312.5,
+          "anonMiB": 278.7,
+          "fileMiB": 29.6
+        },
+        {
+          "t": 319.176,
+          "currentMiB": 344.5,
+          "anonMiB": 290.6,
+          "fileMiB": 50.1
+        },
+        {
+          "t": 324.246,
+          "currentMiB": 355.1,
+          "anonMiB": 291.4,
+          "fileMiB": 59.9
+        },
+        {
+          "t": 329.343,
+          "currentMiB": 365.7,
+          "anonMiB": 292,
+          "fileMiB": 68.1
+        },
+        {
+          "t": 334.395,
+          "currentMiB": 451.3,
+          "anonMiB": 343.7,
+          "fileMiB": 104.2
+        },
+        {
+          "t": 339.456,
+          "currentMiB": 441.4,
+          "anonMiB": 323.1,
+          "fileMiB": 114
+        },
+        {
+          "t": 344.53,
+          "currentMiB": 433.2,
+          "anonMiB": 305.2,
+          "fileMiB": 123.7
+        },
+        {
+          "t": 349.596,
+          "currentMiB": 442.9,
+          "anonMiB": 305.9,
+          "fileMiB": 133.5
+        },
+        {
+          "t": 354.641,
+          "currentMiB": 318.8,
+          "anonMiB": 296.8,
+          "fileMiB": 18.8
+        },
+        {
+          "t": 359.694,
+          "currentMiB": 328.8,
+          "anonMiB": 296.8,
+          "fileMiB": 28.5
+        },
+        {
+          "t": 364.751,
+          "currentMiB": 343.5,
+          "anonMiB": 296.8,
+          "fileMiB": 43.4
+        },
+        {
+          "t": 369.819,
+          "currentMiB": 361,
+          "anonMiB": 298.1,
+          "fileMiB": 59.7
+        },
+        {
+          "t": 374.869,
+          "currentMiB": 373.3,
+          "anonMiB": 300.9,
+          "fileMiB": 69.4
+        },
+        {
+          "t": 379.933,
+          "currentMiB": 383.3,
+          "anonMiB": 300.9,
+          "fileMiB": 79.2
+        },
+        {
+          "t": 384.991,
+          "currentMiB": 401.4,
+          "anonMiB": 306,
+          "fileMiB": 92.2
+        },
+        {
+          "t": 390.05,
+          "currentMiB": 421.1,
+          "anonMiB": 312.9,
+          "fileMiB": 105
+        },
+        {
+          "t": 395.118,
+          "currentMiB": 498.5,
+          "anonMiB": 371.3,
+          "fileMiB": 123.8
+        },
+        {
+          "t": 400.177,
+          "currentMiB": 400.9,
+          "anonMiB": 383.7,
+          "fileMiB": 13.2
+        },
+        {
+          "t": 405.22,
+          "currentMiB": 420.2,
+          "anonMiB": 355.4,
+          "fileMiB": 60.9
+        },
+        {
+          "t": 410.321,
+          "currentMiB": 461,
+          "anonMiB": 365.2,
+          "fileMiB": 91.2
+        },
+        {
+          "t": 415.39,
+          "currentMiB": 459.6,
+          "anonMiB": 350.4,
+          "fileMiB": 105.2
+        },
+        {
+          "t": 420.477,
+          "currentMiB": 472.6,
+          "anonMiB": 351,
+          "fileMiB": 117.5
+        },
+        {
+          "t": 425.523,
+          "currentMiB": 483.1,
+          "anonMiB": 351,
+          "fileMiB": 127.7
+        },
+        {
+          "t": 430.576,
+          "currentMiB": 493,
+          "anonMiB": 351.2,
+          "fileMiB": 137.5
+        },
+        {
+          "t": 435.643,
+          "currentMiB": 518.6,
+          "anonMiB": 354.4,
+          "fileMiB": 159.9
+        },
+        {
+          "t": 440.707,
+          "currentMiB": 371.8,
+          "anonMiB": 359.4,
+          "fileMiB": 8.1
+        },
+        {
+          "t": 445.785,
+          "currentMiB": 383.2,
+          "anonMiB": 359.5,
+          "fileMiB": 19.7
+        },
+        {
+          "t": 450.845,
+          "currentMiB": 435.6,
+          "anonMiB": 359.6,
+          "fileMiB": 72.1
+        },
+        {
+          "t": 455.904,
+          "currentMiB": 464.7,
+          "anonMiB": 375.2,
+          "fileMiB": 85.5
+        },
+        {
+          "t": 460.972,
+          "currentMiB": 526.2,
+          "anonMiB": 427.3,
+          "fileMiB": 95.3
+        },
+        {
+          "t": 466.033,
+          "currentMiB": 515.2,
+          "anonMiB": 404.7,
+          "fileMiB": 104.8
+        },
+        {
+          "t": 471.078,
+          "currentMiB": 501.1,
+          "anonMiB": 380.4,
+          "fileMiB": 114.5
+        },
+        {
+          "t": 476.138,
+          "currentMiB": 504.5,
+          "anonMiB": 374.3,
+          "fileMiB": 124.3
+        },
+        {
+          "t": 481.207,
+          "currentMiB": 514.3,
+          "anonMiB": 374.3,
+          "fileMiB": 134.6
+        },
+        {
+          "t": 486.268,
+          "currentMiB": 387.8,
+          "anonMiB": 374.3,
+          "fileMiB": 9.7
+        },
+        {
+          "t": 491.356,
+          "currentMiB": 400.4,
+          "anonMiB": 374.3,
+          "fileMiB": 21
+        },
+        {
+          "t": 496.408,
+          "currentMiB": 435.2,
+          "anonMiB": 374.3,
+          "fileMiB": 57.1
+        },
+        {
+          "t": 501.482,
+          "currentMiB": 469.7,
+          "anonMiB": 374.3,
+          "fileMiB": 90.8
+        },
+        {
+          "t": 506.547,
+          "currentMiB": 475.1,
+          "anonMiB": 369.8,
+          "fileMiB": 100.5
+        },
+        {
+          "t": 511.616,
+          "currentMiB": 493.8,
+          "anonMiB": 369.8,
+          "fileMiB": 119.8
+        },
+        {
+          "t": 516.67,
+          "currentMiB": 550.8,
+          "anonMiB": 415.8,
+          "fileMiB": 131.1
+        },
+        {
+          "t": 521.728,
+          "currentMiB": 539,
+          "anonMiB": 392.3,
+          "fileMiB": 142.6
+        },
+        {
+          "t": 526.8,
+          "currentMiB": 549,
+          "anonMiB": 392.3,
+          "fileMiB": 151.8
+        },
+        {
+          "t": 531.876,
+          "currentMiB": 407.2,
+          "anonMiB": 391.6,
+          "fileMiB": 11.1
+        },
+        {
+          "t": 536.915,
+          "currentMiB": 427.5,
+          "anonMiB": 385.7,
+          "fileMiB": 37.2
+        },
+        {
+          "t": 541.972,
+          "currentMiB": 437.2,
+          "anonMiB": 382.1,
+          "fileMiB": 51.3
+        },
+        {
+          "t": 547.031,
+          "currentMiB": 449.3,
+          "anonMiB": 382.1,
+          "fileMiB": 63.5
+        },
+        {
+          "t": 552.081,
+          "currentMiB": 459.3,
+          "anonMiB": 382.1,
+          "fileMiB": 73.3
+        },
+        {
+          "t": 557.152,
+          "currentMiB": 477.3,
+          "anonMiB": 378.3,
+          "fileMiB": 95.1
+        },
+        {
+          "t": 562.21,
+          "currentMiB": 488.6,
+          "anonMiB": 378.3,
+          "fileMiB": 106.1
+        },
+        {
+          "t": 567.265,
+          "currentMiB": 478.2,
+          "anonMiB": 358,
+          "fileMiB": 115.9
+        },
+        {
+          "t": 572.322,
+          "currentMiB": 489.4,
+          "anonMiB": 358,
+          "fileMiB": 128.2
+        },
+        {
+          "t": 577.398,
+          "currentMiB": 419.5,
+          "anonMiB": 403.9,
+          "fileMiB": 12.2
+        },
+        {
+          "t": 582.46,
+          "currentMiB": 447.6,
+          "anonMiB": 366.7,
+          "fileMiB": 76.8
+        },
+        {
+          "t": 587.506,
+          "currentMiB": 457.6,
+          "anonMiB": 366.7,
+          "fileMiB": 87.1
+        },
+        {
+          "t": 592.546,
+          "currentMiB": 488.6,
+          "anonMiB": 366.7,
+          "fileMiB": 117.9
+        },
+        {
+          "t": 597.607,
+          "currentMiB": 498.3,
+          "anonMiB": 366.7,
+          "fileMiB": 126.6
+        },
+        {
+          "t": 602.675,
+          "currentMiB": 508.3,
+          "anonMiB": 366.7,
+          "fileMiB": 137.4
+        },
+        {
+          "t": 607.741,
+          "currentMiB": 518.3,
+          "anonMiB": 366.7,
+          "fileMiB": 147.2
+        },
+        {
+          "t": 612.794,
+          "currentMiB": 527.8,
+          "anonMiB": 366.7,
+          "fileMiB": 156.9
+        },
+        {
+          "t": 617.854,
+          "currentMiB": 540.6,
+          "anonMiB": 366.7,
+          "fileMiB": 169.7
+        },
+        {
+          "t": 622.924,
+          "currentMiB": 384.9,
+          "anonMiB": 366.7,
+          "fileMiB": 14
+        },
+        {
+          "t": 627.987,
+          "currentMiB": 399.7,
+          "anonMiB": 366.7,
+          "fileMiB": 28.9
+        },
+        {
+          "t": 633.073,
+          "currentMiB": 446,
+          "anonMiB": 366.8,
+          "fileMiB": 74.9
+        },
+        {
+          "t": 638.128,
+          "currentMiB": 480.4,
+          "anonMiB": 391.2,
+          "fileMiB": 85.2
+        },
+        {
+          "t": 643.189,
+          "currentMiB": 497.6,
+          "anonMiB": 398.5,
+          "fileMiB": 95
+        },
+        {
+          "t": 648.262,
+          "currentMiB": 495.3,
+          "anonMiB": 386.3,
+          "fileMiB": 104.7
+        },
+        {
+          "t": 653.337,
+          "currentMiB": 509.3,
+          "anonMiB": 388.1,
+          "fileMiB": 116.6
+        },
+        {
+          "t": 658.391,
+          "currentMiB": 515.8,
+          "anonMiB": 379.5,
+          "fileMiB": 132.1
+        },
+        {
+          "t": 663.452,
+          "currentMiB": 525.6,
+          "anonMiB": 379.5,
+          "fileMiB": 141.8
+        },
+        {
+          "t": 668.512,
+          "currentMiB": 396.6,
+          "anonMiB": 379.5,
+          "fileMiB": 13.1
+        },
+        {
+          "t": 673.591,
+          "currentMiB": 406.3,
+          "anonMiB": 379.5,
+          "fileMiB": 22.8
+        },
+        {
+          "t": 678.649,
+          "currentMiB": 428.9,
+          "anonMiB": 368.8,
+          "fileMiB": 55.8
+        },
+        {
+          "t": 683.706,
+          "currentMiB": 445.3,
+          "anonMiB": 369.1,
+          "fileMiB": 72
+        },
+        {
+          "t": 688.77,
+          "currentMiB": 454.8,
+          "anonMiB": 369.1,
+          "fileMiB": 81.7
+        },
+        {
+          "t": 693.83,
+          "currentMiB": 465.8,
+          "anonMiB": 369.1,
+          "fileMiB": 93.1
+        },
+        {
+          "t": 698.895,
+          "currentMiB": 507,
+          "anonMiB": 400.9,
+          "fileMiB": 102.8
+        },
+        {
+          "t": 703.938,
+          "currentMiB": 512.8,
+          "anonMiB": 396,
+          "fileMiB": 113.1
+        },
+        {
+          "t": 708.994,
+          "currentMiB": 529.3,
+          "anonMiB": 392.1,
+          "fileMiB": 133.1
+        },
+        {
+          "t": 714.055,
+          "currentMiB": 412.2,
+          "anonMiB": 392.1,
+          "fileMiB": 14.5
+        },
+        {
+          "t": 719.115,
+          "currentMiB": 406.5,
+          "anonMiB": 375.1,
+          "fileMiB": 26.4
+        },
+        {
+          "t": 724.18,
+          "currentMiB": 412.4,
+          "anonMiB": 372.6,
+          "fileMiB": 37.2
+        },
+        {
+          "t": 729.224,
+          "currentMiB": 424.4,
+          "anonMiB": 372.7,
+          "fileMiB": 47.4
+        },
+        {
+          "t": 734.283,
+          "currentMiB": 434.6,
+          "anonMiB": 372.7,
+          "fileMiB": 57.2
+        },
+        {
+          "t": 739.349,
+          "currentMiB": 441.5,
+          "anonMiB": 367.6,
+          "fileMiB": 69.5
+        },
+        {
+          "t": 744.418,
+          "currentMiB": 451.3,
+          "anonMiB": 367.6,
+          "fileMiB": 79.3
+        },
+        {
+          "t": 749.498,
+          "currentMiB": 449.4,
+          "anonMiB": 356.1,
+          "fileMiB": 89
+        },
+        {
+          "t": 754.556,
+          "currentMiB": 461.1,
+          "anonMiB": 356.3,
+          "fileMiB": 100.6
+        },
+        {
+          "t": 759.625,
+          "currentMiB": 402.1,
+          "anonMiB": 382.3,
+          "fileMiB": 15.6
+        },
+        {
+          "t": 764.674,
+          "currentMiB": 407.8,
+          "anonMiB": 377.9,
+          "fileMiB": 25.4
+        },
+        {
+          "t": 769.722,
+          "currentMiB": 433,
+          "anonMiB": 365.5,
+          "fileMiB": 62.8
+        },
+        {
+          "t": 774.786,
+          "currentMiB": 452.8,
+          "anonMiB": 365.5,
+          "fileMiB": 82.9
+        },
+        {
+          "t": 779.831,
+          "currentMiB": 462.8,
+          "anonMiB": 365.5,
+          "fileMiB": 93.2
+        },
+        {
+          "t": 784.902,
+          "currentMiB": 478.3,
+          "anonMiB": 366.7,
+          "fileMiB": 107.4
+        },
+        {
+          "t": 789.973,
+          "currentMiB": 489.8,
+          "anonMiB": 366.7,
+          "fileMiB": 118.7
+        },
+        {
+          "t": 795.055,
+          "currentMiB": 499.5,
+          "anonMiB": 366.7,
+          "fileMiB": 128.5
+        },
+        {
+          "t": 800.111,
+          "currentMiB": 510,
+          "anonMiB": 366.7,
+          "fileMiB": 138.7
+        },
+        {
+          "t": 805.173,
+          "currentMiB": 382.4,
+          "anonMiB": 366.7,
+          "fileMiB": 11.3
+        },
+        {
+          "t": 810.236,
+          "currentMiB": 421.1,
+          "anonMiB": 366.7,
+          "fileMiB": 50.3
+        },
+        {
+          "t": 815.304,
+          "currentMiB": 450.3,
+          "anonMiB": 366.7,
+          "fileMiB": 79.3
+        },
+        {
+          "t": 820.35,
+          "currentMiB": 491.3,
+          "anonMiB": 395.3,
+          "fileMiB": 91.8
+        },
+        {
+          "t": 825.404,
+          "currentMiB": 483.2,
+          "anonMiB": 377.5,
+          "fileMiB": 101.5
+        },
+        {
+          "t": 830.46,
+          "currentMiB": 492.7,
+          "anonMiB": 377.5,
+          "fileMiB": 111.3
+        },
+        {
+          "t": 835.531,
+          "currentMiB": 505,
+          "anonMiB": 377.5,
+          "fileMiB": 123.6
+        },
+        {
+          "t": 840.606,
+          "currentMiB": 516,
+          "anonMiB": 377.5,
+          "fileMiB": 134.6
+        },
+        {
+          "t": 845.655,
+          "currentMiB": 524.3,
+          "anonMiB": 369.5,
+          "fileMiB": 151.1
+        },
+        {
+          "t": 850.719,
+          "currentMiB": 390.2,
+          "anonMiB": 369.5,
+          "fileMiB": 16.9
+        },
+        {
+          "t": 855.769,
+          "currentMiB": 412.4,
+          "anonMiB": 369.5,
+          "fileMiB": 37.4
+        },
+        {
+          "t": 860.839,
+          "currentMiB": 441.6,
+          "anonMiB": 369.5,
+          "fileMiB": 68.3
+        },
+        {
+          "t": 865.922,
+          "currentMiB": 451.3,
+          "anonMiB": 369.5,
+          "fileMiB": 78.1
+        },
+        {
+          "t": 870.961,
+          "currentMiB": 479.8,
+          "anonMiB": 370.1,
+          "fileMiB": 105.9
+        },
+        {
+          "t": 876.024,
+          "currentMiB": 521,
+          "anonMiB": 401.9,
+          "fileMiB": 115.7
+        },
+        {
+          "t": 881.08,
+          "currentMiB": 560.1,
+          "anonMiB": 411.8,
+          "fileMiB": 144.9
+        },
+        {
+          "t": 886.146,
+          "currentMiB": 532.3,
+          "anonMiB": 371.4,
+          "fileMiB": 157.1
+        },
+        {
+          "t": 891.207,
+          "currentMiB": 385.6,
+          "anonMiB": 371.4,
+          "fileMiB": 10.7
+        },
+        {
+          "t": 896.261,
+          "currentMiB": 396.1,
+          "anonMiB": 371.4,
+          "fileMiB": 21
+        },
+        {
+          "t": 901.324,
+          "currentMiB": 420.8,
+          "anonMiB": 373,
+          "fileMiB": 44.2
+        },
+        {
+          "t": 906.385,
+          "currentMiB": 434.1,
+          "anonMiB": 373,
+          "fileMiB": 57.1
+        },
+        {
+          "t": 911.455,
+          "currentMiB": 441.3,
+          "anonMiB": 369,
+          "fileMiB": 68.4
+        },
+        {
+          "t": 916.498,
+          "currentMiB": 452.5,
+          "anonMiB": 368.2,
+          "fileMiB": 80.2
+        },
+        {
+          "t": 921.555,
+          "currentMiB": 461.9,
+          "anonMiB": 368.2,
+          "fileMiB": 89.9
+        },
+        {
+          "t": 926.618,
+          "currentMiB": 471.4,
+          "anonMiB": 368.2,
+          "fileMiB": 99.7
+        },
+        {
+          "t": 931.686,
+          "currentMiB": 512.8,
+          "anonMiB": 368.2,
+          "fileMiB": 140.6
+        },
+        {
+          "t": 936.75,
+          "currentMiB": 396,
+          "anonMiB": 375.5,
+          "fileMiB": 16.6
+        },
+        {
+          "t": 941.789,
+          "currentMiB": 411.8,
+          "anonMiB": 377,
+          "fileMiB": 29.9
+        },
+        {
+          "t": 946.85,
+          "currentMiB": 423.5,
+          "anonMiB": 377,
+          "fileMiB": 42.8
+        },
+        {
+          "t": 951.921,
+          "currentMiB": 438.3,
+          "anonMiB": 377,
+          "fileMiB": 57.7
+        },
+        {
+          "t": 956.986,
+          "currentMiB": 448,
+          "anonMiB": 377,
+          "fileMiB": 67.4
+        },
+        {
+          "t": 962.07,
+          "currentMiB": 457.8,
+          "anonMiB": 377,
+          "fileMiB": 77.2
+        },
+        {
+          "t": 967.126,
+          "currentMiB": 477.5,
+          "anonMiB": 377,
+          "fileMiB": 96
+        },
+        {
+          "t": 972.185,
+          "currentMiB": 490.3,
+          "anonMiB": 370.4,
+          "fileMiB": 115.8
+        },
+        {
+          "t": 977.248,
+          "currentMiB": 500.1,
+          "anonMiB": 370.4,
+          "fileMiB": 125.6
+        },
+        {
+          "t": 982.309,
+          "currentMiB": 381.9,
+          "anonMiB": 370.4,
+          "fileMiB": 7.7
+        },
+        {
+          "t": 987.357,
+          "currentMiB": 398.5,
+          "anonMiB": 374,
+          "fileMiB": 20.6
+        },
+        {
+          "t": 992.414,
+          "currentMiB": 455.9,
+          "anonMiB": 374,
+          "fileMiB": 78.1
+        },
+        {
+          "t": 997.475,
+          "currentMiB": 477.9,
+          "anonMiB": 383.7,
+          "fileMiB": 90.4
+        },
+        {
+          "t": 1002.544,
+          "currentMiB": 504.2,
+          "anonMiB": 394.6,
+          "fileMiB": 105.3
+        },
+        {
+          "t": 1007.634,
+          "currentMiB": 494,
+          "anonMiB": 373.1,
+          "fileMiB": 116.9
+        },
+        {
+          "t": 1012.688,
+          "currentMiB": 504,
+          "anonMiB": 373.1,
+          "fileMiB": 127.2
+        },
+        {
+          "t": 1017.75,
+          "currentMiB": 518.4,
+          "anonMiB": 375.3,
+          "fileMiB": 139.2
+        },
+        {
+          "t": 1022.821,
+          "currentMiB": 529.2,
+          "anonMiB": 375.3,
+          "fileMiB": 150.2
+        },
+        {
+          "t": 1027.884,
+          "currentMiB": 393.6,
+          "anonMiB": 373.4,
+          "fileMiB": 16.4
+        },
+        {
+          "t": 1032.919,
+          "currentMiB": 404.1,
+          "anonMiB": 373.4,
+          "fileMiB": 26.2
+        },
+        {
+          "t": 1037.962,
+          "currentMiB": 425.7,
+          "anonMiB": 373.4,
+          "fileMiB": 48.7
+        },
+        {
+          "t": 1043.019,
+          "currentMiB": 441,
+          "anonMiB": 373.4,
+          "fileMiB": 63.8
+        },
+        {
+          "t": 1048.087,
+          "currentMiB": 458,
+          "anonMiB": 373.4,
+          "fileMiB": 80.7
+        },
+        {
+          "t": 1053.156,
+          "currentMiB": 476.8,
+          "anonMiB": 373.8,
+          "fileMiB": 98.9
+        },
+        {
+          "t": 1058.197,
+          "currentMiB": 542.3,
+          "anonMiB": 424,
+          "fileMiB": 114.3
+        },
+        {
+          "t": 1063.248,
+          "currentMiB": 502.4,
+          "anonMiB": 374.1,
+          "fileMiB": 124.1
+        },
+        {
+          "t": 1068.307,
+          "currentMiB": 516.1,
+          "anonMiB": 374.1,
+          "fileMiB": 137.8
+        },
+        {
+          "t": 1073.374,
+          "currentMiB": 394.1,
+          "anonMiB": 374.1,
+          "fileMiB": 16
+        },
+        {
+          "t": 1078.427,
+          "currentMiB": 403.8,
+          "anonMiB": 374.1,
+          "fileMiB": 25.7
+        },
+        {
+          "t": 1083.499,
+          "currentMiB": 413.8,
+          "anonMiB": 374.1,
+          "fileMiB": 35.5
+        },
+        {
+          "t": 1088.558,
+          "currentMiB": 435.8,
+          "anonMiB": 374.1,
+          "fileMiB": 57.4
+        },
+        {
+          "t": 1093.618,
+          "currentMiB": 449.8,
+          "anonMiB": 376,
+          "fileMiB": 69.3
+        },
+        {
+          "t": 1098.677,
+          "currentMiB": 461.5,
+          "anonMiB": 376,
+          "fileMiB": 80.9
+        },
+        {
+          "t": 1103.739,
+          "currentMiB": 471,
+          "anonMiB": 376,
+          "fileMiB": 90.6
+        },
+        {
+          "t": 1108.786,
+          "currentMiB": 483.3,
+          "anonMiB": 376,
+          "fileMiB": 103.5
+        },
+        {
+          "t": 1113.844,
+          "currentMiB": 498.8,
+          "anonMiB": 376.4,
+          "fileMiB": 118.7
+        },
+        {
+          "t": 1118.907,
+          "currentMiB": 386.4,
+          "anonMiB": 365.3,
+          "fileMiB": 17.4
+        },
+        {
+          "t": 1123.969,
+          "currentMiB": 403.2,
+          "anonMiB": 364.9,
+          "fileMiB": 34.7
+        },
+        {
+          "t": 1129.027,
+          "currentMiB": 419.9,
+          "anonMiB": 364.9,
+          "fileMiB": 51.3
+        },
+        {
+          "t": 1134.075,
+          "currentMiB": 430.2,
+          "anonMiB": 364.9,
+          "fileMiB": 61.6
+        },
+        {
+          "t": 1139.137,
+          "currentMiB": 440.3,
+          "anonMiB": 364.9,
+          "fileMiB": 71.3
+        },
+        {
+          "t": 1144.207,
+          "currentMiB": 449.8,
+          "anonMiB": 364.9,
+          "fileMiB": 81.1
+        },
+        {
+          "t": 1149.266,
+          "currentMiB": 469.3,
+          "anonMiB": 364.9,
+          "fileMiB": 100.6
+        },
+        {
+          "t": 1154.361,
+          "currentMiB": 483.3,
+          "anonMiB": 364.9,
+          "fileMiB": 114.5
+        },
+        {
+          "t": 1159.417,
+          "currentMiB": 482.1,
+          "anonMiB": 353.7,
+          "fileMiB": 124.7
+        },
+        {
+          "t": 1164.487,
+          "currentMiB": 373.6,
+          "anonMiB": 353.7,
+          "fileMiB": 16.3
+        },
+        {
+          "t": 1169.561,
+          "currentMiB": 383.2,
+          "anonMiB": 353.7,
+          "fileMiB": 26
+        },
+        {
+          "t": 1174.638,
+          "currentMiB": 435.9,
+          "anonMiB": 355,
+          "fileMiB": 77.2
+        },
+        {
+          "t": 1179.694,
+          "currentMiB": 507,
+          "anonMiB": 412.2,
+          "fileMiB": 91.4
+        },
+        {
+          "t": 1184.759,
+          "currentMiB": 506.2,
+          "anonMiB": 375.4,
+          "fileMiB": 127.3
+        },
+        {
+          "t": 1189.829,
+          "currentMiB": 526.9,
+          "anonMiB": 385.2,
+          "fileMiB": 138
+        },
+        {
+          "t": 1194.921,
+          "currentMiB": 528.8,
+          "anonMiB": 377.2,
+          "fileMiB": 147.8
+        },
+        {
+          "t": 1199.97,
+          "currentMiB": 534.8,
+          "anonMiB": 373.2,
+          "fileMiB": 158.1
+        },
+        {
+          "t": 1205.035,
+          "currentMiB": 552.5,
+          "anonMiB": 372.6,
+          "fileMiB": 176.2
+        },
+        {
+          "t": 1210.099,
+          "currentMiB": 390.2,
+          "anonMiB": 367.9,
+          "fileMiB": 18.1
+        },
+        {
+          "t": 1215.168,
+          "currentMiB": 403.7,
+          "anonMiB": 367.9,
+          "fileMiB": 29.7
+        },
+        {
+          "t": 1220.221,
+          "currentMiB": 442.1,
+          "anonMiB": 370,
+          "fileMiB": 68
+        },
+        {
+          "t": 1225.287,
+          "currentMiB": 452.1,
+          "anonMiB": 370,
+          "fileMiB": 76.7
+        },
+        {
+          "t": 1230.34,
+          "currentMiB": 474.5,
+          "anonMiB": 376.4,
+          "fileMiB": 93.4
+        },
+        {
+          "t": 1235.404,
+          "currentMiB": 470.6,
+          "anonMiB": 363,
+          "fileMiB": 103.7
+        },
+        {
+          "t": 1240.489,
+          "currentMiB": 524.4,
+          "anonMiB": 407,
+          "fileMiB": 113.5
+        },
+        {
+          "t": 1245.55,
+          "currentMiB": 512.5,
+          "anonMiB": 384.7,
+          "fileMiB": 123.7
+        },
+        {
+          "t": 1250.61,
+          "currentMiB": 516.4,
+          "anonMiB": 376.1,
+          "fileMiB": 136.1
+        },
+        {
+          "t": 1255.664,
+          "currentMiB": 401.1,
+          "anonMiB": 376.1,
+          "fileMiB": 19.3
+        },
+        {
+          "t": 1260.724,
+          "currentMiB": 422.7,
+          "anonMiB": 373.6,
+          "fileMiB": 45.1
+        },
+        {
+          "t": 1265.762,
+          "currentMiB": 433,
+          "anonMiB": 373.6,
+          "fileMiB": 55.4
+        },
+        {
+          "t": 1270.825,
+          "currentMiB": 440.3,
+          "anonMiB": 371.5,
+          "fileMiB": 65.2
+        },
+        {
+          "t": 1275.885,
+          "currentMiB": 452.1,
+          "anonMiB": 371.5,
+          "fileMiB": 76.4
+        },
+        {
+          "t": 1280.951,
+          "currentMiB": 461.8,
+          "anonMiB": 371.5,
+          "fileMiB": 86.2
+        },
+        {
+          "t": 1286.019,
+          "currentMiB": 475.8,
+          "anonMiB": 373.1,
+          "fileMiB": 98.9
+        },
+        {
+          "t": 1291.059,
+          "currentMiB": 487.2,
+          "anonMiB": 367.6,
+          "fileMiB": 115.8
+        },
+        {
+          "t": 1296.117,
+          "currentMiB": 504.5,
+          "anonMiB": 367.6,
+          "fileMiB": 132.7
+        },
+        {
+          "t": 1301.18,
+          "currentMiB": 415.7,
+          "anonMiB": 391.7,
+          "fileMiB": 20.2
+        },
+        {
+          "t": 1306.251,
+          "currentMiB": 410.2,
+          "anonMiB": 376.3,
+          "fileMiB": 30
+        },
+        {
+          "t": 1311.322,
+          "currentMiB": 442.6,
+          "anonMiB": 376.3,
+          "fileMiB": 62.1
+        },
+        {
+          "t": 1316.375,
+          "currentMiB": 448.5,
+          "anonMiB": 371.1,
+          "fileMiB": 73.7
+        },
+        {
+          "t": 1321.439,
+          "currentMiB": 467,
+          "anonMiB": 371.1,
+          "fileMiB": 92.2
+        },
+        {
+          "t": 1326.498,
+          "currentMiB": 476.8,
+          "anonMiB": 371.1,
+          "fileMiB": 102
+        },
+        {
+          "t": 1331.565,
+          "currentMiB": 486.5,
+          "anonMiB": 371.1,
+          "fileMiB": 111.7
+        },
+        {
+          "t": 1336.624,
+          "currentMiB": 489.5,
+          "anonMiB": 364.1,
+          "fileMiB": 121.5
+        },
+        {
+          "t": 1341.686,
+          "currentMiB": 385.9,
+          "anonMiB": 364.1,
+          "fileMiB": 18.1
+        },
+        {
+          "t": 1346.763,
+          "currentMiB": 398.8,
+          "anonMiB": 367.1,
+          "fileMiB": 27.8
+        },
+        {
+          "t": 1351.825,
+          "currentMiB": 425.9,
+          "anonMiB": 369.5,
+          "fileMiB": 52.6
+        },
+        {
+          "t": 1356.913,
+          "currentMiB": 461.5,
+          "anonMiB": 392.6,
+          "fileMiB": 65
+        },
+        {
+          "t": 1361.967,
+          "currentMiB": 469.3,
+          "anonMiB": 389.9,
+          "fileMiB": 75.2
+        },
+        {
+          "t": 1367.022,
+          "currentMiB": 479.1,
+          "anonMiB": 389.9,
+          "fileMiB": 85
+        },
+        {
+          "t": 1372.076,
+          "currentMiB": 488.4,
+          "anonMiB": 389.9,
+          "fileMiB": 94.7
+        },
+        {
+          "t": 1377.148,
+          "currentMiB": 496.9,
+          "anonMiB": 388.6,
+          "fileMiB": 104.5
+        },
+        {
+          "t": 1382.191,
+          "currentMiB": 510.1,
+          "anonMiB": 388.6,
+          "fileMiB": 117.4
+        },
+        {
+          "t": 1387.24,
+          "currentMiB": 412.4,
+          "anonMiB": 392.2,
+          "fileMiB": 16.3
+        },
+        {
+          "t": 1392.287,
+          "currentMiB": 413.1,
+          "anonMiB": 381.5,
+          "fileMiB": 27.4
+        },
+        {
+          "t": 1397.356,
+          "currentMiB": 416.5,
+          "anonMiB": 375.2,
+          "fileMiB": 37.1
+        },
+        {
+          "t": 1402.427,
+          "currentMiB": 426.2,
+          "anonMiB": 375.2,
+          "fileMiB": 46.9
+        },
+        {
+          "t": 1407.498,
+          "currentMiB": 437.7,
+          "anonMiB": 375.2,
+          "fileMiB": 58.7
+        },
+        {
+          "t": 1412.558,
+          "currentMiB": 454.7,
+          "anonMiB": 375.2,
+          "fileMiB": 74.9
+        },
+        {
+          "t": 1417.619,
+          "currentMiB": 505.8,
+          "anonMiB": 410.3,
+          "fileMiB": 91.4
+        },
+        {
+          "t": 1422.688,
+          "currentMiB": 490.4,
+          "anonMiB": 374.7,
+          "fileMiB": 111.1
+        },
+        {
+          "t": 1427.77,
+          "currentMiB": 503.9,
+          "anonMiB": 374.7,
+          "fileMiB": 124.8
+        },
+        {
+          "t": 1432.826,
+          "currentMiB": 384.5,
+          "anonMiB": 374.7,
+          "fileMiB": 5.7
+        },
+        {
+          "t": 1437.896,
+          "currentMiB": 397.2,
+          "anonMiB": 374.7,
+          "fileMiB": 18.4
+        },
+        {
+          "t": 1442.978,
+          "currentMiB": 407,
+          "anonMiB": 374.7,
+          "fileMiB": 28.2
+        },
+        {
+          "t": 1448.055,
+          "currentMiB": 431.7,
+          "anonMiB": 378.6,
+          "fileMiB": 48.1
+        },
+        {
+          "t": 1453.105,
+          "currentMiB": 457.8,
+          "anonMiB": 378.6,
+          "fileMiB": 74.8
+        },
+        {
+          "t": 1458.157,
+          "currentMiB": 467.6,
+          "anonMiB": 378.6,
+          "fileMiB": 84.5
+        },
+        {
+          "t": 1463.22,
+          "currentMiB": 471.4,
+          "anonMiB": 372.5,
+          "fileMiB": 94.3
+        },
+        {
+          "t": 1468.285,
+          "currentMiB": 477.7,
+          "anonMiB": 369.5,
+          "fileMiB": 103
+        },
+        {
+          "t": 1473.346,
+          "currentMiB": 493.7,
+          "anonMiB": 369.5,
+          "fileMiB": 120.1
+        },
+        {
+          "t": 1478.406,
+          "currentMiB": 443.2,
+          "anonMiB": 420.8,
+          "fileMiB": 18.2
+        },
+        {
+          "t": 1483.459,
+          "currentMiB": 481.9,
+          "anonMiB": 390.2,
+          "fileMiB": 87.5
+        },
+        {
+          "t": 1488.526,
+          "currentMiB": 489.4,
+          "anonMiB": 378.2,
+          "fileMiB": 107
+        },
+        {
+          "t": 1493.597,
+          "currentMiB": 495.7,
+          "anonMiB": 373.1,
+          "fileMiB": 118.3
+        },
+        {
+          "t": 1498.67,
+          "currentMiB": 506.5,
+          "anonMiB": 373.1,
+          "fileMiB": 128.7
+        },
+        {
+          "t": 1503.74,
+          "currentMiB": 510.6,
+          "anonMiB": 367.5,
+          "fileMiB": 138.9
+        },
+        {
+          "t": 1508.804,
+          "currentMiB": 521.6,
+          "anonMiB": 367.5,
+          "fileMiB": 150
+        },
+        {
+          "t": 1513.863,
+          "currentMiB": 542,
+          "anonMiB": 370.1,
+          "fileMiB": 167.5
+        },
+        {
+          "t": 1518.92,
+          "currentMiB": 555.5,
+          "anonMiB": 371.9,
+          "fileMiB": 179.6
+        },
+        {
+          "t": 1523.976,
+          "currentMiB": 389.4,
+          "anonMiB": 368.1,
+          "fileMiB": 17.3
+        },
+        {
+          "t": 1529.019,
+          "currentMiB": 399.4,
+          "anonMiB": 368.1,
+          "fileMiB": 27.1
+        },
+        {
+          "t": 1534.087,
+          "currentMiB": 411.4,
+          "anonMiB": 368.1,
+          "fileMiB": 39.1
+        },
+        {
+          "t": 1539.146,
+          "currentMiB": 443.6,
+          "anonMiB": 385.5,
+          "fileMiB": 54
+        },
+        {
+          "t": 1544.201,
+          "currentMiB": 443.6,
+          "anonMiB": 375.4,
+          "fileMiB": 63.8
+        },
+        {
+          "t": 1549.267,
+          "currentMiB": 446.5,
+          "anonMiB": 368.1,
+          "fileMiB": 74
+        },
+        {
+          "t": 1554.355,
+          "currentMiB": 457.8,
+          "anonMiB": 368.1,
+          "fileMiB": 85.5
+        },
+        {
+          "t": 1559.42,
+          "currentMiB": 473.5,
+          "anonMiB": 368.1,
+          "fileMiB": 101.5
+        },
+        {
+          "t": 1564.489,
+          "currentMiB": 487.3,
+          "anonMiB": 366.8,
+          "fileMiB": 116.4
+        },
+        {
+          "t": 1569.543,
+          "currentMiB": 389.5,
+          "anonMiB": 366.8,
+          "fileMiB": 18.9
+        },
+        {
+          "t": 1574.606,
+          "currentMiB": 399.3,
+          "anonMiB": 366.8,
+          "fileMiB": 28.6
+        },
+        {
+          "t": 1579.678,
+          "currentMiB": 409,
+          "anonMiB": 366.8,
+          "fileMiB": 38.4
+        },
+        {
+          "t": 1584.742,
+          "currentMiB": 426,
+          "anonMiB": 369.7,
+          "fileMiB": 52.4
+        },
+        {
+          "t": 1589.79,
+          "currentMiB": 438.9,
+          "anonMiB": 369.7,
+          "fileMiB": 65.2
+        },
+        {
+          "t": 1594.848,
+          "currentMiB": 454.4,
+          "anonMiB": 369.7,
+          "fileMiB": 81.3
+        },
+        {
+          "t": 1599.907,
+          "currentMiB": 503.7,
+          "anonMiB": 406.7,
+          "fileMiB": 93.5
+        },
+        {
+          "t": 1604.961,
+          "currentMiB": 486.3,
+          "anonMiB": 379.3,
+          "fileMiB": 103.3
+        },
+        {
+          "t": 1610.017,
+          "currentMiB": 496.5,
+          "anonMiB": 379.3,
+          "fileMiB": 113
+        },
+        {
+          "t": 1615.059,
+          "currentMiB": 397.3,
+          "anonMiB": 379.3,
+          "fileMiB": 14.1
+        },
+        {
+          "t": 1620.109,
+          "currentMiB": 423.9,
+          "anonMiB": 382.6,
+          "fileMiB": 37.6
+        },
+        {
+          "t": 1625.172,
+          "currentMiB": 433.9,
+          "anonMiB": 379.4,
+          "fileMiB": 50.9
+        },
+        {
+          "t": 1630.248,
+          "currentMiB": 448.5,
+          "anonMiB": 379.5,
+          "fileMiB": 65.3
+        },
+        {
+          "t": 1635.318,
+          "currentMiB": 457.6,
+          "anonMiB": 378.6,
+          "fileMiB": 73.5
+        },
+        {
+          "t": 1640.371,
+          "currentMiB": 467.9,
+          "anonMiB": 378.6,
+          "fileMiB": 83.8
+        },
+        {
+          "t": 1645.433,
+          "currentMiB": 481.4,
+          "anonMiB": 378.6,
+          "fileMiB": 97.3
+        },
+        {
+          "t": 1650.493,
+          "currentMiB": 494.1,
+          "anonMiB": 376.3,
+          "fileMiB": 113.8
+        },
+        {
+          "t": 1655.556,
+          "currentMiB": 512.1,
+          "anonMiB": 376.3,
+          "fileMiB": 131.7
+        },
+        {
+          "t": 1660.637,
+          "currentMiB": 437.8,
+          "anonMiB": 418.7,
+          "fileMiB": 14.2
+        },
+        {
+          "t": 1665.694,
+          "currentMiB": 411.2,
+          "anonMiB": 378.3,
+          "fileMiB": 29
+        },
+        {
+          "t": 1670.752,
+          "currentMiB": 437.4,
+          "anonMiB": 376.2,
+          "fileMiB": 56.3
+        },
+        {
+          "t": 1675.817,
+          "currentMiB": 445.3,
+          "anonMiB": 374.2,
+          "fileMiB": 67.1
+        },
+        {
+          "t": 1680.885,
+          "currentMiB": 456.1,
+          "anonMiB": 374.2,
+          "fileMiB": 78.1
+        },
+        {
+          "t": 1685.927,
+          "currentMiB": 454.7,
+          "anonMiB": 357,
+          "fileMiB": 93.8
+        },
+        {
+          "t": 1690.994,
+          "currentMiB": 466.2,
+          "anonMiB": 357,
+          "fileMiB": 105.4
+        },
+        {
+          "t": 1696.063,
+          "currentMiB": 475.7,
+          "anonMiB": 357,
+          "fileMiB": 115.1
+        },
+        {
+          "t": 1701.122,
+          "currentMiB": 485.4,
+          "anonMiB": 357,
+          "fileMiB": 124.9
+        },
+        {
+          "t": 1706.189,
+          "currentMiB": 377.2,
+          "anonMiB": 357,
+          "fileMiB": 16.6
+        },
+        {
+          "t": 1711.245,
+          "currentMiB": 388.9,
+          "anonMiB": 357,
+          "fileMiB": 28.4
+        },
+        {
+          "t": 1716.304,
+          "currentMiB": 411.2,
+          "anonMiB": 361.5,
+          "fileMiB": 45.9
+        },
+        {
+          "t": 1721.366,
+          "currentMiB": 444.9,
+          "anonMiB": 383.4,
+          "fileMiB": 57.4
+        },
+        {
+          "t": 1726.424,
+          "currentMiB": 445.7,
+          "anonMiB": 374,
+          "fileMiB": 67.2
+        },
+        {
+          "t": 1731.492,
+          "currentMiB": 455.7,
+          "anonMiB": 374,
+          "fileMiB": 76.9
+        },
+        {
+          "t": 1736.551,
+          "currentMiB": 465.7,
+          "anonMiB": 374,
+          "fileMiB": 87.2
+        },
+        {
+          "t": 1741.61,
+          "currentMiB": 475.4,
+          "anonMiB": 374,
+          "fileMiB": 97
+        },
+        {
+          "t": 1746.683,
+          "currentMiB": 385.8,
+          "anonMiB": 374.1,
+          "fileMiB": 7.4
+        },
+        {
+          "t": 1751.752,
+          "currentMiB": 403.3,
+          "anonMiB": 374.1,
+          "fileMiB": 24.9
+        },
+        {
+          "t": 1756.805,
+          "currentMiB": 417.7,
+          "anonMiB": 356.8,
+          "fileMiB": 56.9
+        },
+        {
+          "t": 1761.882,
+          "currentMiB": 428.9,
+          "anonMiB": 356.8,
+          "fileMiB": 66.8
+        },
+        {
+          "t": 1766.955,
+          "currentMiB": 438.7,
+          "anonMiB": 356.8,
+          "fileMiB": 77.6
+        },
+        {
+          "t": 1772.024,
+          "currentMiB": 464.7,
+          "anonMiB": 356.8,
+          "fileMiB": 103.7
+        },
+        {
+          "t": 1777.071,
+          "currentMiB": 510.7,
+          "anonMiB": 392.1,
+          "fileMiB": 114
+        },
+        {
+          "t": 1782.125,
+          "currentMiB": 513.6,
+          "anonMiB": 345.6,
+          "fileMiB": 163.7
+        },
+        {
+          "t": 1787.186,
+          "currentMiB": 525.6,
+          "anonMiB": 345.7,
+          "fileMiB": 175.5
+        },
+        {
+          "t": 1792.252,
+          "currentMiB": 385.8,
+          "anonMiB": 368,
+          "fileMiB": 13.5
+        },
+        {
+          "t": 1797.325,
+          "currentMiB": 395.6,
+          "anonMiB": 368.1,
+          "fileMiB": 23.2
+        }
+      ],
+      "queries": [
+        {
+          "t": 30.059,
+          "status": 200,
+          "seconds": 0.038,
+          "lines": 100
+        },
+        {
+          "t": 90.127,
+          "status": 200,
+          "seconds": 0.062,
+          "lines": 100
+        },
+        {
+          "t": 150.191,
+          "status": 200,
+          "seconds": 0.04,
+          "lines": 100
+        },
+        {
+          "t": 210.247,
+          "status": 200,
+          "seconds": 0.044,
+          "lines": 100
+        },
+        {
+          "t": 270.3,
+          "status": 200,
+          "seconds": 0.052,
+          "lines": 100
+        },
+        {
+          "t": 330.352,
+          "status": 200,
+          "seconds": 0.048,
+          "lines": 100
+        },
+        {
+          "t": 390.412,
+          "status": 200,
+          "seconds": 0.05,
+          "lines": 100
+        },
+        {
+          "t": 450.477,
+          "status": 200,
+          "seconds": 0.059,
+          "lines": 100
+        },
+        {
+          "t": 510.536,
+          "status": 200,
+          "seconds": 0.048,
+          "lines": 100
+        },
+        {
+          "t": 570.587,
+          "status": 200,
+          "seconds": 0.044,
+          "lines": 100
+        },
+        {
+          "t": 630.65,
+          "status": 200,
+          "seconds": 0.054,
+          "lines": 100
+        },
+        {
+          "t": 690.704,
+          "status": 200,
+          "seconds": 0.035,
+          "lines": 100
+        },
+        {
+          "t": 750.764,
+          "status": 200,
+          "seconds": 0.045,
+          "lines": 100
+        },
+        {
+          "t": 810.81,
+          "status": 200,
+          "seconds": 0.05,
+          "lines": 100
+        },
+        {
+          "t": 870.866,
+          "status": 200,
+          "seconds": 0.054,
+          "lines": 100
+        },
+        {
+          "t": 930.928,
+          "status": 200,
+          "seconds": 0.043,
+          "lines": 100
+        },
+        {
+          "t": 990.987,
+          "status": 200,
+          "seconds": 0.057,
+          "lines": 100
+        },
+        {
+          "t": 1051.046,
+          "status": 200,
+          "seconds": 0.04,
+          "lines": 100
+        },
+        {
+          "t": 1111.097,
+          "status": 200,
+          "seconds": 0.047,
+          "lines": 100
+        },
+        {
+          "t": 1171.164,
+          "status": 200,
+          "seconds": 0.057,
+          "lines": 100
+        },
+        {
+          "t": 1231.221,
+          "status": 200,
+          "seconds": 0.033,
+          "lines": 100
+        },
+        {
+          "t": 1291.272,
+          "status": 200,
+          "seconds": 0.038,
+          "lines": 100
+        },
+        {
+          "t": 1351.331,
+          "status": 200,
+          "seconds": 0.042,
+          "lines": 100
+        },
+        {
+          "t": 1411.389,
+          "status": 200,
+          "seconds": 0.041,
+          "lines": 100
+        },
+        {
+          "t": 1471.451,
+          "status": 200,
+          "seconds": 0.04,
+          "lines": 100
+        },
+        {
+          "t": 1531.515,
+          "status": 200,
+          "seconds": 0.048,
+          "lines": 100
+        },
+        {
+          "t": 1591.564,
+          "status": 200,
+          "seconds": 0.032,
+          "lines": 100
+        },
+        {
+          "t": 1651.628,
+          "status": 200,
+          "seconds": 0.039,
+          "lines": 100
+        },
+        {
+          "t": 1711.685,
+          "status": 200,
+          "seconds": 0.043,
+          "lines": 100
+        },
+        {
+          "t": 1771.743,
+          "status": 200,
+          "seconds": 0.048,
+          "lines": 100
+        }
+      ],
+      "seconds": 1831.793,
+      "offeredMiB": 3420.3,
+      "lines": {
+        "acceptedBatches": 6834,
+        "acceptedLines": 3551090,
+        "acceptedMiB": 3420.3,
+        "rejectedBatches": 0,
+        "rejectedLines": 0,
+        "errorBatches": 0,
+        "errors": [],
+        "lokiLines": 3551090,
+        "acceptedSample": [
+          {
+            "id": "cap-5414c80fa3-sustained-6226-",
+            "expected": 511,
+            "found": 511
+          },
+          {
+            "id": "cap-5414c80fa3-sustained-2396-",
+            "expected": 521,
+            "found": 521
+          },
+          {
+            "id": "cap-5414c80fa3-sustained-1786-",
+            "expected": 532,
+            "found": 532
+          },
+          {
+            "id": "cap-5414c80fa3-sustained-2082-",
+            "expected": 510,
+            "found": 510
+          },
+          {
+            "id": "cap-5414c80fa3-sustained-2700-",
+            "expected": 523,
+            "found": 523
+          }
+        ],
+        "rejectedSample": [],
+        "matches": true
+      },
+      "memory": {
+        "peakMiB": 571.3,
+        "peakRatio": 0.5579999999999999,
+        "sampledAnonMaxMiB": 427.3,
+        "sampledAnonMaxRatio": 0.41700000000000004,
+        "oomKill": 0,
+        "anonSlopeMiBPerMinute": -0.2
+      },
+      "state": {
+        "running": true,
+        "oomKilled": false,
+        "restartCount": 0
+      }
+    },
+    "overload": {
+      "offeredMiBPerSecond": 5.5,
+      "minutes": 10,
+      "samples": [
+        {
+          "t": 0.054,
+          "currentMiB": 65.9,
+          "anonMiB": 33.3,
+          "fileMiB": 30.6
+        },
+        {
+          "t": 5.101,
+          "currentMiB": 132.9,
+          "anonMiB": 85.2,
+          "fileMiB": 43.5
+        },
+        {
+          "t": 10.186,
+          "currentMiB": 148.1,
+          "anonMiB": 91.3,
+          "fileMiB": 54.8
+        },
+        {
+          "t": 15.241,
+          "currentMiB": 157.3,
+          "anonMiB": 89.9,
+          "fileMiB": 64
+        },
+        {
+          "t": 20.288,
+          "currentMiB": 122.2,
+          "anonMiB": 95,
+          "fileMiB": 23.7
+        },
+        {
+          "t": 25.345,
+          "currentMiB": 134.3,
+          "anonMiB": 97.2,
+          "fileMiB": 34.5
+        },
+        {
+          "t": 30.401,
+          "currentMiB": 155,
+          "anonMiB": 102.4,
+          "fileMiB": 50.5
+        },
+        {
+          "t": 35.481,
+          "currentMiB": 169.4,
+          "anonMiB": 106.2,
+          "fileMiB": 60.8
+        },
+        {
+          "t": 40.541,
+          "currentMiB": 185.5,
+          "anonMiB": 111.9,
+          "fileMiB": 71
+        },
+        {
+          "t": 45.606,
+          "currentMiB": 195.4,
+          "anonMiB": 110.6,
+          "fileMiB": 81.3
+        },
+        {
+          "t": 50.675,
+          "currentMiB": 209.2,
+          "anonMiB": 114.5,
+          "fileMiB": 92.1
+        },
+        {
+          "t": 55.738,
+          "currentMiB": 226.8,
+          "anonMiB": 121.3,
+          "fileMiB": 102.8
+        },
+        {
+          "t": 60.795,
+          "currentMiB": 241.9,
+          "anonMiB": 123.9,
+          "fileMiB": 115.7
+        },
+        {
+          "t": 65.873,
+          "currentMiB": 167,
+          "anonMiB": 145.5,
+          "fileMiB": 19.2
+        },
+        {
+          "t": 70.932,
+          "currentMiB": 180.7,
+          "anonMiB": 148.2,
+          "fileMiB": 29.5
+        },
+        {
+          "t": 75.983,
+          "currentMiB": 201,
+          "anonMiB": 156.3,
+          "fileMiB": 42
+        },
+        {
+          "t": 81.042,
+          "currentMiB": 211.2,
+          "anonMiB": 156.3,
+          "fileMiB": 52.2
+        },
+        {
+          "t": 86.102,
+          "currentMiB": 224.8,
+          "anonMiB": 159.6,
+          "fileMiB": 62.5
+        },
+        {
+          "t": 91.17,
+          "currentMiB": 243.9,
+          "anonMiB": 161.3,
+          "fileMiB": 79.8
+        },
+        {
+          "t": 96.23,
+          "currentMiB": 260.9,
+          "anonMiB": 159.1,
+          "fileMiB": 99.1
+        },
+        {
+          "t": 101.276,
+          "currentMiB": 278.4,
+          "anonMiB": 165.5,
+          "fileMiB": 109.9
+        },
+        {
+          "t": 106.34,
+          "currentMiB": 290.9,
+          "anonMiB": 167.9,
+          "fileMiB": 120.2
+        },
+        {
+          "t": 111.399,
+          "currentMiB": 187.9,
+          "anonMiB": 170.3,
+          "fileMiB": 15.5
+        },
+        {
+          "t": 116.461,
+          "currentMiB": 197.7,
+          "anonMiB": 169.3,
+          "fileMiB": 25.8
+        },
+        {
+          "t": 121.525,
+          "currentMiB": 195.5,
+          "anonMiB": 154.5,
+          "fileMiB": 38.5
+        },
+        {
+          "t": 126.581,
+          "currentMiB": 209.8,
+          "anonMiB": 156.3,
+          "fileMiB": 50.6
+        },
+        {
+          "t": 131.66,
+          "currentMiB": 227.1,
+          "anonMiB": 163.5,
+          "fileMiB": 60.8
+        },
+        {
+          "t": 136.722,
+          "currentMiB": 240.1,
+          "anonMiB": 163.5,
+          "fileMiB": 73.9
+        },
+        {
+          "t": 141.765,
+          "currentMiB": 258.7,
+          "anonMiB": 171.1,
+          "fileMiB": 84.7
+        },
+        {
+          "t": 146.824,
+          "currentMiB": 269.9,
+          "anonMiB": 169.2,
+          "fileMiB": 97.8
+        },
+        {
+          "t": 151.876,
+          "currentMiB": 217.9,
+          "anonMiB": 210.9,
+          "fileMiB": 4.6
+        },
+        {
+          "t": 156.935,
+          "currentMiB": 224.1,
+          "anonMiB": 188.1,
+          "fileMiB": 31
+        },
+        {
+          "t": 161.991,
+          "currentMiB": 239,
+          "anonMiB": 192.9,
+          "fileMiB": 41.7
+        },
+        {
+          "t": 167.058,
+          "currentMiB": 257.3,
+          "anonMiB": 201.3,
+          "fileMiB": 53.5
+        },
+        {
+          "t": 172.116,
+          "currentMiB": 273,
+          "anonMiB": 206.2,
+          "fileMiB": 62.8
+        },
+        {
+          "t": 177.17,
+          "currentMiB": 290,
+          "anonMiB": 206.3,
+          "fileMiB": 81.1
+        },
+        {
+          "t": 182.234,
+          "currentMiB": 316.8,
+          "anonMiB": 214.8,
+          "fileMiB": 99.3
+        },
+        {
+          "t": 187.271,
+          "currentMiB": 324.9,
+          "anonMiB": 202.3,
+          "fileMiB": 118.9
+        },
+        {
+          "t": 192.333,
+          "currentMiB": 346.2,
+          "anonMiB": 212.9,
+          "fileMiB": 129.7
+        },
+        {
+          "t": 197.379,
+          "currentMiB": 221.2,
+          "anonMiB": 213.2,
+          "fileMiB": 4.4
+        },
+        {
+          "t": 202.456,
+          "currentMiB": 247.1,
+          "anonMiB": 213.2,
+          "fileMiB": 30.9
+        },
+        {
+          "t": 207.515,
+          "currentMiB": 261.2,
+          "anonMiB": 213.9,
+          "fileMiB": 44.3
+        },
+        {
+          "t": 212.558,
+          "currentMiB": 275.3,
+          "anonMiB": 218,
+          "fileMiB": 54.6
+        },
+        {
+          "t": 217.614,
+          "currentMiB": 291.3,
+          "anonMiB": 218,
+          "fileMiB": 70.4
+        },
+        {
+          "t": 222.661,
+          "currentMiB": 302.3,
+          "anonMiB": 218.1,
+          "fileMiB": 80.2
+        },
+        {
+          "t": 227.716,
+          "currentMiB": 310.8,
+          "anonMiB": 215.9,
+          "fileMiB": 91.5
+        },
+        {
+          "t": 232.764,
+          "currentMiB": 320.8,
+          "anonMiB": 215.9,
+          "fileMiB": 101.7
+        },
+        {
+          "t": 237.82,
+          "currentMiB": 332.7,
+          "anonMiB": 217.7,
+          "fileMiB": 112
+        },
+        {
+          "t": 242.867,
+          "currentMiB": 232,
+          "anonMiB": 222.2,
+          "fileMiB": 6.7
+        },
+        {
+          "t": 247.919,
+          "currentMiB": 277.3,
+          "anonMiB": 241.7,
+          "fileMiB": 32.9
+        },
+        {
+          "t": 252.971,
+          "currentMiB": 292.8,
+          "anonMiB": 242.8,
+          "fileMiB": 46.9
+        },
+        {
+          "t": 258.029,
+          "currentMiB": 310.6,
+          "anonMiB": 244.6,
+          "fileMiB": 63.1
+        },
+        {
+          "t": 263.08,
+          "currentMiB": 320.7,
+          "anonMiB": 244.8,
+          "fileMiB": 73.4
+        },
+        {
+          "t": 268.163,
+          "currentMiB": 338.3,
+          "anonMiB": 251.6,
+          "fileMiB": 83.6
+        },
+        {
+          "t": 273.218,
+          "currentMiB": 461.2,
+          "anonMiB": 301.4,
+          "fileMiB": 157.1
+        },
+        {
+          "t": 278.265,
+          "currentMiB": 436.2,
+          "anonMiB": 265.2,
+          "fileMiB": 167.3
+        },
+        {
+          "t": 283.326,
+          "currentMiB": 463.3,
+          "anonMiB": 262.3,
+          "fileMiB": 197.5
+        },
+        {
+          "t": 288.379,
+          "currentMiB": 294.4,
+          "anonMiB": 271.6,
+          "fileMiB": 19.8
+        },
+        {
+          "t": 293.453,
+          "currentMiB": 312.4,
+          "anonMiB": 271.7,
+          "fileMiB": 37.5
+        },
+        {
+          "t": 298.504,
+          "currentMiB": 325.1,
+          "anonMiB": 272,
+          "fileMiB": 50
+        },
+        {
+          "t": 303.547,
+          "currentMiB": 337.2,
+          "anonMiB": 273.8,
+          "fileMiB": 60.3
+        },
+        {
+          "t": 308.602,
+          "currentMiB": 349,
+          "anonMiB": 273.8,
+          "fileMiB": 70.7
+        },
+        {
+          "t": 313.659,
+          "currentMiB": 364.5,
+          "anonMiB": 273.8,
+          "fileMiB": 87.7
+        },
+        {
+          "t": 318.717,
+          "currentMiB": 375.5,
+          "anonMiB": 270.8,
+          "fileMiB": 101.6
+        },
+        {
+          "t": 323.764,
+          "currentMiB": 386.2,
+          "anonMiB": 270.8,
+          "fileMiB": 112.4
+        },
+        {
+          "t": 328.821,
+          "currentMiB": 401.9,
+          "anonMiB": 272.6,
+          "fileMiB": 126.4
+        },
+        {
+          "t": 333.877,
+          "currentMiB": 290.6,
+          "anonMiB": 279.6,
+          "fileMiB": 8.6
+        },
+        {
+          "t": 338.954,
+          "currentMiB": 310.6,
+          "anonMiB": 280,
+          "fileMiB": 27.8
+        },
+        {
+          "t": 344.001,
+          "currentMiB": 324.1,
+          "anonMiB": 282.5,
+          "fileMiB": 38.6
+        },
+        {
+          "t": 349.043,
+          "currentMiB": 337.6,
+          "anonMiB": 285.9,
+          "fileMiB": 48.8
+        },
+        {
+          "t": 354.118,
+          "currentMiB": 380.1,
+          "anonMiB": 304.4,
+          "fileMiB": 71.6
+        },
+        {
+          "t": 359.177,
+          "currentMiB": 401.5,
+          "anonMiB": 315.9,
+          "fileMiB": 82.9
+        },
+        {
+          "t": 364.257,
+          "currentMiB": 422.3,
+          "anonMiB": 314.4,
+          "fileMiB": 105
+        },
+        {
+          "t": 369.308,
+          "currentMiB": 438.3,
+          "anonMiB": 314.5,
+          "fileMiB": 121
+        },
+        {
+          "t": 374.358,
+          "currentMiB": 454.6,
+          "anonMiB": 320.4,
+          "fileMiB": 131.3
+        },
+        {
+          "t": 379.415,
+          "currentMiB": 334.2,
+          "anonMiB": 320.4,
+          "fileMiB": 10.7
+        },
+        {
+          "t": 384.466,
+          "currentMiB": 353.5,
+          "anonMiB": 320.4,
+          "fileMiB": 29.9
+        },
+        {
+          "t": 389.518,
+          "currentMiB": 366.2,
+          "anonMiB": 320.4,
+          "fileMiB": 42.8
+        },
+        {
+          "t": 394.563,
+          "currentMiB": 448.2,
+          "anonMiB": 316.6,
+          "fileMiB": 128.1
+        },
+        {
+          "t": 399.621,
+          "currentMiB": 463.7,
+          "anonMiB": 316.6,
+          "fileMiB": 143.8
+        },
+        {
+          "t": 404.67,
+          "currentMiB": 474.2,
+          "anonMiB": 316.6,
+          "fileMiB": 154.1
+        },
+        {
+          "t": 409.756,
+          "currentMiB": 484.7,
+          "anonMiB": 316.8,
+          "fileMiB": 164.4
+        },
+        {
+          "t": 414.814,
+          "currentMiB": 495.1,
+          "anonMiB": 317.1,
+          "fileMiB": 174.6
+        },
+        {
+          "t": 419.865,
+          "currentMiB": 522.4,
+          "anonMiB": 330.9,
+          "fileMiB": 188.2
+        },
+        {
+          "t": 424.947,
+          "currentMiB": 363.4,
+          "anonMiB": 334.4,
+          "fileMiB": 25.6
+        },
+        {
+          "t": 429.991,
+          "currentMiB": 389.5,
+          "anonMiB": 340.2,
+          "fileMiB": 45.8
+        },
+        {
+          "t": 435.046,
+          "currentMiB": 410.8,
+          "anonMiB": 347,
+          "fileMiB": 60.3
+        },
+        {
+          "t": 440.092,
+          "currentMiB": 432.3,
+          "anonMiB": 355.3,
+          "fileMiB": 73.6
+        },
+        {
+          "t": 445.145,
+          "currentMiB": 442.8,
+          "anonMiB": 355.3,
+          "fileMiB": 83.8
+        },
+        {
+          "t": 450.202,
+          "currentMiB": 455.8,
+          "anonMiB": 355.3,
+          "fileMiB": 96.7
+        },
+        {
+          "t": 455.249,
+          "currentMiB": 474,
+          "anonMiB": 355.3,
+          "fileMiB": 114.7
+        },
+        {
+          "t": 460.301,
+          "currentMiB": 484.3,
+          "anonMiB": 355.3,
+          "fileMiB": 125
+        },
+        {
+          "t": 465.345,
+          "currentMiB": 499,
+          "anonMiB": 357.3,
+          "fileMiB": 137.8
+        },
+        {
+          "t": 470.403,
+          "currentMiB": 390.9,
+          "anonMiB": 357.6,
+          "fileMiB": 28.4
+        },
+        {
+          "t": 475.46,
+          "currentMiB": 401.1,
+          "anonMiB": 357.6,
+          "fileMiB": 39.1
+        },
+        {
+          "t": 480.518,
+          "currentMiB": 418.8,
+          "anonMiB": 354.9,
+          "fileMiB": 60.7
+        },
+        {
+          "t": 485.568,
+          "currentMiB": 430,
+          "anonMiB": 354.9,
+          "fileMiB": 72.1
+        },
+        {
+          "t": 490.655,
+          "currentMiB": 441.9,
+          "anonMiB": 354.9,
+          "fileMiB": 84.3
+        },
+        {
+          "t": 495.714,
+          "currentMiB": 455.4,
+          "anonMiB": 354.9,
+          "fileMiB": 97.7
+        },
+        {
+          "t": 500.764,
+          "currentMiB": 466.1,
+          "anonMiB": 354.9,
+          "fileMiB": 108
+        },
+        {
+          "t": 505.844,
+          "currentMiB": 476.7,
+          "anonMiB": 355.3,
+          "fileMiB": 118.3
+        },
+        {
+          "t": 510.9,
+          "currentMiB": 514.6,
+          "anonMiB": 361,
+          "fileMiB": 150.7
+        },
+        {
+          "t": 515.947,
+          "currentMiB": 447.3,
+          "anonMiB": 422.5,
+          "fileMiB": 21.6
+        },
+        {
+          "t": 520.999,
+          "currentMiB": 405.9,
+          "anonMiB": 370,
+          "fileMiB": 30.3
+        },
+        {
+          "t": 526.046,
+          "currentMiB": 416.9,
+          "anonMiB": 365.2,
+          "fileMiB": 47.9
+        },
+        {
+          "t": 531.1,
+          "currentMiB": 427.2,
+          "anonMiB": 363,
+          "fileMiB": 60.7
+        },
+        {
+          "t": 536.143,
+          "currentMiB": 443.7,
+          "anonMiB": 363,
+          "fileMiB": 77.3
+        },
+        {
+          "t": 541.202,
+          "currentMiB": 462.4,
+          "anonMiB": 363,
+          "fileMiB": 96.1
+        },
+        {
+          "t": 546.254,
+          "currentMiB": 455.9,
+          "anonMiB": 346.3,
+          "fileMiB": 106.3
+        },
+        {
+          "t": 551.313,
+          "currentMiB": 465.8,
+          "anonMiB": 345.9,
+          "fileMiB": 116.6
+        },
+        {
+          "t": 556.359,
+          "currentMiB": 487.4,
+          "anonMiB": 345.9,
+          "fileMiB": 138.3
+        },
+        {
+          "t": 561.413,
+          "currentMiB": 364.5,
+          "anonMiB": 345.9,
+          "fileMiB": 15.5
+        },
+        {
+          "t": 566.456,
+          "currentMiB": 375,
+          "anonMiB": 345.9,
+          "fileMiB": 26.2
+        },
+        {
+          "t": 571.524,
+          "currentMiB": 393.5,
+          "anonMiB": 345.9,
+          "fileMiB": 44.1
+        },
+        {
+          "t": 576.579,
+          "currentMiB": 418,
+          "anonMiB": 345.9,
+          "fileMiB": 68.9
+        },
+        {
+          "t": 581.641,
+          "currentMiB": 477.7,
+          "anonMiB": 345.9,
+          "fileMiB": 128.5
+        },
+        {
+          "t": 586.7,
+          "currentMiB": 497.7,
+          "anonMiB": 354.6,
+          "fileMiB": 140.4
+        },
+        {
+          "t": 591.746,
+          "currentMiB": 514.3,
+          "anonMiB": 355.6,
+          "fileMiB": 156.1
+        },
+        {
+          "t": 596.8,
+          "currentMiB": 529.5,
+          "anonMiB": 360.4,
+          "fileMiB": 166.3
+        }
+      ],
+      "queries": [
+        {
+          "t": 30.057,
+          "status": 200,
+          "seconds": 0.041,
+          "lines": 100
+        },
+        {
+          "t": 150.098,
+          "status": 200,
+          "seconds": 0.069,
+          "lines": 100
+        },
+        {
+          "t": 270.168,
+          "status": 200,
+          "seconds": 0.087,
+          "lines": 100
+        },
+        {
+          "t": 390.257,
+          "status": 200,
+          "seconds": 0.053,
+          "lines": 100
+        },
+        {
+          "t": 510.34,
+          "status": 200,
+          "seconds": 0.049,
+          "lines": 100
+        }
+      ],
+      "seconds": 630.389,
+      "offeredMiB": 3300.2,
+      "lines": {
+        "acceptedBatches": 2405,
+        "acceptedLines": 1250964,
+        "acceptedMiB": 1203.7,
+        "rejectedBatches": 4189,
+        "rejectedLines": 2178877,
+        "errorBatches": 0,
+        "errors": [],
+        "lokiLines": 1250964,
+        "acceptedSample": [
+          {
+            "id": "cap-5414c80fa3-overload-31-",
+            "expected": 526,
+            "found": 526
+          },
+          {
+            "id": "cap-5414c80fa3-overload-1148-",
+            "expected": 523,
+            "found": 523
+          },
+          {
+            "id": "cap-5414c80fa3-overload-1654-",
+            "expected": 520,
+            "found": 520
+          },
+          {
+            "id": "cap-5414c80fa3-overload-4717-",
+            "expected": 524,
+            "found": 524
+          },
+          {
+            "id": "cap-5414c80fa3-overload-0-",
+            "expected": 509,
+            "found": 509
+          }
+        ],
+        "rejectedSample": [
+          {
+            "id": "cap-5414c80fa3-overload-315-",
+            "expected": 0,
+            "found": 0
+          },
+          {
+            "id": "cap-5414c80fa3-overload-2340-",
+            "expected": 0,
+            "found": 0
+          },
+          {
+            "id": "cap-5414c80fa3-overload-690-",
+            "expected": 0,
+            "found": 0
+          },
+          {
+            "id": "cap-5414c80fa3-overload-175-",
+            "expected": 0,
+            "found": 0
+          },
+          {
+            "id": "cap-5414c80fa3-overload-6083-",
+            "expected": 0,
+            "found": 0
+          }
+        ],
+        "matches": true
+      },
+      "memory": {
+        "peakMiB": 536.6,
+        "peakRatio": 0.524,
+        "sampledAnonMaxMiB": 422.5,
+        "sampledAnonMaxRatio": 0.413,
+        "oomKill": 0,
+        "anonSlopeMiBPerMinute": 18.7
+      },
+      "acceptedMiBPerSecond": 1.909,
+      "state": {
+        "running": true,
+        "oomKilled": false,
+        "restartCount": 0
+      }
+    },
+    "burst": {
+      "refillSeconds": 3.5,
+      "cases": [
+        {
+          "label": "burst 90% (bucket 가득)",
+          "lineMiB": 3.6010000000000004,
+          "expect": "accepted",
+          "actual": "accepted",
+          "id": "cap-5414c80fa3-burst-0-",
+          "lines": 3674,
+          "found": 3674
+        },
+        {
+          "label": "곧바로 burst 90%",
+          "lineMiB": 3.6010000000000004,
+          "expect": "rejected",
+          "actual": "rejected",
+          "id": "cap-5414c80fa3-burst-1-",
+          "lines": 3672,
+          "found": 0
+        },
+        {
+          "label": "burst 110%",
+          "lineMiB": 4.401,
+          "expect": "rejected",
+          "actual": "rejected",
+          "id": "cap-5414c80fa3-burst-2-",
+          "lines": 4510,
+          "found": 0
+        },
+        {
+          "label": "기다린 뒤에도 burst 110%",
+          "lineMiB": 4.401,
+          "expect": "rejected",
+          "actual": "rejected",
+          "id": "cap-5414c80fa3-burst-3-",
+          "lines": 4515,
+          "found": 0
+        },
+        {
+          "label": "burst 90% (bucket 가득)",
+          "lineMiB": 3.6,
+          "expect": "accepted",
+          "actual": "accepted",
+          "id": "cap-5414c80fa3-burst-4-",
+          "lines": 3732,
+          "found": 3732
+        },
+        {
+          "label": "곧바로 burst 90%",
+          "lineMiB": 3.6,
+          "expect": "rejected",
+          "actual": "rejected",
+          "id": "cap-5414c80fa3-burst-5-",
+          "lines": 3733,
+          "found": 0
+        },
+        {
+          "label": "burst 110%",
+          "lineMiB": 4.401,
+          "expect": "rejected",
+          "actual": "rejected",
+          "id": "cap-5414c80fa3-burst-6-",
+          "lines": 4590,
+          "found": 0
+        },
+        {
+          "label": "기다린 뒤에도 burst 110%",
+          "lineMiB": 4.401,
+          "expect": "rejected",
+          "actual": "rejected",
+          "id": "cap-5414c80fa3-burst-7-",
+          "lines": 4596,
+          "found": 0
+        },
+        {
+          "label": "burst 90% (bucket 가득)",
+          "lineMiB": 3.6010000000000004,
+          "expect": "accepted",
+          "actual": "accepted",
+          "id": "cap-5414c80fa3-burst-8-",
+          "lines": 3822,
+          "found": 3822
+        },
+        {
+          "label": "곧바로 burst 90%",
+          "lineMiB": 3.6,
+          "expect": "rejected",
+          "actual": "rejected",
+          "id": "cap-5414c80fa3-burst-9-",
+          "lines": 3822,
+          "found": 0
+        },
+        {
+          "label": "burst 110%",
+          "lineMiB": 4.401,
+          "expect": "rejected",
+          "actual": "rejected",
+          "id": "cap-5414c80fa3-burst-10-",
+          "lines": 4700,
+          "found": 0
+        },
+        {
+          "label": "기다린 뒤에도 burst 110%",
+          "lineMiB": 4.4,
+          "expect": "rejected",
+          "actual": "rejected",
+          "id": "cap-5414c80fa3-burst-11-",
+          "lines": 4699,
+          "found": 0
+        }
+      ],
+      "memory": {
+        "peakMiB": 253.2,
+        "peakRatio": 0.247,
+        "sampledAnonMaxMiB": 0,
+        "sampledAnonMaxRatio": 0,
+        "oomKill": 0,
+        "anonSlopeMiBPerMinute": null
+      },
+      "state": {
+        "running": true,
+        "oomKilled": false,
+        "restartCount": 0
+      }
+    },
+    "wal": {
+      "walMiB": 603.3,
+      "ceiling": "512MB",
+      "checkpointDurationForTest": "10m",
+      "ingest": {
+        "peakMiB": 429.9,
+        "peakRatio": 0.42,
+        "sampledAnonMaxMiB": 262.3,
+        "sampledAnonMaxRatio": 0.256,
+        "oomKill": 0,
+        "anonSlopeMiBPerMinute": 28.4,
+        "seconds": 303.762,
+        "offeredMiB": 588.1
+      },
+      "replaySeconds": 21.2,
+      "replaySampleIntervalSeconds": 1,
+      "replaySamples": [
+        {
+          "t": 0.143,
+          "currentMiB": 109,
+          "anonMiB": 23.1,
+          "fileMiB": 84.5
+        },
+        {
+          "t": 1.255,
+          "currentMiB": 115.9,
+          "anonMiB": 30,
+          "fileMiB": 84.7
+        },
+        {
+          "t": 2.326,
+          "currentMiB": 207,
+          "anonMiB": 78.2,
+          "fileMiB": 127.3
+        },
+        {
+          "t": 3.435,
+          "currentMiB": 749.9,
+          "anonMiB": 189.4,
+          "fileMiB": 561
+        },
+        {
+          "t": 4.545,
+          "currentMiB": 972.2,
+          "anonMiB": 229.5,
+          "fileMiB": 741.2
+        },
+        {
+          "t": 5.66,
+          "currentMiB": 972.2,
+          "anonMiB": 229.5,
+          "fileMiB": 741.2
+        },
+        {
+          "t": 6.757,
+          "currentMiB": 972.2,
+          "anonMiB": 229.5,
+          "fileMiB": 741.2
+        },
+        {
+          "t": 7.868,
+          "currentMiB": 972.2,
+          "anonMiB": 229.5,
+          "fileMiB": 741.2
+        },
+        {
+          "t": 8.971,
+          "currentMiB": 972.2,
+          "anonMiB": 229.5,
+          "fileMiB": 741.2
+        },
+        {
+          "t": 10.08,
+          "currentMiB": 972.2,
+          "anonMiB": 229.5,
+          "fileMiB": 741.2
+        },
+        {
+          "t": 11.188,
+          "currentMiB": 972.2,
+          "anonMiB": 229.5,
+          "fileMiB": 741.2
+        },
+        {
+          "t": 12.297,
+          "currentMiB": 972.2,
+          "anonMiB": 229.5,
+          "fileMiB": 741.2
+        },
+        {
+          "t": 13.409,
+          "currentMiB": 966.3,
+          "anonMiB": 222.9,
+          "fileMiB": 741.8
+        },
+        {
+          "t": 14.516,
+          "currentMiB": 966.5,
+          "anonMiB": 222.9,
+          "fileMiB": 741.8
+        },
+        {
+          "t": 15.638,
+          "currentMiB": 966.5,
+          "anonMiB": 222.9,
+          "fileMiB": 741.8
+        },
+        {
+          "t": 16.746,
+          "currentMiB": 966.5,
+          "anonMiB": 222.9,
+          "fileMiB": 741.8
+        },
+        {
+          "t": 17.856,
+          "currentMiB": 966.5,
+          "anonMiB": 222.9,
+          "fileMiB": 741.8
+        },
+        {
+          "t": 18.962,
+          "currentMiB": 966.5,
+          "anonMiB": 222.9,
+          "fileMiB": 741.8
+        },
+        {
+          "t": 20.077,
+          "currentMiB": 966.5,
+          "anonMiB": 222.9,
+          "fileMiB": 741.8
+        },
+        {
+          "t": 21.179,
+          "currentMiB": 966.5,
+          "anonMiB": 222.9,
+          "fileMiB": 741.8
+        }
+      ],
+      "replayMemory": {
+        "peakMiB": 972.7,
+        "peakRatio": 0.95,
+        "sampledAnonMaxMiB": 229.5,
+        "sampledAnonMaxRatio": 0.22399999999999998,
+        "oomKill": 0,
+        "anonSlopeMiBPerMinute": -34.6
+      },
+      "lines": {
+        "acceptedBatches": 1175,
+        "acceptedLines": 614621,
+        "acceptedMiB": 588.1,
+        "rejectedBatches": 0,
+        "rejectedLines": 0,
+        "errorBatches": 0,
+        "errors": [],
+        "lokiLines": 614621,
+        "acceptedSample": [
+          {
+            "id": "cap-5414c80fa3-wal-1005-",
+            "expected": 525,
+            "found": 525
+          },
+          {
+            "id": "cap-5414c80fa3-wal-703-",
+            "expected": 529,
+            "found": 529
+          },
+          {
+            "id": "cap-5414c80fa3-wal-685-",
+            "expected": 526,
+            "found": 526
+          },
+          {
+            "id": "cap-5414c80fa3-wal-747-",
+            "expected": 535,
+            "found": 535
+          },
+          {
+            "id": "cap-5414c80fa3-wal-783-",
+            "expected": 530,
+            "found": 530
+          }
+        ],
+        "rejectedSample": [],
+        "matches": true
+      },
+      "ready": true,
+      "state": {
+        "running": true,
+        "oomKilled": false,
+        "restartCount": 0
+      },
+      "acceptedMiBBeforeKill": 588.1
+    }
+  },
+  "failures": [],
+  "seconds": 2938.256,
+  "finishedAt": "2026-10-24T21:19:03.349Z"
+}

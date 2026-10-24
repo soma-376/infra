@@ -45,6 +45,12 @@ endpoint·서비스 이름·sampling·속성은 backend와 infra가 함께 지�
   PVC는 Helm 삭제·재설치로 지워지지 않도록 retain 정책을 명시한다.
 - Loki WAL 복구 메모리(`ingester.wal.replay_memory_ceiling`)는 Pod memory limit의 절반 이하로 명시한다(1Gi에 512MB).
   기본 4GB로 두면 WAL이 쌓인 뒤 재시작할 때 복구 중 OOM이 날 수 있다. wrapper chart가 렌더 단계에서 강제한다.
+- Loki 수신 상한은 2MiB/s, burst 4MiB, memory limit 1Gi다. 이 조합을 로컬에서 쟀다(capacity 증거).
+  - 30분 지속 수신에서 anon은 limit의 42% 아래에서 평탄했다. 5.5MiB/s를 넣어도 수락은 상한에 묶이고 OOM이 없었다.
+  - 이전 8MiB/s 상한은 5MiB/s 지속 수신에서 1분 안에 OOM이 났다.
+  - burst는 Fluent Bit chunk(최대 약 2MB) 하나가 늘 들어가는 크기다. burst보다 큰 요청은 기다려도 받지 않는다.
+  - dev 앱 로그는 7일 평균 0.1KB/s다(2026-10-25 CloudWatch). 상한을 넘는 폭주에서 Loki 쪽 로그는 손실될 수 있고 CloudWatch가 기준이다.
+  - `GOMEMLIMIT`은 두지 않는다. 측정한 anon 여유가 충분하다. 로그량이 늘면 limit·request·노드 여유·비용을 함께 다시 정한다.
 
 ### 고정 주소
 
