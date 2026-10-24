@@ -1,6 +1,6 @@
 {
   "scope": "local-loki-tempo-collector-grafana-only",
-  "runId": "loki-tempo-smoke/f26003f9c5d2",
+  "runId": "loki-tempo-smoke/19d699312a49",
   "status": "PASS",
   "images": {
     "loki": "docker.io/grafana/loki@sha256:1107dd5274e0ada47e42472b7a7e71f3b2a2fe878878108f3e2f9e51528f0193",
@@ -8,11 +8,17 @@
     "collector": "otel/opentelemetry-collector-k8s@sha256:2fed8ff024bdb42473890724fa0833bd31e16197aa4790d8e0be3829f87f0de1",
     "grafana": "grafana/grafana:12.3.1@sha256:2175aaa91c96733d86d31cf270d5310b278654b03f5718c59de12a865380a31f"
   },
+  "memoryLimits": {
+    "loki": "1Gi",
+    "tempo": "1Gi",
+    "collector": "512Mi",
+    "grafana": "512Mi"
+  },
   "checks": {
     "readOnlyRootNonRoot": "PASS",
     "lokiLogRoundTrip": {
       "status": "PASS",
-      "seconds": 0.014
+      "seconds": 0.017
     },
     "tempoTraceRoundTrip": {
       "status": "PASS",
@@ -23,13 +29,76 @@
     },
     "within60Seconds": "PASS",
     "grafanaDatasources": "PASS",
+    "lokiWalReplayAfterKill": {
+      "status": "PASS",
+      "seconds": 19.412,
+      "walDir": "/var/loki/wal",
+      "replayMemoryCeiling": "512MB"
+    },
     "collectorQueueSurvivesRestart": "PASS",
-    "tempoDataSurvivesRestart": "PASS"
+    "tempoDataSurvivesRestart": "PASS",
+    "walPressure": {
+      "targetMiB": 560,
+      "rateMiBPerSecond": 2.2,
+      "memoryLimit": "1Gi",
+      "runs": {
+        "upstreamDefault": {
+          "replayMemoryCeiling": "upstream 기본값(4GB)",
+          "pushedMiB": 560.1,
+          "pushSeconds": 254.593,
+          "rateMiBPerSecond": 2.2,
+          "sampledIngestPeakMemoryMiB": 596.1,
+          "walMiB": 560.7,
+          "replaySeconds": 24.261,
+          "sampledReplayPeakMemoryMiB": 914.1,
+          "oomKilled": false,
+          "exitCode": 0,
+          "ready": true,
+          "markerFound": true,
+          "ceilingLogLines": 0
+        },
+        "chart": {
+          "replayMemoryCeiling": "512MB",
+          "pushedMiB": 560.7,
+          "pushSeconds": 254.877,
+          "rateMiBPerSecond": 2.2,
+          "sampledIngestPeakMemoryMiB": 569.6,
+          "walMiB": 561.4,
+          "replaySeconds": 24.291,
+          "sampledReplayPeakMemoryMiB": 504.2,
+          "oomKilled": false,
+          "exitCode": 0,
+          "ready": true,
+          "markerFound": true,
+          "ceilingLogLines": 0
+        }
+      },
+      "status": "PASS"
+    }
+  },
+  "coverage": {
+    "verified": [
+      "chart memory limit(swap 없음) 아래 기동",
+      "Loki push·조회",
+      "Collector→Tempo 왕복과 민감 속성 삭제",
+      "Grafana datasource health·$$ 매크로·Loki 조회",
+      "Loki SIGKILL 재시작의 WAL 복구",
+      "Collector queue 재시작 보존",
+      "Tempo 재시작 보존",
+      "WAL 복구 메모리 상한 비교"
+    ],
+    "notVerified": [
+      "Fluent Bit 병행 배송(별도 dry-run·로컬 Loki label 확인만 했다)",
+      "Grafana UI의 로그↔trace 클릭",
+      "실제 앱 요청의 Kafka commit·ClickHouse 저장",
+      "NetworkPolicy 강제·차단",
+      "dev 배포"
+    ]
   },
   "syntheticTraceIds": [
-    "5d2298f7fb3394bd81f336522fc35dca",
-    "ea3e660f46a07b7952b31f6ea0228cb6"
+    "8710366aa410c32d92b0eac87a75ee3d",
+    "1e9af4c023926381d2605437952752d7"
   ],
-  "seconds": 39.698,
-  "finishedAt": "2026-10-23T21:48:33.100Z"
+  "seconds": 668.268,
+  "finishedAt": "2026-10-24T19:29:08.283Z"
 }
