@@ -1,37 +1,50 @@
 # NetworkPolicy 강제 여부를 확인하는 일회용 자원이다(ADR-0039, 관측 런북 PROJ-256 N2). 관측·앱 namespace를 건드리지 않는다.
-# 이미지는 관측 chart가 이미 고정한 Prometheus digest다(busybox의 wget·nc가 들어 있다). 확인이 끝나면 namespace째 지운다.
+# AWS는 controller가 없는 독립 Pod(ownerReferences 없음)의 정책 적용이 불안정할 수 있다고 안내한다. 서버는 Deployment, client는 Job이다.
+# 이미지는 관측 chart가 이미 고정한 Prometheus digest다(busybox의 nc·nslookup이 들어 있다). 확인이 끝나면 namespace째 지운다.
 apiVersion: v1
 kind: Namespace
 metadata:
   name: pulsemetry-np-probe
 ---
-apiVersion: v1
-kind: Pod
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: np-server
   namespace: pulsemetry-np-probe
-  labels:
-    app.kubernetes.io/name: np-server
 spec:
-  nodeSelector:
-    kubernetes.io/arch: arm64
-    pulsemetry.io/workload: apps
-  containers:
-    - name: server
-      image: quay.io/prometheus/prometheus:v3.9.1@sha256:1f0f50f06acaceb0f5670d2c8a658a599affe7b0d8e78b898c1035653849a702
-      ports:
-        - name: http
-          containerPort: 9090
-      # deny-all 아래에서도 Ready가 유지되는지로 kubelet probe 허용 여부를 본다.
-      readinessProbe:
-        httpGet:
-          path: /-/ready
-          port: http
-        periodSeconds: 5
-      resources:
-        requests: {cpu: 50m, memory: 64Mi}
-        limits: {cpu: 200m, memory: 256Mi}
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: np-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: np-server
+    spec:
+      nodeSelector:
+        kubernetes.io/arch: arm64
+        pulsemetry.io/workload: apps
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+      containers:
+        - name: server
+          image: quay.io/prometheus/prometheus:v3.9.1@sha256:1f0f50f06acaceb0f5670d2c8a658a599affe7b0d8e78b898c1035653849a702
+          args: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/tmp/prometheus"]
+          ports:
+            - name: http
+              containerPort: 9090
+          # deny-all 아래에서도 Ready가 유지되는지로 kubelet probe 허용 여부를 본다.
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 200m, memory: 256Mi}
 ---
+# AWS 고려사항: Service port는 container port와 같아야 하고, 이름 있는 포트면 같은 이름을 쓴다.
 apiVersion: v1
 kind: Service
 metadata:

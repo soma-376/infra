@@ -89,6 +89,7 @@ endpoint·서비스 이름·sampling·속성은 backend와 infra가 함께 지�
   - NodeClass의 `networkPolicy`는 바꾸지 않는다. dev 세 NodeClass는 이미 기본값 `DefaultAllow`다(2026-10-25 조회). 바꾸면 노드가 교체된다.
   - 정책이 없는 namespace의 통신은 그대로다. ADR-0036의 "앱 NetworkPolicy는 범위 밖"은 유효하다.
 - 강제·차단·kubelet probe 통과는 live에서 시험한다(관측 런북). 강제되지 않거나 probe가 막히면 멈추고, 내부 접근 제한이 됐다고 보고하지 않는다.
+  차단은 SG가 여는 경로(관측 풀 송신자 포함)에서 같은 목적지·포트의 허용 송신자 대조와 함께 판정한다. SG가 막는 경로의 실패는 정책 증거가 아니다.
   노드와 Pod가 같은 subnet을 쓰므로 노드 대역을 ipBlock으로 허용하면 정책이 무력해진다. 그때 대안을 다시 정한다.
 
 ### Grafana

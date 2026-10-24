@@ -149,11 +149,11 @@ PROJ-255 live 적용이 끝난 뒤 진행한다. 각 단계는 diff를 보고 �
 | 1 | DevNetworkStack diff → 배포(apps·ClickHouse → 관측 3100, apps → 관측 4318만 추가) | 다른 SG 변경 없음 |
 | 2 | 관측 NodePool 여유 확인. 세 release request 합계 600m·1280Mi, PVC 41Gi | 한 노드에 안 들어가면 노드가 늘어난다. 비용·AZ를 기록 |
 | 3 | NetworkPolicy 기준선(N0)과 controller 활성화(N1, 아래) | ConfigMap 하나만 는다. 10분간 nodeclaim 그대로·Drifted 없음 |
-| 4 | 강제 여부 시험(N2, 아래) | deny-all에서 막히고 server는 Ready, label 허용에서 통과 |
+| 4 | 강제 여부 시험(N2, 아래) | deny-all에서 `TIMEOUT`·server 70초 Ready, label 허용 client만 `OPEN` |
 | 5 | `loki` → `tempo` → `otel-platform` 순서로 설치(아래 명령, 수신 정책 포함) | PVC Bound·Pod Ready·고정 digest·NetworkPolicy 3개 |
 | 6 | 관측 차트 upgrade(datasource 4개·Traces 대시보드·ServiceMonitor·rule) | Grafana Recreate 뒤 로그인·기존 Prometheus/CloudWatch, Loki·Tempo health |
 | 7 | Fluent Bit: 정적 values → `fluent-bit-loki-values.yaml` → generated | 새 로그가 CloudWatch와 Loki 양쪽에 보인다 |
-| 8 | 허용·차단 시험(N4·N5, 아래) | 허용 송신자만 닿는다 |
+| 8 | 허용·차단 대조(N5, 아래). 9단계 뒤 다시 실행 | 비허용 송신자는 SG가 여는 경로에서도 `TIMEOUT`, 허용 대조는 성공 |
 | 9 | tracing 이미지(backend ADR 0069) digest와 runtime-values `platformTracing: {enabled: true, sampleProbability: 1}`로 Gateway·ingest 갱신 | 소량 요청의 trace·Kafka commit·ClickHouse 저장 대조. 실패 span은 `status = error`로 찾힌다 |
 | 10 | `sampleProbability`를 생략(0.1)해 다시 갱신하고 30분 관찰 | export 오류·queue·OOM·PVC 증가 없음 |
 
@@ -201,51 +201,59 @@ kubectl get nodeclaims -o custom-columns=NAME:.metadata.name,CREATED:.metadata.c
 `amazon-vpc-cni` ConfigMap 하나만 느는지 확인하고 승인받은 뒤 같은 values로 upgrade한다. 적용 뒤 10분간 위 nodeclaim 이름·생성 시각이
 그대로이고 Drifted가 없어야 한다. **노드 교체 징후가 보이면 즉시 멈추고 보고한다.**
 
-**N2 강제 여부.** 일회용 namespace에서 확인한다(`helm/observability/tests/networkpolicy/`).
+**N2 강제 여부.** 일회용 namespace `pulsemetry-np-probe`에서 정책 전후를 비교한다. 서버는 Deployment, client는 Job이다.
+AWS는 controller가 없는 독립 Pod의 정책 적용이 불안정할 수 있다고 안내한다([고려사항](https://docs.aws.amazon.com/eks/latest/userguide/cni-network-policy.html)).
 
 ```bash
-D=helm/observability/tests/networkpolicy
-IMAGE=$(awk '/image:/ {print $2; exit}' $D/probe.yaml)   # 관측 chart가 고정한 Prometheus digest
-probe() {  # $1=label(또는 빈 값). 성공하면 0이다.
-  kubectl -n pulsemetry-np-probe run "np-client-$RANDOM" --rm -i --restart=Never --image="$IMAGE" ${1:+--labels="$1"} \
-    --overrides='{"spec":{"nodeSelector":{"pulsemetry.io/workload":"apps"}}}' --command -- wget -T 5 -qO- http://np-server:9090/-/ready
-}
-kubectl apply -f $D/probe.yaml && kubectl -n pulsemetry-np-probe wait pod/np-server --for=condition=Ready --timeout=120s
-probe                                               # 정책 전: 통과
-kubectl apply -f $D/deny-all.yaml && sleep 30
-probe; echo "deny-all exit=$?"                      # 막혀야 한다(timeout)
-kubectl -n pulsemetry-np-probe get pod np-server    # 60초 동안 Ready 유지 → kubelet probe가 막히지 않는다
-kubectl apply -f $D/allow-labeled.yaml && sleep 30
-probe np-probe/allowed=true                         # 통과
-probe; echo "label 없음 exit=$?"                     # 막혀야 한다
-kubectl delete namespace pulsemetry-np-probe
+node scripts/observability-networkpolicy-probe.mjs --phase n2 --output <새 증거 파일>
 ```
 
-- deny-all에서도 통과하면 **강제되지 않는 것이다.** 멈추고 "Pod 단위 접근 제한 없음(SG 범위만)"으로 보고한다. 대안은 다시 정한다.
-- server가 NotReady가 되면 **kubelet probe가 막힌 것이다.** 멈춘다. 노드와 Pod가 같은 subnet을 쓰므로 노드 대역 ipBlock 허용은
-  정책을 무력화한다 — 그렇게 고치지 않는다.
+스크립트 순서와 통과 기준:
+1. controller ConfigMap이 켜져 있고 `pulsemetry-np-probe`가 없어야 시작한다. 다른 시험 자원을 지우지 않는다.
+2. 정책 전 label 없는 client가 `OPEN`이어야 한다.
+3. deny-all을 건 뒤 label 없는 client가 120초 안에 `TIMEOUT`으로 바뀌어야 한다. 고정 대기로 판단하지 않고 5초마다 다시 본다.
+4. 그동안 server를 5초마다 70초 동안 관찰한다. 모든 표본이 Ready이고 restart가 늘지 않아야 한다(kubelet probe 통과).
+5. label 허용 정책을 더하면 허용 client는 120초 안에 `OPEN`, label 없는 client는 계속 `TIMEOUT`이어야 한다.
+6. 끝나면 `pulsemetry-np-probe` namespace만 지운다.
 
-**N4 허용 시험(5~7단계 뒤).** Prometheus에서 `up{job=~"loki|tempo|otel-platform"}`이 모두 1이고, Fluent Bit의 Loki 출력
+- 결과는 `OPEN`·`TIMEOUT`·`REFUSED`·`DNS_FAIL`·`TOOL_ERROR`·`JOB_FAILED`로 나뉜다. VPC CNI 정책은 패킷을 버리므로 차단은 `TIMEOUT`이다.
+  `REFUSED`·`DNS_FAIL` 등은 차단 성공으로 세지 않는다.
+- 3에서 `TIMEOUT`이 되지 않으면 **강제되지 않는 것이다.** 멈추고 "Pod 단위 접근 제한 없음(SG 범위만)"으로 보고한다. 대안은 다시 정한다.
+- 4에서 NotReady가 되면 증거의 events·probe 실패 원인을 본다. **kubelet probe가 막혔을 수 있다.** 멈춘다.
+  노드와 Pod가 같은 subnet을 쓰므로 노드 대역 ipBlock 허용은 정책을 무력화한다 — 그렇게 우회하지 않는다.
+
+**N5 허용·차단 대조(5~7단계 뒤, 운영 정책을 지우지 않는다).**
+
+```bash
+node scripts/observability-networkpolicy-probe.mjs --phase n5 --output <새 증거 파일>
+```
+
+SG는 apps → 관측을 3100·4318만 연다. 관측 노드끼리는 모두 열려 있다. 그래서 apps 풀 송신자의 Tempo 3200·4317·Collector 8888 실패는
+SG만으로도 생기므로 정책 증거가 아니다. 관측 풀(toleration 포함)의 송신자가 그 포트들의 정책 차단을 입증한다.
+
+| 대상 | 허용 송신자 대조 | 비허용 송신자(label `app.kubernetes.io/name=np-probe-stranger`) |
+|---|---|---|
+| Loki 3100 | Grafana·Prometheus 포트 연결, Fluent Bit Loki 출력 처리량 | apps 풀(`pulsemetry-dev`, `pulsemetry-dev-logs`)·관측 풀 |
+| Tempo 3200 | Grafana·Prometheus 포트 연결 | 관측 풀 |
+| Tempo 4317 | Collector의 Tempo 전송 span(동작) | 관측 풀 |
+| Collector 4318 | Gateway·ingest trace가 Tempo에서 검색됨(동작) | apps 풀·관측 풀 |
+| Collector 8888 | Prometheus 포트 연결 | 관측 풀 |
+
+- 사전조건: 세 NetworkPolicy, 그 정책을 가리키는 PolicyEndpoints, 대상 Pod Ready, 대상 Service port = container port.
+  하나라도 어긋나면 모든 결과가 `INCONCLUSIVE`다.
+- 판정: 비허용 송신자가 `TIMEOUT`이면서 SG가 그 경로를 열고, 같은 목적지·포트의 허용 대조가 성공했을 때만 `BLOCKED_BY_POLICY`다.
+  SG가 막는 경로는 `SG_ALSO_BLOCKS`로 남기고, 그 밖의 실패는 `INCONCLUSIVE`다. `OPEN`은 `NOT_BLOCKED`이며 실패다.
+- 포트 연결 대조와 동작 대조를 따로 기록한다. 동작 대조가 0이면 통신량이 없는 것이라 `PENDING`이다(trace를 켜기 전 4317·4318).
+  9단계(tracing) 뒤에 n5를 다시 돌려 `PENDING`을 닫는다.
+- 증거에는 송신자의 namespace·label·노드 풀, 목적지·포트, 기대·실제 결과와 판정이 남는다. 시험 Job은 표시 label로만 지운다.
+- `NOT_BLOCKED`가 나오면 정책·selector를 고치기 전에는 내부 접근이 제한됐다고 보고하지 않는다.
+
+**동작 확인(N4, 5~10단계에 걸쳐).** Prometheus에서 `up{job=~"loki|tempo|otel-platform"}`이 모두 1이고, Fluent Bit Loki 출력의
 `fluentbit_output_errors_total`·`fluentbit_output_retries_failed_total`이 늘지 않으며 Loki 수신 줄 수가 는다.
-Grafana의 Loki·Tempo datasource health가 OK다. tracing을 켠 뒤에는 Collector의 `otelcol_receiver_accepted_spans`가 는다.
-
-**N5 차단 시험.** 허용 label이 없는 일회용 Pod에서 모두 timeout이어야 한다.
-
-```bash
-for ns in pulsemetry-dev pulsemetry-dev-logs; do
-  kubectl -n "$ns" run "np-stranger-$RANDOM" --rm -i --restart=Never --image="$IMAGE" --labels=app.kubernetes.io/name=np-probe \
-    --overrides='{"spec":{"nodeSelector":{"pulsemetry.io/workload":"apps"}}}' --command -- sh -c '
-      for t in pulsemetry-loki.pulsemetry-observability.svc:3100 pulsemetry-tempo.pulsemetry-observability.svc:3200 \
-               pulsemetry-tempo.pulsemetry-observability.svc:4317 pulsemetry-otel-platform.pulsemetry-observability.svc:4318; do
-        if nc -z -w 5 ${t%:*} ${t#*:}; then echo "OPEN $t"; else echo "blocked $t"; fi
-      done'
-done
-```
-
-`OPEN`이 하나라도 나오면 정책·selector를 확인하고, 고치기 전에는 내부 접근이 제한됐다고 보고하지 않는다.
+Grafana의 Loki·Tempo datasource health가 OK다. 이것은 포트 시험이 아니라 실제 로그·trace 전송 확인이다.
 
 복구는 단계 역순이다.
-0. NetworkPolicy: 먼저 세 release를 `--set networkPolicy.enabled=false`로 upgrade하고 `kubectl get networkpolicy,policyendpoints -n pulsemetry-observability`가
+0. NetworkPolicy: 먼저 세 release를 `--set ingressPolicy.enabled=false`로 upgrade하고 `kubectl get networkpolicy,policyendpoints -n pulsemetry-observability`가
    비었는지 본다. 그다음 platform release를 `--set networkPolicyController.enabled=false`로 upgrade한다. 정책을 남긴 채 controller만 끄지 않는다.
 1. trace 문제: runtime-values의 `platformTracing`을 지우고 생성기·앱을 다시 적용한다(앱은 Tracer NOOP으로 돌아간다). Kafka payload·offset·모드는 바꾸지 않는다.
 2. Loki 출력 문제: Fluent Bit을 overlay 없이 정적 → generated로 다시 적용한다. CloudWatch·tail DB·buffer는 그대로다.

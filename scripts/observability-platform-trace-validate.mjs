@@ -200,7 +200,7 @@ const rejects = [
   ['loki', ['--set', 'loki.loki.ingester.wal.replay_memory_ceiling=null']],
   ['loki', ['--set', 'loki.loki.ingester.wal.replay_memory_ceiling=4GB']],
   ['loki', ['--set', 'loki.loki.ingester.wal.replay_memory_ceiling=768MB']],
-  ['loki', ['--set-json', 'networkPolicy.ingress=[{"ports":[3100]}]']],
+  ['loki', ['--set-json', 'ingressPolicy.ingress=[{"ports":[3100]}]']],
   ['tempo', ['--set', 'tempo.persistence.enableStatefulSetAutoDeletePVC=true']],
   ['tempo', ['--set', 'tempo.replicas=2']],
   ['tempo', ['--set', 'tempo.tempo.tag=3.1.0']],
@@ -218,11 +218,53 @@ for (const wrapper of Object.keys(RELEASES)) {
   assert.notEqual(result.status, 0, `${wrapper}: 다른 namespace가 허용됨`);
 }
 
-// live N2 강제 시험 자원(관측 런북): 일회용 namespace와 이미 고정한 Prometheus 이미지만 쓴다.
-const probeFiles = ['probe.yaml', 'deny-all.yaml', 'allow-labeled.yaml'].map(name => resolve(root, 'helm/observability/tests/networkpolicy', name));
-const probeDocs = probeFiles.flatMap(path => loadAll(readFileSync(path, 'utf8')).filter(Boolean));
-assert.ok(probeDocs.every(x => (x.kind === 'Namespace' ? x.metadata.name : x.metadata.namespace) === 'pulsemetry-np-probe'), 'N2 시험은 일회용 namespace만 쓴다');
-assert.equal(probeDocs.find(x => x.kind === 'Pod').spec.containers[0].image, lock.localRemoteWriteVerification.prometheusImage, 'N2 시험 이미지는 고정 digest다');
+// AWS 고려사항: 정책이 걸린 포트의 Service port는 container port와 같아야 하고, 이름 있는 포트면 같은 이름이다.
+for (const [wrapper, expected] of Object.entries(ALLOW)) {
+  const containerPorts = rendered[wrapper].find(x => x.kind === 'StatefulSet').spec.template.spec.containers[0].ports;
+  for (const port of Object.keys(expected.ports).map(Number)) {
+    const containerPort = containerPorts.find(x => x.containerPort === port);
+    // headless Service는 DNS가 Pod IP를 바로 주므로 Service port 변환이 없다. ClusterIP Service만 본다.
+    for (const service of rendered[wrapper].filter(x => x.kind === 'Service' && x.spec.clusterIP !== 'None')) {
+      const servicePort = service.spec.ports.find(x => x.port === port);
+      if (!servicePort || !containerPort) continue;
+      assert.ok(servicePort.targetPort === port || (servicePort.targetPort === containerPort.name && servicePort.name === containerPort.name),
+        `${service.metadata.name}:${port}는 container port와 같은 번호·이름이어야 한다`);
+    }
+  }
+}
+
+// live N2·N5 시험 자원(관측 런북). 시험 스크립트가 실제로 띄울 manifest를 그대로 검사한다.
+const probeRender = spawnSync(process.execPath, [resolve(root, 'scripts/observability-networkpolicy-probe.mjs'), '--render-only'], { encoding: 'utf8', timeout: 60_000 });
+assert.equal(probeRender.status, 0, probeRender.stderr);
+const probeDocs = loadAll(probeRender.stdout).filter(Boolean);
+const probeFiles = [resolve(temp, 'networkpolicy-probe.yaml')];
+writeFileSync(probeFiles[0], probeRender.stdout);
+assert.ok(!probeDocs.some(x => x.kind === 'Pod'), 'AWS는 controller 없는 독립 Pod의 정책 적용을 보장하지 않는다 — Deployment·Job만 쓴다');
+const probeServer = probeDocs.find(x => x.kind === 'Deployment');
+assert.equal(probeServer.metadata.namespace, 'pulsemetry-np-probe');
+const probeServerPort = probeServer.spec.template.spec.containers[0].ports[0];
+const probeService = probeDocs.find(x => x.kind === 'Service').spec.ports[0];
+assert.ok(probeService.port === probeServerPort.containerPort && probeService.name === probeServerPort.name, 'N2 Service port = container port');
+for (const doc of probeDocs.filter(x => ['Deployment', 'Job'].includes(x.kind))) {
+  const pod = doc.spec.template.spec;
+  assert.equal(pod.containers[0].image, lock.localRemoteWriteVerification.prometheusImage, `${doc.metadata.name}: 고정 digest 이미지`);
+  if (pod.nodeSelector['pulsemetry.io/workload'] === 'observability') {
+    assert.ok(pod.tolerations?.some(x => x.key === 'workload' && x.value === 'observability' && x.effect === 'NoSchedule'), `${doc.metadata.name}: 관측 풀 toleration`);
+  }
+}
+// N5 시험 송신자는 어느 정책의 어느 포트에도 허용되지 않아야 한다. 관측 풀 송신자가 있어야 Tempo·Collector 8888의 정책 차단을 SG와 구분한다.
+const strangerJobs = probeDocs.filter(x => x.kind === 'Job' && x.metadata.name.startsWith('np-n5-'));
+assert.ok(strangerJobs.some(x => x.spec.template.spec.nodeSelector['pulsemetry.io/workload'] === 'observability' && x.metadata.namespace === namespace), '관측 풀 시험 송신자');
+for (const doc of strangerJobs) {
+  const sender = { namespace: doc.metadata.namespace, labels: doc.spec.template.metadata.labels };
+  for (const [wrapper, expected] of Object.entries(ALLOW)) {
+    const policy = rendered[wrapper].find(x => x.kind === 'NetworkPolicy');
+    for (const port of Object.keys(expected.ports).map(Number)) {
+      const allowedFor = policy.spec.ingress.some(rule => (!rule.ports || rule.ports.some(x => x.port === port)) && rule.from.some(peer => matches(peer, sender)));
+      assert.equal(allowedFor, false, `${doc.metadata.name} → ${wrapper}:${port}는 막혀야 한다`);
+    }
+  }
+}
 
 if (process.env.KUBECONFORM_BIN) {
   const path = resolve(temp, 'platform-trace.yaml');
