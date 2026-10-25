@@ -195,7 +195,7 @@
     {
       "type": "table",
       "title": "구성요소별 수집 상태",
-      "description": "현재 상태는 scrape 결과다. 정상·일부 실패(기대 target 수 미달 포함)·전체 실패·대상 없음을 구분하고, k6는 remote-write 수신 유무만 본다. 선택 기간 수집률은 예정 scrape 중 성공 비율이며, 빈 칸은 그 기간에 대상이 없었거나 기록 규칙 결과가 없다는 뜻이다. 마지막 성공 후 경과가 빈 칸이면 24시간 안에 성공한 scrape가 없다. 업무 이벤트 유무는 각 상세 화면에서 본다.",
+      "description": "현재 상태는 scrape 결과다. 정상·일부 실패(기대 target 수 미달 포함)·전체 실패·대상 없음을 구분하고, k6는 remote-write 수신 유무만 본다. 선택 기간 수집률은 예정 scrape 중 성공 비율이며, 빈 칸은 그 기간에 대상이 없었거나 기록 규칙 결과가 없다는 뜻이다. 마지막 성공 후 경과가 빈 칸이면 24시간 내 성공 기록이 없거나 기록 규칙 결과가 없는 상태다. Prometheus targets와 rules 상태를 함께 확인한다. 업무 이벤트 유무는 각 상세 화면에서 본다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
