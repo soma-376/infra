@@ -1,0 +1,124 @@
+# Loki 단일 바이너리(ADR-0039). upstream chart 값은 `loki:` 아래에 둔다.
+# dev 소량 운영의 시작점이다. HA·장기 보관·수평 확장은 보장하지 않는다.
+loki:
+  deploymentMode: Monolithic
+  # Grafana·Fluent Bit이 쓰는 고정 주소 `pulsemetry-loki.pulsemetry-observability.svc:3100`.
+  fullnameOverride: pulsemetry-loki
+  # 단일 replica가 준비되기 전에도 memberlist가 자기 주소를 찾게 한다. 그렇지 않으면 첫 기동에서 cluster join이 실패할 수 있다.
+  memberlist:
+    service:
+      publishNotReadyAddresses: true
+  # 규칙 sidecar를 끄므로 namespace 밖을 볼 ClusterRole이 필요 없다.
+  rbac:
+    namespaced: true
+  loki:
+    image:
+      tag: 3.7.8
+      digest: sha256:1107dd5274e0ada47e42472b7a7e71f3b2a2fe878878108f3e2f9e51528f0193
+    auth_enabled: false
+    commonConfig:
+      replication_factor: 1
+      path_prefix: /var/loki
+    storage:
+      type: filesystem
+    schemaConfig:
+      configs:
+        - from: "2026-10-01"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: loki_index_
+            period: 24h
+    # WAL 복구는 replay_memory_ceiling까지 메모리에 올리고 넘으면 그 자리에서 flush한다. 기본 4GB는 Pod limit 1Gi보다 커서
+    # WAL이 쌓인 뒤 재시작하면 복구 중 OOM이 날 수 있다. 단일 바이너리라 같은 프로세스가 index·compactor도 쓰므로 limit의 절반으로 둔다.
+    ingester:
+      wal:
+        replay_memory_ceiling: 512MB
+    # 보존은 디스크 상한이 아니다. 저장 증가량을 실측해 PVC·보존을 다시 정한다.
+    limits_config:
+      retention_period: 72h
+      reject_old_samples: true
+      reject_old_samples_max_age: 72h
+      max_query_lookback: 72h
+      # stream label은 environment·cluster·namespace·service_name·container 다섯이다.
+      max_label_names_per_series: 8
+      # limit 1Gi가 버티는 수신 속도로 묶는다. 로컬에서 5MB/s 지속 수신은 1분 안에 OOM이 났다(2026-10-25).
+      # dev 앱 로그는 7일 평균 0.1KB/s·1분 최대 0.3KB/s다(CloudWatch IncomingBytes). burst는 Fluent Bit chunk(보통 약 2MB, 엄격한 상한은 아니다)보다
+      # 넉넉하게 둔다. burst보다 큰 요청은 기다려도 받지 않으므로 Fluent Bit Loki 출력의 drop·Loki rate_limited 지표로 본다.
+      # 근거와 측정은 scripts/observability-loki-capacity.mjs의 증거 파일이다.
+      ingestion_rate_mb: 2
+      ingestion_burst_size_mb: 4
+    compactor:
+      retention_enabled: true
+      delete_request_store: filesystem
+      working_directory: /var/loki/compactor
+      compaction_interval: 10m
+      retention_delete_delay: 2h
+    analytics:
+      reporting_enabled: false
+  singleBinary:
+    replicas: 1
+    resources:
+      requests: {cpu: 250m, memory: 512Mi}
+      limits: {cpu: "1", memory: 1Gi}
+    nodeSelector:
+      kubernetes.io/arch: arm64
+      pulsemetry.io/workload: observability
+    tolerations:
+      - key: workload
+        operator: Equal
+        value: observability
+        effect: NoSchedule
+    persistence:
+      enabled: true
+      size: 20Gi
+      storageClass: gp3-observability
+      # upstream 기본값은 Delete다. StatefulSet 삭제·축소로 로그 PVC가 지워지지 않게 Retain을 명시한다.
+      enableStatefulSetAutoDeletePVC: true
+      whenDeleted: Retain
+      whenScaled: Retain
+  # 이번 범위에 필요 없는 구성요소는 끈다(ADR-0039). 검증기가 렌더 결과에서 다시 확인한다.
+  gateway:
+    enabled: false
+  lokiCanary:
+    enabled: false
+  test:
+    enabled: false
+  chunksCache:
+    enabled: false
+  resultsCache:
+    enabled: false
+  memcached:
+    enabled: false
+  minio:
+    enabled: false
+  sidecar:
+    rules:
+      enabled: false
+  read:
+    replicas: 0
+  write:
+    replicas: 0
+  backend:
+    replicas: 0
+
+# 수신 허용 송신자(ADR-0039). 다른 chart Pod의 실제 label이다 — 검증기가 렌더 결과와 dev label fixture로 대조한다.
+# 끄면(enabled: false) 정책이 사라진다. 복구 순서는 런북 PROJ-256 절을 따른다.
+# key 이름이 upstream chart의 networkPolicy와 겹치면 Helm 병합 경고가 나므로 ingressPolicy로 둔다.
+ingressPolicy:
+  enabled: true
+  name: pulsemetry-loki-ingress
+  podSelector:
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/component: single-binary
+  ingress:
+    # Fluent Bit 배송·Grafana 조회·Prometheus scrape는 모두 HTTP 3100이다.
+    - ports: [3100]
+      from:
+        - {namespace: pulsemetry-dev-logs, podLabels: {app.kubernetes.io/name: fluent-bit}}
+        - {namespace: pulsemetry-observability, podLabels: {app.kubernetes.io/name: grafana}}
+        - {namespace: pulsemetry-observability, podLabels: {app.kubernetes.io/name: prometheus}}
+    # memberlist·gRPC는 Loki 자신만 쓴다(Pod IP로 자기에게 붙는다).
+    - from:
+        - {namespace: pulsemetry-observability, podLabels: {app.kubernetes.io/name: loki, app.kubernetes.io/component: single-binary}}

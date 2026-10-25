@@ -1,0 +1,72 @@
+{
+  "scope": "local-loki-tempo-collector-grafana-only",
+  "runId": "loki-tempo-smoke/0f983321a606",
+  "status": "PASS",
+  "images": {
+    "loki": "docker.io/grafana/loki@sha256:1107dd5274e0ada47e42472b7a7e71f3b2a2fe878878108f3e2f9e51528f0193",
+    "tempo": "docker.io/grafana/tempo:3.1.0@sha256:3076b8dcdfb32fd6bc5ccef85e7b7313e6199b9cb84366257fc17ecb696db5fd",
+    "collector": "otel/opentelemetry-collector-k8s@sha256:2fed8ff024bdb42473890724fa0833bd31e16197aa4790d8e0be3829f87f0de1",
+    "grafana": "grafana/grafana:12.3.1@sha256:2175aaa91c96733d86d31cf270d5310b278654b03f5718c59de12a865380a31f"
+  },
+  "memoryLimits": {
+    "loki": "1Gi",
+    "tempo": "1Gi",
+    "collector": "512Mi",
+    "grafana": "512Mi"
+  },
+  "checks": {
+    "readOnlyRootNonRoot": "PASS",
+    "lokiLogRoundTrip": {
+      "status": "PASS",
+      "seconds": 0.016
+    },
+    "tempoTraceRoundTrip": {
+      "status": "PASS",
+      "seconds": 2.033,
+      "keptAttributes": [
+        "pulsemetry.outcome"
+      ],
+      "keptExceptionEventAttributes": [
+        "exception.type"
+      ],
+      "noEventErrorStatusCleared": true
+    },
+    "within60Seconds": "PASS",
+    "grafanaDatasources": "PASS",
+    "lokiWalReplayAfterKill": {
+      "status": "PASS",
+      "seconds": 19.467,
+      "walDir": "/var/loki/wal",
+      "replayMemoryCeiling": "512MB"
+    },
+    "collectorQueueSurvivesRestart": "PASS",
+    "tempoDataSurvivesRestart": "PASS"
+  },
+  "failures": [],
+  "coverage": {
+    "verified": [
+      "chart memory limit(swap 없음) 아래 기동",
+      "Loki push·조회",
+      "Collector→Tempo 왕복과 민감 속성·예외 event 내용·status 설명 삭제(event 없는 ERROR span 포함)",
+      "Grafana datasource health·$$ 매크로·Loki 조회",
+      "Loki SIGKILL 재시작의 WAL 복구",
+      "Collector queue 재시작 보존",
+      "Tempo 재시작 보존"
+    ],
+    "notVerified": [
+      "Fluent Bit 병행 배송(observability-fluent-bit-loki-harness.mjs가 CloudWatch 대역으로 맡는다. 실제 CloudWatch는 live)",
+      "Grafana UI의 로그↔trace 클릭",
+      "실제 앱 요청의 Kafka commit·ClickHouse 저장",
+      "NetworkPolicy 강제·차단",
+      "dev 배포",
+      "Loki 수신 상한·장시간 메모리·WAL 복구 부하(observability-loki-capacity.mjs가 맡는다)"
+    ]
+  },
+  "syntheticTraceIds": [
+    "18a82b0094e6c2e86c210fb78209c7a8",
+    "ba771499f15c4c9789d14239148f836b",
+    "0816e4cadb98ca9aa3fb76488dbe5c2d"
+  ],
+  "seconds": 62.446,
+  "finishedAt": "2026-10-25T09:57:06.319Z"
+}

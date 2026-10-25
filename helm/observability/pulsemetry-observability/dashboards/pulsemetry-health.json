@@ -1018,6 +1018,256 @@
           "targetBlank": false
         }
       ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Loki·Tempo·플랫폼 Collector 수집 상태",
+      "description": "scrape 성공(1)·실패(0)다. 빈 시계열은 세 release가 아직 없거나 ServiceMonitor가 대상을 찾지 못한 것이다(ADR-0039).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=~\"loki|tempo|otel-platform\",cluster=\"$cluster\"}",
+          "legendFormat": "{{job}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 16,
+      "gridPos": {
+        "x": 12,
+        "y": 56,
+        "w": 12,
+        "h": 8
+      },
+      "links": [
+        {
+          "title": "같은 시간·서비스·Pod의 진단 로그",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "플랫폼 trace span 흐름 / 초",
+      "description": "Collector가 받은·Tempo로 보낸·거부한 span이다. 거부는 memory_limiter 등으로 수신을 막은 것이다. sampling(기본 10%) 뒤의 수라 요청 수와 다르다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(otelcol_receiver_accepted_spans{job=\"otel-platform\",cluster=\"$cluster\"}[$__rate_interval]))",
+          "legendFormat": "받음",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(otelcol_exporter_sent_spans{job=\"otel-platform\",cluster=\"$cluster\"}[$__rate_interval]))",
+          "legendFormat": "Tempo로 보냄",
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(otelcol_receiver_refused_spans{job=\"otel-platform\",cluster=\"$cluster\"}[$__rate_interval]))",
+          "legendFormat": "거부",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 17,
+      "gridPos": {
+        "x": 0,
+        "y": 64,
+        "w": 12,
+        "h": 8
+      },
+      "links": [
+        {
+          "title": "같은 시간·서비스·Pod의 진단 로그",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Collector 전송 queue 사용률",
+      "description": "file_storage PVC에 둔 전송 queue의 사용률이다. Tempo 장애 동안 쌓이고 복구 뒤 줄어든다. 80% 이상이 10분 이어지면 경보한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(otelcol_exporter_queue_size{job=\"otel-platform\",cluster=\"$cluster\"} / otelcol_exporter_queue_capacity{job=\"otel-platform\",cluster=\"$cluster\"})",
+          "legendFormat": "queue 사용률",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 18,
+      "gridPos": {
+        "x": 12,
+        "y": 64,
+        "w": 12,
+        "h": 8
+      },
+      "links": [
+        {
+          "title": "같은 시간·서비스·Pod의 진단 로그",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Loki 수신 줄·Tempo 수신 span / 초",
+      "description": "Loki distributor가 받은 로그 줄과 Tempo distributor가 받은 span이다. Fluent Bit의 Loki 출력 재시도·폐기는 위 로그 전송 패널(name=loki.*)에서 본다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(loki_distributor_lines_received_total{job=\"loki\",cluster=\"$cluster\"}[$__rate_interval]))",
+          "legendFormat": "Loki 줄",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(tempo_distributor_spans_received_total{job=\"tempo\",cluster=\"$cluster\"}[$__rate_interval]))",
+          "legendFormat": "Tempo span",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 19,
+      "gridPos": {
+        "x": 0,
+        "y": 72,
+        "w": 12,
+        "h": 8
+      },
+      "links": [
+        {
+          "title": "같은 시간·서비스·Pod의 진단 로그",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
     }
   ]
 }

@@ -1,7 +1,7 @@
 # PROJ-191 관측 차트
 
-Gateway HTTP ACK부터 MSK·Pipeline·ClickHouse 적재까지 같은 UTC 구간으로 진단한다. 애플리케이션 분산
-trace를 구성하는 작업은 아니다. 운영 적용 순서와 로그/노드 진단은
+Gateway HTTP ACK부터 MSK·Pipeline·ClickHouse 적재까지 같은 UTC 구간으로 진단한다. 플랫폼 trace·Loki는
+아래 Loki·Tempo 절(ADR-0039, Proposed)의 별도 release가 맡는다. 운영 적용 순서와 로그/노드 진단은
 [dev 관측 런북](../../docs/runbooks/dev-observability.md)을 따른다. 이 디렉터리의 로컬 검증 결과는 AWS 배포 완료를 뜻하지 않는다.
 
 ## 고정 구성과 수명
@@ -24,6 +24,29 @@ ARM64 manifest 확인이며 실제 EKS 기동 검증과 구분한다. k6는 1.8.
   앱·ClickHouse·관측 노드의 taint를 허용하는 DaemonSet이다. 서비스는 모두 ClusterIP다.
 - `gp3-observability` StorageClass와 PVC는 보존한다. Helm uninstall/rollback이 데이터 삭제 절차가 아니다.
   Alertmanager와 외부 알림 채널은 포함하지 않는다. 규칙 상태는 Prometheus/Grafana에서 확인한다.
+
+## Loki·Tempo·플랫폼 Collector (ADR-0039, Proposed)
+
+같은 namespace의 독립 release 셋이다. 각 wrapper chart(`loki/`·`tempo/`·`otel-platform/`)가 upstream chart를 감싸고,
+[dependencies.lock.json](dependencies.lock.json)의 `charts`가 archive SHA256을, wrapper values가 이미지 index digest를 고정한다.
+이미지 ARM64 증거는 [platform-trace 이미지](tests/fixtures/arm64-platform-trace-images.json)다
+(`observability-image-contract.py --set platform-trace`).
+
+| release | upstream chart | 이미지 | 저장 | 보존 |
+|---|---|---|---|---|
+| loki | grafana-community loki 18.15.1 | grafana/loki 3.7.8 | filesystem PVC 20Gi | 72h |
+| tempo | grafana-community tempo 3.1.0 | grafana/tempo 3.1.0 | local PVC 20Gi | 48h |
+| otel-platform | opentelemetry-collector 0.175.1 | otelcol-k8s 0.161.0 | queue PVC 1Gi | — |
+
+- Loki는 Monolithic 1 replica다. MinIO·gateway·canary·cache·규칙 sidecar를 끄고 ClusterRole을 만들지 않는다.
+- Tempo 수신은 OTLP/gRPC 4317 하나다. upstream Service의 9411·55680 고정 포트에는 listener가 없다.
+- Collector는 trace pipeline 하나만 연다. 앱이 실수로 보낸 URL·SQL·인증 헤더 속성은 `attributes`가, 예외 event의 메시지·stack과 status 설명은 `transform`이 저장 전에 지운다.
+- Loki WAL 복구 메모리는 512MB(limit 1Gi의 절반)로 명시한다. wrapper가 누락·초과를 렌더 단계에서 거부한다.
+- Loki 수신 상한 2MiB/s·burst 4MiB·limit 1Gi는 [용량 증거](tests/loki-tempo/capacity-verification.json)로 정한 조합이다. 검증기가 세 값을 함께 고정한다.
+- 각 wrapper가 수신 NetworkPolicy 하나를 둔다(`ingressPolicy` values). 허용 송신자 selector는 검증기가 렌더 결과와
+  [dev 조회 label](tests/fixtures/dev-pod-labels.json)로 대조한다. 강제는 platform chart의 controller ConfigMap이 켜고, live 강제·차단 시험은
+  `scripts/observability-networkpolicy-probe.mjs`(N2 일회용 namespace, N5 허용·차단 대조)와 [시험 자원](tests/networkpolicy/)으로 한다.
+- 세 release 모두 PVC Retain, 비루트·읽기 전용 root, ClusterIP다. 설치·복구는 [관측 런북](../../docs/runbooks/dev-observability.md)의 PROJ-256 절을 따른다.
 
 ## 재현과 설치
 

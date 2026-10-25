@@ -44,6 +44,26 @@ test('추가 metrics ingress는 관측 SG로 제한하고 관측 역할에 Kafka
   }
 });
 
+test('관측 노드는 Loki 3100을 앱·ClickHouse 노드에서, 플랫폼 trace 4318을 앱 노드에서만 받는다 (ADR-0039)', () => {
+  const rules = Object.values(network.findResources('AWS::EC2::SecurityGroupIngress')) as any[];
+  const into = (port: number) => rules.filter(rule => rule.Properties.FromPort === port && rule.Properties.ToPort === port);
+  const loki = into(3100);
+  expect(loki).toHaveLength(2);
+  for (const rule of loki) {
+    expect(JSON.stringify(rule.Properties.GroupId)).toContain('DevEksObservabilityNodeSg');
+    expect(rule.Properties.CidrIp).toBeUndefined();
+  }
+  expect(loki.map(rule => JSON.stringify(rule.Properties.SourceSecurityGroupId)).sort().join()).toMatch(/DevEksAppNodeSg.*DevEksClickhouseNodeSg/);
+  const otlp = into(4318);
+  expect(otlp).toHaveLength(1);
+  expect(JSON.stringify(otlp[0].Properties.GroupId)).toContain('DevEksObservabilityNodeSg');
+  expect(JSON.stringify(otlp[0].Properties.SourceSecurityGroupId)).toContain('DevEksAppNodeSg');
+  // 관측 SG로 들어오는 앱·ClickHouse 출처 규칙은 위 셋뿐이다.
+  const fromWorkloads = rules.filter(rule => JSON.stringify(rule.Properties.GroupId).includes('DevEksObservabilityNodeSg')
+    && /DevEksAppNodeSg|DevEksClickhouseNodeSg/.test(JSON.stringify(rule.Properties.SourceSecurityGroupId)));
+  expect(fromWorkloads).toHaveLength(3);
+});
+
 test('Grafana는 CloudWatch 지표 조회와 지정 log group 조회 권한만 받는다', () => {
   const [, policy] = Object.entries(eks.findResources('AWS::IAM::Policy')).find(([id]) => id.startsWith('ObservabilityGrafana'))! as [string, any];
   const actions = policy.Properties.PolicyDocument.Statement.flatMap((statement: any) => [statement.Action].flat());

@@ -225,6 +225,10 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
   });
   const consumer = ['dual', 'kafka'].includes(runtime.ingestMode);
   const jvm = runtime.jvmGcSafepointLog ? { jvm: { gcSafepointLog: true } } : {};
+  // 플랫폼 trace는 관측 namespace의 고정 Collector 주소로만 보낸다. 끄면 values에 넣지 않아 Pod template이 바뀌지 않는다. (ADR-0039)
+  const tracing = runtime.platformTracing?.enabled
+    ? { tracing: { enabled: true, endpoint: PLATFORM_TRACE_ENDPOINT, sampleProbability: String(runtime.platformTracing.sampleProbability ?? 0.1), cluster: clusterName } }
+    : {};
   const values = {
     'base.yaml': { nodeRoleName, subnetIds, appNodeSecurityGroupId: appSg, clickhouseNodeSecurityGroupId: chSg, clickhouseAvailabilityZone: zone, observabilityNodeSecurityGroupId: obsSg },
     'lbc.yaml': { clusterName, region, vpcId },
@@ -242,7 +246,7 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
       targetGroupBindings: binding('ValidationEnrollmentApiTargetGroupArn'),
     },
     'telemetry-ingest.yaml': {
-      image: image(images.ingest, 'ingest image'), vpcId, metrics: { enabled: true }, ...jvm,
+      image: image(images.ingest, 'ingest image'), vpcId, metrics: { enabled: true }, ...jvm, ...tracing,
       runtime: { enabled: true, secretProviderClass: 'telemetry-ingest-runtime', requiredFiles: commonFiles },
       ingestMode: runtime.ingestMode, telemetryJwt: telemetryJwt('telemetry-ingest'),
       ...(consumer ? { kafka: kafka('telemetry-ingest') } : {}),
@@ -253,7 +257,7 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
         : { targetGroupBindings: binding('ValidationTelemetryIngestTargetGroupArn') }),
     },
     'telemetry-gateway.yaml': {
-      image: image(images.gateway, 'gateway image'), vpcId, metrics: { enabled: true }, ...jvm, nodePort: Number(gatewayNodePort),
+      image: image(images.gateway, 'gateway image'), vpcId, metrics: { enabled: true }, ...jvm, ...tracing, nodePort: Number(gatewayNodePort),
       telemetryJwt: telemetryJwt('telemetry-gateway'), kafka: kafka('telemetry-gateway'),
       env: { AWS_REGION: region, PULSEMETRY_OBSERVABILITY_ENVIRONMENT: 'dev' },
       targetGroupBindings: binding('ValidationTelemetryGatewayTargetGroupArn'),
@@ -295,6 +299,8 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
   if (required('ApplicationLogGroupName') !== '/eks/dev/application') throw new Error('ApplicationLogGroupName이 런타임 계약과 다르다');
   return values;
 }
+
+const PLATFORM_TRACE_ENDPOINT = 'http://pulsemetry-otel-platform.pulsemetry-observability.svc:4318/v1/traces';
 
 const OPTIONS = ['--outputs', '--output-dir', '--enrollment-image', '--ingest-image', '--dashboard-image', '--gateway-image', '--runtime-values', '--msk-bootstrap', '--msk-nodes'];
 

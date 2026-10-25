@@ -38,6 +38,14 @@ kafka:
 jvm:
   gcSafepointLog: false
 
+# Gateway·ingest의 플랫폼 trace(ADR-0039·backend ADR 0069). 생성기가 runtime-values의 platformTracing으로 켠다.
+# 끄면 env를 렌더하지 않아 앱은 Tracer NOOP으로 지금과 같이 동작한다.
+tracing:
+  enabled: false
+  endpoint: ""
+  sampleProbability: "0.1"
+  cluster: ""
+
 # 기존 앱 이미지와의 호환을 위해 관측 이미지 배포 때만 활성화한다.
 metrics:
   enabled: false

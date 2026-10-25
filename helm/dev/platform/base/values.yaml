@@ -11,3 +11,8 @@ clickhouse:
   cpuLimit: "4"
 
 observabilityNodeSecurityGroupId: ""
+
+# 관측 namespace의 Loki·Tempo·플랫폼 Collector 수신 정책을 강제하는 controller(ADR-0039).
+# 끄기 전에 그 정책부터 지운다(런북 PROJ-256 절의 복구 순서).
+networkPolicyController:
+  enabled: true

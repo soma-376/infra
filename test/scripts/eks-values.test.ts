@@ -915,6 +915,43 @@ describe('관측 values와 전체 MSK broker 검증', () => {
   });
 });
 
+// PROJ-256: 플랫폼 trace는 runtime-values로 켜고 Gateway·ingest에만 고정 Collector 주소를 넣는다(ADR-0039).
+describe('플랫폼 trace 입력', () => {
+  const temps: string[] = [];
+  afterEach(() => temps.splice(0).forEach(temp => rmSync(temp, { recursive: true, force: true })));
+  const run = (value: unknown) => {
+    const runtime = load(readFileSync(runtimeFile, 'utf8'));
+    if (value !== undefined) runtime.platformTracing = value;
+    const result = invoke(outputs(), undefined, undefined, dump(runtime));
+    temps.push(result.temp); return result;
+  };
+  test('생략하거나 끄면 values에 넣지 않는다', () => {
+    for (const value of [undefined, { enabled: false }]) {
+      const output = run(value);
+      expect(output.result.status).toBe(0);
+      for (const file of ['telemetry-gateway.yaml', 'telemetry-ingest.yaml']) expect(output.read(file).tracing).toBeUndefined();
+    }
+  });
+  test('켜면 Gateway·ingest에만 고정 endpoint·cluster·sampling을 넣는다', () => {
+    const on = run({ enabled: true });
+    expect(on.result.status).toBe(0);
+    for (const file of ['telemetry-gateway.yaml', 'telemetry-ingest.yaml']) expect(on.read(file).tracing).toEqual({
+      enabled: true, endpoint: 'http://pulsemetry-otel-platform.pulsemetry-observability.svc:4318/v1/traces',
+      sampleProbability: '0.1', cluster: on.read('lbc.yaml').clusterName,
+    });
+    for (const file of ['enrollment-api.yaml', 'dashboard-api.yaml']) expect(on.read(file).tracing).toBeUndefined();
+    expect(run({ enabled: true, sampleProbability: 1 }).read('telemetry-ingest.yaml').tracing.sampleProbability).toBe('1');
+  });
+  test('잘못된 입력은 파일 생성 전에 거부한다', () => {
+    for (const value of [true, { enabled: 'yes' }, { enabled: true, sampleProbability: 1.5 }, { enabled: true, sampleProbability: '0.1' }, { enabled: true, endpoint: 'http://x' }]) {
+      const output = run(value);
+      expect(output.result.status).toBe(1);
+      expect(output.result.stderr).toContain('platformTracing');
+      expect(existsSync(output.dir)).toBe(false);
+    }
+  });
+});
+
 // PROJ-191: GC/safepoint stderr는 성능 비교 구간에서만 켜고 측정 대상 두 앱에만 전달한다.
 describe('JVM GC·safepoint 로그 입력', () => {
   const temps: string[] = [];

@@ -1,0 +1,26 @@
+{
+  "source": "dev EKS 읽기 전용 조회(kubectl get pods --show-labels), 2026-10-25. NetworkPolicy 송신자 selector를 대조하는 기준이다.",
+  "note": "telemetry-gateway는 조회 시점에 배포되지 않았다. spring-app chart가 workload 값으로 같은 label을 만든다(검증기가 values로 확인한다).",
+  "pods": {
+    "fluent-bit": {
+      "namespace": "pulsemetry-dev-logs",
+      "labels": { "app.kubernetes.io/name": "fluent-bit", "app.kubernetes.io/instance": "fluent-bit" }
+    },
+    "grafana": {
+      "namespace": "pulsemetry-observability",
+      "labels": { "app.kubernetes.io/name": "grafana", "app.kubernetes.io/instance": "observability" }
+    },
+    "prometheus": {
+      "namespace": "pulsemetry-observability",
+      "labels": {
+        "app.kubernetes.io/name": "prometheus",
+        "app.kubernetes.io/instance": "pulsemetry-monitoring-prometheus",
+        "operator.prometheus.io/name": "pulsemetry-monitoring-prometheus"
+      }
+    },
+    "telemetry-ingest": {
+      "namespace": "pulsemetry-dev",
+      "labels": { "app.kubernetes.io/name": "telemetry-ingest", "app.kubernetes.io/instance": "telemetry-ingest" }
+    }
+  }
+}

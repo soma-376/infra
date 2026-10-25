@@ -298,3 +298,42 @@ monitoring:
             jsonData:
               authType: default
               defaultRegion: '{{ .Values.global.pulsemetry.region }}'
+          # Loki·Tempo(ADR-0039). prune: true라 배열 전체를 선언한다 — 위 두 항목과 UID·기본값을 바꾸지 않는다.
+          # `$$`는 Grafana provisioning의 환경변수 치환을 피해 `${...}` 매크로를 그대로 남긴다.
+          - name: Loki
+            uid: pulsemetry-loki
+            type: loki
+            access: proxy
+            url: http://pulsemetry-loki.pulsemetry-observability.svc:3100
+            editable: false
+            jsonData:
+              maxLines: 1000
+              derivedFields:
+                - name: trace_id
+                  matcherType: regex
+                  matcherRegex: 'trace_id=([0-9a-f]{32})'
+                  datasourceUid: pulsemetry-tempo
+                  url: '$${__value.raw}'
+                  urlDisplayLabel: Tempo trace 열기
+          - name: Tempo
+            uid: pulsemetry-tempo
+            type: tempo
+            access: proxy
+            url: http://pulsemetry-tempo.pulsemetry-observability.svc:3200
+            editable: false
+            jsonData:
+              tracesToLogsV2:
+                datasourceUid: pulsemetry-loki
+                spanStartTimeShift: '-2m'
+                spanEndTimeShift: '2m'
+                tags:
+                  - {key: service.name, value: service_name}
+                  - {key: k8s.namespace.name, value: namespace}
+                  - {key: deployment.environment.name, value: environment}
+                  - {key: k8s.cluster.name, value: cluster}
+                customQuery: true
+                query: '{$${__tags}} |= "trace_id=$${__trace.traceId}"'
+              nodeGraph:
+                enabled: false
+              search:
+                hide: false

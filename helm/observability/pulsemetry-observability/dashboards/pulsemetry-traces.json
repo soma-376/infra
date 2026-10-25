@@ -1,0 +1,470 @@
+{
+  "uid": "pulsemetry-traces",
+  "title": "Pulsemetry · Traces",
+  "description": "플랫폼 처리 경로의 trace를 Tempo에서 찾는다. tracing 꺼짐(기본값)·sampling·보존·Collector와 Tempo 수집 실패로 비어 있을 수 있어 trace가 없다고 단정하지 않는다. 시각은 UTC다.",
+  "tags": [
+    "pulsemetry",
+    "PROJ-256"
+  ],
+  "timezone": "utc",
+  "editable": false,
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "1m",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "type": "constant",
+        "query": "__ENVIRONMENT__",
+        "hide": 2,
+        "current": {
+          "text": "__ENVIRONMENT__",
+          "value": "__ENVIRONMENT__"
+        }
+      },
+      {
+        "name": "namespace",
+        "type": "constant",
+        "query": "__TARGET_NAMESPACE__",
+        "hide": 2,
+        "current": {
+          "text": "__TARGET_NAMESPACE__",
+          "value": "__TARGET_NAMESPACE__"
+        }
+      },
+      {
+        "name": "cluster",
+        "type": "constant",
+        "query": "__CLUSTER_NAME__",
+        "hide": 2,
+        "current": {
+          "text": "__CLUSTER_NAME__",
+          "value": "__CLUSTER_NAME__"
+        }
+      },
+      {
+        "name": "service",
+        "label": "서비스",
+        "type": "custom",
+        "query": "telemetry-gateway,telemetry-ingest",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": []
+      },
+      {
+        "name": "pod",
+        "type": "constant",
+        "query": ".*",
+        "hide": 2,
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        }
+      },
+      {
+        "name": "testid",
+        "type": "constant",
+        "query": "",
+        "hide": 2,
+        "current": {
+          "text": "",
+          "value": ""
+        }
+      }
+    ]
+  },
+  "links": [
+    {
+      "type": "dashboards",
+      "title": "Pulsemetry 대시보드",
+      "tags": [
+        "pulsemetry"
+      ],
+      "keepTime": true,
+      "includeVars": true
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": false,
+        "iconColor": "rgba(255, 180, 0, 1)",
+        "name": "실행 구간과 운영 개입",
+        "type": "dashboard"
+      },
+      {
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": false,
+        "iconColor": "rgba(255, 180, 0, 1)",
+        "name": "공유 k6 실행 구간",
+        "target": {
+          "limit": 100,
+          "matchAny": false,
+          "tags": [
+            "pulsemetry-run",
+            "$testid"
+          ],
+          "type": "tags"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "text",
+      "title": "읽는 기준",
+      "id": 1,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Gateway → Kafka → ingest → ClickHouse를 지나는 **플랫폼 자체 span**만 있습니다(ADR-0039·backend ADR 0069). 고객이 보낸 OTLP의 trace는 없습니다.\n\n- dev sampling은 요청의 약 10%입니다. trace가 없는 요청은 실패가 아니라 sampling에서 빠졌을 수 있습니다.\n- 보존은 48시간입니다. 그보다 오래된 trace는 로그의 trace_id 링크로도 열리지 않습니다.\n- trace를 고르면 waterfall에서 같은 서비스·시간대의 Loki 로그로 이동합니다. 로그의 `trace_id=` 링크로도 돌아올 수 있습니다.\n- span이 하나도 없으면 Health의 Collector·Tempo 수집 상태와 앱의 `PULSEMETRY_TRACING_ENABLED`를 먼저 봅니다."
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "플랫폼 trace span 흐름 / 초",
+      "description": "Collector가 받은·Tempo로 보낸·거부한 span이다. 거부는 memory_limiter 등으로 수신을 막은 것이다. sampling(기본 10%) 뒤의 수라 요청 수와 다르다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(otelcol_receiver_accepted_spans{job=\"otel-platform\",cluster=\"$cluster\"}[$__rate_interval]))",
+          "legendFormat": "받음",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(otelcol_exporter_sent_spans{job=\"otel-platform\",cluster=\"$cluster\"}[$__rate_interval]))",
+          "legendFormat": "Tempo로 보냄",
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(otelcol_receiver_refused_spans{job=\"otel-platform\",cluster=\"$cluster\"}[$__rate_interval]))",
+          "legendFormat": "거부",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 2,
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "links": [
+        {
+          "title": "같은 시간·서비스·Pod의 진단 로그",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "최근 플랫폼 trace",
+      "description": "선택한 서비스의 최근 trace다. 행을 누르면 waterfall이 열린다.",
+      "datasource": {
+        "type": "tempo",
+        "uid": "pulsemetry-tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "pulsemetry-tempo"
+          },
+          "queryType": "traceql",
+          "query": "{ resource.service.name =~ \"${service:regex}\" }",
+          "limit": 50,
+          "tableType": "traces"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "값 없음 · tracing 설정·sampling·보존·수집 상태 확인",
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 3,
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 24,
+        "h": 10
+      }
+    },
+    {
+      "type": "table",
+      "title": "오류 span이 있는 trace",
+      "description": "status가 error인 span을 가진 trace다. 업무 결과는 span의 pulsemetry.outcome으로 본다.",
+      "datasource": {
+        "type": "tempo",
+        "uid": "pulsemetry-tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "pulsemetry-tempo"
+          },
+          "queryType": "traceql",
+          "query": "{ resource.service.name =~ \"${service:regex}\" && status = error }",
+          "limit": 50,
+          "tableType": "traces"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "값 없음 · tracing 설정·sampling·보존·수집 상태 확인",
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 4,
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 24,
+        "h": 10
+      }
+    },
+    {
+      "type": "table",
+      "title": "1초 이상 걸린 처리 시도",
+      "description": "ingest의 record 처리 시도(telemetry process) 중 1초 이상 걸린 것이다. 재시도는 같은 부모 아래 다른 span으로 보인다.",
+      "datasource": {
+        "type": "tempo",
+        "uid": "pulsemetry-tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "pulsemetry-tempo"
+          },
+          "queryType": "traceql",
+          "query": "{ name = \"telemetry process\" && duration > 1s }",
+          "limit": 50,
+          "tableType": "traces"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "값 없음 · tracing 설정·sampling·보존·수집 상태 확인",
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 5,
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 24,
+        "h": 10
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Collector 전송 queue 사용률",
+      "description": "file_storage PVC에 둔 전송 queue의 사용률이다. Tempo 장애 동안 쌓이고 복구 뒤 줄어든다. 80% 이상이 10분 이어지면 경보한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(otelcol_exporter_queue_size{job=\"otel-platform\",cluster=\"$cluster\"} / otelcol_exporter_queue_capacity{job=\"otel-platform\",cluster=\"$cluster\"})",
+          "legendFormat": "queue 사용률",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 6,
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 12,
+        "h": 8
+      },
+      "links": [
+        {
+          "title": "같은 시간·서비스·Pod의 진단 로그",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Loki·Tempo·플랫폼 Collector 수집 상태",
+      "description": "scrape 성공(1)·실패(0)다. 빈 시계열은 세 release가 아직 없거나 ServiceMonitor가 대상을 찾지 못한 것이다(ADR-0039).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=~\"loki|tempo|otel-platform\",cluster=\"$cluster\"}",
+          "legendFormat": "{{job}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 7,
+      "gridPos": {
+        "x": 12,
+        "y": 38,
+        "w": 12,
+        "h": 8
+      },
+      "links": [
+        {
+          "title": "같은 시간·서비스·Pod의 진단 로그",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    }
+  ]
+}

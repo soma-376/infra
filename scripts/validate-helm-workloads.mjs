@@ -324,7 +324,15 @@ function checkPlatform() {
   const args = chartArgs('pulsemetry-dev-platform', chart, values);
   checked(helm, ['lint', chart, '--strict', ...args.slice(2)]);
   const documents = yaml.loadAll(checked(helm, ['template', ...args])).filter(Boolean);
-  assert.equal(documents.length, 10);
+  assert.equal(documents.length, 11);
+  // NetworkPolicy controller는 ConfigMap 하나로 켠다(ADR-0039). NodeClass에 networkPolicy 필드를 쓰지 않는다 — 바꾸면 노드가 교체된다.
+  const controller = find(documents, 'ConfigMap', 'amazon-vpc-cni');
+  assert.equal(controller.metadata.namespace, 'kube-system');
+  assert.deepEqual(controller.data, { 'enable-network-policy-controller': 'true' });
+  for (const nodeClass of documents.filter(document => document.kind === 'NodeClass')) {
+    assert.equal(nodeClass.spec.networkPolicy, undefined);
+    assert.equal(nodeClass.spec.networkPolicyEventLogs, undefined);
+  }
   const namespace = find(documents, 'Namespace', 'pulsemetry-dev');
   assert.equal(namespace.metadata.annotations['helm.sh/resource-policy'], 'keep');
   const storage = find(documents, 'StorageClass', 'pulsemetry-dev-gp3');
@@ -377,7 +385,7 @@ function checkPlatform() {
   assert.deepEqual(observationPool.spec.template.spec.taints, [{ key: 'workload', value: 'observability', effect: 'NoSchedule' }]);
   assert.deepEqual(observationPool.spec.template.metadata.labels, { 'pulsemetry.io/workload': 'observability' });
   assert.deepEqual(observationPool.spec.template.spec.requirements.find(rule => rule.key === 'node.kubernetes.io/instance-type').values, ['m7g.large']);
-  checkSchema([namespace, storage, observationStorage, find(documents, 'Namespace', 'pulsemetry-observability')]);
+  checkSchema([namespace, storage, observationStorage, controller, find(documents, 'Namespace', 'pulsemetry-observability')]);
   return documents.length;
 }
 
@@ -522,6 +530,8 @@ function checkTelemetry(chart) {
     checkLiveness(pod.containers[0], mode !== 'http');
     const env = environment(ingest, 'telemetry-ingest');
     assert.equal(env.PULSEMETRY_INGEST_MODE, mode);
+    // 플랫폼 trace를 켜지 않으면 관련 env가 없다(ADR-0039).
+    assert.ok(!Object.keys(env).some(name => name.startsWith('PULSEMETRY_TRACING_') || name === 'POD_NAME'));
     // 관측 ServiceMonitor가 이 annotation을 ingest_mode target label로 옮긴다.
     assert.equal(find(ingest, 'Deployment', 'telemetry-ingest').spec.template.metadata.annotations['pulsemetry.io/ingest-mode'], mode);
     assert.deepEqual(JSON.parse(env.SPRING_APPLICATION_JSON), { pulsemetry: { 'telemetry-jwt': { 'public-key-files': TELEMETRY_FILES } } });
@@ -556,6 +566,36 @@ function checkTelemetry(chart) {
       rejects('telemetry-ingest', chart, { ...values, targetGroupBindings: [binding('validation', 'telemetry-ingest-v')] });
       rejects('telemetry-ingest', chart, { ...values, service: { type: 'NodePort' } });
     }
+  }
+
+  // 플랫폼 trace(ADR-0039): Gateway·ingest만 고정 Collector 주소·cluster·Downward API를 받는다. 직접 env 주입은 거부한다.
+  {
+    const tracing = { enabled: true, endpoint: 'http://pulsemetry-otel-platform.pulsemetry-observability.svc:4318/v1/traces', sampleProbability: '0.1', cluster: 'soma-376-dev-eks' };
+    const ingestValues = {
+      ...appValues('telemetry-ingest'), ingestMode: 'http', telemetryJwt: telemetryJwt('telemetry-ingest'), tracing,
+      runtime: { enabled: true, secretProviderClass: 'telemetry-ingest-runtime', requiredFiles: RUNTIME_FILES['telemetry-ingest'] },
+    };
+    const traced = render('telemetry-ingest', chart, ingestValues);
+    const container = find(traced, 'Deployment', 'telemetry-ingest').spec.template.spec.containers[0];
+    const byName = Object.fromEntries(container.env.map(item => [item.name, item]));
+    assert.equal(byName.PULSEMETRY_TRACING_ENABLED.value, 'true');
+    assert.equal(byName.PULSEMETRY_TRACING_OTLP_TRACES_ENDPOINT.value, tracing.endpoint);
+    assert.equal(byName.PULSEMETRY_TRACING_SAMPLE_PROBABILITY.value, '0.1');
+    assert.equal(byName.PULSEMETRY_TRACING_CLUSTER.value, 'soma-376-dev-eks');
+    assert.equal(byName.POD_NAMESPACE.valueFrom.fieldRef.fieldPath, 'metadata.namespace');
+    assert.equal(byName.POD_NAME.valueFrom.fieldRef.fieldPath, 'metadata.name');
+    for (const invalid of [
+      { ...ingestValues, tracing: { ...tracing, endpoint: 'http://collector.example.com/v1/traces' } },
+      // 플랫폼 Collector를 거치지 않는 4318 주소는 Collector의 속성 정리를 건너뛴다.
+      { ...ingestValues, tracing: { ...tracing, endpoint: 'http://other.example:4318/v1/traces' } },
+      { ...ingestValues, tracing: { ...tracing, endpoint: '' } },
+      { ...ingestValues, tracing: { ...tracing, cluster: '' } },
+      { ...ingestValues, tracing: { ...tracing, sampleProbability: '1.5' } },
+      { ...ingestValues, env: { ...ingestValues.env, PULSEMETRY_TRACING_ENABLED: 'true' } },
+      { ...ingestValues, env: { ...ingestValues.env, OTEL_EXPORTER_OTLP_ENDPOINT: 'http://x:4318' } },
+      { ...ingestValues, env: { ...ingestValues.env, POD_NAME: 'fixed' } },
+    ]) rejects('telemetry-ingest', chart, invalid);
+    rejects('enrollment-api', chart, { ...appValues('enrollment-api'), tracing });
   }
 
   // enrollment: 사용자 JWT·OIDC 맵을 유지하고 telemetry JWT 서명 설정을 같은 SPRING_APPLICATION_JSON에 합친다.

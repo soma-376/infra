@@ -1,0 +1,11 @@
+apiVersion: v2
+name: pulsemetry-tempo
+description: Pulsemetry 플랫폼 trace 저장소 — Tempo 3.x 단일 바이너리 1 replica, local backend PVC (ADR-0039)
+type: application
+version: 0.1.0
+dependencies:
+  # archive SHA256은 ../dependencies.lock.json이 고정한다. helm dependency update로 받지 않는다.
+  - name: tempo
+    alias: tempo
+    version: 3.1.0
+    repository: https://grafana-community.github.io/helm-charts

@@ -1,0 +1,9 @@
+{{- /* 고정 주소·trace 전용 pipeline·queue PVC 보존을 렌더 때 강제한다(ADR-0039). 리소스를 만들지 않는다. */ -}}
+{{- if ne .Release.Namespace "pulsemetry-observability" -}}{{ fail "Collector release namespace는 pulsemetry-observability여야 한다" }}{{- end -}}
+{{- $c := .Values.collector -}}
+{{- if ne $c.fullnameOverride "pulsemetry-otel-platform" -}}{{ fail "Collector Service 이름은 pulsemetry-otel-platform으로 고정한다" }}{{- end -}}
+{{- if or (ne $c.mode "statefulset") (ne (int $c.replicaCount) 1) -}}{{ fail "Collector는 queue PVC를 가진 단일 StatefulSet이다" }}{{- end -}}
+{{- if not $c.image.digest -}}{{ fail "Collector 이미지는 digest로 고정한다" }}{{- end -}}
+{{- $p := $c.config.service.pipelines -}}
+{{- if or $p.logs $p.metrics -}}{{ fail "플랫폼 Collector는 trace pipeline만 연다" }}{{- end -}}
+{{- if ne $c.statefulset.persistentVolumeClaimRetentionPolicy.whenDeleted "Retain" -}}{{ fail "queue PVC는 Retain이다" }}{{- end -}}

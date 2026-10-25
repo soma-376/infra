@@ -46,14 +46,15 @@
 | 0034 | [dev EKS API는 SSM 릴레이 터널을 통해 private endpoint로 접근](0034-dev-eks-private-api-via-ssm-relay.md) | Accepted (로컬 구현·검증 대상; AWS 배포·SSM·Kubernetes 접속 증거 별도) |
 | 0035 (MSK) | [dev EKS 경로의 MSK는 전용 3 AZ isolated subnet과 DevEksStack 하위 리소스로 둔다](0035-dev-msk-isolated-subnets-under-eks-stack.md) | Accepted (PROJ-246 로컬 구현·검증 대상; AWS 배포·MSK 접속 증거 별도) |
 | 0036 (telemetry Gateway) | [telemetry Gateway는 Pod Identity와 workload별 MSK 전용 역할로 dev EKS에 배포하고 OTLP 대상은 context로 전환한다](0036-dev-telemetry-gateway-workload-and-msk-iam.md) | Accepted (PROJ-246 로컬 구현·검증 대상; AWS 배포·MSK IAM·ALB 전환 증거 별도) |
-| 0037 | [dev EKS 관측은 독립 노드의 Prometheus·Grafana와 CloudWatch 시스템 로그를 사용한다](0037-dev-observability-and-system-diagnostics.md) | Accepted (PROJ-191 로컬 구현; 0028의 NodePool·로그 수집 범위 부분 대체; 실환경 검증 별도) |
+| 0037 | [dev EKS 관측은 독립 노드의 Prometheus·Grafana와 CloudWatch 시스템 로그를 사용한다](0037-dev-observability-and-system-diagnostics.md) | Accepted (PROJ-191 로컬 구현; 0028의 NodePool·로그 수집 범위 부분 대체; 실환경 검증 별도; Loki·Tempo·tracing 제외는 0039(Proposed)가 개정 제안) |
 | 0035 (dev EKS 전용) | [dev 백엔드의 ECS를 제거하고 기존 EKS를 단독 실행 환경으로 사용](0035-dev-backend-eks-only.md) | Accepted (PROJ-248 코드·문서·로컬 검증; 실제 철거·Snapshot·기능 검증 별도); DB 공개 접근 관련 부분은 [ADR 0038](0038-dev-databases-private-access-via-ssm-relay.md)로 대체 |
 | 0036 (JVM 차단 목록) | [dev JVM의 임시 인증서 차단 목록을 Helm ConfigMap으로 공급한다](0036-dev-jvm-blocked-certs-configmap.md) | Accepted (PROJ-253 임시 대응; Gateway 포함 네 앱, 실제 배포 별도, 패치 이미지 검증 후 제거) |
 | 0038 | [dev 데이터베이스는 공개 접근을 차단하고 별도 SSM 릴레이로 접속한다](0038-dev-databases-private-access-via-ssm-relay.md) | Accepted (PROJ-254 로컬 구현·검증; 실제 배포·접속 확인 별도) |
+| 0039 | [dev EKS 관측에 Loki·Tempo·플랫폼 trace Collector를 독립 release로 더하고 CloudWatch 로그와 병행한다](0039-dev-loki-tempo-and-platform-trace-collector.md) | Proposed (PROJ-256; 채택 시 0037의 Loki·Tempo·분산 tracing 제외를 대체) |
 
 병행 작업에서 사용한 `0035`·`0036`은 각각 파일명·제목·링크를 보존한다. 번호만으로 대상을 식별하지 않는다.
 
-새 ADR을 작성할 때는 다음 미사용 번호(`0039-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
+새 ADR을 작성할 때는 다음 미사용 번호(`0040-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
 
 섹션 순서는 다음과 같다. 괄호로 표시한 것은 내용이 있을 때만 둔다.
 

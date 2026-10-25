@@ -175,6 +175,70 @@ groups:
         labels:
           component: kubernetes-events
           dashboard: pulsemetry-health
+      # Loki·Tempo·플랫폼 Collector(ADR-0039).
+      - record: pulsemetry:collection_state
+        expr: |
+          max(
+            (min(up{job="loki"}) == 1) * 2
+              or (max(up{job="loki"}) == 1) * 0 + 1
+              or max(up{job="loki"}) * 0
+              or absent(up{job="loki"}) * -1
+          )
+        labels:
+          component: loki
+          dashboard: pulsemetry-diagnostics
+      - record: pulsemetry:collection_success:ratio
+        expr: avg(up{job="loki"})
+        labels:
+          component: loki
+          dashboard: pulsemetry-diagnostics
+      - record: pulsemetry:collection_last_success:timestamp
+        expr: max(timestamp(up{job="loki"}) and up{job="loki"} == 1)
+        labels:
+          component: loki
+          dashboard: pulsemetry-diagnostics
+      - record: pulsemetry:collection_state
+        expr: |
+          max(
+            (min(up{job="tempo"}) == 1) * 2
+              or (max(up{job="tempo"}) == 1) * 0 + 1
+              or max(up{job="tempo"}) * 0
+              or absent(up{job="tempo"}) * -1
+          )
+        labels:
+          component: tempo
+          dashboard: pulsemetry-traces
+      - record: pulsemetry:collection_success:ratio
+        expr: avg(up{job="tempo"})
+        labels:
+          component: tempo
+          dashboard: pulsemetry-traces
+      - record: pulsemetry:collection_last_success:timestamp
+        expr: max(timestamp(up{job="tempo"}) and up{job="tempo"} == 1)
+        labels:
+          component: tempo
+          dashboard: pulsemetry-traces
+      - record: pulsemetry:collection_state
+        expr: |
+          max(
+            (min(up{job="otel-platform"}) == 1) * 2
+              or (max(up{job="otel-platform"}) == 1) * 0 + 1
+              or max(up{job="otel-platform"}) * 0
+              or absent(up{job="otel-platform"}) * -1
+          )
+        labels:
+          component: otel-platform
+          dashboard: pulsemetry-traces
+      - record: pulsemetry:collection_success:ratio
+        expr: avg(up{job="otel-platform"})
+        labels:
+          component: otel-platform
+          dashboard: pulsemetry-traces
+      - record: pulsemetry:collection_last_success:timestamp
+        expr: max(timestamp(up{job="otel-platform"}) and up{job="otel-platform"} == 1)
+        labels:
+          component: otel-platform
+          dashboard: pulsemetry-traces
       # k6는 scrape 대상이 아니라 remote-write로 들어온다. 최근 5분 표본 유무만 판단한다.
       - record: pulsemetry:collection_state
         expr: max(group(k6_http_reqs_total) * 2 or absent(k6_http_reqs_total) * -2)
@@ -189,6 +253,29 @@ groups:
   - name: pulsemetry.alerts
     interval: 10s
     rules:
+      # Loki·Tempo·플랫폼 Collector(ADR-0039). 업무 수집 경로와 분리돼 있어 warning이다.
+      - alert: PlatformLogTraceStoreUnavailable
+        expr: |
+          absent(up{job="loki"}) or absent(up{job="tempo"}) or absent(up{job="otel-platform"})
+            or (up{job=~"loki|tempo|otel-platform"} == 0)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Loki·Tempo·플랫폼 trace Collector 중 수집할 수 없는 구성요소가 있다
+      - alert: PlatformTraceQueueHigh
+        expr: max by (cluster) (otelcol_exporter_queue_size{job="otel-platform"} / otelcol_exporter_queue_capacity{job="otel-platform"}) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 플랫폼 trace 전송 queue가 80퍼센트 이상 찼다
+      - alert: PlatformTraceSpansRefused
+        expr: sum by (cluster) (increase(otelcol_receiver_refused_spans{job="otel-platform"}[10m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: 플랫폼 trace Collector가 span을 거부했다
       - alert: GatewayMetricsUnavailable
         expr: absent(up{job="telemetry-gateway"}) or (up{job="telemetry-gateway"} == 0)
         for: 1m

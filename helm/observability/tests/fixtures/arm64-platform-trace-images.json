@@ -1,0 +1,29 @@
+{
+  "status": "PASS",
+  "scope": "registry-manifest-platform-only",
+  "set": "platform-trace",
+  "verified_at": "2026-10-23T21:30:38.241865+00:00",
+  "images": [
+    {
+      "image": "docker.io/grafana/loki:3.7.8",
+      "linux_arm64_digests": [
+        "sha256:a2753977b07471e0bb271f421677036fb1c84a2fd409e14fa19dfc7cc3b789b5"
+      ],
+      "manifest_index_sha256": "1107dd5274e0ada47e42472b7a7e71f3b2a2fe878878108f3e2f9e51528f0193"
+    },
+    {
+      "image": "docker.io/grafana/tempo:3.1.0",
+      "linux_arm64_digests": [
+        "sha256:56df098fdfe4dabc012615e970c8500b2be8f51933fb59351c8849a2cb807fb7"
+      ],
+      "manifest_index_sha256": "3076b8dcdfb32fd6bc5ccef85e7b7313e6199b9cb84366257fc17ecb696db5fd"
+    },
+    {
+      "image": "docker.io/otel/opentelemetry-collector-k8s:0.161.0",
+      "linux_arm64_digests": [
+        "sha256:364879654f565f30bd79856dd8c687d5997c435c1824c7a3063d4e298788a21f"
+      ],
+      "manifest_index_sha256": "2fed8ff024bdb42473890724fa0833bd31e16197aa4790d8e0be3829f87f0de1"
+    }
+  ]
+}

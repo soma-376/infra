@@ -90,3 +90,38 @@ spec:
           replacement: {{ .Values.global.pulsemetry.clusterName | quote }}
         - targetLabel: environment
           replacement: {{ .Values.global.pulsemetry.environment | quote }}
+{{- /* Loki·Tempo·플랫폼 Collector 자체 지표(ADR-0039). 세 release는 같은 관측 namespace에 있다. headless Service는 제외한다. */}}
+{{- range $target := list
+  (dict "job" "loki" "port" "http-metrics" "labels" (dict "app.kubernetes.io/name" "loki" "app.kubernetes.io/component" "single-binary"))
+  (dict "job" "tempo" "port" "tempo-prom-metrics" "labels" (dict "app.kubernetes.io/name" "tempo"))
+  (dict "job" "otel-platform" "port" "metrics" "labels" (dict "app.kubernetes.io/instance" "otel-platform" "app.kubernetes.io/part-of" "opentelemetry-collector")) }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $target.job }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    observability.pulsemetry.io/stack: pulsemetry
+spec:
+  namespaceSelector:
+    matchNames: [{{ $.Release.Namespace | quote }}]
+  selector:
+    matchLabels:
+      {{- toYaml $target.labels | nindent 6 }}
+    matchExpressions:
+      - key: prometheus.io/service-monitor
+        operator: NotIn
+        values: ["false"]
+  endpoints:
+    - port: {{ $target.port }}
+      path: /metrics
+      interval: 10s
+      relabelings:
+        - targetLabel: job
+          replacement: {{ $target.job }}
+        - targetLabel: cluster
+          replacement: {{ $.Values.global.pulsemetry.clusterName | quote }}
+        - targetLabel: environment
+          replacement: {{ $.Values.global.pulsemetry.environment | quote }}
+{{- end }}

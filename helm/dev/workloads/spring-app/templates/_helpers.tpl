@@ -49,7 +49,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 {{- if ne (toJson $keys) (toJson (sortAlpha $keys)) -}}{{- fail "OIDC client key는 정렬되어야 한다" -}}{{- end -}}
 {{- end -}}
+{{- if .Values.tracing.enabled -}}
+{{- if not (has .Values.workload (list "telemetry-gateway" "telemetry-ingest")) -}}{{- fail "플랫폼 trace는 telemetry-gateway·telemetry-ingest만 켠다" -}}{{- end -}}
+{{- if or (not .Values.tracing.endpoint) (not .Values.tracing.cluster) -}}{{- fail "tracing.endpoint·tracing.cluster는 생성기가 공급한다" -}}{{- end -}}
+{{- end -}}
 {{- range $name, $value := .Values.env -}}
+{{- if or (regexMatch "^PULSEMETRY_TRACING_" $name) (regexMatch "^OTEL_" $name) (has $name (list "POD_NAME" "POD_NAMESPACE")) -}}
+{{- fail (printf "%s는 env가 아닌 tracing values로 공급한다" $name) -}}
+{{- end -}}
 {{- if regexMatch "^MANAGEMENT_" $name -}}
 {{- fail "management 설정은 metrics.enabled와 backend 기본 계약을 사용한다" -}}
 {{- end -}}

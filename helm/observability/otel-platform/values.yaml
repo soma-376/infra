@@ -1,0 +1,176 @@
+# 플랫폼 trace 전용 Collector(ADR-0039). 제품 수집 경로(telemetry-ingest)와 별개다. upstream chart 값은 `collector:` 아래에 둔다.
+# trace pipeline 하나만 연다: OTLP/HTTP 수신 → memory_limiter → 속성·예외 내용 정리 → batch → Tempo(OTLP/gRPC).
+collector:
+  # 앱 송신 주소 `http://pulsemetry-otel-platform.pulsemetry-observability.svc:4318/v1/traces`.
+  fullnameOverride: pulsemetry-otel-platform
+  mode: statefulset
+  replicaCount: 1
+  # k8s 배포판은 file_storage·attributes·transform·resource를 포함한다. core 배포판에는 file_storage·transform이 없다.
+  image:
+    repository: otel/opentelemetry-collector-k8s
+    tag: "0.161.0"
+    digest: sha256:2fed8ff024bdb42473890724fa0833bd31e16197aa4790d8e0be3829f87f0de1
+  command:
+    name: otelcol-k8s
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+  nodeSelector:
+    kubernetes.io/arch: arm64
+    pulsemetry.io/workload: observability
+  tolerations:
+    - key: workload
+      operator: Equal
+      value: observability
+      effect: NoSchedule
+  # 이미지 사용자(10001)가 queue PVC에 쓸 수 있게 한다.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+  ports:
+    otlp:
+      enabled: false
+    otlp-http:
+      enabled: true
+    jaeger-compact:
+      enabled: false
+    jaeger-thrift:
+      enabled: false
+    jaeger-grpc:
+      enabled: false
+    zipkin:
+      enabled: false
+    metrics:
+      enabled: true
+  config:
+    extensions:
+      health_check:
+        endpoint: ${env:MY_POD_IP}:13133
+      # exporter queue를 PVC에 둔다. Collector 재시작 뒤에도 전송 대기 span을 이어 보낸다.
+      file_storage:
+        directory: /var/lib/otelcol/queue
+        create_directory: true
+        timeout: 2s
+    receivers:
+      jaeger: null
+      zipkin: null
+      prometheus: null
+      otlp:
+        protocols:
+          grpc: null
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      # 512Mi limit보다 낮게 잡아 OOM 전에 수신을 거부한다.
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 400
+        spike_limit_mib: 80
+        # upstream 기본 비율 값을 지운다. MiB 값과 비율 값을 함께 두지 않는다.
+        limit_percentage: null
+        spike_limit_percentage: null
+      # 앱이 허용목록 밖 속성을 실수로 보내도 저장하지 않는다(ADR 0069의 금지 항목).
+      attributes/drop-sensitive:
+        actions:
+          - {key: url.full, action: delete}
+          - {key: url.query, action: delete}
+          - {key: http.url, action: delete}
+          - {key: db.statement, action: delete}
+          - {key: db.query.text, action: delete}
+          - {key: http.request.header.authorization, action: delete}
+          - {key: exception.message, action: delete}
+          - {key: exception.stacktrace, action: delete}
+          - {key: tenant_id, action: delete}
+          - {key: installation_id, action: delete}
+      # attributes 처리기는 span 속성만 본다. recordException이 만든 event 속성과 status 설명의 예외 메시지는 여기서 지운다.
+      # 실패하면 그 batch를 내보내지 않는다(propagate). 지우지 못한 채 저장하지 않는다.
+      # 문맥을 둘로 나눈다. 한 목록에 두면 전부 spanevent 문맥으로 돌아 event 없는 span의 status 설명을 건너뛴다.
+      transform/drop-exception-detail:
+        error_mode: propagate
+        trace_statements:
+          - context: spanevent
+            statements:
+              - delete_key(spanevent.attributes, "exception.message")
+              - delete_key(spanevent.attributes, "exception.stacktrace")
+          - context: span
+            statements:
+              - set(span.status.message, "")
+      batch:
+        send_batch_size: 512
+        timeout: 5s
+    exporters:
+      debug: null
+      otlp_grpc/tempo:
+        endpoint: pulsemetry-tempo.pulsemetry-observability.svc:4317
+        tls:
+          insecure: true
+        timeout: 10s
+        sending_queue:
+          enabled: true
+          storage: file_storage
+          queue_size: 2000
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 10m
+    service:
+      extensions: [health_check, file_storage]
+      telemetry:
+        metrics:
+          readers:
+            - pull:
+                exporter:
+                  prometheus:
+                    host: ${env:MY_POD_IP}
+                    port: 8888
+      pipelines:
+        logs: null
+        metrics: null
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, attributes/drop-sensitive, transform/drop-exception-detail, batch]
+          exporters: [otlp_grpc/tempo]
+  statefulset:
+    volumeClaimTemplates:
+      - metadata:
+          name: queue
+        spec:
+          accessModes: [ReadWriteOnce]
+          storageClassName: gp3-observability
+          resources:
+            requests:
+              storage: 1Gi
+    persistentVolumeClaimRetentionPolicy:
+      enabled: true
+      whenDeleted: Retain
+      whenScaled: Retain
+  extraVolumeMounts:
+    - name: queue
+      mountPath: /var/lib/otelcol/queue
+
+# 수신 허용 송신자(ADR-0039). upstream chart의 collector.networkPolicy와 별개인 wrapper 정책이다(이름이 겹치지 않게 ingressPolicy).
+# 다른 chart Pod의 실제 label이다 — 검증기가 렌더 결과와 dev label fixture로 대조한다.
+ingressPolicy:
+  enabled: true
+  name: pulsemetry-otel-platform-ingress
+  podSelector:
+    app.kubernetes.io/name: collector
+    component: statefulset-collector
+  ingress:
+    # 플랫폼 trace를 보내는 앱은 Gateway·ingest뿐이다(backend ADR 0069).
+    - ports: [4318]
+      from:
+        - {namespace: pulsemetry-dev, podLabels: {app.kubernetes.io/name: telemetry-gateway}}
+        - {namespace: pulsemetry-dev, podLabels: {app.kubernetes.io/name: telemetry-ingest}}
+    # Prometheus self-metrics scrape.
+    - ports: [8888]
+      from:
+        - {namespace: pulsemetry-observability, podLabels: {app.kubernetes.io/name: prometheus}}

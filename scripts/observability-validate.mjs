@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { load, loadAll, dump } from 'js-yaml';
+import { validateLokiSelector } from './lib/observability-logql.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const chart = resolve(root, 'helm/observability/pulsemetry-observability');
@@ -92,7 +93,8 @@ checked(promtool, ['check', 'config', resolve(temp, 'prometheus.yaml')]);
 checked(promtool, ['check', 'rules', resolve(chart, 'rules/pulsemetry.yaml')]);
 checked(promtool, ['test', 'rules', resolve(fixtures, 'rules.test.yaml')]);
 const dashboards = Object.values(find('ConfigMap', 'pulsemetry-dashboards').data).map(JSON.parse);
-assert.equal(dashboards.length, 7);
+assert.equal(dashboards.length, 8);
+assert.ok(dashboards.some(x => x.uid === 'pulsemetry-traces'), 'trace 대시보드(ADR-0039)');
 // 빈 패널 문구는 이유를 구분하는 고정 집합만 쓴다. 0이나 숫자로 빈값을 덮지 않는다.
 const noValueTexts = new Set([
   '미수집',
@@ -102,13 +104,18 @@ const noValueTexts = new Set([
   '값 없음 · Gateway는 Hikari 미적용',
   '값 없음 · k6 미실행 또는 미수신 · testid·기간 확인',
 ]);
+// Loki stream label은 Fluent Bit Loki 출력의 다섯 개뿐이다(ADR-0039).
+const lokiLabels = new Set(['environment', 'cluster', 'namespace', 'service_name', 'container']);
+const targetUid = (target, panel) => target.datasource?.uid ?? panel.datasource?.uid;
+const usedPlatformMetrics = new Set();
 const expressions = [];
 const usedCustomMetrics = new Set();
 const usedNativeMetrics = new Set();
 for (const dashboard of dashboards) {
   assert.equal(dashboard.timezone, 'utc');
-  // 로그 조회는 Logs Insights 스캔 비용이 들어 지표 10초 주기와 분리한다.
-  const logs = dashboard.panels.some(panel => (panel.targets ?? []).some(target => target.queryMode === 'Logs'));
+  // 로그·trace 조회는 Logs Insights 스캔 비용·Tempo 검색 비용이 들어 지표 10초 주기와 분리한다.
+  const logs = dashboard.panels.some(panel => (panel.targets ?? []).some(target => target.queryMode === 'Logs'
+    || ['pulsemetry-loki', 'pulsemetry-tempo'].includes(targetUid(target, panel))));
   assert.deepEqual([dashboard.refresh, dashboard.time.from], logs ? ['1m', 'now-15m'] : ['10s', 'now-30m'], `${dashboard.uid} 갱신 주기`);
   for (const panel of dashboard.panels) {
     if (panel.type === 'timeseries') {
@@ -118,8 +125,22 @@ for (const dashboard of dashboards) {
       assert.ok(panel.links.some(x => x.url.includes("pulsemetry-diagnostics") && x.url.includes("${pod:queryparam}")));
     }
     for (const target of panel.targets ?? []) {
+      const uid = targetUid(target, panel);
+      if (uid === 'pulsemetry-loki') {
+        // LogQL은 promtool로 검사하지 않는다. 환경·클러스터로 좁히고 허용 label만 쓴다.
+        validateLokiSelector(target.expr, lokiLabels);
+        continue;
+      }
+      if (uid === 'pulsemetry-tempo') {
+        assert.equal(dashboard.uid, 'pulsemetry-traces', 'TraceQL 패널은 trace 대시보드에만 둔다');
+        assert.equal(target.queryType, 'traceql');
+        assert.ok(target.query.trim().startsWith('{'), `TraceQL: ${target.query}`);
+        continue;
+      }
       if (target.expr) {
+        assert.equal(uid, 'pulsemetry-prometheus', `${dashboard.uid}/${panel.title} PromQL datasource`);
         assert.doesNotMatch(target.expr, /or\s+vector\s*\(\s*0\s*\)/);
+        for (const metric of target.expr.match(/\b(?:loki_|tempo_|otelcol_)[a-z0-9_]+/g) ?? []) usedPlatformMetrics.add(metric);
         // datasource 기본 간격(10s)의 $__rate_interval은 60초 JMX 표본을 담지 못한다.
         if (target.expr.includes('job="msk-jmx"')) {
           assert.equal(panel.interval, '1m', `${dashboard.uid}/${panel.title} JMX 최소 간격`);
@@ -178,6 +199,30 @@ for (const metric of ['pulsemetry_pipeline_retry_exhausted_total', 'pulsemetry_p
 const nativeFixture = ['fixtures/gateway-management.prom','fixtures/ingest-management.prom','clickhouse/dashboard-metrics.prom'].map(x => readFileSync(resolve(fixtures,x),'utf8')).join('\n');
 const nativeNames = new Set(nativeFixture.split('\n').filter(x => x && !x.startsWith('#')).map(x => x.split(/[\s{]/)[0]));
 for (const metric of usedNativeMetrics) assert.ok(nativeNames.has(metric), `실제 local scrape에 없는 metric: ${metric}`);
+// Loki·Tempo·Collector 지표 이름은 고정 이미지의 실제 /metrics에서 뽑은 목록과 대조한다(ADR-0039).
+const platformNames = new Set(readFileSync(resolve(fixtures, 'fixtures/platform-trace-metrics.prom'), 'utf8').split('\n').filter(x => x && !x.startsWith('#')));
+for (const rule of load(readFileSync(resolve(chart, 'rules/pulsemetry.yaml'), 'utf8')).groups.flatMap(g => g.rules)) {
+  for (const metric of rule.expr.match(/\b(?:loki_|tempo_|otelcol_)[a-z0-9_]+/g) ?? []) usedPlatformMetrics.add(metric);
+}
+for (const metric of usedPlatformMetrics) assert.ok(platformNames.has(metric), `실제 /metrics에 없는 지표: ${metric}`);
+// datasource는 기존 둘에 Loki·Tempo를 더한 네 개다. prune: true라 배열 전체가 선언이다.
+const datasources = load(find('ConfigMap', 'pulsemetry-grafana').data['datasources.yaml']).datasources;
+assert.deepEqual(datasources.map(x => x.uid), ['pulsemetry-prometheus', 'pulsemetry-cloudwatch', 'pulsemetry-loki', 'pulsemetry-tempo']);
+assert.deepEqual(datasources.filter(x => x.isDefault).map(x => x.uid), ['pulsemetry-prometheus']);
+const lokiSource = datasources.find(x => x.uid === 'pulsemetry-loki');
+const tempoSource = datasources.find(x => x.uid === 'pulsemetry-tempo');
+assert.equal(lokiSource.url, 'http://pulsemetry-loki.pulsemetry-observability.svc:3100');
+assert.equal(tempoSource.url, 'http://pulsemetry-tempo.pulsemetry-observability.svc:3200');
+assert.deepEqual(lokiSource.jsonData.derivedFields.map(x => [x.matcherRegex, x.datasourceUid, x.url]), [['trace_id=([0-9a-f]{32})', 'pulsemetry-tempo', '$${__value.raw}']]);
+assert.equal(tempoSource.jsonData.tracesToLogsV2.datasourceUid, 'pulsemetry-loki');
+assert.equal(tempoSource.jsonData.tracesToLogsV2.query, '{$${__tags}} |= "trace_id=$${__trace.traceId}"');
+for (const tag of tempoSource.jsonData.tracesToLogsV2.tags) assert.ok(lokiLabels.has(tag.value), `trace→logs tag는 Loki label이다: ${tag.value}`);
+for (const [name, port] of [['loki', 'http-metrics'], ['tempo', 'tempo-prom-metrics'], ['otel-platform', 'metrics']]) {
+  const monitor = find('ServiceMonitor', name).spec;
+  assert.deepEqual(monitor.namespaceSelector.matchNames, ['pulsemetry-observability']);
+  assert.deepEqual([monitor.endpoints[0].port, monitor.endpoints[0].path], [port, '/metrics']);
+  assert.ok(monitor.endpoints[0].relabelings.some(x => x.targetLabel === 'job' && x.replacement === name));
+}
 const fluentFixture = readFileSync(resolve(fixtures,'fluent-bit/v2-metrics.prom'),'utf8');
 const fluentNames = new Set(fluentFixture.split('\n').flatMap(x=>x.startsWith('# TYPE ')?[x.split(' ')[2]]:(!x || x.startsWith('#')?[]:[x.split(/[\s{]/)[0]])));
 for (const rule of expressions) for (const metric of rule.expr.match(/\bfluentbit_[a-z0-9_]+/g)??[]) assert.ok(fluentNames.has(metric),`v2 fixture에 없는 metric: ${metric}`);
@@ -247,4 +292,4 @@ if (process.env.KUBECONFORM_BIN) {
   const path = resolve(temp, 'monitoring.yaml'); writeFileSync(path, monitoringResources.map(x => dump(x)).join('---\n'));
   checked(process.env.KUBECONFORM_BIN, ['-strict','-summary','-schema-location',`${schemaDir}/{{.ResourceKind}}_{{.Group}}_{{.ResourceAPIVersion}}.json`,path]);
 }
-console.log(`관측 차트/7 dashboards/${expressions.length} PromQL/${load(readFileSync(resolve(chart, "rules/pulsemetry.yaml"), "utf8")).groups.reduce((n,g) => n + g.rules.length, 0)} rules/metric fixture/실패 경계 통과 (live 미실행)`);
+console.log(`관측 차트/8 dashboards/${expressions.length} PromQL/${load(readFileSync(resolve(chart, "rules/pulsemetry.yaml"), "utf8")).groups.reduce((n,g) => n + g.rules.length, 0)} rules/metric fixture/실패 경계 통과 (live 미실행)`);

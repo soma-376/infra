@@ -1220,6 +1220,41 @@
         "w": 12,
         "h": 8
       }
+    },
+    {
+      "type": "logs",
+      "title": "컨테이너 로그 · Loki",
+      "description": "Fluent Bit이 CloudWatch와 함께 Loki로 보낸 새 로그다(ADR-0039). 서비스·Pod 필터를 따르고 trace_id가 있는 줄은 Tempo trace로 바로 열린다. Loki 도입 전 로그·Kubernetes Events·EKS control-plane·MSK broker 로그는 위 CloudWatch 패널에서 본다. 보존은 72시간이다.",
+      "datasource": {
+        "type": "loki",
+        "uid": "pulsemetry-loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "pulsemetry-loki"
+          },
+          "queryType": "range",
+          "expr": "{environment=\"$environment\", cluster=\"$cluster\", namespace=~\"$namespace|pulsemetry-observability|pulsemetry-dev-logs\", service_name=~\"${service:regex}\"} | json | kubernetes_pod_name=~\"${pod:regex}\""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none"
+      },
+      "id": 20,
+      "gridPos": {
+        "x": 12,
+        "y": 72,
+        "w": 12,
+        "h": 8
+      }
     }
   ]
 }

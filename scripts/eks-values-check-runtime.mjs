@@ -139,11 +139,13 @@ try {
     ['csiDriver', 'secrets-store-csi-driver', 'secrets-store-csi-driver', 'kube-system', ['csi-driver-values.yaml']],
     ['ascp', 'secrets-provider-aws', 'secrets-store-csi-driver-provider-aws', 'kube-system', ['ascp-values.yaml']],
     ['fluentBit', 'fluent-bit', 'fluent-bit', 'pulsemetry-dev-logs', ['fluent-bit-values.yaml']],
+    // Loki 병행 출력 overlay(ADR-0039). 정적 values 다음, generated 앞이다.
+    ['fluentBit', 'fluent-bit', 'fluent-bit', 'pulsemetry-dev-logs', ['fluent-bit-values.yaml', 'fluent-bit-loki-values.yaml']],
   ];
   for (const [key, release, chartName, namespace, files] of releaseData) {
     const archive = join(packages, basename(versions[key].url));
     check(createHash('sha256').update(readFileSync(archive)).digest('hex') === versions[key].sha256, key + ' package checksum이 다르다');
-    const chartDir = join(temp, key); mkdirSync(chartDir);
+    const chartDir = join(temp, key + files.length); mkdirSync(chartDir);
     run('tar', ['-xzf', archive, '-C', chartDir]);
     const chart = join(chartDir, chartName);
     const yamlFiles = files.map(file => join(root, 'helm/dev/runtime', file));
@@ -179,6 +181,20 @@ try {
       check(ds.spec.template.spec.tolerations.some(item => item.key === 'workload' && item.value === 'observability'), '관측 노드도 수집한다');
       check(ds.spec.template.spec.volumes.some(item => item.hostPath?.path === '/var/log/fluent-bit-state'), 'DB와 buffer를 Pod 재시작 후에도 보존한다');
       check(!config.includes('Name systemd') && !config.includes('Name es'), '다른 로그 전송을 포함하지 않는다');
+      const staticOutputs = load(readFileSync(join(root, 'helm/dev/runtime/fluent-bit-values.yaml'), 'utf8')).config.outputs;
+      const loki = config.split('[OUTPUT]').find(block => /\bName loki\b/.test(block));
+      if (files.includes('fluent-bit-loki-values.yaml')) {
+        const overlay = load(readFileSync(join(root, 'helm/dev/runtime/fluent-bit-loki-values.yaml'), 'utf8')).config.outputs;
+        check(overlay.startsWith(staticOutputs), 'Loki overlay는 정적 CloudWatch 출력을 바꾸지 않고 그 뒤에 Loki 출력만 더한다');
+        check(Boolean(loki) && loki.includes('Host pulsemetry-loki.pulsemetry-observability.svc') && loki.includes('Port 3100') && loki.includes('Uri /loki/api/v1/push'), 'Loki 고정 주소로 보낸다');
+        const labels = loki.match(/Labels (.*)/)[1].split(',').map(item => item.trim().split('=')[0]);
+        check(JSON.stringify(labels) === JSON.stringify(['environment', 'cluster', 'namespace', 'service_name', 'container']), 'Loki stream label은 다섯 개뿐이다');
+        check(!/trace_id|span_id|pod_name|pod_id/.test(loki.match(/Labels (.*)/)[1]), 'trace·Pod 식별자는 label로 만들지 않는다');
+        check(loki.includes('storage.total_limit_size 128M') && /Retry_Limit [1-9]/.test(loki), 'Loki queue는 노드당 128MiB·유한 재시도다');
+        check(loki.includes('Match_Regex ^(application|observability)\\.'), '앱·관측 로그를 함께 보낸다');
+      } else {
+        check(!loki, '정적 values만 적용하면 Loki 출력이 없다');
+      }
     }
   }
   console.log('PASS: package SHA256·Helm lint/render·1.36 strict schema·SPC(telemetry JWT 포함)/CSI/ASCP/Fluent Bit·Gateway/관리 Job 경계');

@@ -156,7 +156,7 @@ spec:
               containerPort: 9404
               protocol: TCP
             {{- end }}
-          {{- if or .Values.env .Values.runtime.enabled $pulsemetry $kafka.enabled .Values.ingestMode .Values.metrics.enabled .Values.jvm.gcSafepointLog }}
+          {{- if or .Values.env .Values.runtime.enabled $pulsemetry $kafka.enabled .Values.ingestMode .Values.metrics.enabled .Values.jvm.gcSafepointLog .Values.tracing.enabled }}
           env:
             {{- if .Values.metrics.enabled }}
             - name: MANAGEMENT_SERVER_PORT
@@ -227,6 +227,25 @@ spec:
               value: {{ $kafka.iamRoleArn | quote }}
             - name: PULSEMETRY_KAFKA_IAM_SESSION_NAME
               value: {{ $kafka.iamSessionName | quote }}
+            {{- end }}
+            {{- if .Values.tracing.enabled }}
+            # 플랫폼 trace(ADR-0039). resource의 namespace·Pod 이름은 Downward API로 받는다.
+            - name: PULSEMETRY_TRACING_ENABLED
+              value: "true"
+            - name: PULSEMETRY_TRACING_OTLP_TRACES_ENDPOINT
+              value: {{ .Values.tracing.endpoint | quote }}
+            - name: PULSEMETRY_TRACING_SAMPLE_PROBABILITY
+              value: {{ .Values.tracing.sampleProbability | quote }}
+            - name: PULSEMETRY_TRACING_CLUSTER
+              value: {{ .Values.tracing.cluster | quote }}
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             {{- end }}
             {{- range $name, $value := .Values.env }}
             - name: {{ $name }}
