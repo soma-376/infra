@@ -58,8 +58,14 @@ node scripts/eks-values.mjs \
   --runtime-values /secure/eks-runtime-values.yaml \
   --enrollment-image "$ENROLLMENT_IMAGE" \
   --ingest-image "$INGEST_IMAGE" \
-  --dashboard-image "$DASHBOARD_IMAGE"
+  --dashboard-image "$DASHBOARD_IMAGE" \
+  --gateway-image "$GATEWAY_IMAGE" \
+  --msk-bootstrap /secure/msk-bootstrap.json \
+  --msk-nodes /secure/msk-nodes.json
 ```
+
+이미지 네 개는 모두 `<repository>@sha256:<digest>` 형식이다. `--msk-bootstrap`·`--msk-nodes`는
+`get-bootstrap-brokers`·`list-nodes` 원본 JSON이며 조회 명령은 EKS 런북 §2-2에 있다.
 
 생성기는 같은 입력에서 `generated/runtime.yaml`과 앱별 YAML을 함께 만든다. runtime chart는
 `generated/runtime.yaml`을 사용하고 각 workload는 정적 앱 YAML 다음에 `generated/<app>.yaml`을

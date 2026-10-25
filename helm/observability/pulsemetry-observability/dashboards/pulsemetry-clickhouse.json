@@ -1,7 +1,7 @@
 {
   "uid": "pulsemetry-clickhouse",
   "title": "Pulsemetry · ClickHouse",
-  "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+  "description": "서버 지표는 ClickHouse native exporter(9363, service=clickhouse)이고, 앱 제출·요청·insert 지연은 telemetry-ingest가 내보내는 앱 지표다. 서비스 선택과 무관하게 각각 고정 service로 조회하고 Pod 선택만 따른다. 빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 수집 경로와 k6 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다.",
   "tags": [
     "pulsemetry",
     "PROJ-191"
@@ -195,7 +195,7 @@
     {
       "type": "timeseries",
       "title": "Native exporter 상태",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+      "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 수집 경로와 k6 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -203,7 +203,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "up{job=\"clickhouse\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"$service\",pod=~\"$pod\"}",
+          "expr": "up{job=\"clickhouse\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"clickhouse\",pod=~\"$pod\"}",
           "legendFormat": "{{instance}}",
           "range": true
         }
@@ -211,7 +211,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -261,7 +261,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "pulsemetry:clickhouse_inserted_rows:rate1m{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"$service\",pod=~\"$pod\"}",
+          "expr": "pulsemetry:clickhouse_inserted_rows:rate1m{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"clickhouse\",pod=~\"$pod\"}",
           "legendFormat": "__auto",
           "range": true
         }
@@ -269,7 +269,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "ops",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -311,7 +311,7 @@
     {
       "type": "timeseries",
       "title": "앱 제출 rows / 초",
-      "description": "앱이 제출한 행 수다. 재시도·중복을 포함할 수 있고 저장 성공 또는 논리 유일 행을 의미하지 않는다.",
+      "description": "앱이 제출한 행 수다. 재시도·중복을 포함할 수 있고 저장 성공 또는 논리 유일 행을 의미하지 않는다. telemetry-ingest가 내보내는 앱 지표다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -319,7 +319,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by(table)(rate(pulsemetry_clickhouse_rows_submitted_total{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"$service\",pod=~\"$pod\"}[$__rate_interval]))",
+          "expr": "sum by(table)(rate(pulsemetry_clickhouse_rows_submitted_total{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"telemetry-ingest\",pod=~\"$pod\"}[$__rate_interval]))",
           "legendFormat": "{{table}}",
           "range": true
         }
@@ -327,7 +327,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "ops",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -369,7 +369,7 @@
     {
       "type": "timeseries",
       "title": "앱 ClickHouse 요청 결과",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+      "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 수집 경로와 k6 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다. telemetry-ingest가 내보내는 앱 지표다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -377,7 +377,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by(operation,table,outcome)(rate(pulsemetry_clickhouse_requests_total{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"$service\",pod=~\"$pod\"}[$__rate_interval]))",
+          "expr": "sum by(operation,table,outcome)(rate(pulsemetry_clickhouse_requests_total{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"telemetry-ingest\",pod=~\"$pod\"}[$__rate_interval]))",
           "legendFormat": "{{operation}} {{table}} {{outcome}}",
           "range": true
         }
@@ -385,7 +385,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "ops",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -427,7 +427,7 @@
     {
       "type": "timeseries",
       "title": "앱 insert p95",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+      "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 수집 경로와 k6 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다. telemetry-ingest가 내보내는 앱 지표다. 요청·처리가 없으면 분위수는 계산되지 않는다. 빈 구간은 0초가 아니다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -435,7 +435,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95,sum by(le,table,outcome)(rate(pulsemetry_clickhouse_request_duration_seconds_bucket{environment=\"$environment\",operation=\"insert\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"$service\",pod=~\"$pod\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95,sum by(le,table,outcome)(rate(pulsemetry_clickhouse_request_duration_seconds_bucket{environment=\"$environment\",operation=\"insert\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"telemetry-ingest\",pod=~\"$pod\"}[$__rate_interval])))",
           "legendFormat": "{{table}} {{outcome}}",
           "range": true
         }
@@ -443,7 +443,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -485,7 +485,7 @@
     {
       "type": "timeseries",
       "title": "실행 중 merge",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+      "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 수집 경로와 k6 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -493,7 +493,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "ClickHouseMetrics_Merge{job=\"clickhouse\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"$service\",pod=~\"$pod\"}",
+          "expr": "ClickHouseMetrics_Merge{job=\"clickhouse\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"clickhouse\",pod=~\"$pod\"}",
           "legendFormat": "__auto",
           "range": true
         }
@@ -501,7 +501,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -551,7 +551,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "ClickHouseAsyncMetrics_TotalPartsOfMergeTreeTables{job=\"clickhouse\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"$service\",pod=~\"$pod\"}",
+          "expr": "ClickHouseAsyncMetrics_TotalPartsOfMergeTreeTables{job=\"clickhouse\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"clickhouse\",pod=~\"$pod\"}",
           "legendFormat": "__auto",
           "range": true
         }
@@ -559,7 +559,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -601,7 +601,7 @@
     {
       "type": "timeseries",
       "title": "추적 메모리",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+      "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 수집 경로와 k6 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -609,7 +609,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "ClickHouseMetrics_MemoryTracking{job=\"clickhouse\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"$service\",pod=~\"$pod\"}",
+          "expr": "ClickHouseMetrics_MemoryTracking{job=\"clickhouse\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"clickhouse\",pod=~\"$pod\"}",
           "legendFormat": "__auto",
           "range": true
         }
@@ -617,7 +617,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "bytes",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -725,7 +725,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "increase(ClickHouseProfileEvents_DelayedInserts{job=\"clickhouse\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"$service\",pod=~\"$pod\"}[$__range])",
+          "expr": "increase(ClickHouseProfileEvents_DelayedInserts{job=\"clickhouse\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"clickhouse\",pod=~\"$pod\"}[$__range])",
           "legendFormat": "__auto",
           "range": true
         }
@@ -733,7 +733,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -783,7 +783,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "rate(ClickHouseProfileEvents_FailedQuery{job=\"clickhouse\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"$service\",pod=~\"$pod\"}[$__rate_interval])",
+          "expr": "rate(ClickHouseProfileEvents_FailedQuery{job=\"clickhouse\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"clickhouse\",pod=~\"$pod\"}[$__rate_interval])",
           "legendFormat": "__auto",
           "range": true
         }
@@ -791,7 +791,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "ops",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -833,7 +833,7 @@
     {
       "type": "timeseries",
       "title": "서버 실패 insert / 초",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+      "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 수집 경로와 k6 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -841,7 +841,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "rate(ClickHouseProfileEvents_FailedInsertQuery{job=\"clickhouse\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"$service\",pod=~\"$pod\"}[$__rate_interval])",
+          "expr": "rate(ClickHouseProfileEvents_FailedInsertQuery{job=\"clickhouse\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"clickhouse\",pod=~\"$pod\"}[$__rate_interval])",
           "legendFormat": "__auto",
           "range": true
         }
@@ -849,7 +849,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "ops",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -891,7 +891,7 @@
     {
       "type": "timeseries",
       "title": "HTTP 연결 수",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+      "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 수집 경로와 k6 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -899,7 +899,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "ClickHouseMetrics_HTTPConnection{job=\"clickhouse\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"$service\",pod=~\"$pod\"}",
+          "expr": "ClickHouseMetrics_HTTPConnection{job=\"clickhouse\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"clickhouse\",pod=~\"$pod\"}",
           "legendFormat": "__auto",
           "range": true
         }
@@ -907,7 +907,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -949,7 +949,7 @@
     {
       "type": "timeseries",
       "title": "Native TCP 연결 수",
-      "description": "빈 시계열은 미수집/비활성/표본 부족이다. 0 또는 정상으로 대체하지 않는다. 시각은 UTC이며 HTTP ACK는 저장 완료가 아니다.",
+      "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 수집 경로와 k6 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -957,7 +957,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "ClickHouseMetrics_TCPConnection{job=\"clickhouse\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"$service\",pod=~\"$pod\"}",
+          "expr": "ClickHouseMetrics_TCPConnection{job=\"clickhouse\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"clickhouse\",pod=~\"$pod\"}",
           "legendFormat": "__auto",
           "range": true
         }
@@ -965,7 +965,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "noValue": "미수집",
+          "noValue": "값 없음 · 첫 화면 수집 상태 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,

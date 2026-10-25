@@ -85,12 +85,23 @@ for (const [i, port] of [11001, 11002].entries()) {
   assert.equal(scrape[i].static_configs[0].targets.length, 3);
   assert.ok(scrape[i].static_configs[0].targets.every(x => x.endsWith(`:${port}`)));
 }
+// MSK JMX endpoint는 10초 간격에서 429로 표본을 거부했다. 간격을 되돌리면 JMX rate 패널의 범위도 다시 정해야 한다.
+assert.deepEqual([scrape[0].job_name, scrape[0].scrape_interval, scrape[0].scrape_timeout], ['msk-jmx', '60s', '10s']);
 writeFileSync(resolve(temp, 'prometheus.yaml'), dump({scrape_configs:scrape}));
 checked(promtool, ['check', 'config', resolve(temp, 'prometheus.yaml')]);
 checked(promtool, ['check', 'rules', resolve(chart, 'rules/pulsemetry.yaml')]);
 checked(promtool, ['test', 'rules', resolve(fixtures, 'rules.test.yaml')]);
 const dashboards = Object.values(find('ConfigMap', 'pulsemetry-dashboards').data).map(JSON.parse);
 assert.equal(dashboards.length, 7);
+// 빈 패널 문구는 이유를 구분하는 고정 집합만 쓴다. 0이나 숫자로 빈값을 덮지 않는다.
+const noValueTexts = new Set([
+  '미수집',
+  '값 없음 · 첫 화면 수집 상태 확인',
+  'Kafka 미적용(http) 또는 미수집 · 모드 패널 확인',
+  '값 없음 · 종료 이력 없음 또는 미수집',
+  '값 없음 · Gateway는 Hikari 미적용',
+  '값 없음 · k6 미실행 또는 미수신 · testid·기간 확인',
+]);
 const expressions = [];
 const usedCustomMetrics = new Set();
 const usedNativeMetrics = new Set();
@@ -101,19 +112,30 @@ for (const dashboard of dashboards) {
   assert.deepEqual([dashboard.refresh, dashboard.time.from], logs ? ['1m', 'now-15m'] : ['10s', 'now-30m'], `${dashboard.uid} 갱신 주기`);
   for (const panel of dashboard.panels) {
     if (panel.type === 'timeseries') {
-      assert.equal(panel.fieldConfig.defaults.noValue, '미수집');
+      assert.ok(noValueTexts.has(panel.fieldConfig.defaults.noValue), `${dashboard.uid}/${panel.title} noValue: ${panel.fieldConfig.defaults.noValue}`);
+      assert.ok(panel.description?.trim(), `${dashboard.uid}/${panel.title} 설명 없음`);
       assert.equal(panel.fieldConfig.defaults.custom.spanNulls, false);
       assert.ok(panel.links.some(x => x.url.includes("pulsemetry-diagnostics") && x.url.includes("${pod:queryparam}")));
     }
     for (const target of panel.targets ?? []) {
       if (target.expr) {
         assert.doesNotMatch(target.expr, /or\s+vector\s*\(\s*0\s*\)/);
+        // datasource 기본 간격(10s)의 $__rate_interval은 60초 JMX 표본을 담지 못한다.
+        if (target.expr.includes('job="msk-jmx"')) {
+          assert.equal(panel.interval, '1m', `${dashboard.uid}/${panel.title} JMX 최소 간격`);
+          // $__rate_interval의 scrape 간격 항은 쿼리 Min step(target.interval)만 따른다. 패널 Min interval은 반영되지 않는다.
+          if (target.expr.includes('$__rate_interval')) assert.equal(target.interval, '1m', `${dashboard.uid}/${panel.title} JMX rate 쿼리 Min step`);
+        }
         const expr = target.expr.replaceAll('$__rate_interval', '1m').replaceAll('$__range', '5m');
         expressions.push({record:`dashboard_query_${expressions.length}`,expr});
         for (const metric of expr.match(/\bpulsemetry_[A-Za-z0-9_]+/g) ?? []) usedCustomMetrics.add(metric);
         for (const metric of expr.match(/\b(?:jvm_|tomcat_|hikaricp_|kafka_producer_|ClickHouse)[A-Za-z0-9_]+/g) ?? []) usedNativeMetrics.add(metric);
         if (/pulsemetry_|ClickHouse|jvm_|hikaricp_|tomcat_|kafka_producer_/.test(expr)) {
-          for (const label of ['cluster="$cluster"','namespace="$namespace"','service=~"$service"','pod=~"$pod"']) assert.ok(expr.includes(label), `필터 누락: ${expr}`);
+          for (const label of ['cluster="$cluster"','namespace="$namespace"','pod=~"$pod"']) assert.ok(expr.includes(label), `필터 누락: ${expr}`);
+          // ClickHouse 화면은 서버 지표(clickhouse)와 ingest의 앱 지표를 서비스 선택과 분리해 고정 service로 조회한다.
+          if (dashboard.uid === 'pulsemetry-clickhouse') {
+            assert.ok(expr.includes(/pulsemetry_clickhouse_/.test(expr) ? 'service="telemetry-ingest"' : 'service="clickhouse"'), `ClickHouse service 고정 누락: ${expr}`);
+          } else assert.ok(expr.includes('service=~"$service"'), `필터 누락: ${expr}`);
         }
       }
       if (target.queryMode === 'Logs') {
@@ -128,6 +150,14 @@ for (const dashboard of dashboards) {
     }
   }
 }
+// 첫 화면은 구성요소별 수집 상태를 먼저 보여 준다. 상태 값의 의미는 rules/pulsemetry.yaml의 collection group과 같다.
+const overview = dashboards.find(x => x.uid === 'pulsemetry-overview');
+const summary = overview.panels.find(x => x.gridPos.y === 0);
+assert.equal(summary?.type, 'table', '수집 경로 첫 행에 수집 상태 표가 없다');
+assert.deepEqual(summary.targets.map(x => x.expr.match(/pulsemetry:collection_[a-z_]+:?[a-z0-9]*/)?.[0]),
+  ['pulsemetry:collection_state', 'pulsemetry:collection_success:ratio', 'pulsemetry:collection_last_success:timestamp']);
+const stateMapping = summary.fieldConfig.overrides.find(x => x.matcher.options === '현재 상태').properties.find(x => x.id === 'mappings').value[0].options;
+assert.deepEqual(Object.keys(stateMapping).sort(), ['-1', '-2', '0', '1', '2']);
 writeFileSync(resolve(temp, 'dashboard-queries.yaml'), dump({groups:[{name:'dashboard-query-check',rules:expressions}]}));
 checked(promtool, ['check', 'rules', resolve(temp, 'dashboard-queries.yaml')]);
 // Backend 사본은 생성 commit과 SHA256을 함께 고정한다. 사본을 바꾸면 provenance도 같이 바꾼다.
@@ -167,6 +197,8 @@ for (const name of ['telemetry-gateway','telemetry-ingest','clickhouse']) {
   for (const [targetLabel,replacement] of [['cluster','fixture-eks'],['environment','dev'],['service',name]]) {
     assert.ok(endpoint.relabelings.some(x => x.targetLabel===targetLabel && x.replacement===replacement));
   }
+  const mode = endpoint.relabelings.filter(x => x.targetLabel === 'ingest_mode');
+  assert.deepEqual(mode.map(x => x.sourceLabels), name === 'telemetry-ingest' ? [['__meta_kubernetes_pod_annotation_pulsemetry_io_ingest_mode']] : [], `${name}: ingest_mode relabel`);
 }
 const arm64 = JSON.parse(readFileSync(resolve(fixtures,'fixtures/arm64-images.json'),'utf8'));
 assert.equal(arm64.status,'PASS'); assert.equal(arm64.images.length,8);

@@ -522,6 +522,8 @@ function checkTelemetry(chart) {
     checkLiveness(pod.containers[0], mode !== 'http');
     const env = environment(ingest, 'telemetry-ingest');
     assert.equal(env.PULSEMETRY_INGEST_MODE, mode);
+    // 관측 ServiceMonitor가 이 annotation을 ingest_mode target label로 옮긴다.
+    assert.equal(find(ingest, 'Deployment', 'telemetry-ingest').spec.template.metadata.annotations['pulsemetry.io/ingest-mode'], mode);
     assert.deepEqual(JSON.parse(env.SPRING_APPLICATION_JSON), { pulsemetry: { 'telemetry-jwt': { 'public-key-files': TELEMETRY_FILES } } });
     const kafkaEnv = Object.keys(env).filter(name => name.startsWith('PULSEMETRY_KAFKA_')).sort();
     if (mode === 'http') assert.deepEqual(kafkaEnv, []);

@@ -135,9 +135,11 @@ monitoring:
         matchLabels:
           kubernetes.io/metadata.name: pulsemetry-observability
       additionalScrapeConfigs: |
+        # MSK JMX endpoint는 10초 간격에서 HTTP 429로 broker별 표본 약 1/3을 거부했다(2026-10-23 실측).
+        # 간격만으로 해소된다는 보장이 없으므로 성공률을 따로 기록하고, JMX rate는 4배 이상 범위로 계산한다.
         - job_name: msk-jmx
-          scrape_interval: 10s
-          scrape_timeout: 5s
+          scrape_interval: 60s
+          scrape_timeout: 10s
           static_configs:
             - targets:
               {{- range .Values.global.pulsemetry.mskBrokers }}
