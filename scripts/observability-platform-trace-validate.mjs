@@ -145,10 +145,12 @@ assert.ok(limiter.limit_mib < 512 && limiter.limit_percentage === undefined && l
 const dropped = collector.processors['attributes/drop-sensitive'].actions.map(x => x.key);
 for (const key of ['url.full', 'url.query', 'db.statement', 'db.query.text', 'http.request.header.authorization', 'exception.message']) assert.ok(dropped.includes(key), `지우는 속성: ${key}`);
 // attributes 처리기는 span event를 보지 않는다. 예외 event 속성과 status 설명은 transform이 지우고, 실패하면 내보내지 않는다.
+// status 문장은 span 문맥 그룹에 따로 둔다. event 문장과 한 그룹이면 event 없는 span에서 돌지 않는다.
 const exceptionDetail = collector.processors['transform/drop-exception-detail'];
 assert.equal(exceptionDetail.error_mode, 'propagate');
 assert.deepEqual(exceptionDetail.trace_statements, [
-  'delete_key(spanevent.attributes, "exception.message")', 'delete_key(spanevent.attributes, "exception.stacktrace")', 'set(span.status.message, "")',
+  { context: 'spanevent', statements: ['delete_key(spanevent.attributes, "exception.message")', 'delete_key(spanevent.attributes, "exception.stacktrace")'] },
+  { context: 'span', statements: ['set(span.status.message, "")'] },
 ]);
 const queueMount = rendered['otel-platform'].find(x => x.kind === 'StatefulSet').spec.template.spec.containers[0].volumeMounts;
 assert.ok(queueMount.some(x => x.name === 'queue' && x.mountPath === '/var/lib/otelcol/queue'));

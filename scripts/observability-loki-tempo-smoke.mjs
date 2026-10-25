@@ -152,11 +152,14 @@ try {
   evidence.checks.lokiLogRoundTrip = { status: 'PASS', seconds: (Date.now() - t0) / 1000 };
 
   // 2) 같은 trace ID의 합성 span → Collector → Tempo. 앱이 실수로 보낸 URL·SQL 속성과 예외 event·status의 메시지는 Collector가 지운다.
+  //    event 없는 ERROR span(traceC)의 status 설명도 지워져야 한다. status 문장이 event 문맥에 묶이면 이 span을 건너뛴다.
   const t1 = Date.now();
   const exceptionEvent = { timeUnixNano: String(now()), name: 'exception', attributes: [{ key: 'exception.type', value: { stringValue: 'IllegalStateException' } },
     { key: 'exception.message', value: { stringValue: `canary-${suffix}` } }, { key: 'exception.stacktrace', value: { stringValue: `at canary-${suffix}` } }] };
   await sendTrace(traceA, [{ key: 'url.full', value: { stringValue: `http://clickhouse/?query=SELECT+canary-${suffix}` } }, { key: 'db.statement', value: { stringValue: `SELECT canary-${suffix}` } }],
     { events: [exceptionEvent], status: { code: 2, message: `canary-${suffix}` } });
+  const traceC = randomBytes(16).toString('hex');
+  await sendTrace(traceC, [], { status: { code: 2, message: `canary-${suffix}` } });
   const spans = await until('Tempo trace ID 조회', () => tempoSpans(traceA));
   const keys = spans.flatMap(s => (s.attributes ?? []).map(a => a.key));
   assert.ok(keys.includes('pulsemetry.outcome') && !keys.includes('url.full') && !keys.includes('db.statement'), `민감 속성 삭제: ${keys}`);
@@ -165,7 +168,12 @@ try {
   assert.deepEqual(eventKeys, ['exception.type'], `예외 event 속성: ${eventKeys}`);
   assert.ok(spans.every(s => s.status?.code === 'STATUS_CODE_ERROR' && !s.status.message), `status: ${JSON.stringify(spans.map(s => s.status))}`);
   assert.ok(!JSON.stringify(spans).includes(`canary-${suffix}`));
-  evidence.checks.tempoTraceRoundTrip = { status: 'PASS', seconds: (Date.now() - t1) / 1000, keptAttributes: [...new Set(keys)].sort(), keptExceptionEventAttributes: eventKeys };
+  const noEventSpans = await until('Tempo event 없는 ERROR span 조회', () => tempoSpans(traceC));
+  assert.ok(noEventSpans.every(s => !s.events?.length && s.status?.code === 'STATUS_CODE_ERROR' && !s.status.message), `event 없는 span status: ${JSON.stringify(noEventSpans.map(s => s.status))}`);
+  assert.ok(!JSON.stringify(noEventSpans).includes(`canary-${suffix}`));
+  evidence.checks.tempoTraceRoundTrip = {
+    status: 'PASS', seconds: (Date.now() - t1) / 1000, keptAttributes: [...new Set(keys)].sort(), keptExceptionEventAttributes: eventKeys, noEventErrorStatusCleared: true,
+  };
   const roundTripSeconds = (Date.now() - t0) / 1000;
   assert.ok(roundTripSeconds <= 60, `로그·trace 왕복 ${roundTripSeconds}초 > 60초`);
   evidence.checks.within60Seconds = 'PASS';
@@ -219,7 +227,7 @@ try {
 
   evidence.coverage = {
     verified: [
-      'chart memory limit(swap 없음) 아래 기동', 'Loki push·조회', 'Collector→Tempo 왕복과 민감 속성·예외 event 내용·status 설명 삭제', 'Grafana datasource health·$$ 매크로·Loki 조회',
+      'chart memory limit(swap 없음) 아래 기동', 'Loki push·조회', 'Collector→Tempo 왕복과 민감 속성·예외 event 내용·status 설명 삭제(event 없는 ERROR span 포함)', 'Grafana datasource health·$$ 매크로·Loki 조회',
       'Loki SIGKILL 재시작의 WAL 복구', 'Collector queue 재시작 보존', 'Tempo 재시작 보존',
     ],
     notVerified: [
@@ -227,7 +235,7 @@ try {
       'NetworkPolicy 강제·차단', 'dev 배포', 'Loki 수신 상한·장시간 메모리·WAL 복구 부하(observability-loki-capacity.mjs가 맡는다)',
     ],
   };
-  evidence.syntheticTraceIds = [traceA, traceB];
+  evidence.syntheticTraceIds = [traceA, traceC, traceB];
   evidence.status = 'PASS';
 } catch (error) {
   // 다른 부하 시험 증거와 같은 형식이다. 실패한 실행을 NOT_RUN으로 남기지 않는다.
