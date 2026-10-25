@@ -40,7 +40,7 @@ endpoint·서비스 이름·sampling·속성은 backend와 infra가 함께 지�
 - upstream의 부가 구성요소는 끈다: MinIO·gateway·canary·cache·self-monitoring·test.
   렌더 결과에 남는 리소스 종류·자원 예산·PVC 보존을 검증기가 검사한다.
 - values만으로 이 최소 구성을 안정적으로 표현하지 못하는 구성요소는 그 구성요소만 자체 chart로 바꾼다.
-- Collector 이미지는 `file_storage`와 속성 처리기가 있는 배포판(contrib 또는 k8s)이다. core 배포판에는 둘 다 없다.
+- Collector 이미지는 `file_storage`와 `attributes`·`transform` 처리기가 있는 배포판(contrib 또는 k8s)이다. core 배포판에는 `file_storage`와 `transform`이 없다.
 - 모두 ARM64, 관측 nodeSelector·toleration, 기존 `gp3-observability` StorageClass를 쓴다.
   PVC는 Helm 삭제·재설치로 지워지지 않도록 retain 정책을 명시한다.
 - Loki WAL 복구 메모리(`ingester.wal.replay_memory_ceiling`)는 Pod memory limit의 절반 이하로 명시한다(1Gi에 512MB).
@@ -78,7 +78,8 @@ endpoint·서비스 이름·sampling·속성은 backend와 infra가 함께 지�
 - backend 설정 계약(backend ADR 0069)을 chart values로 공급한다:
   `PULSEMETRY_TRACING_ENABLED`, `PULSEMETRY_TRACING_OTLP_TRACES_ENDPOINT`, `PULSEMETRY_TRACING_SAMPLE_PROBABILITY`(dev 0.1),
   `PULSEMETRY_TRACING_CLUSTER`, Downward API의 `POD_NAMESPACE`·`POD_NAME`. 대상은 Gateway·ingest뿐이다.
-- Collector는 trace pipeline 하나만 연다: `memory_limiter → 속성 정리 → batch → otlp/tempo`.
+- Collector는 trace pipeline 하나만 연다: `memory_limiter → 속성 정리 → 예외 내용 정리 → batch → otlp/tempo`.
+  `attributes` 처리기는 span 속성만 보므로 예외 event의 `exception.message`·`exception.stacktrace`와 status 설명은 `transform`이 지운다.
   exporter queue는 `file_storage`로 PVC에 두고 재시도 시간을 유한하게 둔다.
 - 플랫폼 자체 span만 저장한다. 고객이 보낸 OTLP payload와 trace는 Tempo로 복제하지 않는다.
 

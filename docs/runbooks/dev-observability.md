@@ -276,7 +276,7 @@ Grafana의 Loki·Tempo datasource health가 OK다. 이것은 포트 시험이 �
 
 로컬 검증: `HELM_BIN=... node scripts/observability-platform-trace-validate.mjs`(렌더·digest·보존·예산·실패 입력),
 `HELM_BIN=... node scripts/observability-loki-tempo-smoke.mjs --output <새 파일>`
-(chart memory limit 아래 고정 이미지 왕복·Loki SIGKILL 뒤 WAL 복구·Collector queue·Tempo 재시작, [증거](../../helm/observability/tests/loki-tempo/local-verification.json)).
+(chart memory limit 아래 고정 이미지 왕복·예외 내용 삭제·Loki SIGKILL 뒤 WAL 복구·Collector queue·Tempo 재시작, [증거](../../helm/observability/tests/loki-tempo/local-verification.json)).
 smoke는 Fluent Bit 병행 배송·Grafana UI 클릭·실제 앱 요청·NetworkPolicy 강제를 확인하지 않는다. 증거 파일의 `coverage`가 범위다.
 수신 상한·장시간 메모리·burst·WAL 복구 부하는 `HELM_BIN=... node scripts/observability-loki-capacity.mjs --output <새 파일>`(약 50분),
 Fluent Bit 병행 배송은 `HELM_BIN=... node scripts/observability-fluent-bit-loki-harness.mjs --output <새 파일>`(CloudWatch는 로컬 대역)이 맡는다.

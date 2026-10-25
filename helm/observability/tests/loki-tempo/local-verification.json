@@ -1,6 +1,6 @@
 {
   "scope": "local-loki-tempo-collector-grafana-only",
-  "runId": "loki-tempo-smoke/71e1ad37dc95",
+  "runId": "loki-tempo-smoke/7440a933a39d",
   "status": "PASS",
   "images": {
     "loki": "docker.io/grafana/loki@sha256:1107dd5274e0ada47e42472b7a7e71f3b2a2fe878878108f3e2f9e51528f0193",
@@ -22,27 +22,31 @@
     },
     "tempoTraceRoundTrip": {
       "status": "PASS",
-      "seconds": 2.031,
+      "seconds": 2.027,
       "keptAttributes": [
         "pulsemetry.outcome"
+      ],
+      "keptExceptionEventAttributes": [
+        "exception.type"
       ]
     },
     "within60Seconds": "PASS",
     "grafanaDatasources": "PASS",
     "lokiWalReplayAfterKill": {
       "status": "PASS",
-      "seconds": 20.19,
+      "seconds": 19.422,
       "walDir": "/var/loki/wal",
       "replayMemoryCeiling": "512MB"
     },
     "collectorQueueSurvivesRestart": "PASS",
     "tempoDataSurvivesRestart": "PASS"
   },
+  "failures": [],
   "coverage": {
     "verified": [
       "chart memory limit(swap 없음) 아래 기동",
       "Loki push·조회",
-      "Collector→Tempo 왕복과 민감 속성 삭제",
+      "Collector→Tempo 왕복과 민감 속성·예외 event 내용·status 설명 삭제",
       "Grafana datasource health·$$ 매크로·Loki 조회",
       "Loki SIGKILL 재시작의 WAL 복구",
       "Collector queue 재시작 보존",
@@ -58,9 +62,9 @@
     ]
   },
   "syntheticTraceIds": [
-    "b966bfdd4c67d80988af6944dbbd8638",
-    "acf8776db41ea3c7a0f2b6c733077c45"
+    "d67ecf201fcb446ef96c5304284bbbd8",
+    "133bcad23640916b75bfcadd19b859cc"
   ],
-  "seconds": 60.999,
-  "finishedAt": "2026-10-24T21:33:01.603Z"
+  "seconds": 63.424,
+  "finishedAt": "2026-10-25T02:40:22.006Z"
 }

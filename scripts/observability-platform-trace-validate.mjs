@@ -131,7 +131,7 @@ assert.equal(tempo.usage_report.reporting_enabled, false);
 const collector = configOf('otel-platform', 'relay');
 assert.deepEqual(Object.keys(collector.service.pipelines), ['traces'], '플랫폼 Collector는 trace pipeline만 연다');
 assert.deepEqual(collector.service.pipelines.traces, {
-  receivers: ['otlp'], processors: ['memory_limiter', 'attributes/drop-sensitive', 'batch'], exporters: ['otlp_grpc/tempo'],
+  receivers: ['otlp'], processors: ['memory_limiter', 'attributes/drop-sensitive', 'transform/drop-exception-detail', 'batch'], exporters: ['otlp_grpc/tempo'],
 });
 assert.deepEqual(Object.keys(collector.receivers), ['otlp']);
 assert.deepEqual(Object.keys(collector.receivers.otlp.protocols), ['http']);
@@ -144,6 +144,12 @@ const limiter = collector.processors.memory_limiter;
 assert.ok(limiter.limit_mib < 512 && limiter.limit_percentage === undefined && limiter.spike_limit_percentage === undefined, 'memory limit보다 낮은 MiB 값 하나만 쓴다');
 const dropped = collector.processors['attributes/drop-sensitive'].actions.map(x => x.key);
 for (const key of ['url.full', 'url.query', 'db.statement', 'db.query.text', 'http.request.header.authorization', 'exception.message']) assert.ok(dropped.includes(key), `지우는 속성: ${key}`);
+// attributes 처리기는 span event를 보지 않는다. 예외 event 속성과 status 설명은 transform이 지우고, 실패하면 내보내지 않는다.
+const exceptionDetail = collector.processors['transform/drop-exception-detail'];
+assert.equal(exceptionDetail.error_mode, 'propagate');
+assert.deepEqual(exceptionDetail.trace_statements, [
+  'delete_key(spanevent.attributes, "exception.message")', 'delete_key(spanevent.attributes, "exception.stacktrace")', 'set(span.status.message, "")',
+]);
 const queueMount = rendered['otel-platform'].find(x => x.kind === 'StatefulSet').spec.template.spec.containers[0].volumeMounts;
 assert.ok(queueMount.some(x => x.name === 'queue' && x.mountPath === '/var/lib/otelcol/queue'));
 

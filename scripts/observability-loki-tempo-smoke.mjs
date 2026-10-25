@@ -121,14 +121,14 @@ try {
   evidence.checks.readOnlyRootNonRoot = 'PASS';
 
   const now = () => BigInt(Date.now()) * 1_000_000n;
-  const sendTrace = async (traceId, extraAttributes = []) => {
+  const sendTrace = async (traceId, extraAttributes = [], { events = [], status } = {}) => {
     const end = now();
     const body = { resourceSpans: [{ resource: { attributes: [
       { key: 'service.name', value: { stringValue: 'telemetry-gateway' } }, { key: 'k8s.namespace.name', value: { stringValue: 'pulsemetry-dev' } },
       { key: 'deployment.environment.name', value: { stringValue: 'dev' } }] },
     scopeSpans: [{ scope: { name: 'proj256-smoke' }, spans: [{ traceId, spanId: randomBytes(8).toString('hex'), name: 'POST /v1/logs', kind: 2,
       startTimeUnixNano: String(end - 5_000_000n), endTimeUnixNano: String(end),
-      attributes: [{ key: 'pulsemetry.outcome', value: { stringValue: 'accepted' } }, ...extraAttributes] }] }] }] };
+      attributes: [{ key: 'pulsemetry.outcome', value: { stringValue: 'accepted' } }, ...extraAttributes], events, ...(status ? { status } : {}) }] }] }] };
     const result = await http(`${url.collector}/v1/traces`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal(result.status, 200, `Collector OTLP/HTTP: ${result.text}`);
   };
@@ -151,14 +151,21 @@ try {
   await until('Loki 조회', async () => JSON.parse((await http(`${url.loki}/loki/api/v1/query_range?${query}`)).text).data.result.length === 1);
   evidence.checks.lokiLogRoundTrip = { status: 'PASS', seconds: (Date.now() - t0) / 1000 };
 
-  // 2) 같은 trace ID의 합성 span → Collector → Tempo. 앱이 실수로 보낸 URL·SQL 속성은 Collector가 지운다.
+  // 2) 같은 trace ID의 합성 span → Collector → Tempo. 앱이 실수로 보낸 URL·SQL 속성과 예외 event·status의 메시지는 Collector가 지운다.
   const t1 = Date.now();
-  await sendTrace(traceA, [{ key: 'url.full', value: { stringValue: `http://clickhouse/?query=SELECT+canary-${suffix}` } }, { key: 'db.statement', value: { stringValue: `SELECT canary-${suffix}` } }]);
+  const exceptionEvent = { timeUnixNano: String(now()), name: 'exception', attributes: [{ key: 'exception.type', value: { stringValue: 'IllegalStateException' } },
+    { key: 'exception.message', value: { stringValue: `canary-${suffix}` } }, { key: 'exception.stacktrace', value: { stringValue: `at canary-${suffix}` } }] };
+  await sendTrace(traceA, [{ key: 'url.full', value: { stringValue: `http://clickhouse/?query=SELECT+canary-${suffix}` } }, { key: 'db.statement', value: { stringValue: `SELECT canary-${suffix}` } }],
+    { events: [exceptionEvent], status: { code: 2, message: `canary-${suffix}` } });
   const spans = await until('Tempo trace ID 조회', () => tempoSpans(traceA));
   const keys = spans.flatMap(s => (s.attributes ?? []).map(a => a.key));
   assert.ok(keys.includes('pulsemetry.outcome') && !keys.includes('url.full') && !keys.includes('db.statement'), `민감 속성 삭제: ${keys}`);
+  // event와 ERROR 상태는 남고 예외 내용만 빠진다.
+  const eventKeys = spans.flatMap(s => (s.events ?? []).flatMap(e => (e.attributes ?? []).map(a => a.key)));
+  assert.deepEqual(eventKeys, ['exception.type'], `예외 event 속성: ${eventKeys}`);
+  assert.ok(spans.every(s => s.status?.code === 'STATUS_CODE_ERROR' && !s.status.message), `status: ${JSON.stringify(spans.map(s => s.status))}`);
   assert.ok(!JSON.stringify(spans).includes(`canary-${suffix}`));
-  evidence.checks.tempoTraceRoundTrip = { status: 'PASS', seconds: (Date.now() - t1) / 1000, keptAttributes: [...new Set(keys)].sort() };
+  evidence.checks.tempoTraceRoundTrip = { status: 'PASS', seconds: (Date.now() - t1) / 1000, keptAttributes: [...new Set(keys)].sort(), keptExceptionEventAttributes: eventKeys };
   const roundTripSeconds = (Date.now() - t0) / 1000;
   assert.ok(roundTripSeconds <= 60, `로그·trace 왕복 ${roundTripSeconds}초 > 60초`);
   evidence.checks.within60Seconds = 'PASS';
@@ -212,7 +219,7 @@ try {
 
   evidence.coverage = {
     verified: [
-      'chart memory limit(swap 없음) 아래 기동', 'Loki push·조회', 'Collector→Tempo 왕복과 민감 속성 삭제', 'Grafana datasource health·$$ 매크로·Loki 조회',
+      'chart memory limit(swap 없음) 아래 기동', 'Loki push·조회', 'Collector→Tempo 왕복과 민감 속성·예외 event 내용·status 설명 삭제', 'Grafana datasource health·$$ 매크로·Loki 조회',
       'Loki SIGKILL 재시작의 WAL 복구', 'Collector queue 재시작 보존', 'Tempo 재시작 보존',
     ],
     notVerified: [

@@ -1,11 +1,11 @@
 # 플랫폼 trace 전용 Collector(ADR-0039). 제품 수집 경로(telemetry-ingest)와 별개다. upstream chart 값은 `collector:` 아래에 둔다.
-# trace pipeline 하나만 연다: OTLP/HTTP 수신 → memory_limiter → 속성 정리 → batch → Tempo(OTLP/gRPC).
+# trace pipeline 하나만 연다: OTLP/HTTP 수신 → memory_limiter → 속성·예외 내용 정리 → batch → Tempo(OTLP/gRPC).
 collector:
   # 앱 송신 주소 `http://pulsemetry-otel-platform.pulsemetry-observability.svc:4318/v1/traces`.
   fullnameOverride: pulsemetry-otel-platform
   mode: statefulset
   replicaCount: 1
-  # k8s 배포판은 file_storage·attributes·resource 처리기를 포함한다. core 배포판에는 없다.
+  # k8s 배포판은 file_storage·attributes·transform·resource를 포함한다. core 배포판에는 file_storage·transform이 없다.
   image:
     repository: otel/opentelemetry-collector-k8s
     tag: "0.161.0"
@@ -89,6 +89,14 @@ collector:
           - {key: exception.stacktrace, action: delete}
           - {key: tenant_id, action: delete}
           - {key: installation_id, action: delete}
+      # attributes 처리기는 span 속성만 본다. recordException이 만든 event 속성과 status 설명의 예외 메시지는 여기서 지운다.
+      # 실패하면 그 batch를 내보내지 않는다(propagate). 지우지 못한 채 저장하지 않는다.
+      transform/drop-exception-detail:
+        error_mode: propagate
+        trace_statements:
+          - delete_key(spanevent.attributes, "exception.message")
+          - delete_key(spanevent.attributes, "exception.stacktrace")
+          - set(span.status.message, "")
       batch:
         send_batch_size: 512
         timeout: 5s
@@ -123,7 +131,7 @@ collector:
         metrics: null
         traces:
           receivers: [otlp]
-          processors: [memory_limiter, attributes/drop-sensitive, batch]
+          processors: [memory_limiter, attributes/drop-sensitive, transform/drop-exception-detail, batch]
           exporters: [otlp_grpc/tempo]
   statefulset:
     volumeClaimTemplates:
