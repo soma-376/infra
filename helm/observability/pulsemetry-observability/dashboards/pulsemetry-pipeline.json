@@ -253,7 +253,7 @@
       "title": "모드별로 비는 패널",
       "options": {
         "mode": "markdown",
-        "content": "- **http**: Consumer 상태·Commit 기준 lag·재시도 소진·Commit 실패는 Kafka 소비가 없어 해당 없음입니다. 처리 시도·단계 지연은 HTTP 경로 값입니다.\n- **dual·kafka**: 위 패널이 비면 미수집입니다. 첫 화면 수집 상태 표에서 telemetry-ingest가 `정상`인지 먼저 봅니다.\n- 지연 p95는 처리 요청이 없으면 계산되지 않습니다. 빈 구간은 0초가 아닙니다."
+        "content": "- **http**: Consumer 상태·Commit 기준 lag·재시도 소진·Commit 실패는 Kafka 소비가 없어 해당 없음입니다. 처리 시도·단계 지연은 HTTP 경로 값입니다.\n- **dual·kafka**: 위 패널이 비면 미수집이거나 지표가 아직 방출되지 않은 것입니다. Commit 기준 lag(CloudWatch SumOffsetLag)는 commit된 offset이 있고 consumer group이 STABLE·EMPTY일 때만 나옵니다. 첫 화면 수집 상태 표에서 telemetry-ingest가 `정상`인지 먼저 봅니다.\n- 지연 p95는 처리 요청이 없으면 계산되지 않습니다. 빈 구간은 0초가 아닙니다."
       },
       "id": 11,
       "gridPos": {

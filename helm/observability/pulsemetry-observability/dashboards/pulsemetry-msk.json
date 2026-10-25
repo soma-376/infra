@@ -195,7 +195,7 @@
     {
       "type": "timeseries",
       "title": "JMX / Node 전체 broker 수집 상태",
-      "description": "현재 scrape 성공(1)·실패(0)다. msk-jmx는 60초, msk-node는 10초 간격이다. JMX endpoint가 HTTP 429로 거부하면 0이 된다. 간헐 실패의 비율은 옆 패널에서 본다. 빈 시계열은 대상 미설정이다.",
+      "description": "현재 scrape 성공(1)·실패(0)다. msk-jmx는 60초, msk-node는 10초 간격이다. JMX endpoint가 HTTP 429로 거부하면 0이 된다. 간헐 실패의 비율은 옆 패널에서 본다. 빈 시계열은 대상 미설정이거나 필터(environment·cluster·msk_cluster) 불일치다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -253,7 +253,7 @@
     {
       "type": "timeseries",
       "title": "broker별 최근 15분 수집 성공률",
-      "description": "예정된 scrape 중 성공한 비율(최근 15분)이다. 1 미만이면 그 broker의 지표에 수집 공백이 있다. MSK JMX의 HTTP 429 거부가 주원인이며, 해당 구간의 JMX 패널 값은 마지막 성공 표본이다. 빈 시계열은 대상 미설정이다.",
+      "description": "예정된 scrape 중 성공한 비율(최근 15분)이다. 1 미만이면 그 broker의 지표에 수집 공백이 있다. MSK JMX의 HTTP 429 거부가 주원인이며, 해당 구간의 JMX 패널 값은 마지막 성공 표본이다. 빈 시계열은 대상 미설정, 기록 규칙(pulsemetry:msk_scrape_success:ratio15m) 미적용·첫 평가 전, 또는 필터 불일치일 수 있다. Prometheus targets와 rules 상태를 함께 본다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -1142,7 +1142,7 @@
     {
       "type": "timeseries",
       "title": "Broker 클라이언트 수신 bytes / 초 · CloudWatch 60초",
-      "description": "MSK node exporter(11002)는 node_network_* 계열을 내지 않는다(2026-10-23 broker 원본 확인). CloudWatch BytesInPerSec(클라이언트가 보낸 bytes, broker 합계)로 대체한다. NIC 전체 수신량과는 다르다. 미수집 값을 0으로 바꾸지 않는다.",
+      "description": "MSK node exporter(11002)는 node_network_* 계열을 내지 않는다(2026-10-23 broker 원본 확인). CloudWatch BytesInPerSec(클라이언트가 보낸 bytes, broker별 시계열)로 대체한다. 전체 수신량은 broker 값을 더해야 한다. NIC 전체 수신량과는 다르다. 미수집 값을 0으로 바꾸지 않는다.",
       "datasource": {
         "type": "cloudwatch",
         "uid": "pulsemetry-cloudwatch"

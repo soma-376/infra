@@ -195,7 +195,7 @@
     {
       "type": "table",
       "title": "구성요소별 수집 상태",
-      "description": "현재 상태는 scrape 결과다. 정상·일부 실패(기대 target 수 미달 포함)·전체 실패·대상 없음을 구분하고, k6는 remote-write 수신 유무만 본다. 선택 기간 수집률은 예정 scrape 중 성공 비율이며, 빈 칸은 그 기간에 대상이 없었다는 뜻이다. 마지막 성공 후 경과가 빈 칸이면 24시간 안에 성공한 scrape가 없다. 업무 이벤트 유무는 각 상세 화면에서 본다.",
+      "description": "현재 상태는 scrape 결과다. 정상·일부 실패(기대 target 수 미달 포함)·전체 실패·대상 없음을 구분하고, k6는 remote-write 수신 유무만 본다. 선택 기간 수집률은 예정 scrape 중 성공 비율이며, 빈 칸은 그 기간에 대상이 없었거나 기록 규칙 결과가 없다는 뜻이다. 마지막 성공 후 경과가 빈 칸이면 24시간 안에 성공한 scrape가 없다. 업무 이벤트 유무는 각 상세 화면에서 본다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -244,7 +244,8 @@
           "id": "organize",
           "options": {
             "excludeByName": {
-              "Time": true
+              "Time": true,
+              "__name__": true
             },
             "indexByName": {
               "component": 0,
@@ -401,7 +402,7 @@
       "title": "읽는 기준",
       "options": {
         "mode": "markdown",
-        "content": "Gateway ACK → MSK record → Pipeline attempt → ClickHouse submitted/inserted rows는 단위가 다릅니다. 차감해서 유실률을 만들지 않습니다.\n\n공유 dev는 진단 환경입니다. 정식 성능 PASS는 전용 환경과 사후 정합성 검증이 필요합니다. k6 testid를 선택하면 해당 실행만 표시됩니다. 서버 지표는 같은 UTC 구간의 전체 환경 값입니다.\n\n맨 위 표는 구성요소별 수집 상태입니다. 빈 패널을 보기 전에 그 구성요소가 `정상`인지 먼저 확인합니다. `대상 없음`은 배포·metrics 설정이 필요하다는 뜻이고, `정상`인데 값이 없으면 선택 기간에 해당 이벤트가 없었던 것입니다."
+        "content": "Gateway ACK → MSK record → Pipeline attempt → ClickHouse submitted/inserted rows는 단위가 다릅니다. 차감해서 유실률을 만들지 않습니다.\n\n공유 dev는 진단 환경입니다. 정식 성능 PASS는 전용 환경과 사후 정합성 검증이 필요합니다. k6 testid를 선택하면 해당 실행만 표시됩니다. 서버 지표는 같은 UTC 구간의 전체 환경 값입니다.\n\n맨 위 표는 구성요소별 수집 상태입니다. 빈 패널을 보기 전에 그 구성요소가 `정상`인지 먼저 확인합니다. `대상 없음`은 배포·metrics 설정이 필요하다는 뜻입니다. `정상`은 scrape 성공만 뜻합니다. `정상`인데 값이 없으면 지표 미적용·필터 불일치·표본 부족일 수 있으니 패널 설명의 원인 후보를 보고, 이벤트 없음은 원천 지표를 직접 확인한 뒤에만 판단합니다."
       },
       "id": 1,
       "gridPos": {
