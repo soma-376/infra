@@ -192,20 +192,35 @@ PVC는 Retain이라 uninstall·rollback으로 지워지지 않는다.
 | 대상 | 포트 | 허용 송신자 |
 |---|---|---|
 | Loki | 3100 | Fluent Bit(`pulsemetry-dev-logs`), Grafana, Prometheus |
-| Tempo | 4317 / 3200 | Collector / Grafana, Prometheus |
-| Collector | 4318 / 8888 | telemetry-gateway·telemetry-ingest(`pulsemetry-dev`) / Prometheus |
+| Loki | 모든 포트 | Loki(자기 자신) |
+| Tempo | 4317 | Collector |
+| Tempo | 3200 | Grafana, Prometheus |
+| Tempo | 모든 포트 | Tempo(자기 자신) |
+| Collector | 4318 | telemetry-gateway·telemetry-ingest(`pulsemetry-dev`) |
+| Collector | 8888 | Prometheus |
 
-Loki·Tempo는 자기 자신에게 모든 포트를 연다. dev NodeClass 셋은 이미 `networkPolicy: DefaultAllow`다(2026-10-25 조회).
+dev NodeClass 셋은 이미 `networkPolicy: DefaultAllow`다(2026-10-25 조회).
 NodeClass는 바꾸지 않는다 — 바꾸면 노드가 교체된다.
 
 **N0 기준선**
 
 ```bash
-kubectl get networkpolicy,policyendpoints -A
-kubectl -n kube-system get configmap amazon-vpc-cni          # 없어야 한다
+kubectl get networkpolicy -A
+kubectl get crd policyendpoints.networking.k8s.aws --ignore-not-found -o name
+kubectl -n kube-system get configmap amazon-vpc-cni --ignore-not-found -o name  # 없어야 한다
 kubectl get nodeclasses.eks.amazonaws.com -o custom-columns=NAME:.metadata.name,NETPOL:.spec.networkPolicy,LOG:.spec.networkPolicyEventLogs
 kubectl get nodeclaims -o custom-columns=NAME:.metadata.name,CREATED:.metadata.creationTimestamp,DRIFTED:'.status.conditions[?(@.type=="Drifted")].status'
 ```
+
+CRD 조회가 **종료 코드 0이며 출력이 없으면** `PolicyEndpoint CRD 미설치`로 기록하고 해당 리소스 조회는 생략한다.
+CRD 이름이 출력된 경우에만 다음 명령으로 현재 PolicyEndpoint를 기록한다.
+
+```bash
+kubectl get policyendpoints.networking.k8s.aws -A
+```
+
+`amazon-vpc-cni` ConfigMap 조회도 종료 코드 0·빈 출력이어야 미설치 기준선이다. 이름이 나오면 기존 설정과 소유자를 확인하기 전에는 N1로 진행하지 않는다.
+각 조회의 `Forbidden`·연결 실패·timeout 등 **0이 아닌 종료 코드는 미설치로 취급하지 않고 중단한다.**
 
 **N1 controller 활성화.** platform release(`pulsemetry-dev-platform`, `kube-system`)의 현재 manifest와 새 렌더를 비교해
 `amazon-vpc-cni` ConfigMap 하나만 느는지 확인하고 승인받은 뒤 같은 values로 upgrade한다. 적용 뒤 10분간 위 nodeclaim 이름·생성 시각이
