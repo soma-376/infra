@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { load, loadAll, dump } from 'js-yaml';
+import { validateLokiSelector } from './lib/observability-logql.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const chart = resolve(root, 'helm/observability/pulsemetry-observability');
@@ -127,10 +128,7 @@ for (const dashboard of dashboards) {
       const uid = targetUid(target, panel);
       if (uid === 'pulsemetry-loki') {
         // LogQL은 promtool로 검사하지 않는다. 환경·클러스터로 좁히고 허용 label만 쓴다.
-        // 값 안의 `${service:regex}`도 `}`를 담으므로 따옴표 값을 통째로 건너뛰어 선택자 끝을 찾고, label 이름은 값을 지운 뒤 센다.
-        const selector = target.expr.match(/^\{((?:"(?:[^"\\]|\\.)*"|[^}"])*)\}/)[1];
-        for (const label of ['environment="$environment"', 'cluster="$cluster"']) assert.ok(selector.includes(label), `Loki 선택자 ${label}: ${target.expr}`);
-        for (const [, label] of selector.replace(/"(?:[^"\\]|\\.)*"/g, '""').matchAll(/([A-Za-z_][A-Za-z0-9_]*)\s*(?:=~|!~|!=|=)/g)) assert.ok(lokiLabels.has(label), `Loki label 허용목록 밖: ${label}`);
+        validateLokiSelector(target.expr, lokiLabels);
         continue;
       }
       if (uid === 'pulsemetry-tempo') {
