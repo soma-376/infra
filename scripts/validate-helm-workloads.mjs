@@ -586,6 +586,8 @@ function checkTelemetry(chart) {
     assert.equal(byName.POD_NAME.valueFrom.fieldRef.fieldPath, 'metadata.name');
     for (const invalid of [
       { ...ingestValues, tracing: { ...tracing, endpoint: 'http://collector.example.com/v1/traces' } },
+      // 플랫폼 Collector를 거치지 않는 4318 주소는 Collector의 속성 정리를 건너뛴다.
+      { ...ingestValues, tracing: { ...tracing, endpoint: 'http://other.example:4318/v1/traces' } },
       { ...ingestValues, tracing: { ...tracing, endpoint: '' } },
       { ...ingestValues, tracing: { ...tracing, cluster: '' } },
       { ...ingestValues, tracing: { ...tracing, sampleProbability: '1.5' } },

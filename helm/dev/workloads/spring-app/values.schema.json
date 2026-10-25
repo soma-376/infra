@@ -576,7 +576,7 @@
         },
         "endpoint": {
           "type": "string",
-          "pattern": "^(|http://[a-z0-9.-]+:4318/v1/traces)$"
+          "pattern": "^(|http://pulsemetry-otel-platform\\.pulsemetry-observability\\.svc:4318/v1/traces)$"
         },
         "sampleProbability": {
           "type": "string",
