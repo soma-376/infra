@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Loki·Tempo·플랫폼 Collector wrapper chart의 렌더·고정값·실패 경계를 검증한다(ADR-0039). AWS에 연결하거나 배포하지 않는다.
-// 실제 바이너리 기동·송수신은 scripts/observability-loki-tempo-smoke.py가 맡는다.
+// 실제 바이너리 기동·송수신은 scripts/observability-loki-tempo-smoke.mjs가 맡는다.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';

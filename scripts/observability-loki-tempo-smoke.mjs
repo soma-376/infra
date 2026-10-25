@@ -4,7 +4,7 @@
 //
 //   HELM_BIN=/path/to/helm node scripts/observability-loki-tempo-smoke.mjs --output /tmp/loki-tempo-smoke-<new>.json
 //
-// 모든 container는 chart의 memory limit(swap 없음)으로 뜬다. 필수 검사 하나라도 어기면 status는 PASS가 아니다.
+// 모든 container는 chart의 memory limit(swap 없음)으로 뜬다. 필수 검사 하나라도 어기면 status는 FAIL이고 사유를 failures에 남긴다.
 // Loki 수신 상한·burst·장시간 메모리·WAL 복구 부하는 scripts/observability-loki-capacity.mjs가 맡는다.
 // 먼저 `node scripts/observability-prepare.mjs`로 고정 chart archive를 준비한다. Docker가 필요하다.
 import assert from 'node:assert/strict';
@@ -73,7 +73,7 @@ const network = `proj256-lt-${suffix}`;
 const work = mkdtempSync(resolve(tmpdir(), 'proj256-loki-tempo-'));
 const dir = name => { const path = resolve(work, name); mkdirSync(path, { recursive: true }); chmodSync(path, 0o777); return path; };
 const containers = [];
-const evidence = { scope: 'local-loki-tempo-collector-grafana-only', runId: `loki-tempo-smoke/${suffix}`, status: 'NOT_RUN', images: {}, memoryLimits: {}, checks: {} };
+const evidence = { scope: 'local-loki-tempo-collector-grafana-only', runId: `loki-tempo-smoke/${suffix}`, status: 'NOT_RUN', images: {}, memoryLimits: {}, checks: {}, failures: [] };
 const grafanaDocs = observability.filter(x => x.metadata?.name === 'pulsemetry-grafana');
 const started = Date.now();
 let createdNetwork = false;
@@ -222,6 +222,10 @@ try {
   };
   evidence.syntheticTraceIds = [traceA, traceB];
   evidence.status = 'PASS';
+} catch (error) {
+  // 다른 부하 시험 증거와 같은 형식이다. 실패한 실행을 NOT_RUN으로 남기지 않는다.
+  evidence.status = 'FAIL';
+  evidence.failures.push(`실행 오류: ${error.message}`);
 } finally {
   evidence.seconds = (Date.now() - started) / 1000;
   evidence.finishedAt = new Date().toISOString();
@@ -231,4 +235,5 @@ try {
   if (createdNetwork) run('docker', ['network', 'rm', network]);
   rmSync(work, { recursive: true, force: true });
 }
-console.log(`${evidence.status}: Loki·Tempo·Collector·Grafana 로컬 왕복과 재시작 복구 (${output})`);
+console.log(`${evidence.status}: Loki·Tempo·Collector·Grafana 로컬 왕복과 재시작 복구 (${output})${evidence.failures.length ? `\n- ${evidence.failures.join('\n- ')}` : ''}`);
+process.exit(evidence.status === 'PASS' ? 0 : 1);
