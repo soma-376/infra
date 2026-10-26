@@ -103,6 +103,7 @@ const noValueTexts = new Set([
   '값 없음 · 종료 이력 없음 또는 미수집',
   '값 없음 · Gateway는 Hikari 미적용',
   '값 없음 · k6 미실행 또는 미수신 · testid·기간 확인',
+  '값 없음 · 미발생·미실행·미수신 가능 · testid·기간 확인',
 ]);
 // Loki stream label은 Fluent Bit Loki 출력의 다섯 개뿐이다(ADR-0039).
 const lokiLabels = new Set(['environment', 'cluster', 'namespace', 'service_name', 'container']);

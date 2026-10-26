@@ -886,7 +886,7 @@
     {
       "type": "timeseries",
       "title": "k6 시작하지 못한 iteration",
-      "description": "운영자 PC에서 port-forward한 Prometheus remote-write로 보낸 k6 결과다. 위쪽 testid를 골라야 표시되고, 실행이 없거나 선택 기간 밖이면 비어 있고, remote-write 실패나 testid 불일치도 같은 모양이다. 첫 화면 상태 표의 k6가 `최근 수신 없음`이면 최근 5분에 받은 표본이 없다. 미전송 iteration은 HTTP 실패 분모에 넣지 않는다. 목표 유입을 만들지 못하면 서버 용량을 확정할 수 없다.",
+      "description": "운영자 PC에서 port-forward한 Prometheus remote-write로 보낸 k6 결과다. 위쪽 testid를 골라야 표시되고, 실행이 없거나 선택 기간 밖이면 비어 있고, remote-write 실패나 testid 불일치도 같은 모양이다. 정상 실행에서도 시작하지 못한 iteration이 발생하지 않으면 k6_dropped_iterations_total 계열 자체가 생성되지 않을 수 있다. 요청 수·p95와 실행 결과를 함께 확인하고, 이 패널의 빈값만으로 미실행·미수신 또는 손실 0을 단정하지 않는다. 첫 화면 상태 표의 k6가 `최근 수신 없음`이면 최근 5분에 받은 표본이 없다. 미전송 iteration은 HTTP 실패 분모에 넣지 않는다. 목표 유입을 만들지 못하면 서버 용량을 확정할 수 없다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -902,7 +902,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "noValue": "값 없음 · k6 미실행 또는 미수신 · testid·기간 확인",
+          "noValue": "값 없음 · 미발생·미실행·미수신 가능 · testid·기간 확인",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
