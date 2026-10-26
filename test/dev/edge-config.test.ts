@@ -1,4 +1,3 @@
-import { Template } from 'aws-cdk-lib/assertions';
 import { App, Aws } from 'aws-cdk-lib/core';
 import { loadDevConfig } from '../../lib/dev/config';
 import { synthDev } from '../../lib/dev/app';
@@ -56,32 +55,6 @@ describe('dev HTTPS context 입력', () => {
         ...EKS_CONTEXT,
         [key]: CERTIFICATE_ARN.replace(TEST_ENV.account, '222222222222'),
       })).toThrow(new RegExp(key));
-    });
-  });
-
-  test('추가 SNI 인증서는 기본 인증서 없이 사용할 수 없다', () => {
-    expect(() => loadDevConfig(configApp({ devEksAdditionalCertificateArn: CERTIFICATE_ARN })))
-      .toThrow(/devEksAdditionalCertificateArn/);
-  });
-
-  test('추가 SNI 인증서는 같은 계정이어야 한다', () => {
-    expect(() => buildDevApp({
-      devEksCertificateArn: CERTIFICATE_ARN,
-      devEksAdditionalCertificateArn: CERTIFICATE_ARN.replace(TEST_ENV.account, '222222222222'),
-    })).toThrow(/devEksAdditionalCertificateArn/);
-  });
-
-  test('SNI 인증서 추가는 기본 HTTPS 인증서와 listener를 유지한다', () => {
-    const additional = CERTIFICATE_ARN.replace('11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222');
-    const { edge } = buildDevApp({ devEksCertificateArn: CERTIFICATE_ARN, devEksAdditionalCertificateArn: additional });
-    const template = Template.fromStack(edge);
-    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::Listener', {
-      Port: 443, Protocol: 'HTTPS', Certificates: [{ CertificateArn: CERTIFICATE_ARN }],
-    });
-    template.resourceCountIs('AWS::ElasticLoadBalancingV2::Listener', 2);
-    template.resourceCountIs('AWS::ElasticLoadBalancingV2::ListenerCertificate', 1);
-    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerCertificate', {
-      Certificates: [{ CertificateArn: additional }],
     });
   });
 

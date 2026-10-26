@@ -9,7 +9,6 @@ ACM 발급·DNS 검증·Route 53·도메인 context·앱 공개 URL·endpoint ou
 | Context | 기본값 | 동작 |
 |---|---|---|
 | `devEksCertificateArn` | 없음 | EKS ALB의 ACM 인증서. 생략하면 HTTP 80 유지 |
-| `devEksAdditionalCertificateArn` | 없음 | 도메인 전환 중 함께 제공할 서울 리전·동일 계정의 SNI 인증서. 기본 인증서 필수 |
 | `devHttpRedirectEnabled` | `true` | 인증서가 있는 EKS ALB에 별도 80 → HTTPS 443 HTTP 301 추가 |
 
 `devCertificateArn`은 폐기 입력이며 전달하면 오류다.
