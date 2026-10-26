@@ -3,6 +3,7 @@ import { App, Environment } from 'aws-cdk-lib/core';
 /** 외부 ACM 원본의 수명은 관리하지 않고 ALB별 참조만 받는다. (ADR-0033) */
 export interface DevEdgeConfig {
   readonly eksCertificateArn?: string;
+  readonly eksAdditionalCertificateArn?: string;
   readonly httpRedirectEnabled: boolean;
 }
 
@@ -19,12 +20,15 @@ function certificateArn(app: App, key: string): string | undefined {
 
 export function loadDevEdgeConfig(app: App): DevEdgeConfig {
   const eks = certificateArn(app, 'devEksCertificateArn');
+  const additional = certificateArn(app, 'devEksAdditionalCertificateArn');
+  if (additional && !eks) throw new Error('devEksAdditionalCertificateArn은 devEksCertificateArn과 함께 지정해야 한다');
   const redirect: unknown = app.node.tryGetContext('devHttpRedirectEnabled');
   if (redirect !== undefined && redirect !== true && redirect !== false && redirect !== 'true' && redirect !== 'false') {
     throw new Error('devHttpRedirectEnabled는 true 또는 false여야 한다');
   }
   return {
     eksCertificateArn: eks,
+    eksAdditionalCertificateArn: additional,
     httpRedirectEnabled: redirect !== false && redirect !== 'false',
   };
 }
@@ -33,6 +37,7 @@ export function loadDevEdgeConfig(app: App): DevEdgeConfig {
 export function validateDevEdgeEnvironment(edge: DevEdgeConfig, env: Environment): void {
   for (const [key, arn] of [
     ['devEksCertificateArn', edge.eksCertificateArn],
+    ['devEksAdditionalCertificateArn', edge.eksAdditionalCertificateArn],
   ] as const) {
     if (arn === undefined) continue;
     const match = CERTIFICATE_ARN.exec(arn);

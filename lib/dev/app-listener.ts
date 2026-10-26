@@ -7,6 +7,7 @@ import { PORTS } from '../common/config';
 
 export interface DevAppListenerOptions {
   readonly certificateArn?: string;
+  readonly additionalCertificateArn?: string;
   readonly httpRedirectEnabled?: boolean;
 }
 
@@ -29,6 +30,12 @@ export function addDevAppListener(
     open: false,
     defaultAction: ListenerAction.fixedResponse(404, { contentType: 'text/plain', messageBody: 'Not Found' }),
   });
+  // 도메인 전환 중 기존 인증서와 새 인증서를 SNI로 함께 제공한다.
+  if (certificate && options.additionalCertificateArn) {
+    listener.addCertificates('AdditionalCertificate', [
+      Certificate.fromCertificateArn(alb, `${id}AdditionalCertificate`, options.additionalCertificateArn),
+    ]);
+  }
   if (certificate && options.httpRedirectEnabled !== false) {
     const redirect = alb.addListener(`${id}Redirect`, {
       port: PORTS.http,
