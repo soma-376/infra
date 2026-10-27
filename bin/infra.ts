@@ -5,6 +5,7 @@ import { loadDevConfig } from '../lib/dev/config';
 import { synthDev } from '../lib/dev/app';
 import { loadCicdConfig } from '../lib/cicd/config';
 import { synthCicd } from '../lib/cicd/app';
+const { readDeploymentProfile, applyProfileContext } = require('../lib/dev/deployment-profile.cjs');
 
 const app = new App();
 
@@ -16,9 +17,16 @@ const env = {
   region: process.env.CDK_DEFAULT_REGION,
 };
 
+const profilePath: unknown = app.node.tryGetContext('devDeploymentProfile');
+if (profilePath !== undefined && envName !== 'dev') {
+  throw new Error('devDeploymentProfile은 env=dev에서만 사용할 수 있습니다');
+}
+
 if (envName === 'prod') {
   synthProd(app, { env, config: loadConfig(app) });
 } else if (envName === 'dev') {
+  // 공식 dev 명령이 추적된 profile을 선택한다. 생략한 low-level context 동작은 유지한다.
+  if (profilePath !== undefined) applyProfileContext(app, readDeploymentProfile(profilePath), env.account);
   // loadDevConfig 는 App 노드의 context 를 읽으므로 App 생성 이후여야 한다.
   synthDev(app, { env, config: loadDevConfig(app) });
 } else if (envName === 'cicd') {

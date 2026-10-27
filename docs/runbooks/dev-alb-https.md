@@ -1,5 +1,7 @@
 # dev ALB 외부 ACM 인증서 적용과 HTTP 복구
 
+> 새 dev 도메인의 공개 URL·추가 SNI 인증서와 재배포 입력은 [도메인 전환 런북](dev-domain-migration.md)을 따른다.
+
 PROJ-238·[ADR-0033](../adr/0033-dev-alb-https-with-external-acm.md)은 외부에서 관리하는 ACM 인증서를
 기존 EKS ALB에 연결한다. ADR-0035 이후 dev ECS ALB와 그 인증서 입력은 제거됐다. 이 문서는 운영 절차이며 실제 AWS 배포·TLS 접속을 실행한 기록이 아니다.
 ACM 발급·DNS 검증·Route 53·도메인 context·앱 공개 URL·endpoint output·Helm 생성기 변경은 포함하지 않는다.

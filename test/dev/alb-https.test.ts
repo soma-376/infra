@@ -3,6 +3,10 @@ import { buildDevApp, BuiltDevApp, TEST_ENV } from '../helpers';
 
 const LISTENER_ID = 'EksValidationAlbHttpB310BAC9';
 const CERTIFICATE_ARN = `arn:aws:acm:${TEST_ENV.region}:${TEST_ENV.account}:certificate/22222222-2222-4222-8222-222222222222`;
+const ADDITIONAL_CERTIFICATE_ARNS = [
+  `arn:aws:acm:${TEST_ENV.region}:${TEST_ENV.account}:certificate/33333333-3333-4333-8333-333333333333`,
+  `arn:aws:acm:${TEST_ENV.region}:${TEST_ENV.account}:certificate/44444444-4444-4444-8444-444444444444`,
+];
 const CIDRS = ['203.0.113.10/32', '198.51.100.0/24'];
 const CONTEXT = { devAllowedCidr: CIDRS.join(',') };
 
@@ -98,5 +102,88 @@ describe('dev EKS ALB 외부 ACM 인증서', () => {
     const built = buildDevApp({ ...CONTEXT, devHttpRedirectEnabled: false });
     expect(Template.fromStack(built.edge).toJSON()).toEqual(baselineEdge.toJSON());
     expect(Template.fromStack(built.network).toJSON()).toEqual(baselineNetwork.toJSON());
+  });
+
+  test('공개 origin은 기존 output 값만 바꾸고 listener·라우팅·다른 스택을 유지한다', () => {
+    const context = { ...CONTEXT, devEksCertificateArn: CERTIFICATE_ARN };
+    const before = buildDevApp(context);
+    const after = buildDevApp({ ...context, devEksPublicBaseUrl: 'https://api-dev.pulsemetry.co.kr' });
+    const oldEdge = Template.fromStack(before.edge).toJSON();
+    const newEdge = Template.fromStack(after.edge).toJSON();
+    expect(newEdge.Resources).toEqual(oldEdge.Resources);
+    expect(newEdge.Outputs).toEqual({
+      ...oldEdge.Outputs,
+      ValidationPublicBaseUrl: { Value: 'https://api-dev.pulsemetry.co.kr' },
+    });
+    expect(oldEdge.Outputs.ValidationPublicBaseUrl).toEqual(baselineEdge.toJSON().Outputs.ValidationPublicBaseUrl);
+    for (const key of ['network', 'data', 'eks'] as const) {
+      expect(Template.fromStack(after[key]).toJSON()).toEqual(Template.fromStack(before[key]).toJSON());
+    }
+  });
+
+  test('추가 인증서는 기본 인증서·기존 리소스를 보존하고 배열 순서와 무관한 ID를 갖는다', () => {
+    const context = {
+      ...CONTEXT, devEksCertificateArn: CERTIFICATE_ARN,
+      devEksPublicBaseUrl: 'https://api-dev.pulsemetry.co.kr',
+    };
+    const original = Template.fromStack(buildDevApp(context).edge);
+    const first = Template.fromStack(buildDevApp({
+      ...context, devEksAdditionalCertificateArns: [ADDITIONAL_CERTIFICATE_ARNS[0]],
+    }).edge);
+    const built = buildDevApp({ ...context, devEksAdditionalCertificateArns: ADDITIONAL_CERTIFICATE_ARNS });
+    const added = Template.fromStack(built.edge);
+    const reordered = Template.fromStack(buildDevApp({
+      ...context, devEksAdditionalCertificateArns: [...ADDITIONAL_CERTIFICATE_ARNS].reverse(),
+    }).edge);
+    added.resourceCountIs('AWS::ElasticLoadBalancingV2::ListenerCertificate', 2);
+    added.resourceCountIs('AWS::ElasticLoadBalancingV2::ListenerRule', 53);
+    for (const arn of ADDITIONAL_CERTIFICATE_ARNS) {
+      added.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerCertificate', {
+        Certificates: [{ CertificateArn: arn }], ListenerArn: { Ref: LISTENER_ID },
+      });
+    }
+    for (const [id, resource] of Object.entries(original.toJSON().Resources)) {
+      expect(added.toJSON().Resources[id]).toEqual(resource);
+    }
+    for (const [id, resource] of Object.entries(first.findResources('AWS::ElasticLoadBalancingV2::ListenerCertificate'))) {
+      expect(added.toJSON().Resources[id]).toEqual(resource);
+    }
+    expect(added.toJSON().Outputs).toEqual(original.toJSON().Outputs);
+    expect(reordered.toJSON()).toEqual(added.toJSON());
+    assertNoManagedCertificate(built);
+  });
+
+  test('기존 추가 인증서 logical ID를 유지하며 재정렬·새 인증서 추가로 바꾸지 않는다', () => {
+    const legacyId = 'EksValidationAlbHttpAdditionalCertificate1AA7940BB';
+    const context = {
+      ...CONTEXT, devEksCertificateArn: CERTIFICATE_ARN,
+      devEksAdditionalCertificateLogicalIds: { [ADDITIONAL_CERTIFICATE_ARNS[0]]: legacyId },
+    };
+    const first = Template.fromStack(buildDevApp({
+      ...context, devEksAdditionalCertificateArns: [ADDITIONAL_CERTIFICATE_ARNS[0]],
+    }).edge);
+    first.resourceCountIs('AWS::ElasticLoadBalancingV2::ListenerCertificate', 1);
+    expect(first.toJSON().Resources[legacyId]).toMatchObject({
+      Type: 'AWS::ElasticLoadBalancingV2::ListenerCertificate',
+      Properties: { Certificates: [{ CertificateArn: ADDITIONAL_CERTIFICATE_ARNS[0] }], ListenerArn: { Ref: LISTENER_ID } },
+    });
+    const added = Template.fromStack(buildDevApp({
+      ...context, devEksAdditionalCertificateArns: ADDITIONAL_CERTIFICATE_ARNS,
+    }).edge);
+    const reordered = Template.fromStack(buildDevApp({
+      ...context, devEksAdditionalCertificateArns: [...ADDITIONAL_CERTIFICATE_ARNS].reverse(),
+    }).edge);
+    added.resourceCountIs('AWS::ElasticLoadBalancingV2::ListenerCertificate', 2);
+    for (const [id, resource] of Object.entries(first.toJSON().Resources)) {
+      expect(added.toJSON().Resources[id]).toEqual(resource);
+    }
+    expect(reordered.toJSON()).toEqual(added.toJSON());
+    const unmapped = Template.fromStack(buildDevApp({
+      ...CONTEXT, devEksCertificateArn: CERTIFICATE_ARN,
+      devEksAdditionalCertificateArns: [ADDITIONAL_CERTIFICATE_ARNS[1]],
+    }).edge).findResources('AWS::ElasticLoadBalancingV2::ListenerCertificate');
+    for (const [id, resource] of Object.entries(unmapped)) {
+      expect(added.toJSON().Resources[id]).toEqual(resource);
+    }
   });
 });

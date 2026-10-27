@@ -4,7 +4,9 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dump, load, JSON_SCHEMA } from 'js-yaml';
 import runtimeInputs from '../lib/dev/runtime-input.cjs';
+import deploymentProfiles from '../lib/dev/deployment-profile.cjs';
 const { parseRuntimeInputs, oidcClientBindings } = runtimeInputs;
+const { readDeploymentProfile } = deploymentProfiles;
 
 export function parseRuntimeValues(text) {
   let value;
@@ -128,7 +130,7 @@ function oidcValues(oidc, outputs, existingSecrets) {
   return { ...oidc, clients };
 }
 
-export function generateValues(document, images, runtimeInput, mskBootstrapText, mskNodesText) {
+export function generateValues(document, images, runtimeInput, mskBootstrapText, mskNodesText, deploymentProfile) {
   const runtime = parseRuntimeInputs(runtimeInput, { eks: true });
   const outputs = collectOutputs(document);
   const required = key => {
@@ -150,7 +152,31 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
   const endpoint = required('DbEndpoint');
   if (!/^[a-zA-Z0-9.-]+$/.test(endpoint)) throw new Error('DbEndpoint는 hostname이어야 한다');
   const publicBaseUrl = required('ValidationPublicBaseUrl');
-  if (!/^http:\/\/[a-zA-Z0-9.-]+$/.test(publicBaseUrl)) throw new Error('ValidationPublicBaseUrl은 검증 ALB의 HTTP 주소여야 한다');
+  // ADR-0040: 기존 HTTP ALB fallback과 명시한 HTTPS 공개 origin을 모두 전달한다.
+  let publicOrigin;
+  try { publicOrigin = new URL(publicBaseUrl); } catch { /* 아래에서 동일한 입력 오류로 처리한다. */ }
+  if (!/^https?:\/\/[a-zA-Z0-9.-]+$/.test(publicBaseUrl) || publicOrigin?.origin !== publicBaseUrl) {
+    throw new Error('ValidationPublicBaseUrl은 경로·인증정보·port·query·fragment 없는 HTTP/HTTPS origin이어야 한다');
+  }
+  if (deploymentProfile) {
+    const callback = `${deploymentProfile.frontendOrigin}/auth/callback`;
+    if (publicBaseUrl !== deploymentProfile.publicBaseUrl) {
+      throw new Error('deployment-profile: publicBaseUrl과 ValidationPublicBaseUrl이 다르다');
+    }
+    if (runtime.oidc?.callbackBaseUrl !== deploymentProfile.publicBaseUrl) {
+      throw new Error('deployment-profile: oidc.callbackBaseUrl이 publicBaseUrl과 다르다');
+    }
+    if (runtime.oidc?.failureRedirectUri !== callback) {
+      throw new Error('deployment-profile: oidc.failureRedirectUri가 frontendOrigin의 /auth/callback과 다르다');
+    }
+    if (!runtime.userAuth.allowedOrigins.includes(deploymentProfile.frontendOrigin)) {
+      throw new Error('deployment-profile: userAuth.allowedOrigins에 frontendOrigin이 없다');
+    }
+    if (!runtime.userAuth.allowedRedirectUris?.includes(callback)) {
+      throw new Error('deployment-profile: userAuth.allowedRedirectUris에 frontendOrigin의 /auth/callback이 없다');
+    }
+  }
+  const postgresUrl = app => `jdbc:postgresql://${endpoint}:5432/controlplane${runtime.postgresSslMode?.[app] === 'require' ? '?sslmode=require' : ''}`;
   const appSg = required('EksAppNodeSecurityGroupId');
   const chSg = required('EksClickhouseNodeSecurityGroupId');
   if (![appSg, chSg].every(id => /^sg-[a-f0-9]+$/.test(id))) throw new Error('EKS node SG ID가 올바르지 않다');
@@ -242,7 +268,7 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
       image: image(images.enrollment, 'enrollment image'), vpcId, jwt: jwt(true), userAuth: { ...authSettings, ...(auth.allowedRedirectUris ? { allowedRedirectUris: auth.allowedRedirectUris } : {}) }, oidc,
       runtime: { enabled: true, secretProviderClass: 'enrollment-api-runtime', requiredFiles: [...commonFiles, 'PULSEMETRY_ADMIN_API_TOKEN', ...(oidc.enabled ? oidc.clients.map(client => client.alias) : [])] },
       telemetryJwt: telemetryJwt('enrollment-api'),
-      env: { PULSEMETRY_DB_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_PUBLIC_BASE_URL: publicBaseUrl, PULSEMETRY_BINARIES_DIR: '/app/binaries', PULSEMETRY_MANAGEMENT_ENABLED: String(runtime.dashboard.managementEnabled), PULSEMETRY_MAIL_ENABLED: String(runtime.dashboard.mailEnabled) },
+      env: { PULSEMETRY_DB_URL: postgresUrl('enrollment'), PULSEMETRY_PUBLIC_BASE_URL: publicBaseUrl, PULSEMETRY_BINARIES_DIR: '/app/binaries', PULSEMETRY_MANAGEMENT_ENABLED: String(runtime.dashboard.managementEnabled), PULSEMETRY_MAIL_ENABLED: String(runtime.dashboard.mailEnabled) },
       targetGroupBindings: binding('ValidationEnrollmentApiTargetGroupArn'),
     },
     'telemetry-ingest.yaml': {
@@ -250,7 +276,7 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
       runtime: { enabled: true, secretProviderClass: 'telemetry-ingest-runtime', requiredFiles: commonFiles },
       ingestMode: runtime.ingestMode, telemetryJwt: telemetryJwt('telemetry-ingest'),
       ...(consumer ? { kafka: kafka('telemetry-ingest') } : {}),
-      env: { PULSEMETRY_OBSERVABILITY_ENVIRONMENT: 'dev', PULSEMETRY_DB_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_ARCHIVE_TYPE: 's3', PULSEMETRY_ARCHIVE_BUCKET: bucket, PULSEMETRY_ARCHIVE_PREFIX: prefix, AWS_REGION: region, PULSEMETRY_CLICKHOUSE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_CLICKHOUSE_DATABASE: 'default' },
+      env: { PULSEMETRY_OBSERVABILITY_ENVIRONMENT: 'dev', PULSEMETRY_DB_URL: postgresUrl('ingest'), PULSEMETRY_ARCHIVE_TYPE: 's3', PULSEMETRY_ARCHIVE_BUCKET: bucket, PULSEMETRY_ARCHIVE_PREFIX: prefix, AWS_REGION: region, PULSEMETRY_CLICKHOUSE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_CLICKHOUSE_DATABASE: 'default' },
       // kafka 모드는 외부 OTLP 노출을 없애고 내부 health ClusterIP만 둔다.
       ...(runtime.ingestMode === 'kafka'
         ? { service: { type: 'ClusterIP' }, targetGroupBindings: [] }
@@ -302,18 +328,22 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
 
 const PLATFORM_TRACE_ENDPOINT = 'http://pulsemetry-otel-platform.pulsemetry-observability.svc:4318/v1/traces';
 
-const OPTIONS = ['--outputs', '--output-dir', '--enrollment-image', '--ingest-image', '--dashboard-image', '--gateway-image', '--runtime-values', '--msk-bootstrap', '--msk-nodes'];
+const REQUIRED_OPTIONS = ['--outputs', '--output-dir', '--enrollment-image', '--ingest-image', '--dashboard-image', '--gateway-image', '--msk-bootstrap', '--msk-nodes'];
+const OPTIONS = [...REQUIRED_OPTIONS, '--runtime-values', '--deployment-profile'];
 
 export function main(argv) {
   const options = {};
   for (let i = 0; i < argv.length; i += 2) {
-    if (!OPTIONS.includes(argv[i]) || !argv[i + 1]) throw new Error('사용법: node scripts/eks-values.mjs --outputs <cdk-output.json> --output-dir <dir> --enrollment-image <repository@sha256:digest> --ingest-image <repository@sha256:digest> --dashboard-image <repository@sha256:digest> --gateway-image <repository@sha256:digest> --runtime-values <runtime.yaml> --msk-bootstrap <get-bootstrap-brokers.json> --msk-nodes <list-nodes.json>');
+    if (!OPTIONS.includes(argv[i]) || !argv[i + 1]) throw new Error('사용법: node scripts/eks-values.mjs --outputs <cdk-output.json> --output-dir <dir> --enrollment-image <repository@sha256:digest> --ingest-image <repository@sha256:digest> --dashboard-image <repository@sha256:digest> --gateway-image <repository@sha256:digest> [--deployment-profile <profile.json>] [--runtime-values <runtime.yaml>] --msk-bootstrap <get-bootstrap-brokers.json> --msk-nodes <list-nodes.json>');
     if (options[argv[i]]) throw new Error(`${argv[i]} 옵션이 중복된다`);
     options[argv[i]] = argv[i + 1];
   }
-  for (const name of OPTIONS) if (!options[name]) throw new Error(`${name} 옵션이 필요하다`);
+  for (const name of REQUIRED_OPTIONS) if (!options[name]) throw new Error(`${name} 옵션이 필요하다`);
+  const deploymentProfile = options['--deployment-profile'] ? readDeploymentProfile(options['--deployment-profile']) : undefined;
+  const runtimePath = options['--runtime-values'] ?? deploymentProfile?.runtimeValuesPath;
+  if (!runtimePath) throw new Error('--runtime-values 옵션이 필요하다 (--deployment-profile로 기본 runtime을 선택할 수 있다)');
   const images = { enrollment: options['--enrollment-image'], ingest: options['--ingest-image'], dashboard: options['--dashboard-image'], gateway: options['--gateway-image'] };
-  const values = generateValues(JSON.parse(readFileSync(options['--outputs'], 'utf8')), images, parseRuntimeValues(readFileSync(options['--runtime-values'], 'utf8')), readFileSync(options['--msk-bootstrap'], 'utf8'), readFileSync(options['--msk-nodes'], 'utf8'));
+  const values = generateValues(JSON.parse(readFileSync(options['--outputs'], 'utf8')), images, parseRuntimeValues(readFileSync(runtimePath, 'utf8')), readFileSync(options['--msk-bootstrap'], 'utf8'), readFileSync(options['--msk-nodes'], 'utf8'), deploymentProfile);
   const dir = resolve(options['--output-dir']);
   mkdirSync(dir, { recursive: true });
   for (const [filename, value] of Object.entries(values)) {

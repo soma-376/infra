@@ -34,4 +34,21 @@ describe('EKS dashboard runtime 입력', () => {
     const input = fixture(); input.dashboard.settings.PULSEMETRY_DASHBOARD_RETRY_AFTER = '1001ms';
     expect(() => parseRuntimeInputs(input)).not.toThrow();
   });
+
+  test.each([{}, { enrollment: 'require' }, { ingest: 'require' }, { enrollment: 'require', ingest: 'require' }])(
+    '선택적 PostgreSQL TLS 모드 %j를 보존한다', modes => {
+      const input = fixture(); input.postgresSslMode = modes;
+      expect(parseRuntimeInputs(input).postgresSslMode).toEqual(modes);
+    },
+  );
+
+  test.each([
+    null, [], 'require', true,
+    { dashboard: 'require' }, { enrollment: 'disable' }, { ingest: 'prefer' },
+    { enrollment: 'verify-full' }, { enrollment: null }, { ingest: 'sensitive-marker' },
+  ])('허용하지 않은 PostgreSQL TLS 입력 %j를 거부한다', modes => {
+    const input = fixture(); input.postgresSslMode = modes;
+    expect(() => parseRuntimeInputs(input)).toThrow('postgresSslMode');
+    try { parseRuntimeInputs(input); } catch (error) { expect(String(error)).not.toContain('sensitive-marker'); }
+  });
 });
