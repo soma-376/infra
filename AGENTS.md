@@ -258,7 +258,7 @@ EKS API는 private 전용이다. SSM relay의 public IPv4는 NAT 없는 subnet�
 노드 직접 접속용이 아니다. Helm은 기존 generated YAML 순서를 유지하고 CDK는 OIDC 원본 key만 선언한다.
 
 dev WAF는 ALB 전체에 적용한다. 국가·악성 IP·URI·헤더 Block, 정확한 OTLP 본문/rate Count·query Block,
-등록 rate 세 조건, 429/Retry-After, 로그 마스킹·sampling 비활성화와 14일 보존을 유지한다.
+등록 API 세 조건과 정확한 `/unix`·`/windows`의 공유 rate, 429/Retry-After, 로그 마스킹·sampling 비활성화와 14일 보존을 유지한다.
 남는 앱 `Validation*` output은 EKS 주소/ARN이며 이름을 바꾸지 않는다. ClickHouse 공개 output은 ADR-0038로 제거한다. 인증서가 없으면 HTTP이고,
 선택적 HTTPS도 인증서 도메인·공개 URL·manifest의 정합과 실제 E2E를 별도로 확인해야 한다.
 
@@ -319,7 +319,7 @@ dev WAF는 ALB 전체에 적용한다. 국가·악성 IP·URI·헤더 Block, 정
 | JWT 키 일반 배포 시 재생성 금지 | verifier → signer → 마지막 구 발급 후 330초 → 구 공개키 제거 |
 | enrollment·ingest는 기존 token hash 원본 공유 | 발급과 검증의 HMAC 일치 |
 | `open:false`·명시 경로/method/OPTIONS·default 404 유지 | CIDR 우회 및 임의 public health 노출 방지 |
-| dev WAF 내용 검사와 등록 rate 범위를 분리 | 기존 등록 세 조건을 `/api/v1/*` 전체로 확대하지 않음 |
+| dev WAF 내용 검사와 등록 rate 범위를 분리 | 등록 API 세 조건과 정확한 `/unix`·`/windows`만 300건 예산 공유; `/api/v1/*` 전체로 확대하지 않음 |
 | CDK/Helm/Auto Mode 소유권 분리 | 기존 EKS TG만 TGB에 연결하고 AWS 리소스는 CDK가 소유 |
 | 새 설정은 비밀 원문 없는 입력만 허용 | Secret 원문은 synth/output/values/context에 넣지 않음 |
 | `bin/infra.ts`와 test helper는 synthDev로 조립 | CLI와 테스트의 배포 트리 불일치 방지 |

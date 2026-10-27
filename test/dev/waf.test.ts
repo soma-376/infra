@@ -532,7 +532,7 @@ describe('dev ALB WAF 정책 합성', () => {
 
   // AWS의 보편적인 OR 중첩 금지를 가정하는 검사가 아니다. Remaining 분류의
   // 불필요한 OR 중첩이 돌아오지 않도록 프로젝트가 선택한 평탄한 정규형을 고정한다.
-  test('나머지 rate 범위는 NOT 안의 단일 OR와 정확한 여섯 경로 leaf로 구성한다', () => {
+  test('나머지 rate 범위는 NOT 안의 단일 OR와 정확한 여덟 경로 leaf로 구성한다', () => {
     const expectedPaths: readonly (
       readonly [path: string, constraint: 'EXACTLY' | 'STARTS_WITH']
     )[] = [
@@ -542,6 +542,8 @@ describe('dev ALB WAF 정책 합성', () => {
       ['/api/v1/enroll', 'EXACTLY'],
       ['/api/v1/installations/', 'STARTS_WITH'],
       ['/api/v1/invitations', 'STARTS_WITH'],
+      ['/unix', 'EXACTLY'],
+      ['/windows', 'EXACTLY'],
     ];
     const scopeDown = rule('RemainingRateBlock')
       .Statement.RateBasedStatement.ScopeDownStatement;
@@ -649,7 +651,7 @@ describe('dev ALB WAF 정책 합성', () => {
   // rate 동작 시점은 AWS의 근사 판정이며, 이 표는 합성된 ScopeDown의 경로 구분만
   // 검증한다. N+1번째 요청이 429가 된다는 주장이 아니다.
   test.each(PATH_CASES)(
-    '%s의 rate 분류는 배타적이며 새 앱 경로·bootstrap은 나머지에 포함된다',
+    '%s의 rate 분류는 배타적이며 정확한 bootstrap 두 경로는 등록 예산을 공유한다',
     (path, kind) => {
       const matches = [
         'OtlpRateCount', 'EnrollmentRateBlock', 'RemainingRateBlock',
@@ -659,8 +661,8 @@ describe('dev ALB WAF 정책 합성', () => {
       ));
       expect(matches).toEqual([
         kind === 'otlp',
-        kind === 'enrollment',
-        kind === 'application' || kind === 'bootstrap' || kind === 'other',
+        kind === 'enrollment' || path === '/unix' || path === '/windows',
+        (kind === 'application' || kind === 'bootstrap' || kind === 'other') && path !== '/unix' && path !== '/windows',
       ]);
       expect(matches.filter(Boolean)).toHaveLength(1);
     },

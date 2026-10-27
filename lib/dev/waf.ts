@@ -7,7 +7,7 @@ import {
   DEV_BOOTSTRAP_PATHS,
   DEV_ENROLLMENT_API_PATHS,
   DEV_ENROLLMENT_MANAGEMENT_PATHS,
-  DEV_ENROLLMENT_REGISTRATION_PATHS,
+  DEV_ENROLLMENT_RATE_PATHS,
   DEV_OTLP_PATHS,
   DEV_WAF_BLOCKED_COUNTRIES,
   DEV_WAF_LOG_GROUP_NAME,
@@ -152,9 +152,9 @@ export class DevWaf extends Construct {
 
 function buildRules(): CfnWebACL.RuleProperty[] {
   const otlp = paths(DEV_OTLP_PATHS);
-  // 등록 rate는 기존 세 조건만 공유한다. 인증·조회·관리 경로는 본문/query Block과
+  // 등록 rate는 기존 API 세 조건과 정확한 bootstrap 두 경로가 공유한다. 인증·조회·관리 경로는 본문/query Block과
   // 별개로 RemainingRateBlock의 1,000건 범위에 포함한다. (ADR-0027, PROJ-200)
-  const enrollment = paths(DEV_ENROLLMENT_REGISTRATION_PATHS);
+  const enrollment = paths(DEV_ENROLLMENT_RATE_PATHS);
   const app = or([
     ...[...DEV_OTLP_PATHS, ...DEV_ENROLLMENT_API_PATHS, ...DEV_ENROLLMENT_MANAGEMENT_PATHS,
       ...DEV_BOOTSTRAP_PATHS, ...DEV_DASHBOARD_WAF_EXACT_PATHS].map(path),
@@ -162,9 +162,9 @@ function buildRules(): CfnWebACL.RuleProperty[] {
       regexString, fieldToMatch: { uriPath: {} }, textTransformations: [{ priority: 0, type: 'NONE' }],
     } })),
   ]);
-  // 제외할 여섯 경로 조건을 OR 하나로 합쳐 불필요한 OR 안의 OR 중첩을 없앤다.
+  // 제외할 여덟 경로 조건을 OR 하나로 합쳐 불필요한 OR 안의 OR 중첩을 없앤다.
   // 경로·rate 정책은 같으며 서비스 입력 수용 여부는 CheckCapacity로 별도 검증한다. (ADR-0027)
-  const remaining = not(paths([...DEV_OTLP_PATHS, ...DEV_ENROLLMENT_REGISTRATION_PATHS]));
+  const remaining = not(paths([...DEV_OTLP_PATHS, ...DEV_ENROLLMENT_RATE_PATHS]));
 
   return [
     actionRule(
