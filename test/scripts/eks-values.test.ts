@@ -113,6 +113,40 @@ describe('배포 output→values 변환', () => {
   afterEach(() => { for (const temp of temps.splice(0)) rmSync(temp, { recursive: true, force: true }); });
   const run = (document: any, image?: string, dashboard?: string, runtimeText?: string, extra?: InvocationOptions) => { const output = invoke(document, image, dashboard, runtimeText, extra); temps.push(output.temp); return output; };
 
+  test('metric_log의 검증된 두 설정만 ClickHouse values로 전달한다', () => {
+    const runtime = load(readFileSync(runtimeFile, 'utf8'));
+    const baseline = run(outputs());
+    runtime.clickhouse = { metricLog: { maxCompressBlockSize: 65536, mergeMaxBlockSize: 512 }, imageDigest: digest };
+    const candidate = run(outputs(), undefined, undefined, dump(runtime));
+    expect(candidate.result.status).toBe(0);
+    expect(candidate.read('clickhouse.yaml')).toEqual({ ...baseline.read('clickhouse.yaml'), ...runtime.clickhouse });
+    for (const file of readdirSync(baseline.dir).filter(file => file !== 'clickhouse.yaml')) {
+      expect(candidate.read(file)).toEqual(baseline.read(file));
+    }
+  });
+
+  test('metric_log 복구 때 image digest pin만 남길 수 있다', () => {
+    const runtime = load(readFileSync(runtimeFile, 'utf8'));
+    runtime.clickhouse = { imageDigest: digest };
+    const output = run(outputs(), undefined, undefined, dump(runtime));
+    expect(output.result.status).toBe(0);
+    expect(output.read('clickhouse.yaml')).toEqual({ availabilityZone: 'ap-northeast-2a', observability: { enabled: true }, imageDigest: digest });
+  });
+
+  test.each([
+    {}, { metricLog: {} }, { metricLog: { maxCompressBlockSize: 65536 } },
+    { metricLog: { maxCompressBlockSize: 65536, mergeMaxBlockSize: 8192 } },
+    { metricLog: { maxCompressBlockSize: '65536', mergeMaxBlockSize: 512 } },
+    { metricLog: { maxCompressBlockSize: 65536, mergeMaxBlockSize: 512, ttl: '1d' } },
+    { metricLog: { maxCompressBlockSize: 65536, mergeMaxBlockSize: 512 }, backgroundPoolSize: 2 },
+    { metricLog: { maxCompressBlockSize: 65536, mergeMaxBlockSize: 512 }, imageDigest: 'latest' },
+  ])('metric_log 외 입력 및 검증되지 않은 값은 거부한다: %j', clickhouse => {
+    const runtime = load(readFileSync(runtimeFile, 'utf8'));
+    const candidate = run(outputs(), undefined, undefined, dump({ ...runtime, clickhouse }));
+    expect(candidate.result.status).not.toBe(0);
+    expect(candidate.result.stderr).toContain('clickhouse');
+  });
+
   test('공식 배포 프로필은 다른 cwd에서도 상대 runtime을 읽고 현행 키·issuer·TLS·tracing을 보존한다', () => {
     const source = oidcOutputs();
     source.DevEdgeStack.ValidationPublicBaseUrl = 'https://api-dev.pulsemetry.co.kr';

@@ -922,6 +922,40 @@ try {
   const clickhouse = render('clickhouse', clickhouseChart, clickhouseValues);
   checkClickhouse(clickhouse);
   allDocuments.push(...clickhouse);
+  const metricLog = { maxCompressBlockSize: 65536, mergeMaxBlockSize: 512 };
+  for (const enabled of [false, true]) {
+    const baseline = render('clickhouse', clickhouseChart, { ...clickhouseValues, observability: { enabled } });
+    const candidate = render('clickhouse', clickhouseChart, { ...clickhouseValues, observability: { enabled }, metricLog, imageDigest: digest });
+    const config = find(candidate, 'ConfigMap', 'clickhouse-metric-log').data['metric-log.xml'];
+    assert.match(config, /<engine>ENGINE = MergeTree PARTITION BY toYYYYMM\(event_date\) ORDER BY \(event_date, event_time\) SETTINGS index_granularity = 8192, max_compress_block_size = 65536, merge_max_block_size = 512<\/engine>/);
+    assert.match(config, /<partition_by remove="remove" \/>/);
+    assert.match(config, /<ttl remove="remove" \/>/);
+    assert.doesNotMatch(config, /flush_interval|collect_interval|background_pool|max_memory/);
+    const statefulset = find(candidate, 'StatefulSet', 'clickhouse');
+    const annotation = statefulset.spec.template.metadata.annotations['checksum/metric-log'];
+    assert.match(annotation, /^[a-f0-9]{64}$/);
+    const pod = statefulset.spec.template.spec;
+    assert.equal(pod.containers[0].image, 'clickhouse/clickhouse-server:24.8-alpine@' + digest);
+    assert.deepEqual(pod.volumes.find(item => item.name === 'metric-log'), { name: 'metric-log', configMap: { name: 'clickhouse-metric-log' } });
+    assert.deepEqual(pod.containers[0].volumeMounts.find(item => item.name === 'metric-log'), {
+      name: 'metric-log', mountPath: '/etc/clickhouse-server/config.d/metric-log.xml', subPath: 'metric-log.xml', readOnly: true,
+    });
+    // 추가 config·checksum·mount 외에는 이미지·자원·PVC·probe·관측 설정까지 완전히 같다.
+    const sanitized = structuredClone(candidate.filter(item => item.metadata.name !== 'clickhouse-metric-log'));
+    const clean = find(sanitized, 'StatefulSet', 'clickhouse').spec.template;
+    clean.spec.containers[0].image = 'clickhouse/clickhouse-server:24.8-alpine';
+    delete clean.metadata.annotations['checksum/metric-log'];
+    if (!Object.keys(clean.metadata.annotations).length) delete clean.metadata.annotations;
+    clean.spec.volumes = clean.spec.volumes.filter(item => item.name !== 'metric-log');
+    if (!clean.spec.volumes.length) delete clean.spec.volumes;
+    clean.spec.containers[0].volumeMounts = clean.spec.containers[0].volumeMounts.filter(item => item.name !== 'metric-log');
+    assert.deepEqual(sanitized, baseline);
+    allDocuments.push(...candidate);
+  }
+  for (const invalid of [{}, { ...metricLog, mergeMaxBlockSize: 8192 }, { ...metricLog, engine: 'other' }, { ...metricLog, maxCompressBlockSize: '65536' }]) {
+    rejects('clickhouse', clickhouseChart, { ...clickhouseValues, metricLog: invalid });
+  }
+  rejects('clickhouse', clickhouseChart, { ...clickhouseValues, imageDigest: 'latest' });
   rejects('clickhouse', clickhouseChart, { ...clickhouseValues, availabilityZone: '' });
   rejects('clickhouse', clickhouseChart, { ...clickhouseValues, availabilityZone: 'us-east-1a' });
   rejects('clickhouse', clickhouseChart, { ...clickhouseValues, storage: { className: 'gp2' } });

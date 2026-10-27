@@ -19,9 +19,14 @@ spec:
     metadata:
       labels:
         {{- include "pulsemetry.clickhouse.selector" . | nindent 8 }}
-      {{- if .Values.observability.enabled }}
+      {{- if or .Values.observability.enabled .Values.metricLog }}
       annotations:
+        {{- if .Values.observability.enabled }}
         checksum/observability: {{ include (print $.Template.BasePath "/observability.yaml") . | sha256sum }}
+        {{- end }}
+        {{- if .Values.metricLog }}
+        checksum/metric-log: {{ include (print $.Template.BasePath "/metric-log.yaml") . | sha256sum }}
+        {{- end }}
       {{- end }}
     spec:
       automountServiceAccountToken: false
@@ -37,7 +42,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: clickhouse
-          image: clickhouse/clickhouse-server:24.8-alpine
+          image: clickhouse/clickhouse-server:24.8-alpine{{ if .Values.imageDigest }}@{{ .Values.imageDigest }}{{ end }}
           imagePullPolicy: IfNotPresent
           env:
             - name: CLICKHOUSE_DB
@@ -84,17 +89,30 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/clickhouse
+            {{- if .Values.metricLog }}
+            - name: metric-log
+              mountPath: /etc/clickhouse-server/config.d/metric-log.xml
+              subPath: metric-log.xml
+              readOnly: true
+            {{- end }}
             {{- if .Values.observability.enabled }}
             - name: observability
               mountPath: /etc/clickhouse-server/config.d/observability.xml
               subPath: observability.xml
               readOnly: true
             {{- end }}
-      {{- if .Values.observability.enabled }}
+      {{- if or .Values.observability.enabled .Values.metricLog }}
       volumes:
+        {{- if .Values.metricLog }}
+        - name: metric-log
+          configMap:
+            name: clickhouse-metric-log
+        {{- end }}
+        {{- if .Values.observability.enabled }}
         - name: observability
           configMap:
             name: clickhouse-observability
+        {{- end }}
       {{- end }}
   volumeClaimTemplates:
     - metadata:
