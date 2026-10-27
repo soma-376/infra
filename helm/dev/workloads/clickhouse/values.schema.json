@@ -3,6 +3,12 @@
   "type": "object", "additionalProperties": false,
   "required": ["replicaCount", "availabilityZone", "storage", "resources"],
   "properties": {
+    "imageDigest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "metricLog": {
+      "type": "object", "additionalProperties": false,
+      "required": ["maxCompressBlockSize", "mergeMaxBlockSize"],
+      "properties": {"maxCompressBlockSize": {"const": 65536}, "mergeMaxBlockSize": {"const": 512}}
+    },
     "observability": {"type": "object", "additionalProperties": false, "required": ["enabled"], "properties": {"enabled": {"type": "boolean"}}},
     "replicaCount": {"const": 1},
     "availabilityZone": {"type": "string", "pattern": "^ap-northeast-2[a-d]$"},

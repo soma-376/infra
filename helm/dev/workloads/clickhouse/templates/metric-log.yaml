@@ -1,0 +1,18 @@
+{{- if .Values.metricLog }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickhouse-metric-log
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pulsemetry.clickhouse.labels" . | nindent 4 }}
+data:
+  metric-log.xml: |
+    <clickhouse>
+      <metric_log>
+        <engine>ENGINE = MergeTree PARTITION BY toYYYYMM(event_date) ORDER BY (event_date, event_time) SETTINGS index_granularity = 8192, max_compress_block_size = {{ .Values.metricLog.maxCompressBlockSize }}, merge_max_block_size = {{ .Values.metricLog.mergeMaxBlockSize }}</engine>
+        <partition_by remove="remove" />
+        <ttl remove="remove" />
+      </metric_log>
+    </clickhouse>
+{{- end }}

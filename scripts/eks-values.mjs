@@ -300,7 +300,9 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
       env: { ...runtime.dashboard.settings, PULSEMETRY_DASHBOARD_PORT: '8081', PULSEMETRY_MANAGEMENT_ENABLED: String(runtime.dashboard.managementEnabled), PULSEMETRY_MAIL_ENABLED: String(runtime.dashboard.mailEnabled), PULSEMETRY_DASHBOARD_RDS_SOURCE_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_DASHBOARD_RDS_CACHE_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_DATABASE: 'default', PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_DATABASE: 'dashboard_cache' }, targetGroupBindings: binding('ValidationDashboardApiTargetGroupArn'),
     },
     // 구 CDK output으로도 먼저 Helm TGB를 제거할 수 있다. ClickHouse 공개 TG 참조는 소비하지 않는다. (ADR-0038)
-    'clickhouse.yaml': { availabilityZone: zone, observability: { enabled: true } },
+    'clickhouse.yaml': { availabilityZone: zone, observability: { enabled: true },
+      ...(runtime.clickhouse?.metricLog ? { metricLog: runtime.clickhouse.metricLog } : {}),
+      ...(runtime.clickhouse?.imageDigest ? { imageDigest: runtime.clickhouse.imageDigest } : {}) },
     'fluent-bit.yaml': { env: [{ name: 'AWS_REGION', value: region }, { name: 'APPLICATION_LOG_GROUP', value: required('ApplicationLogGroupName') }, { name: 'OBSERVABILITY_LOG_GROUP', value: required('ObservabilityLogGroupName') }, { name: 'CLUSTER_NAME', value: clusterName }] },
     'ascp.yaml': { awsRegion: region },
     'observability.yaml': { global: { pulsemetry: {
