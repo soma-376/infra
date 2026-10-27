@@ -33,6 +33,20 @@ dev의 새 프론트와 API 도메인을 런타임에만 적용하면 다음 val
   기존 GitHub dev 환경의 빌드 입력이다. prod와 애플리케이션 API 계약은 변경하지 않는다.
 - 배포 입력은 현재 release·Deployment와 대조한다. 기존 DB TLS·수집 모드·tracing·이미지·키의
   차이를 도메인 변경에 섞지 않는다. generated 파일만 수정한 상태를 재현 가능한 배포 원본으로 취급하지 않는다.
+- `config/dev/deployment.json`은 공개 API·프론트 origin, 인증서 UUID·기존 logical ID와 전체 dev context를,
+  같은 디렉터리의 `runtime.yaml`은 비밀 없는 앱 설정과 고정 Secret VersionId를 소유한다.
+  실제 계정 ID·Secret 원문·AWS 조회 결과·이미지 digest·개인 보고서 경로는 저장하지 않는다.
+  인증서 ARN은 실행 환경의 `CDK_DEFAULT_ACCOUNT`와 서울 리전으로 조립한다. ADR-0030의 계정·Secret 공개 제한은 유지한다.
+- 공식 `synth:dev`·`diff:dev`·`deploy:dev`와 수동 런북은 `devDeploymentProfile`을 명시하여
+  추적 입력을 자동 선택한다. 기존 context가 같은 값을 명시하면 허용하고, profile과 충돌하면 실패한다.
+  profile 없는 저수준 CDK/API의 기존 HTTP fallback은 유지한다. profile 경로는 저장소 기준이다.
+- `values:dev`는 같은 profile을 `--deployment-profile`로 선택하고 그 runtime을 기본으로 읽는다.
+  출력의 공개 URL, OIDC callback base, 실패 복귀, 프론트 origin·redirect 허용 목록을 profile과 대조한다.
+  명시한 다른 runtime 파일도 이 검사를 통과해야 한다. 이미지 digest·배포 output·MSK 조회 결과는 계속 명시 입력이다.
+- 선택적 `postgresSslMode.enrollment/ingest`는 `require`만 허용하며 해당 JDBC URL에 `sslmode=require`를 붙인다.
+  실제 dev 입력에는 두 값을 저장한다. 생략한 기존 runtime의 URL 생성과 dashboard URL은 유지한다.
+- 추적 원본과 workload base만으로 현행 manifest를 재현한다. 도메인 배포를 위해 별도의 로컬 override를
+  요구하지 않는다. runtime 버전 참조 갱신은 변경 검토·실제 Secret 버전 보존 확인과 함께 수행한다.
 
 ## Constraints
 
@@ -56,11 +70,13 @@ ARN 검증은 인증서 상태·SAN·DNS 정합을 보장하지 않는다. 실�
 
 - CDK context, runtime 입력, 프론트 Terraform, 빌드 변수와 Cognito 등록을 함께 확인해야 한다.
 - live override가 생성 입력에 빠져 있으면 적용을 멈추고 원본을 복원해야 한다.
+- 비밀 없는 버전 참조도 저장소에서 관리하므로 실제 키·client 버전 변경 시 runtime 입력을 함께 갱신해야 한다.
 
 ## Acceptance Criteria
 
 - HTTPS 공개 URL과 추가 인증서의 합성·생성·Helm 전달, 입력 오류와 기존 HTTP fallback을 검증한다.
 - 기존 ALB/listener/TG/WAF/규칙 ID 및 다른 환경 템플릿을 보존한다.
+- 공식 dev 명령과 fixture 기반 PR 검사로 profile 연결·충돌 거부·Secret 버전·TLS·tracing 보존을 검증한다.
 - 실제 dev 로그인·실패 복귀·세션 갱신·로그아웃과 재배포 후 설정 유지를 별도 증거로 남긴다.
 
 ## References

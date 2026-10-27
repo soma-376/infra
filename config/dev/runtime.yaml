@@ -1,0 +1,64 @@
+# dev의 비밀 원문 없는 앱 배포 입력이다. Secret 값은 고정 버전으로 런타임에 공급한다.
+userAuth:
+  activeKid: key-pulsemtry-2026-10-17
+  privateVersionId: 33176a74-fa29-4b5c-a83d-261c435b2c62
+  publicKeys:
+    - alias: key-pulsemtry-2026-10-17.pem
+      kid: key-pulsemtry-2026-10-17
+  publicVersionId: 0c264302-a752-4906-a5e0-c1f101482f6d
+  allowedOrigins:
+    - https://dev.pulsemetry.co.kr
+    - https://pulsemetry-dev.kro.kr
+    - http://localhost:3000
+  allowedRedirectUris:
+    - https://dev.pulsemetry.co.kr/auth/callback
+    - https://pulsemetry-dev.kro.kr/auth/callback
+  audience: pulsemetry-dev
+  issuer: https://pulseb-dev.kro.kr
+telemetryJwt:
+  activeKid: telemetry-2026-10-25-1b6e697f
+  privateVersionId: d7d2d062-3570-4106-abd2-235bf60b2fb7
+  publicKeys:
+    - alias: telemetry-primary.pem
+      kid: telemetry-2026-10-25-1b6e697f
+  publicVersionId: 4f27b05d-09f8-46b6-96b9-136e4428e674
+  issueEnabled: false
+ingestMode: http
+dashboard:
+  managementEnabled: false
+  mailEnabled: false
+  settings:
+    PULSEMETRY_DASHBOARD_RETRY_AFTER: 5s
+    PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_QUERY_TIMEOUT: 20s
+    PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_QUERY_TIMEOUT: 10s
+    PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_MAX_RESULT_ROWS: '100000'
+    PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_MAX_RESULT_BYTES: '10485760'
+    PULSEMETRY_DASHBOARD_SNAPSHOT_BUILD_TIMEOUT: 60s
+    PULSEMETRY_DASHBOARD_SNAPSHOT_MAX_CONCURRENT_BUILDS: '1'
+    PULSEMETRY_DASHBOARD_SNAPSHOT_MAX_COPY_ROWS: '100000'
+    PULSEMETRY_DASHBOARD_SNAPSHOT_MAX_COPY_BYTES: '10485760'
+    PULSEMETRY_DASHBOARD_SNAPSHOT_PURGE_GRACE: 1h
+    PULSEMETRY_DASHBOARD_SNAPSHOT_CLEANUP_INTERVAL: 5m
+    PULSEMETRY_DASHBOARD_INGEST_WINDOW: 5m
+    PULSEMETRY_DASHBOARD_INGEST_DELAYED_AFTER: 5m
+    PULSEMETRY_DASHBOARD_INGEST_DOWN_AFTER: 15m
+    PULSEMETRY_DASHBOARD_COMPLETENESS_SETTLE_AFTER: 10m
+    PULSEMETRY_DASHBOARD_MEMBERS_IDLE_DAYS: '14'
+    PULSEMETRY_DASHBOARD_SEATS_STALE_AFTER: 1d
+    PULSEMETRY_DASHBOARD_ALERTS_EVALUATION_INTERVAL: 1m
+    PULSEMETRY_DASHBOARD_ALERTS_LEASE: 2m
+oidc:
+  allowInsecureLocalhost: true
+  callbackBaseUrl: https://api-dev.pulsemetry.co.kr
+  callbackRegistrationId: oidc
+  clients:
+    - key: cognito-a
+      versionId: 542ab95f-7809-4fd7-8f01-770f1b2a574a
+  enabled: true
+  failureRedirectUri: https://dev.pulsemetry.co.kr/auth/callback
+platformTracing:
+  enabled: true
+  sampleProbability: 0.1
+postgresSslMode:
+  enrollment: require
+  ingest: require

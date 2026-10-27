@@ -84,8 +84,9 @@ function oidcRuntime(enabled = true, scheme: 'http' | 'https' = 'https') {
   return value;
 }
 
+type InvocationOptions = { gateway?: string; bootstrap?: string; nodes?: string; profile?: string; omitRuntime?: boolean; cwd?: string };
 function invoke(document: any, image = enrollmentImage, dashboard = dashboardImage, runtimeText = readFileSync(runtimeFile, 'utf8'),
-  extra: { gateway?: string; bootstrap?: string; nodes?: string } = {}) {
+  extra: InvocationOptions = {}) {
   const temp = mkdtempSync(join(tmpdir(), 'eks-values-test-'));
   const source = join(temp, 'outputs.json');
   const dir = join(temp, 'values');
@@ -99,15 +100,116 @@ function invoke(document: any, image = enrollmentImage, dashboard = dashboardIma
   const result = spawnSync(process.execPath, [
     join(root, 'scripts/eks-values.mjs'), '--outputs', source, '--output-dir', dir,
     '--enrollment-image', image, '--ingest-image', ingestImage, '--dashboard-image', dashboard,
-    '--gateway-image', extra.gateway ?? gatewayImage, '--runtime-values', runtime, '--msk-bootstrap', bootstrap, '--msk-nodes', nodes,
-  ], { cwd: root, encoding: 'utf8' });
+    '--gateway-image', extra.gateway ?? gatewayImage,
+    ...(extra.omitRuntime ? [] : ['--runtime-values', runtime]),
+    ...(extra.profile ? ['--deployment-profile', extra.profile] : []),
+    '--msk-bootstrap', bootstrap, '--msk-nodes', nodes,
+  ], { cwd: extra.cwd ?? root, encoding: 'utf8' });
   return { temp, dir, result, read: (file: string) => load(readFileSync(join(dir, file), 'utf8')) };
 }
 
 describe('배포 output→values 변환', () => {
   const temps: string[] = [];
   afterEach(() => { for (const temp of temps.splice(0)) rmSync(temp, { recursive: true, force: true }); });
-  const run = (document: any, image?: string, dashboard?: string, runtimeText?: string, extra?: { gateway?: string; bootstrap?: string; nodes?: string }) => { const output = invoke(document, image, dashboard, runtimeText, extra); temps.push(output.temp); return output; };
+  const run = (document: any, image?: string, dashboard?: string, runtimeText?: string, extra?: InvocationOptions) => { const output = invoke(document, image, dashboard, runtimeText, extra); temps.push(output.temp); return output; };
+
+  test('공식 배포 프로필은 다른 cwd에서도 상대 runtime을 읽고 현행 키·issuer·TLS·tracing을 보존한다', () => {
+    const source = oidcOutputs();
+    source.DevEdgeStack.ValidationPublicBaseUrl = 'https://api-dev.pulsemetry.co.kr';
+    const runtime = load(readFileSync(join(root, 'config/dev/runtime.yaml'), 'utf8'));
+    const output = run(source, undefined, undefined, undefined, {
+      profile: join(root, 'config/dev/deployment.json'), omitRuntime: true, cwd: tmpdir(),
+    });
+    expect({ status: output.result.status, stderr: output.result.stderr }).toEqual({ status: 0, stderr: '' });
+    const enrollment = output.read('enrollment-api.yaml');
+    const dashboard = output.read('dashboard-api.yaml');
+    const ingest = output.read('telemetry-ingest.yaml');
+    const gateway = output.read('telemetry-gateway.yaml');
+    for (const app of [enrollment, dashboard]) {
+      expect(app.userAuth.issuer).toBe(runtime.userAuth.issuer);
+      expect(app.userAuth.audience).toBe(runtime.userAuth.audience);
+      expect(app.userAuth.allowedOrigins).toEqual(runtime.userAuth.allowedOrigins);
+      expect(app.jwt.publicVersionId).toBe(runtime.userAuth.publicVersionId);
+      expect(app.jwt.publicKeys).toEqual(runtime.userAuth.publicKeys);
+    }
+    expect(enrollment.jwt.privateVersionId).toBe(runtime.userAuth.privateVersionId);
+    expect(enrollment.jwt.activeKid).toBe(runtime.userAuth.activeKid);
+    expect(enrollment.telemetryJwt.privateVersionId).toBe(runtime.telemetryJwt.privateVersionId);
+    expect(enrollment.telemetryJwt.publicVersionId).toBe(runtime.telemetryJwt.publicVersionId);
+    expect(enrollment.telemetryJwt.issueEnabled).toBe(runtime.telemetryJwt.issueEnabled);
+    expect(enrollment.oidc.clients.map(({ key, versionId }: any) => ({ key, versionId }))).toEqual(runtime.oidc.clients);
+    expect(enrollment.oidc.allowInsecureLocalhost).toBe(runtime.oidc.allowInsecureLocalhost);
+    expect(enrollment.userAuth.allowedRedirectUris).toEqual(runtime.userAuth.allowedRedirectUris);
+    expect(enrollment.env.PULSEMETRY_PUBLIC_BASE_URL).toBe(source.DevEdgeStack.ValidationPublicBaseUrl);
+    for (const app of [enrollment, ingest]) {
+      expect(app.env.PULSEMETRY_DB_URL).toBe('jdbc:postgresql://database.example.test:5432/controlplane?sslmode=require');
+    }
+    expect(dashboard.env.PULSEMETRY_DASHBOARD_RDS_SOURCE_URL).toBe('jdbc:postgresql://database.example.test:5432/controlplane');
+    expect(dashboard.env.PULSEMETRY_DASHBOARD_RDS_CACHE_URL).toBe('jdbc:postgresql://database.example.test:5432/controlplane');
+    expect(ingest.ingestMode).toBe(runtime.ingestMode);
+    for (const app of [ingest, gateway]) {
+      expect(app.tracing.enabled).toBe(runtime.platformTracing.enabled);
+      expect(app.tracing.sampleProbability).toBe(String(runtime.platformTracing.sampleProbability));
+    }
+    // 같은 완전한 runtime을 명시한 기존 CLI와 출력 전체가 같아야 한다.
+    const explicit = run(source, undefined, undefined, dump(runtime));
+    expect(explicit.result.status).toBe(0);
+    for (const file of readdirSync(output.dir)) expect(output.read(file)).toEqual(explicit.read(file));
+  });
+
+  test('프로필과 도메인이 일치하는 명시적 runtime 입력을 우선한다', () => {
+    const source = oidcOutputs();
+    source.DevEdgeStack.ValidationPublicBaseUrl = 'https://api-dev.pulsemetry.co.kr';
+    const runtime = load(readFileSync(join(root, 'config/dev/runtime.yaml'), 'utf8'));
+    runtime.userAuth.audience = 'explicit-runtime-audience';
+    const output = run(source, undefined, undefined, dump(runtime), { profile: join(root, 'config/dev/deployment.json') });
+    expect({ status: output.result.status, stderr: output.result.stderr }).toEqual({ status: 0, stderr: '' });
+    expect(output.read('enrollment-api.yaml').userAuth.audience).toBe('explicit-runtime-audience');
+  });
+
+  test.each([
+    ['output', (source: any) => { source.DevEdgeStack.ValidationPublicBaseUrl = 'https://old-api.example.test'; }, 'ValidationPublicBaseUrl'],
+    ['callback', (_source: any, runtime: any) => { runtime.oidc.callbackBaseUrl = 'https://old-api.example.test'; }, 'oidc.callbackBaseUrl'],
+    ['failure', (_source: any, runtime: any) => {
+      runtime.oidc.failureRedirectUri = 'https://old-app.example.test/auth/callback';
+      runtime.userAuth.allowedRedirectUris.push(runtime.oidc.failureRedirectUri);
+    }, 'oidc.failureRedirectUri'],
+    ['origin', (_source: any, runtime: any) => { runtime.userAuth.allowedOrigins = ['http://localhost:3000']; }, 'userAuth.allowedOrigins'],
+    ['redirect', (_source: any, runtime: any) => { runtime.userAuth.allowedRedirectUris = ['https://old-app.example.test/auth/callback']; }, 'oidc.failureRedirectUri'],
+  ])('프로필과 %s가 충돌하면 파일 생성 전에 실패한다', (_name, change, field) => {
+    const source = oidcOutputs();
+    source.DevEdgeStack.ValidationPublicBaseUrl = 'https://api-dev.pulsemetry.co.kr';
+    const runtime = load(readFileSync(join(root, 'config/dev/runtime.yaml'), 'utf8'));
+    (change as (source: any, runtime: any) => void)(source, runtime);
+    const output = run(source, undefined, undefined, dump(runtime), { profile: join(root, 'config/dev/deployment.json') });
+    expect(output.result.status).not.toBe(0);
+    expect(output.result.stderr).toContain(field);
+    expect(existsSync(output.dir)).toBe(false);
+  });
+
+  test('프로필을 고르지 않은 기존 CLI는 runtime 입력을 계속 필수로 요구한다', () => {
+    const output = run(outputs(), undefined, undefined, undefined, { omitRuntime: true });
+    expect(output.result.status).not.toBe(0);
+    expect(output.result.stderr).toContain('--runtime-values');
+    expect(existsSync(output.dir)).toBe(false);
+  });
+
+  test.each([
+    [undefined, false, false], [{}, false, false],
+    [{ enrollment: 'require' }, true, false], [{ ingest: 'require' }, false, true],
+    [{ enrollment: 'require', ingest: 'require' }, true, true],
+  ])('PostgreSQL TLS 입력 %j는 지정한 앱 URL에만 반영한다', (modes, enrollmentTls, ingestTls) => {
+    const runtime = load(readFileSync(runtimeFile, 'utf8'));
+    if (modes !== undefined) runtime.postgresSslMode = modes;
+    const output = run(outputs(), undefined, undefined, dump(runtime));
+    expect(output.result.status).toBe(0);
+    for (const [app, enabled] of [['enrollment-api', enrollmentTls], ['telemetry-ingest', ingestTls]]) {
+      expect(output.read(`${app}.yaml`).env.PULSEMETRY_DB_URL)
+        .toBe(`jdbc:postgresql://database.example.test:5432/controlplane${enabled ? '?sslmode=require' : ''}`);
+    }
+    expect(output.read('dashboard-api.yaml').env.PULSEMETRY_DASHBOARD_RDS_SOURCE_URL)
+      .toBe('jdbc:postgresql://database.example.test:5432/controlplane');
+  });
 
   test('새 HTTPS origin과 OIDC 복귀를 전달하면서 기존 issuer·키·localhost를 보존한다', () => {
     const source = oidcOutputs();

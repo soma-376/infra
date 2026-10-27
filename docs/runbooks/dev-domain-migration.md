@@ -11,14 +11,26 @@ prod·DNS·ACM 발급·계정 생성은 이 절차에 포함하지 않는다.
 ALB listener/certificate, ACM SAN·상태, Helm values/manifest/revision, Deployment를 접근 제한된
 `RUN_DIR/before`에 저장한다. 토큰·쿠키·비밀번호·Secret 원문은 조회하거나 증거에 남기지 않는다.
 
-과거 보고서의 runtime 파일은 현재 원본이 아니다. `helm get values`와 실제 Deployment가 다르면
-차이를 먼저 해소한다. 특히 enrollment/ingest의 DB URL `sslmode=require`, ingest 모드와 tracing
-sampling, 이미지, JWT·OIDC 버전을 확인한다. 현행 입력에서 표현하지 않는 override는 별도 파일로
-보관하고 매번 생성 결과 뒤에 적용한다. 생성 결과만 수정하고 원본을 버리지 않는다.
+배포 원본은 [deployment profile](../../config/dev/deployment.json)과 [runtime](../../config/dev/runtime.yaml)이다.
+과거 보고서의 runtime 파일이나 개인 경로를 다음 배포 원본으로 사용하지 않는다.
+`helm get values`와 실제 Deployment가 다르면 차이를 먼저 해소한다. 특히 enrollment/ingest의 DB URL
+`sslmode=require`, ingest 모드·tracing sampling·이미지·JWT/OIDC 버전을 대조한다.
+추적 입력이 현재 값을 표현하지 못하면 입력을 보완하고 검토한다. 생성 결과에만 수동 보정하지 않는다.
 
 ## 2. CDK 입력
 
-현재 전체 dev context에 다음 입력을 추가한다. account는 기존 `CDK_DEFAULT_ACCOUNT`를 사용한다.
+저장소 루트에서 공식 명령을 사용한다. account는 기존 `CDK_DEFAULT_ACCOUNT`를 사용하며 ARN에만 조립된다.
+
+```bash
+: "${CDK_DEFAULT_ACCOUNT:?대상 AWS 계정을 지정한다}"
+export CDK_DEFAULT_REGION=ap-northeast-2
+npm run synth:dev
+npm run diff:dev
+```
+
+공식 dev 명령은 `-c devDeploymentProfile=config/dev/deployment.json`을 자동 공급한다.
+특정 스택만 검토·배포할 때도 `npx cdk ... -c env=dev -c devDeploymentProfile=config/dev/deployment.json`을 사용한다.
+profile은 다음 context를 생성한다. 다른 CLI 값이 같은 필드를 덮어쓰면 실패하며, 값이 같으면 허용한다.
 
 | 입력 | 값 |
 |---|---|
@@ -34,14 +46,14 @@ sampling, 이미지, JWT·OIDC 버전을 확인한다. 현행 입력에서 표�
 이미 배포된 인증서 연결의 ID가 ARN 해시 기반 ID와 다르면 호환 맵을 반드시 사용한다.
 인증서를 추가한 뒤 같은 인증서의 기존 연결을 제거하는 change set은 허용하지 않는다.
 
-전체 context로 합성하고 현재 **DevEdgeStack**과 비교한다. 기대 변경은 공개 URL output과 추가
-`AWS::ElasticLoadBalancingV2::ListenerCertificate`뿐이다. ALB/listener/TG/WAF/라우팅 교체,
-다른 dev 스택 또는 prod/cicd 변경이 있으면 적용하지 않는다. 검토한 change set만 실행한다.
-이미 수동 연결된 인증서도 CDK에 선언해 후속 배포의 원본을 만든다.
+전체 context로 합성하고 현재 배포된 dev 템플릿과 비교한다. 이미 도메인 전환이 적용된 환경에서는
+변경이 없어야 한다. 아직 전환 전이면 **DevEdgeStack**의 공개 URL output과 추가 인증서 연결만 검토한다.
+ALB/listener/TG/WAF/라우팅 교체, 다른 dev 스택 또는 prod/cicd 변경이 섞이면 적용하지 않는다.
+검토한 change set만 실행하며 무변경이면 재배포하지 않는다.
 
 ## 3. runtime 원본과 Helm
 
-현재 runtime 입력에서 아래 필드를 갱신하고, 기존 목록에 새 값을 추가한다.
+추적된 runtime의 아래 필드는 이미 새 도메인을 포함한다. 도메인 변경 시 profile과 함께 수정한다.
 
 | 필드 | 값 |
 |---|---|
@@ -54,19 +66,32 @@ sampling, 이미지, JWT·OIDC 버전을 확인한다. 현행 입력에서 표�
 localhost와 이전 도메인 허용값, `oidc.allowInsecureLocalhost`도 이 작업에서 제거하지 않는다.
 OIDC client의 key·VersionId는 현재 입력을 보존하며 client Secret 원문을 저장하지 않는다.
 
-CDK 적용 뒤 재조회한 Data·EKS·Edge output, 실제 이미지 digest, MSK bootstrap/list-nodes,
-갱신한 **완전한** runtime 입력으로 `scripts/eks-values.mjs`를 실행한다. `ValidationPublicBaseUrl`은
+현재 Data·EKS·Edge output, 실제 이미지 digest, MSK bootstrap/list-nodes를 조회해 아래 명령을 실행한다.
+runtime은 같은 profile에서 자동 선택하므로 개인 파일 경로를 공급하지 않는다.
+
+```bash
+npm run values:dev -- --outputs "$RUN_DIR/deployed-outputs.json" \
+  --output-dir "$RUN_DIR/generated" \
+  --enrollment-image "$ENROLLMENT_IMAGE" --ingest-image "$INGEST_IMAGE" \
+  --dashboard-image "$DASHBOARD_IMAGE" --gateway-image "$GATEWAY_IMAGE" \
+  --msk-bootstrap "$RUN_DIR/msk-bootstrap.json" --msk-nodes "$RUN_DIR/msk-nodes.json"
+```
+
+`ValidationPublicBaseUrl`은
 enrollment의 `PULSEMETRY_PUBLIC_BASE_URL`이 된다. CORS는 enrollment/dashboard 양쪽,
 callback·failure·allowed redirects는 enrollment에만 나타나야 한다.
+profile·output·runtime 간 도메인이 다르면 생성 전에 실패한다. 명시한 `--runtime-values`도 같은 검사를 받는다.
+`postgresSslMode.enrollment/ingest=require`가 기존 DB TLS를 생성기에서 재현한다.
 
-현재 release의 전체 values를 보존한 override와 함께 렌더한다. DB TLS·tracing 등의 기존 override는
-새 공개 URL을 다시 덮어쓰지 않도록 원본에서 갱신한다. 실제 적용 candidate와 현재 manifest를
-구조적으로 비교하고, 도메인 관련 설정 외 차이가 없을 때만 runtime-config → enrollment → dashboard
-순서로 적용한다. telemetry-ingest/Gateway/ClickHouse를 이 작업 때문에 재배포하지 않는다.
-Helm upgrade에는 `--atomic --wait`와 기존 namespace `pulsemetry-dev`를 사용한다.
+workload base와 생성 values만으로 렌더하고 현재 manifest와 구조적으로 비교한다. profile과 runtime은
+기존 이미지와 함께 현재 설정 전체를 재현해야 한다. 도메인 전환이 이미 끝난 환경에서 같은 입력은
+무변경이어야 하며 재배포하지 않는다. 실제 변경이 있으면 runtime-config → enrollment → dashboard
+순서로 검토한 대상만 적용한다. telemetry-ingest/Gateway/ClickHouse를 이 작업 때문에 재배포하지 않는다.
+Helm upgrade에는 `--atomic --wait`와 기존 namespace `pulsemetry-dev`를 사용한다. 이미지를 바꾸는
+후속 배포도 이 생성 경로를 사용해 URL·issuer·TLS·tracing·키 버전을 보존한다.
 
-같은 원본으로 다시 생성해 candidate가 동일한지 확인하고, enrollment/dashboard의 동일 입력
-재배포 후에도 두 앱이 Ready이며 다섯 설정과 issuer가 유지되는지 확인한다.
+같은 원본으로 다시 생성해 candidate가 동일한지 확인한다. 실제 재배포가 필요한 경우 두 앱의 Ready와
+다섯 설정·issuer를 다시 확인한다. Secret 버전 참조를 바꿀 때는 실제 버전과 rollback 버전 보존도 확인한다.
 
 ## 4. 프론트와 Cognito
 

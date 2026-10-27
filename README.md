@@ -29,11 +29,16 @@ npm run build
 node scripts/observability-prepare.mjs
 # Helm/schema 검증까지 포함하려면 Helm 3.22.0·kubeconform 0.8.0 경로를 지정한다.
 HELM_BIN=/path/to/helm-3.22.0 KUBECONFORM_BIN=/path/to/kubeconform PROMTOOL_BIN=/path/to/promtool-3.9.1 npm test -- --runInBand
-# OIDC 원본이 없는 신규 환경의 명시적 빈 목록 예시다. 기존 환경에서는 전체 key 목록을 유지한다.
-npm run synth:dev -- -c 'devOidcClientKeys=[]'
+# 실행 계정과 기존 AWS 인증을 준비한다. 실제 dev profile이 자동 선택된다.
+: "${CDK_DEFAULT_ACCOUNT:?대상 계정을 환경으로 지정한다}"
+AWS_REGION=ap-northeast-2 npm run synth:dev
 ```
 
-`devOidcClientKeys`는 CDK 원본 선언이다. JWT·OIDC 버전·callback·dashboard 설정은 별도 EKS runtime YAML을
-`eks-values.mjs --runtime-values`로 전달한다. `devDashboardRuntimeFile`과 ECS image/ASG/certificate 입력은 제거됐다.
+`config/dev/deployment.json`은 dev 도메인·인증서 UUID·전체 context를, `config/dev/runtime.yaml`은
+JWT·OIDC 고정 버전·callback·DB TLS·tracing·dashboard 설정을 소유한다. 실제 계정 ID와 Secret 원문은 넣지 않는다.
+공식 dev CDK 명령과 `npm run values:dev -- ...`가 같은 profile을 읽는다. 이미지 digest·배포 output·MSK 조회 결과만
+실행마다 공급하며 [도메인 런북](docs/runbooks/dev-domain-migration.md)을 따른다. 이전 개인 runtime/보고서 파일은 원본이 아니다.
+profile 없는 저수준 명령은 기존 동작을 유지하지만 현재 dev 후속 배포에는 사용하지 않는다.
+`devDashboardRuntimeFile`과 ECS image/ASG/certificate 입력은 제거됐다.
 기존 EKS와 앱 `Validation*` output·TG 이름을 유지한다. PROJ-254는 ClickHouse 공개 output/TG/TGB와
 ClickHouse Helm의 `vpcId`·`targetGroupBindings` 입력을 제거한다. 구 values를 재사용하지 말고 새 생성기로 만든다.

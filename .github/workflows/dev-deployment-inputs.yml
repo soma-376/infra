@@ -1,0 +1,64 @@
+name: Dev Deployment Inputs
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - 'bin/**'
+      - 'lib/**'
+      - 'config/dev/**'
+      - 'scripts/eks-values.mjs'
+      - 'helm/dev/**'
+      - 'test/**'
+      - 'package*.json'
+      - 'cdk.json'
+      - 'tsconfig.json'
+      - 'jest.config.js'
+      - '.github/workflows/dev-deployment-inputs.yml'
+
+# fixture만 사용한다. AWS 역할·Secret·환경 승인·배포 권한이 필요하지 않다.
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-inputs-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CDK_DEFAULT_ACCOUNT: '111111111111'
+      CDK_DEFAULT_REGION: ap-northeast-2
+      AWS_REGION: ap-northeast-2
+      AWS_DEFAULT_REGION: ap-northeast-2
+      AWS_EC2_METADATA_DISABLED: 'true'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: 고정 Helm 준비
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/helm"
+          cd "$RUNNER_TEMP/helm"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://get.helm.sh/helm-v3.22.0-linux-amd64.tar.gz \
+            -o helm-v3.22.0-linux-amd64.tar.gz
+          echo '1e4ab49e429626cf6c6958d914248b78c9730803c2751b87627e171dc800e7bb  helm-v3.22.0-linux-amd64.tar.gz' | sha256sum --check
+          tar -xzf helm-v3.22.0-linux-amd64.tar.gz
+          echo "HELM_BIN=$RUNNER_TEMP/helm/linux-amd64/helm" >> "$GITHUB_ENV"
+      - run: npm run build
+      - name: dev 입력·호환성·Helm 전달 검사
+        run: npm test -- --runInBand test/dev test/scripts/eks-values.test.ts
+      - name: 공식 명령으로 fixture 계정 합성
+        run: |
+          node -e 'require("node:fs").writeFileSync("cdk.context.json", JSON.stringify({"availability-zones:account=111111111111:region=ap-northeast-2":["ap-northeast-2a","ap-northeast-2b","ap-northeast-2c","ap-northeast-2d"]}))'
+          npm run synth:dev -- --no-lookups --output "$RUNNER_TEMP/cdk-dev"

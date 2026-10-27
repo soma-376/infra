@@ -21,6 +21,12 @@ BFF 단일 프로세스에 맞춰 서비스 desired=1/min=0/max=100이다. 앱 �
 
 ## PROJ-261 dev 도메인 영속화
 
+후속 배포 원본은 추적된 `config/dev/deployment.json`·`runtime.yaml`이다. 공식 dev CDK 명령은
+`devDeploymentProfile`, `values:dev`는 `--deployment-profile`로 같은 원본을 자동 선택한다.
+실제 계정 ID·Secret 원문·이미지/조회 산출물·개인 경로는 원본에 넣지 않으며 인증서 ARN은 실행 계정으로 조립한다.
+profile과 다른 CLI context·공개 URL·callback은 오류다. `postgresSslMode.enrollment/ingest=require`가
+현재 DB TLS를 보존한다. 개인 reports 또는 수동 Helm override를 다음 배포의 원본으로 쓰지 않는다.
+
 [ADR-0040](docs/adr/0040-dev-public-origin-and-additional-certificates.md)에 따라 `devEksPublicBaseUrl`을 기존 output/Helm에 전달하고 `devEksAdditionalCertificateArns`로 추가 SNI 인증서를 보존한다. 이미 CloudFormation이 관리하는 추가 인증서는 `devEksAdditionalCertificateLogicalIds`에 현재 ARN→logical ID를 넣어 연결 교체를 피한다. 기본 인증서·listener/라우팅 ID·JWT issuer는 유지한다. 새 URL은 HTTPS origin이며 기본 인증서 입력이 필요하다. 생략한 공개 URL은 기존 HTTP ALB fallback이다. [도메인 런북](docs/runbooks/dev-domain-migration.md)에 따라 현재 runtime/Helm override를 함께 보관하고 DB TLS·수집 모드·tracing을 보존한다.
 
 ## PROJ-254 dev DB 비공개 접근
@@ -453,7 +459,8 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 
 ### (H) 알려진 잔여 이슈 (여유가 있으면)
 
-- 이 레포 자체의 `npm test`/`cdk synth` CI가 없다. DeployStack은 앱 레포 배포 권한이며 infra 검증 CI가 아니다.
+- dev 배포 입력 PR CI는 fixture 계정으로 dev 테스트·values/Helm 전달·공식 synth를 검사한다. 전체 prod/cicd와
+  관측 도구를 포함한 전체 테스트 CI는 별도다. DeployStack은 앱 레포 배포 권한이며 infra 검증 CI가 아니다.
 - `.DS_Store`가 루트, `.github/`, `docs/`에 남아 있다.
 - PROJ-254·ADR-0038은 DB 공개 경로를 제거한다. `devAllowedCidr=0.0.0.0/0`의 앱 ALB 공개 경고는 유지한다. 실제 AWS 차단·DB 릴레이 접속·앱 연결은 별도 검증한다.
 - dev RDS와 prod Aurora 모두 `StorageEncrypted`를 명시하지 않는다. prod 전환 때 removal policy와 함께 검토한다.
@@ -564,8 +571,9 @@ node scripts/observability-prepare.mjs
 HELM_BIN=/path/to/helm-3.22.0 KUBECONFORM_BIN=/path/to/kubeconform PROMTOOL_BIN=/path/to/promtool-3.9.1 npm test -- --runInBand
 npm run synth       # prod 기본값
 npm run synth:cicd
-# 원본이 없는 신규 dev 예시다. 기존 dev는 전체 OIDC key 목록을 유지한다.
-npm run synth:dev -- -c 'devOidcClientKeys=[]'
+# 현재 dev profile을 자동 선택한다. 실행 계정과 기존 AWS 인증을 준비한다.
+: "${CDK_DEFAULT_ACCOUNT:?대상 계정을 환경으로 지정한다}"
+AWS_REGION=ap-northeast-2 npm run synth:dev
 ```
 
 실제 신규 설치·후속 배포는 [EKS 런북](docs/runbooks/dev-eks-manual-deployment.md)을 따른다.
