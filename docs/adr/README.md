@@ -51,10 +51,11 @@
 | 0036 (JVM 차단 목록) | [dev JVM의 임시 인증서 차단 목록을 Helm ConfigMap으로 공급한다](0036-dev-jvm-blocked-certs-configmap.md) | Accepted (PROJ-253 임시 대응; Gateway 포함 네 앱, 실제 배포 별도, 패치 이미지 검증 후 제거) |
 | 0038 | [dev 데이터베이스는 공개 접근을 차단하고 별도 SSM 릴레이로 접속한다](0038-dev-databases-private-access-via-ssm-relay.md) | Accepted (PROJ-254 로컬 구현·검증; 실제 배포·접속 확인 별도) |
 | 0039 | [dev EKS 관측에 Loki·Tempo·플랫폼 trace Collector를 독립 release로 더하고 CloudWatch 로그와 병행한다](0039-dev-loki-tempo-and-platform-trace-collector.md) | Proposed (PROJ-256; 채택 시 0037의 Loki·Tempo·분산 tracing 제외를 대체) |
+| 0041 | [dev dashboard 조회 권한 복구는 검증된 명시 허용목록으로 분리한다](0041-dev-dashboard-read-grants-repair.md) | Accepted (PROJ-262 수동 복구 준비·로컬 검증; dev 적용 별도 승인) |
 
 병행 작업에서 사용한 `0035`·`0036`은 각각 파일명·제목·링크를 보존한다. 번호만으로 대상을 식별하지 않는다.
 
-새 ADR을 작성할 때는 다음 미사용 번호(`0040-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
+새 ADR을 작성할 때는 다음 미사용 번호(`0042-...`; `0040`은 병행 PROJ-261 예약)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
 
 섹션 순서는 다음과 같다. 괄호로 표시한 것은 내용이 있을 때만 둔다.
 
