@@ -64,6 +64,9 @@ spec:
     metadata:
       annotations:
         pulsemetry.io/blocked-certs-revision: {{ include "pulsemetry.app.blockedCerts" . | sha256sum | quote }}
+        {{- if .Values.runtime.encryptionRevision }}
+        pulsemetry.io/encryption-revision: {{ .Values.runtime.encryptionRevision | quote }}
+        {{- end }}
         {{- if .Values.jwt.enabled }}
         pulsemetry.io/jwt-revision: {{ .Values.jwt | toJson | sha256sum | quote }}
         {{- if $oidc.enabled }}

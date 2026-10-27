@@ -17,7 +17,14 @@ BFF 단일 프로세스에 맞춰 서비스 desired=1/min=0/max=100이다. 앱 �
 기존 CDK 전용 테스트 규칙은 그대로 유지하고, 새 Terraform은 fmt·validate·mock test로 검증한다.
 기존 CDK 리소스를 Terraform에 import하거나 같은 리소스를 두 도구가 수정하지 않는다.
 실제 apply는 리뷰·머지 후 보호된 CI에서 수행한다. 최초 bootstrap과 이후 bootstrap 변경은 관리자 작업이다.
-다음 미사용 ADR은 **0042**다.
+다음 미사용 ADR은 **0043**다.
+
+## PROJ-267 dev SES 초대 메일
+
+[ADR-0042](docs/adr/0042-dev-invitation-mail-via-ses-and-csi.md)에 따라 관리 응답·메일 키 원본 두 개를
+Retain으로 추가하고 enrollment Pod만 고정 버전 CSI 파일로 읽는다. SES는 도메인 identity와
+발신 주소로 제한한 SendEmail 권한을 사용한다. 실제 발송은 지정한 수신함만 사용하고 DNS 인증·
+sandbox 수신 제한·수신·설치 결과는 별도 검증한다.
 
 ## PROJ-262 dashboard 조회 권한 복구
 

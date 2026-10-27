@@ -1190,3 +1190,100 @@ describe('JVM GC·safepoint 로그 입력', () => {
     expect(existsSync(output.dir)).toBe(false);
   });
 });
+
+function sesRuntime() {
+  const runtime = load(readFileSync(runtimeFile, 'utf8'));
+  runtime.dashboard.managementEnabled = true;
+  runtime.dashboard.mailEnabled = true;
+  runtime.management = { responseKeyVersionId: 'a'.repeat(32), onboardingOtlpEndpoint: 'https://api-dev.pulsemetry.co.kr',
+    invitationAcceptUrl: 'https://dev.pulsemetry.co.kr/login', installationPageUrl: 'https://dev.pulsemetry.co.kr/install' };
+  runtime.mail = { encryptionKeyVersionId: 'b'.repeat(32), provider: 'ses', from: 'no-reply@pulsemetry.co.kr',
+    region: 'ap-northeast-2', dispatchInterval: 'PT5S', retryInterval: 'PT1M', maxAttempts: 3, sendTimeout: 'PT15S' };
+  return runtime;
+}
+function sesOutputs() {
+  const value = outputs();
+  return { ...value, DevDataStack: { ...value.DevDataStack,
+    ManagementResponseKeySecretArn: secret('soma-376/dev/management/response-encryption-key'),
+    MailEncryptionKeySecretArn: secret('soma-376/dev/mail/encryption-key') } };
+}
+
+test('SES 설정과 독립된 두 키의 고정 버전을 enrollment에만 공급한다', () => {
+  const run = invoke(sesOutputs(), enrollmentImage, dashboardImage, dump(sesRuntime()));
+  try {
+    expect({ code: run.result.status, stderr: run.result.stderr }).toEqual({ code: 0, stderr: '' });
+    const runtime = run.read('runtime.yaml');
+    expect(runtime.encryption.management.versionId).toBe('a'.repeat(32));
+    expect(runtime.encryption.mail.versionId).toBe('b'.repeat(32));
+    const enrollment = run.read('enrollment-api.yaml');
+    expect(enrollment.env).toMatchObject({ PULSEMETRY_MANAGEMENT_ENABLED: 'true', PULSEMETRY_MAIL_ENABLED: 'true',
+      PULSEMETRY_MAIL_PROVIDER: 'ses', PULSEMETRY_MAIL_FROM: 'no-reply@pulsemetry.co.kr', PULSEMETRY_MAIL_SES_REGION: 'ap-northeast-2',
+      PULSEMETRY_INSTALLATION_PAGE_URL: 'https://dev.pulsemetry.co.kr/install', PULSEMETRY_INVITATION_ACCEPT_URL: 'https://dev.pulsemetry.co.kr/login' });
+    expect(enrollment.runtime.requiredFiles).toEqual(expect.arrayContaining(['PULSEMETRY_MANAGEMENT_RESPONSE_ENCRYPTION_KEY', 'PULSEMETRY_MAIL_ENCRYPTION_KEY']));
+    expect(enrollment.runtime.encryptionRevision).toMatch(/^[a-f0-9]{64}$/);
+    for (const app of ['dashboard-api', 'telemetry-ingest', 'telemetry-gateway']) {
+      expect(JSON.stringify(run.read(app + '.yaml'))).not.toContain('ENCRYPTION_KEY');
+    }
+  } finally { rmSync(run.temp, { recursive: true, force: true }); }
+});
+
+helmTest('실제 CSI 렌더링은 enrollment만 고정 버전으로 AES 키 파일을 받는다', () => {
+  const run = invoke(sesOutputs(), enrollmentImage, dashboardImage, dump(sesRuntime()));
+  try {
+    expect(run.result.status).toBe(0);
+    const rendered = spawnSync(process.env.HELM_BIN!, ['template', 'runtime', 'helm/dev/runtime/chart', '--kube-version', '1.36.0', '-n', 'pulsemetry-dev', '-f', join(run.dir, 'runtime.yaml')], { cwd: root, encoding: 'utf8' });
+    expect({ status: rendered.status, stderr: rendered.stderr }).toEqual({ status: 0, stderr: '' });
+    const workload = spawnSync(process.env.HELM_BIN!, ['template', 'enrollment-api', 'helm/dev/workloads/spring-app', '--kube-version', '1.36.0', '-n', 'pulsemetry-dev', '-f', 'helm/dev/workloads/enrollment-api.yaml', '-f', join(run.dir, 'enrollment-api.yaml')], { cwd: root, encoding: 'utf8' });
+    expect({ status: workload.status, stderr: workload.stderr }).toEqual({ status: 0, stderr: '' });
+    expect(workload.stdout).toContain('pulsemetry.io/encryption-revision: "' + run.read('enrollment-api.yaml').runtime.encryptionRevision + '"');
+    for (const change of [
+      (value: any) => { delete value.runtime.encryptionRevision; },
+      (value: any) => { value.runtime.requiredFiles = value.runtime.requiredFiles.filter((name: string) => name !== 'PULSEMETRY_MAIL_ENCRYPTION_KEY'); },
+      (value: any) => { value.env.PULSEMETRY_MAIL_ENCRYPTION_KEY = 'forbidden-value'; },
+      (value: any) => { value.env.PULSEMETRY_MANAGEMENT_RESPONSE_ENCRYPTION_KEY = 'forbidden-value'; },
+    ]) {
+      const value = run.read('enrollment-api.yaml'); change(value);
+      const filename = join(run.temp, 'invalid-enrollment.yaml'); writeFileSync(filename, dump(value));
+      const rejected = spawnSync(process.env.HELM_BIN!, ['template', 'enrollment-api', 'helm/dev/workloads/spring-app', '--kube-version', '1.36.0', '-n', 'pulsemetry-dev', '-f', 'helm/dev/workloads/enrollment-api.yaml', '-f', filename], { cwd: root, encoding: 'utf8' });
+      expect(rejected.status).not.toBe(0);
+      expect(rejected.stderr).not.toContain('forbidden-value');
+    }
+    const docs: any[] = [];
+    require('js-yaml').loadAll(rendered.stdout, (doc: any) => { if (doc) docs.push(doc); });
+    const enrollment = docs.find(doc => doc.metadata.name === 'enrollment-api-runtime');
+    expect(enrollment.spec.parameters.objects).toContain('PULSEMETRY_MAIL_ENCRYPTION_KEY');
+    expect(enrollment.spec.parameters.objects).toContain('objectVersion: "' + 'b'.repeat(32) + '"');
+    for (const doc of docs.filter(doc => doc.metadata.name !== 'enrollment-api-runtime')) {
+      expect(JSON.stringify(doc)).not.toContain('ENCRYPTION_KEY');
+    }
+  } finally { rmSync(run.temp, { recursive: true, force: true }); }
+});
+
+
+test('암호화 키의 다른 계정·원본·누락 output은 파일 생성 전에 거부한다', () => {
+  for (const change of [
+    (value: any) => { delete value.DevDataStack.ManagementResponseKeySecretArn; },
+    (value: any) => { value.DevDataStack.MailEncryptionKeySecretArn = secret('other'); },
+    (value: any) => { value.DevDataStack.MailEncryptionKeySecretArn = value.DevDataStack.ManagementResponseKeySecretArn; },
+    (value: any) => { value.DevDataStack.MailEncryptionKeySecretArn = value.DevDataStack.MailEncryptionKeySecretArn.replace('111111111111', '222222222222'); },
+  ]) {
+    const value = sesOutputs(); change(value);
+    const run = invoke(value, enrollmentImage, dashboardImage, dump(sesRuntime()));
+    try { expect(run.result.status).toBe(1); expect(existsSync(run.dir)).toBe(false); }
+    finally { rmSync(run.temp, { recursive: true, force: true }); }
+  }
+});
+
+test('두 암호화 키의 명시 버전 변경은 enrollment Pod revision을 바꾼다', () => {
+  const base = invoke(sesOutputs(), enrollmentImage, dashboardImage, dump(sesRuntime()));
+  try {
+    const revision = base.read('enrollment-api.yaml').runtime.encryptionRevision;
+    for (const purpose of ['management', 'mail']) {
+      const runtime = sesRuntime();
+      runtime[purpose][purpose === 'management' ? 'responseKeyVersionId' : 'encryptionKeyVersionId'] = 'c'.repeat(32);
+      const changed = invoke(sesOutputs(), enrollmentImage, dashboardImage, dump(runtime));
+      try { expect(changed.result.status).toBe(0); expect(changed.read('enrollment-api.yaml').runtime.encryptionRevision).not.toBe(revision); }
+      finally { rmSync(changed.temp, { recursive: true, force: true }); }
+    }
+  } finally { rmSync(base.temp, { recursive: true, force: true }); }
+});

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dump, load, JSON_SCHEMA } from 'js-yaml';
@@ -236,6 +237,39 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
   const allSecrets = [...Object.values(dashboardSecrets), ...Object.values(telemetrySecrets), ...['DbSecretArn', 'TokenHashSecretArn', 'AdminApiTokenSecretArn'].map(required)];
   if (new Set(allSecrets).size !== allSecrets.length) throw new Error('DB 계정·JWT·기존 인증 Secret 원본은 서로 달라야 한다');
   const oidc = oidcValues(runtime.oidc, outputs, allSecrets);
+  const encryption = {};
+  const mailEnv = {};
+  const mailFiles = [];
+  if (runtime.dashboard.managementEnabled) {
+    encryption.management = { secretArn: arn('ManagementResponseKeySecretArn', 'secretsmanager'), versionId: runtime.management.responseKeyVersionId };
+    mailFiles.push('PULSEMETRY_MANAGEMENT_RESPONSE_ENCRYPTION_KEY');
+    Object.assign(mailEnv, {
+      PULSEMETRY_ONBOARDING_OTLP_ENDPOINT: runtime.management.onboardingOtlpEndpoint,
+      PULSEMETRY_INVITATION_ACCEPT_URL: runtime.management.invitationAcceptUrl,
+      PULSEMETRY_INSTALLATION_PAGE_URL: runtime.management.installationPageUrl,
+    });
+  }
+  if (runtime.dashboard.mailEnabled) {
+    encryption.mail = { secretArn: arn('MailEncryptionKeySecretArn', 'secretsmanager'), versionId: runtime.mail.encryptionKeyVersionId };
+    mailFiles.push('PULSEMETRY_MAIL_ENCRYPTION_KEY');
+    Object.assign(mailEnv, {
+      PULSEMETRY_MAIL_PROVIDER: runtime.mail.provider, PULSEMETRY_MAIL_FROM: runtime.mail.from,
+      PULSEMETRY_MAIL_SES_REGION: runtime.mail.region, PULSEMETRY_MAIL_DISPATCH_INTERVAL: runtime.mail.dispatchInterval,
+      PULSEMETRY_MAIL_RETRY_INTERVAL: runtime.mail.retryInterval, PULSEMETRY_MAIL_MAX_ATTEMPTS: String(runtime.mail.maxAttempts),
+      PULSEMETRY_MAIL_SEND_TIMEOUT: runtime.mail.sendTimeout,
+    });
+  }
+  for (const [purpose, key] of Object.entries(encryption)) {
+    const account = required('DbSecretArn').split(':')[4];
+    const path = purpose === 'management' ? 'management/response-encryption-key' : 'mail/encryption-key';
+    if (!new RegExp(`^arn:aws:secretsmanager:ap-northeast-2:${account}:secret:soma-376/dev/${path}-[A-Za-z0-9]{6}$`).test(key.secretArn)) {
+      throw new Error('관리 응답·메일 키는 같은 계정의 CDK 소유 원본이어야 한다');
+    }
+  }
+  const encryptionArns = Object.values(encryption).map(key => key.secretArn);
+  if (new Set([...allSecrets, ...encryptionArns]).size !== allSecrets.length + encryptionArns.length) {
+    throw new Error('관리 응답·메일 키는 기존 Secret 및 서로 다른 원본이어야 한다');
+  }
   const commonFiles = ['PULSEMETRY_DB_USERNAME', 'PULSEMETRY_DB_PASSWORD', 'PULSEMETRY_TOKEN_HASH_SECRET'];
   const binding = key => [{ stage: 'validation', targetGroupARN: arn(key, 'elasticloadbalancing'), confirmExclusiveOwnership: true }];
   const telemetry = runtime.telemetryJwt;
@@ -262,13 +296,14 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
       region, secrets: { dbArn: arn('DbSecretArn', 'secretsmanager'), tokenHashArn: arn('TokenHashSecretArn', 'secretsmanager'), adminApiTokenArn: arn('AdminApiTokenSecretArn', 'secretsmanager'), ...dashboardSecrets, ...telemetrySecrets },
       userAuth: { privateVersionId: auth.privateVersionId, publicVersionId: auth.publicVersionId, activeKid: auth.activeKid, publicKeys: auth.publicKeys },
       telemetryJwt: { privateVersionId: telemetry.privateVersionId, publicVersionId: telemetry.publicVersionId, activeKid: telemetry.activeKid, publicKeys: telemetry.publicKeys },
-      oidc,
+      oidc, encryption,
     },
     'enrollment-api.yaml': {
       image: image(images.enrollment, 'enrollment image'), vpcId, jwt: jwt(true), userAuth: { ...authSettings, ...(auth.allowedRedirectUris ? { allowedRedirectUris: auth.allowedRedirectUris } : {}) }, oidc,
-      runtime: { enabled: true, secretProviderClass: 'enrollment-api-runtime', requiredFiles: [...commonFiles, 'PULSEMETRY_ADMIN_API_TOKEN', ...(oidc.enabled ? oidc.clients.map(client => client.alias) : [])] },
+      runtime: { enabled: true, secretProviderClass: 'enrollment-api-runtime',
+        ...(mailFiles.length ? { encryptionRevision: createHash('sha256').update(JSON.stringify(encryption)).digest('hex') } : {}), requiredFiles: [...commonFiles, 'PULSEMETRY_ADMIN_API_TOKEN', ...mailFiles, ...(oidc.enabled ? oidc.clients.map(client => client.alias) : [])] },
       telemetryJwt: telemetryJwt('enrollment-api'),
-      env: { PULSEMETRY_DB_URL: postgresUrl('enrollment'), PULSEMETRY_PUBLIC_BASE_URL: publicBaseUrl, PULSEMETRY_BINARIES_DIR: '/app/binaries', PULSEMETRY_MANAGEMENT_ENABLED: String(runtime.dashboard.managementEnabled), PULSEMETRY_MAIL_ENABLED: String(runtime.dashboard.mailEnabled) },
+      env: { ...mailEnv, PULSEMETRY_DB_URL: postgresUrl('enrollment'), PULSEMETRY_PUBLIC_BASE_URL: publicBaseUrl, PULSEMETRY_BINARIES_DIR: '/app/binaries', PULSEMETRY_MANAGEMENT_ENABLED: String(runtime.dashboard.managementEnabled), PULSEMETRY_MAIL_ENABLED: String(runtime.dashboard.mailEnabled) },
       targetGroupBindings: binding('ValidationEnrollmentApiTargetGroupArn'),
     },
     'telemetry-ingest.yaml': {

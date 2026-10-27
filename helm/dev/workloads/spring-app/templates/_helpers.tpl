@@ -63,7 +63,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if has $name (list "JDK_JAVA_OPTIONS" "JAVA_TOOL_OPTIONS") -}}
 {{- fail "JVM 옵션은 jvm.gcSafepointLog의 고정 문자열로만 공급한다" -}}
 {{- end -}}
-{{- if or (regexMatch "^PULSEMETRY_(OIDC|COGNITO_)" $name) (regexMatch "^PULSEMETRY_DASHBOARD_(RDS|CLICKHOUSE)_(SOURCE|CACHE)_(USERNAME|PASSWORD)$" $name) (has $name (list "PULSEMETRY_DB_USERNAME" "PULSEMETRY_DB_PASSWORD" "PULSEMETRY_TOKEN_HASH_SECRET" "PULSEMETRY_ADMIN_API_TOKEN" "SPRING_CONFIG_IMPORT" "SPRING_DATASOURCE_USERNAME" "SPRING_DATASOURCE_PASSWORD" "SPRING_APPLICATION_JSON" "SERVER_PORT" "PULSEMETRY_USER_AUTH_ENABLED" "PULSEMETRY_USER_AUTH_ISSUER" "PULSEMETRY_USER_AUTH_AUDIENCE" "PULSEMETRY_USER_AUTH_ALLOWED_ORIGINS" "PULSEMETRY_USER_AUTH_ALLOWED_REDIRECT_URIS" "PULSEMETRY_USER_AUTH_ACTIVE_KID" "PULSEMETRY_USER_AUTH_PRIVATE_KEY_FILE" "PULSEMETRY_USER_AUTH_PUBLIC_KEY_FILE")) -}}
+{{- if or (regexMatch "^PULSEMETRY_(OIDC|COGNITO_)" $name) (regexMatch "^PULSEMETRY_DASHBOARD_(RDS|CLICKHOUSE)_(SOURCE|CACHE)_(USERNAME|PASSWORD)$" $name) (has $name (list "PULSEMETRY_DB_USERNAME" "PULSEMETRY_DB_PASSWORD" "PULSEMETRY_TOKEN_HASH_SECRET" "PULSEMETRY_ADMIN_API_TOKEN" "PULSEMETRY_MANAGEMENT_RESPONSE_ENCRYPTION_KEY" "PULSEMETRY_MAIL_ENCRYPTION_KEY" "SPRING_CONFIG_IMPORT" "SPRING_DATASOURCE_USERNAME" "SPRING_DATASOURCE_PASSWORD" "SPRING_APPLICATION_JSON" "SERVER_PORT" "PULSEMETRY_USER_AUTH_ENABLED" "PULSEMETRY_USER_AUTH_ISSUER" "PULSEMETRY_USER_AUTH_AUDIENCE" "PULSEMETRY_USER_AUTH_ALLOWED_ORIGINS" "PULSEMETRY_USER_AUTH_ALLOWED_REDIRECT_URIS" "PULSEMETRY_USER_AUTH_ACTIVE_KID" "PULSEMETRY_USER_AUTH_PRIVATE_KEY_FILE" "PULSEMETRY_USER_AUTH_PUBLIC_KEY_FILE")) -}}
 {{- fail (printf "%s는 env가 아닌 runtime configtree로 공급해야 한다" $name) -}}
 {{- end -}}
 {{- /* Kafka·모드·telemetry JWT는 구조화된 values에서만 만든다. 정적 AWS 자격은 Pod Identity로 대체한다. */ -}}
@@ -117,6 +117,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $files := list "PULSEMETRY_DB_USERNAME" "PULSEMETRY_DB_PASSWORD" "PULSEMETRY_TOKEN_HASH_SECRET" -}}
 {{- if eq .Values.workload "enrollment-api" -}}
 {{- $files = append $files "PULSEMETRY_ADMIN_API_TOKEN" -}}
+{{- if eq (index .Values.env "PULSEMETRY_MANAGEMENT_ENABLED" | default "false") "true" -}}
+{{- $files = append $files "PULSEMETRY_MANAGEMENT_RESPONSE_ENCRYPTION_KEY" -}}
+{{- $_ := required "관리 키의 runtime.encryptionRevision이 필요하다" .Values.runtime.encryptionRevision -}}
+{{- end -}}
+{{- if eq (index .Values.env "PULSEMETRY_MAIL_ENABLED" | default "false") "true" -}}
+{{- $files = append $files "PULSEMETRY_MAIL_ENCRYPTION_KEY" -}}
+{{- $_ := required "메일 키의 runtime.encryptionRevision이 필요하다" .Values.runtime.encryptionRevision -}}
+{{- end -}}
 {{- if $oidc.enabled -}}
 {{- range $oidc.clients -}}{{- $files = append $files .alias -}}{{- end -}}
 {{- end -}}
