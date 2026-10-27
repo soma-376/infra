@@ -9,9 +9,10 @@
     "synth": "cdk synth --all",
     "diff": "cdk diff --all",
     "deploy": "cdk deploy --all",
-    "synth:dev": "cdk synth --all -c env=dev",
-    "diff:dev": "cdk diff --all -c env=dev",
-    "deploy:dev": "cdk deploy --all -c env=dev",
+    "synth:dev": "cdk synth --all -c env=dev -c devDeploymentProfile=config/dev/deployment.json",
+    "diff:dev": "cdk diff --all -c env=dev -c devDeploymentProfile=config/dev/deployment.json",
+    "deploy:dev": "cdk deploy --all -c env=dev -c devDeploymentProfile=config/dev/deployment.json",
+    "values:dev": "node scripts/eks-values.mjs --deployment-profile config/dev/deployment.json",
     "synth:cicd": "cdk synth --all -c env=cicd",
     "diff:cicd": "cdk diff --all -c env=cicd",
     "deploy:cicd": "cdk deploy --all -c env=cicd"

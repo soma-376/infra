@@ -1,0 +1,21 @@
+{
+  "publicBaseUrl": "https://api-dev.pulsemetry.co.kr",
+  "frontendOrigin": "https://dev.pulsemetry.co.kr",
+  "runtimeValuesFile": "runtime.yaml",
+  "certificates": {
+    "defaultId": "62e2bd1f-6ddb-426a-a3d5-bbe30883bbb7",
+    "additional": [
+      {
+        "id": "77f93d1d-b750-46a6-b7c4-997da969cf41",
+        "logicalId": "EksValidationAlbHttpAdditionalCertificate1AA7940BB"
+      }
+    ]
+  },
+  "context": {
+    "devOidcClientKeys": ["cognito-a", "cognito-b"],
+    "devAllowedCidr": "0.0.0.0/0",
+    "devHttpRedirectEnabled": true,
+    "devEksArchivePrefix": "eks_validation",
+    "devEksOtlpTarget": "ingest"
+  }
+}

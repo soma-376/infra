@@ -1,5 +1,7 @@
 # 기존 Cognito 연결을 위한 dev OIDC 준비·배포·복구
 
+> 새 dev 도메인의 공개 URL·추가 SNI 인증서와 재배포 입력은 [도메인 전환 런북](dev-domain-migration.md)을 따른다.
+
 > [ADR-0032](../adr/0032-dev-oidc-client-secret-runtime-supply.md)의 OIDC 공급을
 > [ADR-0035](../adr/0035-dev-backend-eks-only.md)의 EKS 전용 입력으로 운영하는 절차다.
 > 이 문서의 AWS·DB·Helm 명령은 이번 구현에서 실행하지 않았다. 로컬 검증은 실제 Secret 등록,

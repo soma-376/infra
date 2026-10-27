@@ -17,7 +17,7 @@ BFF 단일 프로세스에 맞춰 서비스 desired=1/min=0/max=100이다. 앱 �
 기존 CDK 전용 테스트 규칙은 그대로 유지하고, 새 Terraform은 fmt·validate·mock test로 검증한다.
 기존 CDK 리소스를 Terraform에 import하거나 같은 리소스를 두 도구가 수정하지 않는다.
 실제 apply는 리뷰·머지 후 보호된 CI에서 수행한다. 최초 bootstrap과 이후 bootstrap 변경은 관리자 작업이다.
-다음 미사용 ADR은 **0042**다. (0040은 병행 PROJ-261에서 예약했다.)
+다음 미사용 ADR은 **0042**다.
 
 ## PROJ-262 dashboard 조회 권한 복구
 
@@ -26,6 +26,16 @@ BFF 단일 프로세스에 맞춰 서비스 desired=1/min=0/max=100이다. 앱 �
 읽기 전용 catalog 검사와 명시 허용목록 SQL 생성만 한다. vendor 암호문 열·credential 테이블·원천 쓰기·
 미래 테이블 default privileges를 부여하지 않는다. dev GRANT는 별도 사용자 확인 뒤 운영자가 적용한다.
 기존 broad grant 발견 시 자동 REVOKE하지 않으며 일반 배포·앱 시작·ClickHouse 설정과 분리한다.
+
+## PROJ-261 dev 도메인 영속화
+
+후속 배포 원본은 추적된 `config/dev/deployment.json`·`runtime.yaml`이다. 공식 dev CDK 명령은
+`devDeploymentProfile`, `values:dev`는 `--deployment-profile`로 같은 원본을 자동 선택한다.
+실제 계정 ID·Secret 원문·이미지/조회 산출물·개인 경로는 원본에 넣지 않으며 인증서 ARN은 실행 계정으로 조립한다.
+profile과 다른 CLI context·공개 URL·callback은 오류다. `postgresSslMode.enrollment/ingest=require`가
+현재 DB TLS를 보존한다. 개인 reports 또는 수동 Helm override를 다음 배포의 원본으로 쓰지 않는다.
+
+[ADR-0040](docs/adr/0040-dev-public-origin-and-additional-certificates.md)에 따라 `devEksPublicBaseUrl`을 기존 output/Helm에 전달하고 `devEksAdditionalCertificateArns`로 추가 SNI 인증서를 보존한다. 이미 CloudFormation이 관리하는 추가 인증서는 `devEksAdditionalCertificateLogicalIds`에 현재 ARN→logical ID를 넣어 연결 교체를 피한다. 기본 인증서·listener/라우팅 ID·JWT issuer는 유지한다. 새 URL은 HTTPS origin이며 기본 인증서 입력이 필요하다. 생략한 공개 URL은 기존 HTTP ALB fallback이다. [도메인 런북](docs/runbooks/dev-domain-migration.md)에 따라 현재 runtime/Helm override를 함께 보관하고 DB TLS·수집 모드·tracing을 보존한다.
 
 ## PROJ-254 dev DB 비공개 접근
 
@@ -128,7 +138,7 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 
 **ADR 우선 원칙은 이 레포의 기존 규칙과 같다** — 1장의 "코드와 ADR이 어긋나면 ADR이 기준이다"가
 전 레포 공통 규칙이며, 크로스레포 결정만 `../docs/adr/`가 소유한다. 스코프 판정은 `adr-new` 스킬이 안내한다.
-단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0040`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
+단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0041`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
 기존 병행 브랜치의 ADR `0028`·`0029`·`0030`은 번호가 겹치므로 파일명과 링크를 보존한다.
 프론트엔드 Terraform 절은 프론트엔드 ADR을, dashboard·EKS·기존 CDK 절은 해당 백엔드 ADR을 가리킨다.
 인용할 때는 번호와 함께 범위·제목 또는 파일 링크를 사용하며, 전체 목록은 [ADR 인덱스](docs/adr/README.md)를 따른다.
@@ -449,7 +459,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0042`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급, `0033`은 외부 ACM 기반 dev HTTPS, `0034`는 dev EKS SSM 릴레이 접근, `0035`는 MSK 배치와 dev EKS 전용 전환, `0036`은 telemetry Gateway·MSK IAM과 임시 blocked.certs 공급, `0037`은 관측 구성, `0038`은 dev DB 비공개 접근, `0039`는 Loki·Tempo·플랫폼 trace(Proposed), `0041`은 dashboard 조회 권한 복구로 이미 쓰였다. `0040`은 병행 PROJ-261에서 예약했다. `0020`은 프론트엔드 로그 정책이며, 프론트엔드 `0028`·`0029`·`0030`은 각각 Terraform 실행 환경·외부 DNS와 기존 인증서·독립 기반 상태를 다룬다. 중복 번호는 [ADR 인덱스](docs/adr/README.md)의 제목과 파일 링크로 구분하고, 기존 CDK 로그 정책 미결 사항은 위 (F)를 따른다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0042`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급, `0033`은 외부 ACM 기반 dev HTTPS, `0034`는 dev EKS SSM 릴레이 접근, `0035`는 MSK 배치와 dev EKS 전용 전환, `0036`은 telemetry Gateway·MSK IAM과 임시 blocked.certs 공급, `0037`은 관측 구성, `0038`은 dev DB 비공개 접근, `0039`는 Loki·Tempo·플랫폼 trace(Proposed), `0040`은 dev 공개 origin 영속화, `0041`은 dashboard 조회 권한 복구로 이미 쓰였다. `0020`은 프론트엔드 로그 정책이며, 프론트엔드 `0028`·`0029`·`0030`은 각각 Terraform 실행 환경·외부 DNS와 기존 인증서·독립 기반 상태를 다룬다. 중복 번호는 [ADR 인덱스](docs/adr/README.md)의 제목과 파일 링크로 구분하고, 기존 CDK 로그 정책 미결 사항은 위 (F)를 따른다.
    형식은 `docs/adr/0000-adr-template.md`를 따른다.
 3. 상수는 **"이 값이 dev에서 달라야 할 이유가 있는가"**로 위치를 정한다 — 없으면 `lib/common/config.ts`, 운영 전용이면 `lib/prod/config.ts`, dev 전용이면 `lib/dev/config.ts`. 스택에서는 import만 한다 (4장).
 4. `test/prod/*.test.ts` / `test/dev/*.test.ts` / `test/cicd/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`(prod), `buildDevApp()`(dev), `buildCicdApp()`(cicd)를 재사용한다.
@@ -457,7 +467,8 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 
 ### (H) 알려진 잔여 이슈 (여유가 있으면)
 
-- 이 레포 자체의 `npm test`/`cdk synth` CI가 없다. DeployStack은 앱 레포 배포 권한이며 infra 검증 CI가 아니다.
+- dev 배포 입력 PR CI는 fixture 계정으로 dev 테스트·values/Helm 전달·공식 synth를 검사한다. 전체 prod/cicd와
+  관측 도구를 포함한 전체 테스트 CI는 별도다. DeployStack은 앱 레포 배포 권한이며 infra 검증 CI가 아니다.
 - `.DS_Store`가 루트, `.github/`, `docs/`에 남아 있다.
 - PROJ-254·ADR-0038은 DB 공개 경로를 제거한다. `devAllowedCidr=0.0.0.0/0`의 앱 ALB 공개 경고는 유지한다. 실제 AWS 차단·DB 릴레이 접속·앱 연결은 별도 검증한다.
 - dev RDS와 prod Aurora 모두 `StorageEncrypted`를 명시하지 않는다. prod 전환 때 removal policy와 함께 검토한다.
@@ -568,8 +579,9 @@ node scripts/observability-prepare.mjs
 HELM_BIN=/path/to/helm-3.22.0 KUBECONFORM_BIN=/path/to/kubeconform PROMTOOL_BIN=/path/to/promtool-3.9.1 npm test -- --runInBand
 npm run synth       # prod 기본값
 npm run synth:cicd
-# 원본이 없는 신규 dev 예시다. 기존 dev는 전체 OIDC key 목록을 유지한다.
-npm run synth:dev -- -c 'devOidcClientKeys=[]'
+# 현재 dev profile을 자동 선택한다. 실행 계정과 기존 AWS 인증을 준비한다.
+: "${CDK_DEFAULT_ACCOUNT:?대상 계정을 환경으로 지정한다}"
+AWS_REGION=ap-northeast-2 npm run synth:dev
 ```
 
 실제 신규 설치·후속 배포는 [EKS 런북](docs/runbooks/dev-eks-manual-deployment.md)을 따른다.

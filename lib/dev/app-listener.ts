@@ -1,12 +1,15 @@
+import { createHash } from 'node:crypto';
 import { Certificate } from 'aws-cdk-lib/aws-certificatemanager';
 import {
-  ApplicationListener, ApplicationLoadBalancer, ApplicationProtocol, CfnListener,
-  ListenerAction, SslPolicy,
+  ApplicationListener, ApplicationListenerCertificate, ApplicationLoadBalancer, ApplicationProtocol, CfnListener, CfnListenerCertificate,
+  ListenerAction, ListenerCertificate, SslPolicy,
 } from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import { PORTS } from '../common/config';
 
 export interface DevAppListenerOptions {
   readonly certificateArn?: string;
+  readonly additionalCertificateArns?: readonly string[];
+  readonly additionalCertificateLogicalIds?: Readonly<Record<string, string>>;
   readonly httpRedirectEnabled?: boolean;
 }
 
@@ -29,6 +32,19 @@ export function addDevAppListener(
     open: false,
     defaultAction: ListenerAction.fixedResponse(404, { contentType: 'text/plain', messageBody: 'Not Found' }),
   });
+  // ARN별 식별자는 배열 재정렬이나 다른 인증서 추가 시 기존 연결의 교체를 막는다.
+  for (const arn of [...(options.additionalCertificateArns ?? [])].sort()) {
+    const key = createHash('sha256').update(arn).digest('hex');
+    const id = `AdditionalCertificate${key}`;
+    const binding = new ApplicationListenerCertificate(listener, id, {
+      listener, certificates: [ListenerCertificate.fromArn(arn)],
+    });
+    const existingId = options.additionalCertificateLogicalIds?.[arn];
+    if (existingId) {
+      // 이미 배포된 연결을 다른 logical ID로 제거·재생성하면 같은 인증서가 분리될 수 있다.
+      (binding.node.defaultChild as CfnListenerCertificate).overrideLogicalId(existingId);
+    }
+  }
   if (certificate && options.httpRedirectEnabled !== false) {
     const redirect = alb.addListener(`${id}Redirect`, {
       port: PORTS.http,

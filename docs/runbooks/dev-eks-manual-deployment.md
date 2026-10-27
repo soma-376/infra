@@ -1,5 +1,7 @@
 # dev EKS 수동 설치·검증·복구 런북
 
+> 새 dev 도메인의 공개 URL·추가 SNI 인증서와 재배포 입력은 [도메인 전환 런북](dev-domain-migration.md)을 따른다.
+
 > **현재 기준은 ADR-0035·PROJ-248의 EKS 전용 구성이다.** 기존 ECS가 있는 환경은 먼저
 > [수동 철거 런북](dev-ecs-retirement.md)을 완료한다. 이 문서의 전체 배포는 신규 환경 또는 철거 완료 후의 절차다.
 > backend ECS 검사/재배포 종료와 허브 배포 계약 정합화는 PROJ-249 선행 작업이다.
@@ -18,8 +20,8 @@
 > [ADR-0032](../adr/0032-dev-oidc-client-secret-runtime-supply.md)을 따른다. OIDC 비활성 bootstrap은
 > 해당 런북의 `DevDataStack` 단독 배포를 먼저 수행하며, 이 문서의 전체 배포보다 앞선다.
 > 외부 ACM 기반 HTTPS는 [dev ALB HTTPS 런북](dev-alb-https.md)을 따른다. 기존 HTTPS 배포에 아래 명령을
-> 적용할 때는 `EKS_CONTEXT`에 기존 `devEksCertificateArn`과
-> `devHttpRedirectEnabled`를 유지한다. 인증서 연결은 기존 endpoint output·Helm 생성값을 바꾸지 않는다.
+> 적용할 때는 `EKS_CONTEXT`가 추적된 `devDeploymentProfile`을 선택한다. 기본·추가 인증서와
+> 공개 URL은 profile에서 공급하며 기존 listener·라우팅 식별자를 유지한다.
 > PROJ-244의 private API와 SSM 릴레이 접근은 [ADR-0034](../adr/0034-dev-eks-private-api-via-ssm-relay.md)와
 > §2를 따른다. 문서의 터널·TLS·권한 검증 명령도 아직 실행한 증거가 아니다.
 > PROJ-246의 MSK·telemetry Gateway·ingest Kafka 모드·Kafka 관리 Job은 [ADR-0035](../adr/0035-dev-msk-isolated-subnets-under-eks-stack.md)·
@@ -37,7 +39,9 @@
 로컬 합성은 AWS 배포 증거가 아니다. 운영자가 별도 실행 범위를 확정한 뒤 아래 절차를 수행한다.
 prod·frontend Terraform·기존 EKS/Data 식별자와 OIDC trust를 유지한다. 과거 ECS 병행·Canary·데이터 이관
 계획은 ADR-0035로 대체됐으며 이 런북에서 실행하지 않는다.
-생성기는 네 앱 digest와 `--runtime-values`, `--msk-bootstrap`, 전체 `--msk-nodes`를 필수로 받는다.
+생성기는 네 앱 digest와 `--msk-bootstrap`, 전체 `--msk-nodes`를 필수로 받는다.
+공식 `values:dev`는 추적 profile의 runtime을 기본으로 읽는다. 별도 `--runtime-values`를 명시해도
+profile의 공개 URL·callback·허용 origin 검사를 통과해야 한다.
 관측 설치·검증은 [관측 런북](dev-observability.md)을 함께 따른다.
 
 - 원래 배포 주체에 infra 배포와 CloudFormation output 조회 권한이 있어야 한다. CDK가 생성하는
@@ -98,30 +102,17 @@ export CDK_DEFAULT_REGION=ap-northeast-2
 export AWS_REGION=ap-northeast-2
 : "${DEPLOY_PROFILE:?기존 CloudFormation 배포용 AWS 프로필}"
 export AWS_PROFILE="$DEPLOY_PROFILE"
-: "${DEV_ALLOWED_CIDRS:?ALB와 RDS에 접근할 IPv4 CIDR 목록}"
 : "${ENROLLMENT_IMAGE:?registry/repository@sha256:digest}"
 : "${INGEST_IMAGE:?registry/repository@sha256:digest}"
 : "${DASHBOARD_IMAGE:?registry/repository@sha256:digest}"
 : "${GATEWAY_IMAGE:?telemetry-gateway registry/repository@sha256:digest}"
-: "${DEV_EKS_OTLP_TARGET:?기존 ingest 또는 gateway 값, 신규는 ingest}"
-: "${DEV_OIDC_CLIENT_KEYS:?기존 OIDC 원본 전체 key의 JSON 배열, 없으면 []}"
-: "${DEV_EKS_ARCHIVE_PREFIX:?기존 eks_validation 또는 eks 값}"
-: "${RUNTIME_VALUES:?비밀 없는 runtime 설정 YAML 절대 경로}"
 : "${HELM_BIN:?Helm 3.22.0 실행 파일 경로}"
 : "${KUBECONFORM_BIN:?kubeconform 0.8.0 실행 파일 경로}"
 export HELM_BIN KUBECONFORM_BIN
 : "${RUN_DIR:?실행 증거 디렉터리 절대 경로}"
 mkdir -p "$RUN_DIR/generated" "$RUN_DIR/charts"
 chmod 700 "$RUN_DIR"
-EKS_CONTEXT=(-c env=dev -c devEksEnabled=true
-  -c "devAllowedCidr=$DEV_ALLOWED_CIDRS"
-  -c "devOidcClientKeys=$DEV_OIDC_CLIENT_KEYS"
-  -c "devEksArchivePrefix=$DEV_EKS_ARCHIVE_PREFIX"
-  -c "devEksOtlpTarget=$DEV_EKS_OTLP_TARGET")
-if [[ -n "${DEV_EKS_CERTIFICATE_ARN:-}" ]]; then
-  EKS_CONTEXT+=(-c "devEksCertificateArn=$DEV_EKS_CERTIFICATE_ARN")
-fi
-EKS_CONTEXT+=(-c "devHttpRedirectEnabled=${DEV_HTTP_REDIRECT_ENABLED:-true}")
+EKS_CONTEXT=(-c env=dev -c devDeploymentProfile=config/dev/deployment.json)
 printf '%s\n' "${EKS_CONTEXT[@]}" > "$RUN_DIR/cdk-context-args.txt"
 git rev-parse HEAD > "$RUN_DIR/infra-commit.txt"
 npm run build
@@ -129,6 +120,12 @@ npm test -- --runInBand
 npx cdk synth --all "${EKS_CONTEXT[@]}" --output "$RUN_DIR/cdk.out"
 npx cdk diff --all "${EKS_CONTEXT[@]}" > "$RUN_DIR/cdk-diff.txt"
 ```
+
+도메인·인증서·OIDC key·CIDR·archive prefix·OTLP 대상은 `config/dev/deployment.json`을 검토해 바꾼다.
+기존 CLI·context 캐시가 다른 값을 덮어쓰면 오류다. 기본·추가 인증서 ARN은 실행 계정으로 조립한다.
+키의 실제 고정 버전·허용 목록·수집 모드·tracing·DB TLS는 `config/dev/runtime.yaml`에 보존한다.
+현재 profile은 기존 dev 후속 배포용이다. 비어 있는 새 환경 bootstrap에는 별도 검토한 profile을 준비하며
+현재 Secret 버전 참조를 새 계정에서 그대로 사용할 수 있다고 가정하지 않는다.
 
 `devEksApiAllowedCidrs`는 폐기됐으며 전달하면 오류다. CLI·`cdk.json`·`cdk.context.json` 등
 모든 입력 출처에서 제거한다. 이전 CIDR은 아래 복구 증거에만 보존한다. `devAllowedCidr`는
@@ -222,11 +219,11 @@ aws kafka get-bootstrap-brokers --cluster-arn "$MSK_CLUSTER_ARN" --region "$AWS_
 # CLI 기본 pagination을 유지한다. bootstrap 목록은 전체 broker를 보장하지 않는다.
 aws kafka list-nodes --cluster-arn "$MSK_CLUSTER_ARN" --region "$AWS_REGION" --output json \
   > "$RUN_DIR/msk-nodes.json"
-node scripts/eks-values.mjs --outputs "$RUN_DIR/deployed-outputs.json" \
+npm run values:dev -- --outputs "$RUN_DIR/deployed-outputs.json" \
   --output-dir "$RUN_DIR/generated" \
   --enrollment-image "$ENROLLMENT_IMAGE" --ingest-image "$INGEST_IMAGE" \
   --dashboard-image "$DASHBOARD_IMAGE" --gateway-image "$GATEWAY_IMAGE" \
-  --runtime-values "$RUNTIME_VALUES" --msk-bootstrap "$RUN_DIR/msk-bootstrap.json" \
+  --msk-bootstrap "$RUN_DIR/msk-bootstrap.json" \
   --msk-nodes "$RUN_DIR/msk-nodes.json"
 EKS_CLUSTER_NAME=$(jq -er '.Stacks[].Outputs[] | select(.OutputKey=="EksClusterName") | .OutputValue' \
   "$RUN_DIR/deployed-outputs.json")
