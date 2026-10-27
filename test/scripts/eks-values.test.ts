@@ -109,6 +109,82 @@ describe('배포 output→values 변환', () => {
   afterEach(() => { for (const temp of temps.splice(0)) rmSync(temp, { recursive: true, force: true }); });
   const run = (document: any, image?: string, dashboard?: string, runtimeText?: string, extra?: { gateway?: string; bootstrap?: string; nodes?: string }) => { const output = invoke(document, image, dashboard, runtimeText, extra); temps.push(output.temp); return output; };
 
+  test('새 HTTPS origin과 OIDC 복귀를 전달하면서 기존 issuer·키·localhost를 보존한다', () => {
+    const source = oidcOutputs();
+    source.DevEdgeStack.ValidationPublicBaseUrl = 'https://api-dev.pulsemetry.co.kr';
+    const runtime = oidcRuntime();
+    runtime.userAuth.allowedOrigins = ['http://localhost:3000', 'https://dev.pulsemetry.co.kr'];
+    runtime.userAuth.allowedRedirectUris = ['http://localhost:3000/auth/callback', 'https://dev.pulsemetry.co.kr/auth/callback'];
+    runtime.oidc.callbackBaseUrl = source.DevEdgeStack.ValidationPublicBaseUrl;
+    runtime.oidc.failureRedirectUri = 'https://dev.pulsemetry.co.kr/auth/callback';
+    const output = run(source, undefined, undefined, dump(runtime));
+    expect(output.result.status).toBe(0);
+    const enrollment = output.read('enrollment-api.yaml');
+    const dashboard = output.read('dashboard-api.yaml');
+    expect(enrollment.env.PULSEMETRY_PUBLIC_BASE_URL).toBe(source.DevEdgeStack.ValidationPublicBaseUrl);
+    expect(enrollment.oidc.callbackBaseUrl).toBe(source.DevEdgeStack.ValidationPublicBaseUrl);
+    expect(enrollment.oidc.failureRedirectUri).toBe(runtime.oidc.failureRedirectUri);
+    expect(enrollment.userAuth.allowedRedirectUris).toEqual(runtime.userAuth.allowedRedirectUris);
+    for (const app of [enrollment, dashboard]) {
+      expect(app.userAuth.allowedOrigins).toEqual(runtime.userAuth.allowedOrigins);
+      expect(app.userAuth.issuer).toBe(runtime.userAuth.issuer);
+      expect(app.jwt.publicVersionId).toBe(runtime.userAuth.publicVersionId);
+    }
+    expect(enrollment.jwt.privateVersionId).toBe(runtime.userAuth.privateVersionId);
+    expect(dashboard.oidc).toBeUndefined();
+    expect(dashboard.env.PULSEMETRY_PUBLIC_BASE_URL).toBeUndefined();
+    // 동일 입력의 재생성으로 전체 values가 달라지지 않는지 확인한다.
+    const repeated = run(source, undefined, undefined, dump(runtime));
+    expect(repeated.result.status).toBe(0);
+    for (const file of readdirSync(output.dir)) expect(repeated.read(file)).toEqual(output.read(file));
+  });
+
+  helmTest('새 도메인의 두 앱 CORS와 enrollment 전용 callback을 실제 manifest로 검증한다', () => {
+    const source = oidcOutputs();
+    source.DevEdgeStack.ValidationPublicBaseUrl = 'https://api-dev.pulsemetry.co.kr';
+    const runtime = oidcRuntime();
+    runtime.userAuth.allowedOrigins = ['https://dev.pulsemetry.co.kr', 'http://localhost:3000'];
+    runtime.userAuth.allowedRedirectUris = ['https://dev.pulsemetry.co.kr/auth/callback'];
+    runtime.oidc.callbackBaseUrl = source.DevEdgeStack.ValidationPublicBaseUrl;
+    runtime.oidc.failureRedirectUri = runtime.userAuth.allowedRedirectUris[0];
+    const output = run(source, undefined, undefined, dump(runtime));
+    expect(output.result.status).toBe(0);
+    for (const app of ['enrollment-api', 'dashboard-api']) {
+      const result = spawnSync(process.env.HELM_BIN!, ['template', app,
+        join(root, 'helm/dev/workloads/spring-app'), '--kube-version', '1.36.0', '-n', 'pulsemetry-dev', '-f', join(root, `helm/dev/workloads/${app}.yaml`),
+        '-f', join(output.dir, `${app}.yaml`)], { encoding: 'utf8' });
+      expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' });
+      const resources = require('js-yaml').loadAll(result.stdout);
+      const entries = resources.find((item: any) => item?.kind === 'Deployment').spec.template.spec.containers[0].env;
+      expect(new Set(entries.map((item: any) => item.name)).size).toBe(entries.length);
+      const env = Object.fromEntries(entries.map((item: any) => [item.name, item.value]));
+      expect(env.PULSEMETRY_USER_AUTH_ALLOWED_ORIGINS).toBe(runtime.userAuth.allowedOrigins.join(','));
+      expect(env.PULSEMETRY_USER_AUTH_ISSUER).toBe(runtime.userAuth.issuer);
+      if (app === 'enrollment-api') {
+        expect(env.PULSEMETRY_PUBLIC_BASE_URL).toBe(source.DevEdgeStack.ValidationPublicBaseUrl);
+        expect(env.PULSEMETRY_OIDC_CALLBACK_BASE_URL).toBe(source.DevEdgeStack.ValidationPublicBaseUrl);
+        expect(env.PULSEMETRY_OIDC_FAILURE_REDIRECT_URI).toBe(runtime.oidc.failureRedirectUri);
+        expect(env.PULSEMETRY_USER_AUTH_ALLOWED_REDIRECT_URIS).toBe(runtime.userAuth.allowedRedirectUris.join(','));
+      } else {
+        expect(env.PULSEMETRY_OIDC_CALLBACK_BASE_URL).toBeUndefined();
+        expect(env.PULSEMETRY_USER_AUTH_ALLOWED_REDIRECT_URIS).toBeUndefined();
+      }
+    }
+  });
+
+  test.each([
+    'https://api.example.test/', 'https://api.example.test/path', 'https://api.example.test?next=x',
+    'https://api.example.test#fragment', 'https://user:password@api.example.test',
+    'https://api.example.test:443', 'https://api.example.test:8443', 'ftp://api.example.test',
+    'https://api.example.test\\@other.test', 'https://api.example.test\n',
+  ])('공개 origin에 부적절한 URL을 거부한다: %s', value => {
+    const source = outputs();
+    source.DevEdgeStack.ValidationPublicBaseUrl = value;
+    const output = run(source);
+    expect(output.result.status).not.toBe(0);
+    expect(output.result.stderr).toContain('ValidationPublicBaseUrl');
+  });
+
   test.each(['eks_validation', 'eks'])('%s prefix가 IAM output과 일치하며 immutable image를 전달한다', prefix => {
     const output = run(outputs(prefix));
     expect(output.result.status).toBe(0);

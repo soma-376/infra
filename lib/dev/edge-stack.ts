@@ -29,6 +29,9 @@ export class DevEdgeStack extends Stack {
       securityGroup: props.eksValidationAlbSecurityGroup,
       webAclArn: waf.webAcl.attrArn,
       certificateArn: props.edge?.eksCertificateArn,
+      additionalCertificateArns: props.edge?.eksAdditionalCertificateArns,
+      additionalCertificateLogicalIds: props.edge?.eksAdditionalCertificateLogicalIds,
+      publicBaseUrl: props.edge?.eksPublicBaseUrl,
       httpRedirectEnabled: props.edge?.httpRedirectEnabled,
       otlpTarget: props.eksOtlpTarget,
     });

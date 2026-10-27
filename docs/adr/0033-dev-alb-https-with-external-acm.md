@@ -2,9 +2,11 @@
 
 ## Status
 
+Accepted — 부분 대체: [ADR-0040](0040-dev-public-origin-and-additional-certificates.md)이 공개 URL·output·values 생성기 미변경 결정을 대체하고 추가 SNI 인증서를 정의한다. DNS·ACM 외부 소유와 기존 listener·라우팅 ID 보존은 유효하다.
+
 [ADR-0035](0035-dev-backend-eks-only.md)가 dev 백엔드의 ECS 실행·병행 유지·입력·배포 권한 가정을 부분 대체한다. prod·frontend Terraform과 이 문서의 나머지 계약은 유지한다. 아래 ECS 구성은 당시 결정 기록이다.
 
-Accepted (로컬 구현·검증 대상, 실제 AWS 배포·TLS 접속·애플리케이션 E2E 검증 별도)
+원 결정의 검증 범위는 로컬 구현이며 실제 AWS 배포·TLS 접속·애플리케이션 E2E 검증은 별도다.
 
 ADR-0022·0026·0028의 dev HTTP 전용 listener 결정을 인증서 입력이 있는 ALB에 한해 부분 대체한다.
 기존 라우팅·WAF·보안 그룹 소유권과 인증서 입력이 없는 ALB의 HTTP 동작은 유지한다.

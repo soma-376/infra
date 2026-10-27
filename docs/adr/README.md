@@ -42,7 +42,7 @@
 | 0030 (백엔드 CDK/EKS) | [dev 사용자 JWT 키는 별도 Secrets Manager 원본에서 버전을 지정해 파일로 공급](0030-dev-user-jwt-keys-from-secrets-manager.md) | Accepted (키 준비·전달 구현·AWS 배포 증거 대기; 원본 생성·보존 소유 경계 부분 대체: ADR 0031; telemetry JWT 범위는 ADR 0036) |
 | 0031 | [dev dashboard DB 자격 증명과 사용자 JWT Secret 원본은 CDK로 생성하고 보존](0031-manage-dev-dashboard-and-jwt-secrets-with-cdk.md) | Accepted (dev 원본 정의·운영 절차; AWS 배포·값 등록·DB 적용 증거 대기) |
 | 0032 | [dev OIDC client secret은 CDK 원본의 고정 버전을 ECS와 EKS에 공급](0032-dev-oidc-client-secret-runtime-supply.md) | Accepted (선택적 localhost HTTP 허용 입력 포함; 로컬 구현·검증, AWS 배포·값 등록·Cognito 로그인 증거 별도); dev ECS 제거는 [ADR 0035](0035-dev-backend-eks-only.md)로 부분 대체 |
-| 0033 | [dev ALB는 외부 ACM 인증서를 context로 참조해 선택적으로 HTTPS를 제공](0033-dev-alb-https-with-external-acm.md) | Accepted (로컬 구현·검증; AWS 배포·TLS·애플리케이션 E2E 증거 별도); dev ECS 제거는 [ADR 0035](0035-dev-backend-eks-only.md)로 부분 대체; DB 공개 접근 관련 부분은 [ADR 0038](0038-dev-databases-private-access-via-ssm-relay.md)로 대체 |
+| 0033 | [dev ALB는 외부 ACM 인증서를 context로 참조해 선택적으로 HTTPS를 제공](0033-dev-alb-https-with-external-acm.md) | Accepted (로컬 구현·검증; AWS 배포·TLS·애플리케이션 E2E 증거 별도); dev ECS 제거는 [ADR 0035](0035-dev-backend-eks-only.md)로 부분 대체; DB 공개 접근 관련 부분은 [ADR 0038](0038-dev-databases-private-access-via-ssm-relay.md)로 대체 — ADR-0040이 공개 URL·추가 인증서 결정을 부분 대체 |
 | 0034 | [dev EKS API는 SSM 릴레이 터널을 통해 private endpoint로 접근](0034-dev-eks-private-api-via-ssm-relay.md) | Accepted (로컬 구현·검증 대상; AWS 배포·SSM·Kubernetes 접속 증거 별도) |
 | 0035 (MSK) | [dev EKS 경로의 MSK는 전용 3 AZ isolated subnet과 DevEksStack 하위 리소스로 둔다](0035-dev-msk-isolated-subnets-under-eks-stack.md) | Accepted (PROJ-246 로컬 구현·검증 대상; AWS 배포·MSK 접속 증거 별도) |
 | 0036 (telemetry Gateway) | [telemetry Gateway는 Pod Identity와 workload별 MSK 전용 역할로 dev EKS에 배포하고 OTLP 대상은 context로 전환한다](0036-dev-telemetry-gateway-workload-and-msk-iam.md) | Accepted (PROJ-246 로컬 구현·검증 대상; AWS 배포·MSK IAM·ALB 전환 증거 별도) |
@@ -51,10 +51,11 @@
 | 0036 (JVM 차단 목록) | [dev JVM의 임시 인증서 차단 목록을 Helm ConfigMap으로 공급한다](0036-dev-jvm-blocked-certs-configmap.md) | Accepted (PROJ-253 임시 대응; Gateway 포함 네 앱, 실제 배포 별도, 패치 이미지 검증 후 제거) |
 | 0038 | [dev 데이터베이스는 공개 접근을 차단하고 별도 SSM 릴레이로 접속한다](0038-dev-databases-private-access-via-ssm-relay.md) | Accepted (PROJ-254 로컬 구현·검증; 실제 배포·접속 확인 별도) |
 | 0039 | [dev EKS 관측에 Loki·Tempo·플랫폼 trace Collector를 독립 release로 더하고 CloudWatch 로그와 병행한다](0039-dev-loki-tempo-and-platform-trace-collector.md) | Proposed (PROJ-256; 채택 시 0037의 Loki·Tempo·분산 tracing 제외를 대체) |
+| 0040 | [dev 공개 origin과 추가 인증서를 배포 입력으로 보존한다](0040-dev-public-origin-and-additional-certificates.md) | Accepted |
 
 병행 작업에서 사용한 `0035`·`0036`은 각각 파일명·제목·링크를 보존한다. 번호만으로 대상을 식별하지 않는다.
 
-새 ADR을 작성할 때는 다음 미사용 번호(`0040-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
+새 ADR을 작성할 때는 다음 미사용 번호(`0041-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
 
 섹션 순서는 다음과 같다. 괄호로 표시한 것은 내용이 있을 때만 둔다.
 

@@ -150,7 +150,12 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
   const endpoint = required('DbEndpoint');
   if (!/^[a-zA-Z0-9.-]+$/.test(endpoint)) throw new Error('DbEndpoint는 hostname이어야 한다');
   const publicBaseUrl = required('ValidationPublicBaseUrl');
-  if (!/^http:\/\/[a-zA-Z0-9.-]+$/.test(publicBaseUrl)) throw new Error('ValidationPublicBaseUrl은 검증 ALB의 HTTP 주소여야 한다');
+  // ADR-0040: 기존 HTTP ALB fallback과 명시한 HTTPS 공개 origin을 모두 전달한다.
+  let publicOrigin;
+  try { publicOrigin = new URL(publicBaseUrl); } catch { /* 아래에서 동일한 입력 오류로 처리한다. */ }
+  if (!/^https?:\/\/[a-zA-Z0-9.-]+$/.test(publicBaseUrl) || publicOrigin?.origin !== publicBaseUrl) {
+    throw new Error('ValidationPublicBaseUrl은 경로·인증정보·port·query·fragment 없는 HTTP/HTTPS origin이어야 한다');
+  }
   const appSg = required('EksAppNodeSecurityGroupId');
   const chSg = required('EksClickhouseNodeSecurityGroupId');
   if (![appSg, chSg].every(id => /^sg-[a-f0-9]+$/.test(id))) throw new Error('EKS node SG ID가 올바르지 않다');

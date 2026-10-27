@@ -17,7 +17,11 @@ BFF 단일 프로세스에 맞춰 서비스 desired=1/min=0/max=100이다. 앱 �
 기존 CDK 전용 테스트 규칙은 그대로 유지하고, 새 Terraform은 fmt·validate·mock test로 검증한다.
 기존 CDK 리소스를 Terraform에 import하거나 같은 리소스를 두 도구가 수정하지 않는다.
 실제 apply는 리뷰·머지 후 보호된 CI에서 수행한다. 최초 bootstrap과 이후 bootstrap 변경은 관리자 작업이다.
-다음 미사용 ADR은 **0040**다.
+다음 미사용 ADR은 **0041**다.
+
+## PROJ-261 dev 도메인 영속화
+
+[ADR-0040](docs/adr/0040-dev-public-origin-and-additional-certificates.md)에 따라 `devEksPublicBaseUrl`을 기존 output/Helm에 전달하고 `devEksAdditionalCertificateArns`로 추가 SNI 인증서를 보존한다. 이미 CloudFormation이 관리하는 추가 인증서는 `devEksAdditionalCertificateLogicalIds`에 현재 ARN→logical ID를 넣어 연결 교체를 피한다. 기본 인증서·listener/라우팅 ID·JWT issuer는 유지한다. 새 URL은 HTTPS origin이며 기본 인증서 입력이 필요하다. 생략한 공개 URL은 기존 HTTP ALB fallback이다. [도메인 런북](docs/runbooks/dev-domain-migration.md)에 따라 현재 runtime/Helm override를 함께 보관하고 DB TLS·수집 모드·tracing을 보존한다.
 
 ## PROJ-254 dev DB 비공개 접근
 
@@ -120,7 +124,7 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 
 **ADR 우선 원칙은 이 레포의 기존 규칙과 같다** — 1장의 "코드와 ADR이 어긋나면 ADR이 기준이다"가
 전 레포 공통 규칙이며, 크로스레포 결정만 `../docs/adr/`가 소유한다. 스코프 판정은 `adr-new` 스킬이 안내한다.
-단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0040`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
+단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0041`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
 기존 병행 브랜치의 ADR `0028`·`0029`·`0030`은 번호가 겹치므로 파일명과 링크를 보존한다.
 프론트엔드 Terraform 절은 프론트엔드 ADR을, dashboard·EKS·기존 CDK 절은 해당 백엔드 ADR을 가리킨다.
 인용할 때는 번호와 함께 범위·제목 또는 파일 링크를 사용하며, 전체 목록은 [ADR 인덱스](docs/adr/README.md)를 따른다.

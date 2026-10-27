@@ -13,6 +13,7 @@ export interface DevEksValidationEdgeProps extends DevAppListenerOptions {
   readonly vpc: IVpc;
   readonly securityGroup: ISecurityGroup;
   readonly webAclArn: string;
+  readonly publicBaseUrl?: string;
   /** 기본 ingest. gateway는 priority 1 OTLP 규칙의 대상만 바꾼다. (ADR-0036) */
   readonly otlpTarget?: DevEksOtlpTarget;
 }
@@ -48,7 +49,7 @@ export class DevEksValidationEdge extends Construct {
     new CfnWebACLAssociation(this, 'WafAssociation', { resourceArn: alb.loadBalancerArn, webAclArn: props.webAclArn });
     for (const [name, value] of Object.entries({
       ValidationAlbArn: alb.loadBalancerArn,
-      ValidationPublicBaseUrl: `http://${alb.loadBalancerDnsName}`,
+      ValidationPublicBaseUrl: props.publicBaseUrl ?? `http://${alb.loadBalancerDnsName}`,
       ValidationTelemetryIngestTargetGroupArn: ingest.targetGroupArn,
       ValidationEnrollmentApiTargetGroupArn: enrollment.targetGroupArn,
       ValidationDashboardApiTargetGroupArn: dashboard.targetGroupArn,

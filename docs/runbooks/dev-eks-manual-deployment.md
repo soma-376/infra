@@ -1,5 +1,7 @@
 # dev EKS 수동 설치·검증·복구 런북
 
+> 새 dev 도메인의 공개 URL·추가 SNI 인증서와 재배포 입력은 [도메인 전환 런북](dev-domain-migration.md)을 따른다.
+
 > **현재 기준은 ADR-0035·PROJ-248의 EKS 전용 구성이다.** 기존 ECS가 있는 환경은 먼저
 > [수동 철거 런북](dev-ecs-retirement.md)을 완료한다. 이 문서의 전체 배포는 신규 환경 또는 철거 완료 후의 절차다.
 > backend ECS 검사/재배포 종료와 허브 배포 계약 정합화는 PROJ-249 선행 작업이다.
