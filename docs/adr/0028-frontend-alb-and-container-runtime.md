@@ -57,3 +57,16 @@ Accepted — 부분 대체: [ADR 0029](0029-use-external-dns-and-existing-fronte
 - [허브 BFF ADR 0009](https://github.com/soma-376/docs/blob/main/adr/0009-browser-auth-encrypted-cookie-bff.md)
 - [ECS 서비스 배포 설정](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/service_definition_parameters.html)
 - [ECS ARM64 AMI](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-optimized_AMI.html)
+
+## 2026-10-26 dev 배치·포트 설정 보충
+
+사용자 요청으로 dev EC2 서비스에 AZ → instanceId 순서의 spread 배치 정책을 명시한다.
+dev bridge의 hostPort는 0으로 바꾸어 ECS/Docker가 빈 포트를 자동 배정한다.
+ALB와 앱 SG 사이에만 TCP 32768–65535를 양방향 요청 경로(앱 ingress·ALB egress)로 허용한다.
+기존 TCP 3000은 배포 전환 및 이전 task definition 롤백을 위해 유지한다.
+AMI 교체 시 실제 동적 포트 범위가 이 범위 안인지 확인한다.
+prod Fargate의 포트와 네트워크는 유지한다.
+
+이 변경은 복제본 확대나 롤링 무중단 활성화가 아니다. desired=1/min=0/max=100,
+메모리 1024 MiB와 EC2 한 대를 유지한다. 다중 태스크 전환은 BFF 갱신 동시성,
+배포 스크립트의 단일 태스크 가정, 메모리 용량 검증을 해결한 별도 변경에서 수행한다.

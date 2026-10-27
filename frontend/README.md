@@ -166,7 +166,10 @@ aws ssm get-parameter --region ap-northeast-2 \
 9. runtime 설정 PR을 검토한 뒤 develop 또는 main에 머지하고 해당 Environment 승인 후 적용한다. 자동 배포 활성화 전까지 image digest도 이 파일의 PR로 변경한다. 자동 배포 전환은 아래 절차를 따른다.
 10. 해당 환경의 `terraform output -json application`에서 `alb_dns_name`을 확인하고, 외부 DNS에 **프론트 도메인 → ALB DNS 이름** CNAME을 등록한다. 대상에는 `https://`나 경로를 넣지 않는다. 앞의 ACM 검증 CNAME과 별개이며 두 레코드를 유지한다. DNS가 반영되면 실제 HTTPS 접속과 로그인을 확인한다.
 
-ALB는 public subnet 두 개, 앱 ingress는 ALB SG의 TCP 3000만 허용한다. 개발 EC2는
+ALB는 public subnet 두 개를 사용한다. 앱 ingress는 ALB SG에서만 받으며, prod는 TCP 3000,
+dev는 기존 TCP 3000과 자동 호스트 포트 범위 TCP 32768–65535를 허용한다.
+dev는 내부 포트 3000을 유지하고 hostPort=0으로 자동 배정하며 ECS가 ALB 대상 포트를 등록한다.
+배치 정책은 dev에만 AZ → instanceId 순서의 spread를 적용한다. 태스크 수와 메모리는 기존대로 유지한다. 개발 EC2는
 ECS EC2/bridge 모드이며 public IP는 외부 통신에 사용한다. SSH는 열지 않고 SSM으로 관리한다.
 운영은 private subnet Fargate, public IP 없음, NAT를 통한 HTTPS egress다.
 로그는 [ADR 0020](../docs/adr/0020-frontend-log-retention-policy.md)에 따라 dev 14일/prod 30일 보존하고

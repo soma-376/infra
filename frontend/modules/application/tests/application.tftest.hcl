@@ -39,6 +39,18 @@ variables {
 }
 run "dev_https_and_single_process" {
   assert {
+    condition     = jsondecode(aws_ecs_task_definition.frontend.container_definitions)[0].portMappings[0].hostPort == 0 && jsondecode(aws_ecs_task_definition.frontend.container_definitions)[0].portMappings[0].containerPort == 3000
+    error_message = "dev는 내부 3000과 자동 호스트 포트를 사용해야 합니다."
+  }
+  assert {
+    condition     = [for strategy in aws_ecs_service.frontend.ordered_placement_strategy : strategy.field] == ["attribute:ecs.availability-zone", "instanceId"] && alltrue([for strategy in aws_ecs_service.frontend.ordered_placement_strategy : strategy.type == "spread"])
+    error_message = "dev는 AZ 다음 인스턴스 순서로 분산해야 합니다."
+  }
+  assert {
+    condition     = aws_vpc_security_group_ingress_rule.app_dynamic[0].from_port == 32768 && aws_vpc_security_group_ingress_rule.app_dynamic[0].to_port == 65535 && aws_vpc_security_group_ingress_rule.app_dynamic[0].referenced_security_group_id == aws_security_group.alb.id && aws_vpc_security_group_egress_rule.alb_dynamic[0].referenced_security_group_id == aws_security_group.app.id && aws_vpc_security_group_egress_rule.alb_dynamic[0].from_port == 32768 && aws_vpc_security_group_egress_rule.alb_dynamic[0].to_port == 65535 && aws_vpc_security_group_ingress_rule.app_dynamic[0].cidr_ipv4 == null
+    error_message = "동적 포트는 인터넷이 아닌 ALB와 앱 SG 사이에만 허용해야 합니다."
+  }
+  assert {
     condition     = aws_lb_target_group.frontend.health_check[0].path == "/login" && aws_lb_target_group.frontend.health_check[0].matcher == "200"
     error_message = "루트의 로그인 리다이렉트 대신 실제 로그인 페이지의 200 응답으로 상태를 검사해야 합니다."
   }
@@ -79,6 +91,10 @@ run "dev_https_and_single_process" {
 run "prod_private_fargate_single_process" {
   command = plan
   variables { environment = "prod" }
+  assert {
+    condition     = length(aws_ecs_service.frontend.ordered_placement_strategy) == 0 && length(aws_vpc_security_group_ingress_rule.app_dynamic) == 0 && length(aws_vpc_security_group_egress_rule.alb_dynamic) == 0 && jsondecode(aws_ecs_task_definition.frontend.container_definitions)[0].portMappings[0].hostPort == 3000
+    error_message = "prod Fargate는 기존 3000 포트를 유지하고 EC2 배치 정책·동적 포트 규칙을 만들지 않습니다."
+  }
   assert {
     condition     = length(aws_instance.dev) == 0 && aws_ecs_service.frontend.launch_type == "FARGATE" && aws_ecs_task_definition.frontend.network_mode == "awsvpc" && aws_ecs_task_definition.frontend.runtime_platform[0].cpu_architecture == "ARM64" && aws_lb_target_group.frontend.target_type == "ip"
     error_message = "운영은 EC2 없이 ARM64 Fargate와 IP target을 사용해야 합니다."

@@ -56,6 +56,27 @@ resource "aws_vpc_security_group_egress_rule" "alb" {
   to_port                      = 3000
   tags                         = local.tags
 }
+# dev bridge의 자동 호스트 포트. 기존 3000 규칙은 전환·롤백 태스크를 위해 유지한다.
+# Linux/Docker의 기본 동적 포트 범위를 포함하며 ALB와 앱 SG 사이만 허용한다.
+resource "aws_vpc_security_group_ingress_rule" "app_dynamic" {
+  count                        = local.is_dev ? 1 : 0
+  security_group_id            = aws_security_group.app.id
+  referenced_security_group_id = aws_security_group.alb.id
+  ip_protocol                  = "tcp"
+  from_port                    = 32768
+  to_port                      = 65535
+  tags                         = local.tags
+}
+resource "aws_vpc_security_group_egress_rule" "alb_dynamic" {
+  count                        = local.is_dev ? 1 : 0
+  security_group_id            = aws_security_group.alb.id
+  referenced_security_group_id = aws_security_group.app.id
+  ip_protocol                  = "tcp"
+  from_port                    = 32768
+  to_port                      = 65535
+  tags                         = local.tags
+}
+
 resource "aws_vpc_security_group_egress_rule" "app_https" {
   security_group_id = aws_security_group.app.id
   ip_protocol       = "tcp"
@@ -149,7 +170,7 @@ resource "aws_ecs_task_definition" "frontend" {
     essential          = true
     cpu                = 512
     memory             = 1024
-    portMappings       = [{ containerPort = 3000, hostPort = 3000, protocol = "tcp" }]
+    portMappings       = [{ containerPort = 3000, hostPort = local.is_dev ? 0 : 3000, protocol = "tcp" }]
     stopTimeout        = 30
     environment = [
       { name = "NODE_ENV", value = "production" },
@@ -262,6 +283,14 @@ resource "aws_ecs_service" "frontend" {
     enable   = true
     rollback = true
   }
+  # EC2 서비스만 AZ → 인스턴스 순서로 분산한다. 태스크 수는 별도로 관리한다.
+  dynamic "ordered_placement_strategy" {
+    for_each = local.is_dev ? ["attribute:ecs.availability-zone", "instanceId"] : []
+    content {
+      type  = "spread"
+      field = ordered_placement_strategy.value
+    }
+  }
   dynamic "network_configuration" {
     for_each = local.is_dev ? [] : [true]
     content {
@@ -282,7 +311,7 @@ resource "aws_ecs_service" "frontend" {
     }
   }
   tags       = local.tags
-  depends_on = [aws_lb_listener.https, aws_instance.dev]
+  depends_on = [aws_lb_listener.https, aws_instance.dev, aws_vpc_security_group_ingress_rule.app_dynamic, aws_vpc_security_group_egress_rule.alb_dynamic]
   timeouts {
     create = "20m"
     update = "20m"
