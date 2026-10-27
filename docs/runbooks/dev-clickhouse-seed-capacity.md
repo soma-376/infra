@@ -116,9 +116,16 @@ SETTINGS index_granularity = 8192,
 배치 2,000행 또는 JSON 4MiB 중 먼저 도달한 한도, 동시 요청 1개, 동기 ACK 후 1초,
 첫 5개 ACK 뒤 30초 관찰을 유지한다. working set 75% 이상, 기준 조회 지연 2배 이상, 오류/timeout,
 지표 누락·노후화이면 **다음 작업 전에 중단**한다. 이미 실행 중인 요청을 취소하는 장치가 아니다.
+working set과 파일 캐시를 포함한 cgroup memory.current를 함께 기록한다. 같은 컨테이너의
+memory.events.max·oom·oom_kill이 실행 전 기준보다 증가해도 다음 작업을 보류하고 기록한다.
+컨테이너 identity가 바뀌면 정상 counter reset으로 간주하지 않는다. 상한 접촉·회수 압박·OOM·서비스 오류는 구분한다.
 모니터 결과는 원본별 sample 시각과 만료 시간을 보존하고 freshness는 실제 scrape interval에 맞춘
 `2 × interval + 5초` 이상으로 산정한다. 성공 파일이 없거나 만료되면 진행하지 않는다.
 실패 잠금과 journal을 보존하며 무조건 재시도하거나 허용 기준을 높이지 않는다.
+
+시드 검증 SELECT의 긴 ID 목록은 요청 단위로만 SQL 로그 기록 길이를 4,096바이트로 제한한다(PROJ-265).
+서버 전체 로그 설정이나 query log 활성 상태는 변경하지 않는다. query ID·시간·읽기량·메모리·오류 지표와
+실행 journal의 전체 SQL hash·manifest hash·검증 범위를 보존해 잘린 로그를 재구성할 수 있게 한다.
 
 ## 복구
 
