@@ -78,6 +78,15 @@ export class DevEksRuntime extends Construct {
       resources: [Stack.of(this).formatArn({ service: 'ses', resource: 'identity', resourceName: DEV_MAIL.domain })],
       conditions: { StringEquals: { 'ses:FromAddress': DEV_MAIL.from } },
     }));
+    // sandbox 수신 identity 평가도 승인 태그와 고정 발신 주소를 함께 요구한다. (ADR-0046)
+    this.enrollmentRole.addToPolicy(new PolicyStatement({
+      actions: ['ses:SendEmail'],
+      resources: [Stack.of(this).formatArn({ service: 'ses', resource: 'identity', resourceName: '*' })],
+      conditions: { StringEquals: {
+        'ses:FromAddress': DEV_MAIL.from,
+        [`aws:ResourceTag/${DEV_MAIL.recipientApprovalTag.key}`]: DEV_MAIL.recipientApprovalTag.value,
+      } },
+    }));
     // 전환·복구용 HTTP JWT 호환을 위해 ingest는 telemetry 공개키만 추가로 읽는다. 사용자 JWT는 받지 않는다.
     this.grantSecretRead(this.telemetryIngestRole, [props.dbSecret, props.tokenHashSecret, props.telemetryJwtPublicKeysSecret]);
 
