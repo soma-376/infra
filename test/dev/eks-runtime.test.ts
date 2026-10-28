@@ -251,9 +251,8 @@ test('SES 발송과 관리·메일 키 읽기는 enrollment Pod에만 허용한�
   expect(sendStatements).toHaveLength(1);
   const send = sendStatements[0];
   expect(send.Condition).toEqual({ StringEquals: { 'ses:FromAddress': 'no-reply@pulsemetry.co.kr' } });
-  // 계정·리전 wildcard나 configuration-set, 추가 action으로 범위를 넓히지 않는다.
-  expect(JSON.stringify(send.Resource)).toContain(`:ses:${TEST_ENV.region}:${TEST_ENV.account}:identity/*`);
-  expect(send.Resource).not.toBe('*');
+  // 단일 ARN 전체를 비교해 추가 wildcard가 든 Resource 배열도 거부한다.
+  expect(send.Resource).toBe(`arn:aws:ses:${TEST_ENV.region}:${TEST_ENV.account}:identity/*`);
   expect(JSON.stringify(sendStatements)).not.toMatch(/SendRawEmail|ses:\*|configuration-set|StringEqualsIfExists|ResourceTag/);
   // 앱이 자신에게 수신 승인을 부여하거나 identity를 만들 수 없어야 한다.
   for (const [, policy] of policies) {
