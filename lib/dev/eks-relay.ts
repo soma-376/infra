@@ -1,12 +1,12 @@
 import {
-  AmazonLinuxCpuType, BlockDeviceVolume, EbsDeviceVolumeType, Instance,
+  BlockDeviceVolume, EbsDeviceVolumeType, Instance,
   InstanceType, ISecurityGroup, IVpc, MachineImage,
 } from 'aws-cdk-lib/aws-ec2';
 import { IRole, ManagedPolicy, PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 import { CfnDocument } from 'aws-cdk-lib/aws-ssm';
 import { ArnFormat, Fn, Stack } from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
-import { DEV_EKS_RELAY_INSTANCE_TYPE, DEV_EKS_RELAY_SESSION_DOCUMENT_NAME } from './eks-config';
+import { DEV_EKS_RELAY_AMI_ID, DEV_EKS_RELAY_INSTANCE_TYPE, DEV_EKS_RELAY_SESSION_DOCUMENT_NAME } from './eks-config';
 
 interface DevEksRelayProps {
   readonly vpc: IVpc;
@@ -31,7 +31,7 @@ export class DevEksRelay extends Construct {
     this.instance = new Instance(this, 'Instance', {
       vpc: props.vpc, vpcSubnets: { subnets: [props.vpc.publicSubnets[0]] },
       instanceType: new InstanceType(DEV_EKS_RELAY_INSTANCE_TYPE),
-      machineImage: MachineImage.latestAmazonLinux2023({ cpuType: AmazonLinuxCpuType.ARM_64 }),
+      machineImage: MachineImage.genericLinux({ [stack.region]: DEV_EKS_RELAY_AMI_ID }),
       securityGroup: props.securityGroup, role,
       associatePublicIpAddress: true, requireImdsv2: true,
       blockDevices: [{ deviceName: '/dev/xvda', volume: BlockDeviceVolume.ebs(8, {

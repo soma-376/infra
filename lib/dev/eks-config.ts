@@ -3,6 +3,8 @@ import { App } from 'aws-cdk-lib/core';
 export const DEV_EKS_CLUSTER_NAME = 'soma-376-dev-eks';
 export const DEV_EKS_OPERATOR_ROLE_NAME = 'soma-376-dev-eks-operator';
 export const DEV_EKS_RELAY_INSTANCE_TYPE = 't4g.micro';
+/** 현재 ap-northeast-2 dev 릴레이의 ARM64 AL2023 AMI. 일반 배포에서 latest SSM을 다시 해결하지 않는다. */
+export const DEV_EKS_RELAY_AMI_ID = 'ami-0be86884078364464';
 export const DEV_EKS_RELAY_SESSION_DOCUMENT_NAME = 'soma-376-dev-eks-api-tunnel';
 export const DEV_EKS_NAMESPACE = 'pulsemetry-dev';
 export const DEV_EKS_VERSION = '1.36';

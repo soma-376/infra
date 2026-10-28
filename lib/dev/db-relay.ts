@@ -1,5 +1,5 @@
 import {
-  AmazonLinuxCpuType, BlockDeviceVolume, EbsDeviceVolumeType, Instance,
+  BlockDeviceVolume, EbsDeviceVolumeType, Instance,
   InstanceType, ISecurityGroup, IVpc, MachineImage,
 } from 'aws-cdk-lib/aws-ec2';
 import { AccountPrincipal, ManagedPolicy, PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
@@ -8,7 +8,7 @@ import { ArnFormat, Stack } from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
 import {
   DEV_DB_OPERATOR_ROLE_NAME, DEV_DB_RELAY_CLICKHOUSE_SESSION_DOCUMENT_NAME,
-  DEV_DB_RELAY_INSTANCE_TYPE, DEV_DB_RELAY_POSTGRES_SESSION_DOCUMENT_NAME,
+  DEV_DB_RELAY_AMI_ID, DEV_DB_RELAY_INSTANCE_TYPE, DEV_DB_RELAY_POSTGRES_SESSION_DOCUMENT_NAME,
 } from './config';
 
 interface DevDbRelayProps {
@@ -35,7 +35,7 @@ export class DevDbRelay extends Construct {
     this.instance = new Instance(this, 'Instance', {
       vpc: props.vpc, vpcSubnets: { subnets: [props.vpc.publicSubnets[0]] },
       instanceType: new InstanceType(DEV_DB_RELAY_INSTANCE_TYPE),
-      machineImage: MachineImage.latestAmazonLinux2023({ cpuType: AmazonLinuxCpuType.ARM_64 }),
+      machineImage: MachineImage.genericLinux({ [stack.region]: DEV_DB_RELAY_AMI_ID }),
       securityGroup: props.securityGroup, role,
       associatePublicIpAddress: true, requireImdsv2: true,
       blockDevices: [{ deviceName: '/dev/xvda', volume: BlockDeviceVolume.ebs(8, {
