@@ -219,12 +219,14 @@ function matchesCustomStatement(
   if (statement.ByteMatchStatement) {
     const match = statement.ByteMatchStatement;
     expect(match.FieldToMatch).toEqual({ UriPath: {} });
-    expect(match.TextTransformations).toEqual([{ Priority: 0, Type: 'NONE' }]);
+    const transformation = match.TextTransformations[0].Type;
+    expect(['NONE', 'URL_DECODE']).toContain(transformation);
+    const candidate = transformation === 'URL_DECODE' ? decodeURIComponent(uriPath) : uriPath;
     if (match.PositionalConstraint === 'EXACTLY') {
-      return uriPath === match.SearchString;
+      return candidate === match.SearchString;
     }
     if (match.PositionalConstraint === 'STARTS_WITH') {
-      return uriPath.startsWith(match.SearchString);
+      return candidate.startsWith(match.SearchString);
     }
   }
   throw new Error(`검증하지 않는 사용자 정의 statement: ${JSON.stringify(statement)}`);
@@ -348,8 +350,10 @@ describe('dev ALB WAF 정책 합성', () => {
         }
         if (statement.ByteMatchStatement) {
           expect(statement.ByteMatchStatement.FieldToMatch).toEqual({ UriPath: {} });
+          const isBootstrapRate = ['EnrollmentRateBlock', 'RemainingRateBlock'].includes(value.Name)
+            && ['/unix', '/windows'].includes(statement.ByteMatchStatement.SearchString);
           expect(statement.ByteMatchStatement.TextTransformations).toEqual([
-            { Priority: 0, Type: 'NONE' },
+            { Priority: 0, Type: isBootstrapRate ? 'URL_DECODE' : 'NONE' },
           ]);
         }
       });
@@ -556,7 +560,7 @@ describe('dev ALB WAF 정책 합성', () => {
                 FieldToMatch: { UriPath: {} },
                 PositionalConstraint: constraint,
                 SearchString: path,
-                TextTransformations: [{ Priority: 0, Type: 'NONE' }],
+                TextTransformations: [{ Priority: 0, Type: ['/unix', '/windows'].includes(path) ? 'URL_DECODE' : 'NONE' }],
               },
             })),
           },
@@ -564,6 +568,13 @@ describe('dev ALB WAF 정책 합성', () => {
       },
     });
   });
+
+  test.each(['/%75nix', '/u%6eix', '/%77indows', '/window%73'])(
+    'ALB가 bootstrap으로 전달하는 %s는 등록 rate만 소비한다', uri => {
+      expect(matchesCustomStatement(rule('EnrollmentRateBlock').Statement.RateBasedStatement.ScopeDownStatement, uri)).toBe(true);
+      expect(matchesCustomStatement(rule('RemainingRateBlock').Statement.RateBasedStatement.ScopeDownStatement, uri)).toBe(false);
+    },
+  );
 
   test('dev WAF 로그 그룹은 14일 보존·DESTROY·기본 암호화로 설정한다', () => {
     const logGroups = Object.values(

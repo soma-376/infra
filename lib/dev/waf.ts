@@ -154,7 +154,8 @@ function buildRules(): CfnWebACL.RuleProperty[] {
   const otlp = paths(DEV_OTLP_PATHS);
   // 등록 rate는 기존 API 세 조건과 정확한 bootstrap 두 경로가 공유한다. 인증·조회·관리 경로는 본문/query Block과
   // 별개로 RemainingRateBlock의 1,000건 범위에 포함한다. (ADR-0027, PROJ-200)
-  const enrollment = paths(DEV_ENROLLMENT_RATE_PATHS);
+  const enrollmentPaths = DEV_ENROLLMENT_RATE_PATHS.map(enrollmentRatePath);
+  const enrollment = or(enrollmentPaths);
   const app = or([
     ...[...DEV_OTLP_PATHS, ...DEV_ENROLLMENT_API_PATHS, ...DEV_ENROLLMENT_MANAGEMENT_PATHS,
       ...DEV_BOOTSTRAP_PATHS, ...DEV_DASHBOARD_WAF_EXACT_PATHS].map(path),
@@ -164,7 +165,7 @@ function buildRules(): CfnWebACL.RuleProperty[] {
   ]);
   // 제외할 여덟 경로 조건을 OR 하나로 합쳐 불필요한 OR 안의 OR 중첩을 없앤다.
   // 경로·rate 정책은 같으며 서비스 입력 수용 여부는 CheckCapacity로 별도 검증한다. (ADR-0027)
-  const remaining = not(paths([...DEV_OTLP_PATHS, ...DEV_ENROLLMENT_RATE_PATHS]));
+  const remaining = not(or([...DEV_OTLP_PATHS.map(path), ...enrollmentPaths]));
 
   return [
     actionRule(
@@ -293,6 +294,17 @@ function path(pattern: string): Statement {
       textTransformations: [{ priority: 0, type: 'NONE' }],
     },
   };
+}
+
+// ALB와 앱이 단일 URL decode한 /%75nix·/%77indows도 bootstrap handler에 도달한다.
+// 새 bootstrap rate leaf만 decode하고 기존 API/내용 검사 분류는 유지한다. (PROJ-269)
+function enrollmentRatePath(pattern: string): Statement {
+  const statement = path(pattern);
+  if (pattern !== '/unix' && pattern !== '/windows') return statement;
+  return { byteMatchStatement: {
+    ...statement.byteMatchStatement as CfnWebACL.ByteMatchStatementProperty,
+    textTransformations: [{ priority: 0, type: 'URL_DECODE' }],
+  } };
 }
 
 function paths(patterns: readonly string[]): Statement {

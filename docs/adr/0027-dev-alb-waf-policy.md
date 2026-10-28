@@ -42,7 +42,9 @@ Allow이며 명시한 Block 규칙만 요청 평가를 종료한다. 기존 list
 WAF는 ALB를 통과하지 않는 RDS·ClickHouse 직접 접근을 보호하지 않는다.
 
 URI 경로의 단일 정의를 ALB와 WAF가 공유한다. 아래의 앱 경로는 OTLP·등록·인증·관리·bootstrap의
-합집합이며, 등록 rate 범위는 그중 등록·토큰·초대 세 조건에 한정한다.
+합집합이며, 등록 rate 범위는 등록·토큰·초대 세 조건과 정확한 `/unix`·`/windows`다.
+bootstrap 두 조건은 URL_DECODE를 한 번 적용하여 ALB가 정규화하는 단일 인코딩 경로도 같은 300건 예산에 포함한다.
+기존 API와 내용 검사 경로의 변환은 NONE으로 유지한다.
 
 | 분류 | URI 조건 | 내용 검사 본문 | 내용 검사 query |
 |---|---|---|---|
@@ -59,7 +61,8 @@ exact 경로의 trailing slash·자식 경로와 `/api/v1/healthz`도 공개 앱
 구 `/v1/enroll`·`/v1/installations/*`·`/v1/invitations*`는 더 이상 앱 경로가 아니며,
 `/api/v1/*` 전체 wildcard를 추가하지 않는다. OTLP는 `/api/v1`로 옮기지 않는다.
 
-WAF의 URI 비교는 `TextTransformations: NONE`으로 client 원문을 사용한다. ALB는 URI normalization
+기존 WAF의 URI 비교는 `TextTransformations: NONE`으로 client 원문을 사용한다. PROJ-269의 bootstrap
+rate 두 조건과 나머지 rate 제외에서만 URL_DECODE를 한 번 적용한다. ALB는 URI normalization
 후 path-pattern을 평가하지만 구체적인 decode·dot segment·중복 slash 처리와 WAF의 실제 분류
 정합은 이번 로컬 검증에서 확인하지 않았다. 공유 경로 상수와 template assertion의 정합 증거는
 canonical 경로·trailing slash·prefix 경계에 한정한다. ALB와 같은 전체 normalization 동작을 구현했다고

@@ -509,7 +509,8 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 - 서울 리전의 선택 버전 가용성·실제 룰·label은 AWS 세션 만료로 미확인이다. 배포 전
   `ListAvailableManagedRuleGroupVersions`·버전을 지정한 `DescribeManagedRuleGroup`으로 확인한다.
   버전 만료·변경 때는 override·label·예외를 다시 검증하고 CDK·commit·배포 시각을 남긴다.
-- WAF는 `NONE`으로 URI 원문을 비교하며 ALB normalization 정합 증거는 canonical·trailing slash·prefix
+- 기존 WAF 분류는 `NONE`으로 URI 원문을 비교한다. PROJ-269의 `/unix`·`/windows` rate와 나머지 제외에만
+  URL_DECODE를 한 번 적용하여 단일 인코딩 bootstrap도 같은 예산을 쓴다. ALB normalization 정합 증거는 canonical·trailing slash·prefix
   합성 조건에 한정한다. 배포 전 `curl --path-as-is`로 percent encoding·dot segment·중복 slash의
   ALB/WAF 분류를 확인하고 앱 라우팅이 디버깅 Count에 들어가면 정책을 보완한다.
 - 인프라 배포 principal의 WAF logging configuration·CloudWatch Logs delivery/resource policy
