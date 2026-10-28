@@ -1,5 +1,8 @@
 # dev EKS 수동 설치·검증·복구 런북
 
+> ADR-0048 도입 후 기존 dev CloudFormation의 일반 후속 업데이트는 [CI/CD 런북](dev-cloudformation-cicd.md)을
+> 따른다. 최초 설치·철거·복구와 아래 Kubernetes/Helm 절차는 계속 수동이다. CI/CD의 관리자 설정·실제 배포는 별도다.
+
 > 새 dev 도메인의 공개 URL·추가 SNI 인증서와 재배포 입력은 [도메인 전환 런북](dev-domain-migration.md)을 따른다.
 
 > **현재 기준은 ADR-0035·PROJ-248의 EKS 전용 구성이다.** 기존 ECS가 있는 환경은 먼저

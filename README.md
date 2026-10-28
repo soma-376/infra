@@ -9,6 +9,7 @@ AWS CDK v2로 prod·dev·cicd를 관리한다. dev 백엔드는 EKS 전용이며
 - [ADR 인덱스](docs/adr/README.md), [dev EKS 전용 ADR-0035](docs/adr/0035-dev-backend-eks-only.md)
 - [기존 dev ECS 수동 철거](docs/runbooks/dev-ecs-retirement.md): PROJ-249 선행·수동 Snapshot·Application 삭제·Edge/Network/IAM 순서
 - [EKS 수동 설치·검증·복구](docs/runbooks/dev-eks-manual-deployment.md)
+- [dev CloudFormation CI/CD](docs/runbooks/dev-cloudformation-cicd.md): PR diff·고정 Assembly 승인·후속 배포, 최초 관리자 설정은 별도
 - [telemetry Gateway·MSK](docs/runbooks/dev-telemetry-kafka.md), [Prometheus·Grafana 관측](docs/runbooks/dev-observability.md)
 - [dashboard 저장소·인증 준비](docs/runbooks/dev-dashboard-prerequisites.md), [OIDC 준비](docs/runbooks/dev-oidc-prerequisites.md)
 - [DB 비공개 접근·SSM 릴레이](docs/runbooks/dev-database-access.md)
