@@ -188,7 +188,7 @@ function matchesCustomStatement(
   statement: Statement,
   uriPath: string,
   labels: readonly string[] = [],
-  request: { method?: string; query?: string } = {},
+  request: { method?: string; query?: string; body?: string; contentType?: string } = {},
 ): boolean {
   expect(Object.keys(statement)).toHaveLength(1);
   if (statement.AndStatement) {
@@ -244,7 +244,14 @@ function matchesCustomStatement(
     if (field.UriPath) values = [uriPath];
     else if (field.Method) values = [request.method ?? 'GET'];
     else if (field.QueryString) values = [request.query ?? ''];
-    else if (field.SingleQueryArgument) {
+    else if (field.Body) {
+      expect(field.Body.OversizeHandling).toBe('NO_MATCH');
+      // ALB의 전체 길이 oversize 신호가 있으면 검사 가능한 prefix로 예외를 열지 않는다.
+      values = Buffer.byteLength(request.body ?? '', 'utf8') > 8192 ? [] : [request.body ?? ''];
+    } else if (field.SingleHeader) {
+      expect(field.SingleHeader.Name).toBe('content-type');
+      values = request.contentType === undefined ? [] : [request.contentType];
+    } else if (field.SingleQueryArgument) {
       // 단일 query parameter는 중복 값 중 하나가 맞아도 일치한다. 이 의미를 감추지 않는다.
       values = (request.query ?? '').split('&').filter(item =>
         item.split('=', 1)[0].toLowerCase() === field.SingleQueryArgument.Name,
@@ -252,9 +259,10 @@ function matchesCustomStatement(
     } else throw new Error('미지원 FieldToMatch');
     expect(match.TextTransformations).toHaveLength(1);
     const transformation = match.TextTransformations[0].Type;
-    expect(['NONE', 'URL_DECODE']).toContain(transformation);
+    expect(['NONE', 'URL_DECODE', 'LOWERCASE']).toContain(transformation);
     return values.flatMap(value => {
       if (transformation === 'NONE') return [value];
+      if (transformation === 'LOWERCASE') return [value.toLowerCase()];
       try { return [decodeURIComponent(field.UriPath ? value : value.replaceAll('+', ' '))]; }
       catch { return []; }
     });
@@ -377,6 +385,10 @@ describe('dev ALB WAF 정책 합성', () => {
           if (match.FieldToMatch.QueryString) {
             expect(value.Name).toBe('AppQueryLabelBlock');
             expect(match.TextTransformations).toEqual([{ Priority: 0, Type: 'URL_DECODE' }]);
+          } else if (match.FieldToMatch.Body || match.FieldToMatch.SingleHeader) {
+            expect(value.Name).toBe('AppBodyLabelBlock');
+            expect(match.TextTransformations).toEqual([{ Priority: 0, Type: match.FieldToMatch.Body ? 'NONE' : 'LOWERCASE' }]);
+            if (match.FieldToMatch.Body) expect(match.FieldToMatch.Body.OversizeHandling).toBe('NO_MATCH');
           } else {
             expect(match.FieldToMatch).toEqual({ UriPath: {} });
             expect(match.TextTransformations).toEqual([{ Priority: 0, Type: 'NONE' }]);
@@ -386,7 +398,7 @@ describe('dev ALB WAF 정책 합성', () => {
         if (statement.ByteMatchStatement) {
           const field = statement.ByteMatchStatement.FieldToMatch;
           if (!field.UriPath) {
-            expect(value.Name).toBe('AppQueryLabelBlock');
+            expect(['AppQueryLabelBlock', 'AppBodyLabelBlock']).toContain(value.Name);
             expect([JSON.stringify({ Method: {} }), JSON.stringify({ QueryString: {} })]).toContain(JSON.stringify(field));
           }
           const isBootstrapRate = ['EnrollmentRateBlock', 'RemainingRateBlock'].includes(value.Name)
@@ -499,6 +511,141 @@ describe('dev ALB WAF 정책 합성', () => {
       }
     },
   );
+
+  describe('정상 CLI token JSON의 두 Body label 예외', () => {
+    const uri = '/api/v1/auth/cli/token';
+    const exceptions = [BODY_RULES[0][1], BODY_RULES[2][1]];
+    const values = {
+      code: `uac_${'c'.repeat(43)}`,
+      redirect_uri: 'http://127.0.0.1:54610/callback',
+      code_verifier: 'v'.repeat(64),
+    };
+    const json = (changes: Record<string, unknown> = {}) => JSON.stringify({ ...values, ...changes });
+    const blocks = (body: string, labels = exceptions, options: { method?: string; path?: string; contentType?: string } = {}) => matchesCustomStatement(
+      rule('AppBodyLabelBlock').Statement, options.path ?? uri, labels,
+      { method: options.method ?? 'POST', contentType: options.contentType ?? 'application/json', body },
+    );
+
+    test('필드 순서 6종과 JSON 공백·helper 기본 직렬화는 모두 허용한다', () => {
+      const keys = Object.keys(values) as (keyof typeof values)[];
+      for (const a of keys) for (const b of keys.filter(k => k !== a)) {
+        const c = keys.find(k => k !== a && k !== b)!;
+        const ordered = { [a]: values[a], [b]: values[b], [c]: values[c] };
+        expect(blocks(JSON.stringify(ordered))).toBe(false);
+        expect(blocks(` \t\r\n${JSON.stringify(ordered, null, '\t')}\r\n `)).toBe(false);
+      }
+      expect(blocks(json().replaceAll(':"', ': "').replaceAll(',"', ', "'))).toBe(false);
+      expect(blocks(json(), exceptions, { contentType: 'Application/JSON; Charset=UTF-8' })).toBe(false);
+      expect(blocks(json(), exceptions, { contentType: 'application/json ;\tcharset=utf-8' })).toBe(false);
+    });
+
+    test.each([
+      'http://127.0.0.1:1/callback', 'http://127.0.0.1:65535/callback',
+      'http://127.0.0.1:00054610/callback', 'http://[::1]:1/callback',
+      'http://[::1]:65535/callback', `http://127.0.0.1:${'0'.repeat(229)}1/callback`,
+    ])('정상 콜백 %s의 두 Body label만 제외한다', redirect_uri => {
+      expect(blocks(json({ redirect_uri }))).toBe(false);
+      for (const label of exceptions) expect(blocks(json({ redirect_uri }), [label])).toBe(false);
+    });
+
+    test('PKCE·코드·본문 길이 경계를 지킨다', () => {
+      expect(blocks(json({ code_verifier: 'v'.repeat(43) }))).toBe(false);
+      expect(blocks(json({ code_verifier: '._~-'.repeat(32), code: `uac_${'_-'.repeat(21)}a` }))).toBe(false);
+      expect(blocks(json().padEnd(1024, ' '))).toBe(false);
+      expect(blocks(json().padEnd(1025, ' '))).toBe(true);
+      expect(blocks(json().padEnd(8192, ' '))).toBe(true);
+      expect(blocks(json().padEnd(8193, ' '))).toBe(true);
+    });
+
+    test.each([
+      'https://127.0.0.1:54610/callback', 'HTTP://127.0.0.1:54610/callback',
+      'http://localhost:54610/callback', 'http://127.1:54610/callback',
+      'http://169.254.169.254:80/callback', 'http://2130706433:54610/callback',
+      'http://127.0.0.1.example.test:54610/callback', 'http://[::ffff:127.0.0.1]:54610/callback',
+      'http://127.0.0.1/callback', 'http://127.0.0.1:0/callback',
+      'http://127.0.0.1:65536/callback', 'http://127.0.0.1:99999/callback',
+      'http://127.0.0.1:-1/callback', 'http://127.0.0.1:+1/callback',
+      'http://127.0.0.1:54610/callback/', 'http://127.0.0.1:54610/x/../callback',
+      'http://127.0.0.1:54610/%63allback', 'http://user@127.0.0.1:54610/callback',
+      'http://127.0.0.1:54610/callback?extra=1', 'http://127.0.0.1:54610/callback#fragment',
+      'http://127.0.0.1:54610/callback\n', `http://127.0.0.1:${'0'.repeat(230)}1/callback`,
+    ])('잘못된 콜백 %s는 Body 예외가 아니다', redirect_uri => {
+      expect(blocks(json({ redirect_uri }))).toBe(true);
+    });
+
+    test.each([
+      { code: `uac_${'c'.repeat(42)}` }, { code: `uac_${'c'.repeat(44)}` },
+      { code: `other_${'c'.repeat(43)}` }, { code: `uac_${'c'.repeat(42)}=` },
+      { code_verifier: 'v'.repeat(42) }, { code_verifier: 'v'.repeat(129) },
+      { code_verifier: `${'v'.repeat(42)}+` }, { code_verifier: `${'v'.repeat(42)}/` },
+      { code_verifier: `${'v'.repeat(42)}=` }, { code_verifier: `${'v'.repeat(42)}\n` },
+    ])('code·verifier 형식 오류 %j는 예외가 아니다', changes => {
+      expect(blocks(json(changes))).toBe(true);
+    });
+
+    test.each(Object.keys(values))('%s 누락·중복·비문자 값은 예외가 아니다', key => {
+      const missing: Record<string, unknown> = { ...values };
+      delete missing[key];
+      expect(blocks(JSON.stringify(missing))).toBe(true);
+      for (const duplicate of [values[key as keyof typeof values], 'attacker']) {
+        const entry = `"${key}":${JSON.stringify(duplicate)}`;
+        expect(blocks(`${json().slice(0, -1)},${entry}}`)).toBe(true);
+        expect(blocks(`{${entry},${json().slice(1)}`)).toBe(true);
+      }
+      for (const value of ['', null, 1, true, [], {}, [values[key as keyof typeof values]]]) {
+        expect(blocks(json({ [key]: value }))).toBe(true);
+      }
+    });
+
+    test.each([
+      ['unknown 필드', () => json({ unknown: 'extra' })],
+      ['unknown으로 필수 키 대체', () => json().replace('"code":', '"unknown":')],
+      ['동일 키 세 개', () => `{${Array(3).fill(`"code":"${values.code}"`).join(',')}}`],
+      ['배열 root', () => `[${json()}]`],
+      ['따옴표 key 누락', () => json().replace('"code":', 'code:')],
+      ['콜론 누락', () => json().replace('"code":', '"code"')],
+      ['comma 누락', () => json().replace(',"redirect_uri"', '"redirect_uri"')],
+      ['trailing comma', () => `${json().slice(0, -1)},}`],
+      ['JSON 주석', () => `${json()}/* comment */`],
+      ['잘린 JSON', () => json().slice(0, -1)],
+      ['이어 붙인 JSON', () => `${json()}${json()}`],
+      ['escaped key', () => json().replace('"code":', '"co\\u0064e":')],
+      ['escaped duplicate key', () => `${json().slice(0, -1)},"co\\u0064e":"${values.code}"}`],
+      ['escaped slash', () => json().replaceAll('/', '\\/')],
+      ['escaped URI 문자', () => json().replace('http:', 'http\\u003a')],
+      ['URL encoded URI', () => json({ redirect_uri: encodeURIComponent(values.redirect_uri) })],
+      ['문자열 속 JSON 주입', () => json({ code: `${values.code}","unknown":"x` })],
+      ['UTF-8 BOM', () => `\ufeff${json()}`],
+      ['비JSON 공백', () => `\v${json()}`],
+      ['후행 NUL', () => `${json()}\0`],
+    ] as const)('%s는 파싱 fallback 없이 예외에서 제외한다', (_name, value) => {
+      expect(blocks(value())).toBe(true);
+    });
+
+    test('정확한 POST·원문 route·JSON content type에서만 예외다', () => {
+      for (const method of ['GET', 'HEAD', 'post', 'PUT']) expect(blocks(json(), exceptions, { method })).toBe(true);
+      for (const path of ['/api/v1/auth/token', `${uri}/`, '/api/v1/auth/cli/%74oken']) expect(blocks(json(), exceptions, { path })).toBe(true);
+      for (const contentType of ['', 'text/plain', 'application/x-www-form-urlencoded', 'application/json;charset=utf-16', 'application/json; extra=x']) {
+        expect(blocks(json(), exceptions, { contentType })).toBe(true);
+      }
+      expect(matchesCustomStatement(rule('AppBodyLabelBlock').Statement, uri, exceptions, { method: 'POST', body: json() })).toBe(true);
+    });
+
+    test('다른 Body·query·URI label과 rate 범위는 유지한다', () => {
+      for (const [, label] of BODY_RULES.filter(([, value]) => !exceptions.includes(value))) expect(blocks(json(), [...exceptions, label])).toBe(true);
+      for (const [, label] of QUERY_RULES) expect(matchesCustomStatement(rule('AppQueryLabelBlock').Statement, uri, [label], { method: 'POST', body: json() })).toBe(true);
+      expect(matchesCustomStatement(rule('RestrictedExtensionsOutsideBinBlock').Statement, uri, [RESTRICTED_EXTENSION_LABEL])).toBe(true);
+      expect(matchesCustomStatement(rule('RemainingRateBlock').Statement.RateBasedStatement.ScopeDownStatement, uri)).toBe(true);
+      visitStatements(rule('AppBodyLabelBlock').Statement, statement => {
+        expect(statement.RegexMatchStatement?.FieldToMatch.JsonBody).toBeUndefined();
+        expect(statement.SizeConstraintStatement?.FieldToMatch.JsonBody).toBeUndefined();
+        if (statement.SizeConstraintStatement?.FieldToMatch.Body) expect(statement.SizeConstraintStatement).toEqual({
+          FieldToMatch: { Body: { OversizeHandling: 'NO_MATCH' } }, ComparisonOperator: 'LE', Size: 1024,
+          TextTransformations: [{ Priority: 0, Type: 'NONE' }],
+        });
+      });
+    });
+  });
 
   test('본문 Count와 query label이 함께 있으면 OTLP의 query Block을 건너뛰지 않는다', () => {
     for (const path of ['/v1/traces', '/v1/metrics', '/v1/logs']) {

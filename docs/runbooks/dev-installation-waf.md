@@ -1,6 +1,6 @@
 # dev 설치 경로 WAF 적용·검증·복구
 
-기준은 ADR 0027·0044와 PROJ-269다. 정확한 `/unix`, `/windows`와 기존 등록 API 세 조건이
+기준은 ADR 0027·0044·0045와 PROJ-269다. 정확한 `/unix`, `/windows`와 기존 등록 API 세 조건이
 출발지 IP별 300건/300초를 공유한다. bootstrap 두 조건은 URL_DECODE 한 번을 적용하여
 `/%75nix`·`/%77indows` 같은 단일 인코딩 경로도 같은 예산에 넣고 나머지 예산에서 제외한다. `429`·`Retry-After: 60`은 재시도 안내이며 정확한 해제 시각은 아니다.
 
@@ -9,11 +9,12 @@
 1. 최신 `develop`에서 `npm run build`, `npm test -- --runInBand`, prod/dev/cicd synth를 실행한다.
 2. 추적된 `config/dev/deployment.json`으로 합성하고 현재 DevEdgeStack 템플릿과 비교한다.
    WebACL의 등록·나머지 rate 범위에 두 URL_DECODE exact path가 이동하고, 정상 CLI OIDC loopback query에만
-   SSRF·RFI 후속 Block 예외가 추가된다. 이외 변경이 있으면 먼저 원인을 확인한다.
+   SSRF·RFI 후속 Block 예외가 추가된다. ADR 0045 후속 변경은 정상 CLI token POST의 두 Body label
+   조건만 좁힌다. 이외 변경이 있으면 먼저 원인을 확인한다.
 3. 현재 EKS ALB ARN에 연결된 Web ACL과 관리형 버전 가용성을 읽고 합성 Rules의 `CheckCapacity`를 확인한다.
 4. PR CI·필수 리뷰와 병합을 확인한 뒤 dev profile로 DevEdgeStack만 `--exclusively` 배포한다.
    다른 스택, prod, Helm 앱은 이 정책 변경의 배포 대상이 아니다.
-5. 배포된 Web ACL의 `EnrollmentRateBlock`·`RemainingRateBlock`·`AppQueryLabelBlock`, association ARN을 다시 조회한다.
+5. 배포된 Web ACL의 `EnrollmentRateBlock`·`RemainingRateBlock`·`AppQueryLabelBlock`·`AppBodyLabelBlock`, association ARN을 다시 조회한다.
 
 ## 배포 전 경로 확인
 
@@ -51,6 +52,23 @@ ADR 0044는 원문 GET·URI·필수 다섯 파라미터와 선택 hint·loopback
   backend 400일 수 있으므로 403과 동일한 증거로 기록하지 않는다.
 - 실제 로그에서는 URI·action·terminating rule·label·query redaction 여부만 수집한다. 모든 header/query 출력은 금지한다.
 - 국가·IP·header·본문·URI·remaining rate 정책과 기존 sampling/data protection의 변경이 없어야 한다.
+
+## CLI token 교환 본문 오탐 회귀 검증
+
+정상 authorize 이후 POST `/api/v1/auth/cli/token`에서 SSRF·RFI 두 Body label과 `AppBodyLabelBlock` 종료를
+확인했다. ADR 0045는 정확한 POST·원문 URI·JSON content type과 원문 본문 전체의 엄격한 세 필드 조건에만
+두 label 예외를 적용한다. 본문은 1KB 이하, ALB 검사 한도 초과는 `NO_MATCH`로 예외를 닫는다.
+JSON parser fallback이나 escape 변환은 사용하지 않는다.
+
+- 최신 head의 전체 검사와 실제 `CheckCapacity` 이후, 기존 배포 대비 WebACL Rules의 의도한 변경만 있는지 확인한다.
+  ADR 0045 후보는 1,440 WCU로 서비스 검증을 통과했고, 이전 query 수정 template와 비교하여
+  `AppBodyLabelBlock` 이외의 11개 규칙·다른 리소스·로그 설정이 동일했다. 이는 실제 인증 성공 증거가 아니다.
+- 새 정상 OIDC 세션으로 authorize → loopback callback → token 교환을 완료하고 API 인증을 확인한다.
+  기존 code/verifier를 재사용하거나 실제 token·본문·요청 URL을 출력하지 않는다.
+- 실패 응답은 비공개 600 파일에서만 검사한다. 공유 증거는 HTTP 상태·URI·terminating rule·label·시간으로 제한한다.
+- 별도 비밀 없는 synthetic fixture로 중복/추가 key·잘린 JSON·oversize·잘못된 callback/PKCE와 다른 Body label의
+  동시 탐지가 예외를 받지 않는지 확인한다. WAF 탐지 403과 backend 계약 거부 400/401을 구분한다.
+- token endpoint의 code/PKCE/만료/원자적 1회 소비 검증과 query·header·rate 정책이 그대로임을 확인한다.
 
 ## 복구
 
