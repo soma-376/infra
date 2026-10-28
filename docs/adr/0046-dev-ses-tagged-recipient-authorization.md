@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (ADR 0043의 SES 수신 identity 권한 보완; 실제 정상 초대 수신 검증은 별도)
+Superseded by [ADR 0047](0047-dev-ses-fixed-sender-identity-authorization.md) — 배포 후 실제 단회 진단도 수신 identity의 SendEmail을 403으로 거부했다. 오류 원인에 대한 AWS 구현 추측은 하지 않는다.
 
 ## Context
 

@@ -55,14 +55,15 @@
 | 0041 | [dev dashboard 조회 권한 복구는 검증된 명시 허용목록으로 분리한다](0041-dev-dashboard-read-grants-repair.md) | Accepted (PROJ-262 수동 복구 준비·로컬 검증; dev 적용 별도 승인) |
 | 0042 | [프론트 관측 스택을 전용 EC2와 영구 EBS에 배포한다](0042-frontend-observability-ec2.md) | Accepted (IaC 구현; 실제 배포·앱 연결 별도) |
 
-| 0043 | [dev 초대 메일은 SES와 EKS 전용 암호화 키 원본으로 보낸다](0043-dev-invitation-mail-via-ses-and-csi.md) | Accepted — 수신 identity 권한은 [ADR 0046](0046-dev-ses-tagged-recipient-authorization.md)으로 보완; 원본·공급·발신 도메인 제한 유지 |
+| 0043 | [dev 초대 메일은 SES와 EKS 전용 암호화 키 원본으로 보낸다](0043-dev-invitation-mail-via-ses-and-csi.md) | Accepted — SES identity 권한은 [ADR 0047](0047-dev-ses-fixed-sender-identity-authorization.md)로 대체; 원본·공급·고정 발신 주소 유지 |
 | 0044 | [정상 CLI OIDC loopback 요청에만 두 query 탐지의 후속 차단 예외를 둔다](0044-dev-waf-cli-oidc-loopback-query-exception.md) | Accepted (ADR 0027의 두 query label 조건 부분 대체; 실제 배포 검증 별도) |
 | 0045 | [정상 CLI 토큰 교환 본문에만 두 탐지의 후속 차단 예외를 둔다](0045-dev-waf-cli-token-body-exception.md) | Accepted (ADR 0027의 두 Body label 조건 부분 대체; 실제 배포 검증 별도) |
-| 0046 | [dev SES 수신 identity 권한은 승인 태그와 고정 발신 주소로 제한한다](0046-dev-ses-tagged-recipient-authorization.md) | Accepted (ADR 0043의 수신 identity 권한 보완; 실제 정상 초대 수신 검증 별도) |
+| 0046 | [dev SES 수신 identity 권한은 승인 태그와 고정 발신 주소로 제한한다](0046-dev-ses-tagged-recipient-authorization.md) | Superseded by [ADR 0047](0047-dev-ses-fixed-sender-identity-authorization.md) |
+| 0047 | [dev SES identity 권한은 실행 계정·리전과 고정 발신 주소로 제한한다](0047-dev-ses-fixed-sender-identity-authorization.md) | Accepted (ADR 0046 대체; 실제 정상 초대 수신·설치 검증 별도) |
 
 병행 작업에서 사용한 `0035`·`0036`은 각각 파일명·제목·링크를 보존한다. 번호만으로 대상을 식별하지 않는다.
 
-새 ADR을 작성할 때는 다음 미사용 번호(`0047-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
+새 ADR을 작성할 때는 다음 미사용 번호(`0048-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
 
 섹션 순서는 다음과 같다. 괄호로 표시한 것은 내용이 있을 때만 둔다.
 
