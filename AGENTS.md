@@ -32,6 +32,8 @@ PROJ-270 문서 → PROJ-271 IAM → PROJ-272 workflow 순서의 도입 계약�
 도입 후 `DeployStack`의 역할은 총 6개이며 `env=cicd`는 계속 관리자 수동 배포다.
 PR과 CD plan은 AWS baseline을 읽은 뒤 local `cdk diff --template`을 실행한다. CD는 plan →
 Environment 승인 → 같은 SHA·Assembly 배포 순서이고, 최신 SHA·baseline·artifact 해시가 다르면 중단한다.
+경로 필터 밖 변경으로 계획이 오래되면 develop 전용 `workflow_dispatch`로 새 plan·승인을 진행한다.
+기존 run 재실행은 원래 SHA를 유지하며, 수동 실행 활성화에는 default branch의 workflow 정의도 필요하다.
 기존 bootstrap 관리자급 실행 권한을 재사용하므로 dev/prod IAM 격리를 제공한다고 표현하지 않는다.
 dev 네 스택의 후속 업데이트만 대상으로 하며 최초 설치·ECS 철거·Helm·prod·frontend는 별도 절차다.
 GitHub 보호 설정과 실제 OIDC·승인·배포 검증은 로컬 구현의 완료 증거에 포함하지 않는다.

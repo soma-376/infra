@@ -67,6 +67,11 @@ develop에는 PR 리뷰·필수 검증·직접 push 제한을 설정하고 workf
 적용한다. `push` 이벤트 자체는 직접 push와 PR merge를 구분하지 않는다. PR 코드는 읽기 권한으로도
 임의 코드를 실행할 수 있으므로 승인 전에 workflow·의존성·합성 코드를 함께 검토한다.
 
+수동 재계획을 활성화하려면 default branch에 `workflow_dispatch`를 선언한
+`dev-cdk-deploy.yml`이 있어야 한다. default branch가 develop이면 해당 정의의 develop 병합이 필요하다.
+활성화 전에 GitHub의 [수동 실행 조건](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow)과
+실제 default branch의 파일을 확인한다. 실행 대상은 계속 develop으로 제한한다.
+
 ## 3. PR과 CD 흐름
 
 ### PR: `dev-cdk-pr.yml`
@@ -89,10 +94,30 @@ PR에는 배포 권한이 없고, PR artifact를 CD의 배포 입력으로 승�
 - 승인 화면에서 plan Job Summary와 artifact를 확인한다. 승인 후 재합성하지 않는다.
 - workflow 전체가 고정 concurrency group을 쓰며 실행 중 CD는 취소하지 않는다. pending 실행은 최신
   실행으로 교체될 수 있다. 오래된 SHA의 승인 대기는 거절·취소하고 최신 실행을 검토한다.
-- CDK 코드·profile·의존성·pipeline 변경만 CD를 유발한다. cicd 전용 변경은 역할 수동 배포 대상으로,
+- CDK 코드·profile·의존성·pipeline 변경만 자동 CD를 유발한다. cicd 전용 변경은 역할 수동 배포 대상으로,
   Helm 전용 변경은 별도 수동 Helm 절차로 처리한다.
+- `workflow_dispatch`는 develop의 새 plan부터 같은 두 job을 실행한다. 다른 branch·tag는 AWS 인증
+  전에 job 조건으로 제외하고 스크립트도 거부한다. 별도 SHA·artifact 입력이나 승인 생략 경로는 없다.
 - 네 스택을 명시해 의존 순서대로 직렬 배포한다. 무변경이면 승인 후 기본 CDK no-op으로 끝난다.
   `--force`, 보호 우회, 자동 rollback 재시도는 하지 않는다.
+
+### 최신 develop으로 수동 재계획
+
+승인 대기 중 문서·Helm 전용 PR이 병합되면 기존 plan은 오래된 SHA가 되지만 `paths` 필터 때문에
+새 CD가 자동 실행되지 않는다. 기존 run의 **Re-run jobs**는 원래 SHA·ref를 유지하므로 이 상황의
+해결책이 아니다([GitHub 재실행 동작](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)).
+
+1. 오래된 plan의 승인 대기를 거절하거나 취소한다. 고정 concurrency 때문에 새 실행이 기존 승인
+   대기 뒤에 머물 수 있다. 이미 배포 중인 실행을 재계획 목적으로 취소하지 않는다.
+2. Actions의 **Dev CDK Deploy → Run workflow**에서 branch **develop**을 선택해 새 run을 만든다.
+   CLI를 사용할 때도 아래처럼 ref를 명시한다.
+
+   ```bash
+   gh workflow run dev-cdk-deploy.yml --repo soma-376/infra --ref develop
+   ```
+
+3. 새 plan의 SHA·baseline·diff·artifact를 확인하고 `infra-dev-deploy`에서 다시 승인한다.
+   계획 또는 승인 중 develop이 다시 바뀌면 동일하게 중단되므로 최신 develop으로 다시 계획한다.
 
 ## 4. 승인 전 확인과 artifact
 
@@ -117,7 +142,7 @@ template diff는 실제 교체 여부를 완전히 확정하지 않으며 외부
 | 역할·Variable 누락, OIDC 거부 | 관리자 설정·subject·계정·Environment 보호를 확인한다. 권한을 wildcard로 넓히지 않는다. |
 | baseline 조회 실패, 스택 없음·진행 중·복구 필요 | plan을 중단한다. 기존 상태를 읽기 확인하고 최초 설치 또는 복구 절차를 따른다. |
 | legacy ECS 잔존 | [철거 런북](dev-ecs-retirement.md)을 완료하고 새 plan을 만든다. |
-| SHA·baseline·artifact 해시 불일치 | deploy를 중단한다. plan부터 새 실행하여 다시 승인한다. |
+| SHA·baseline·artifact 해시 불일치 | deploy를 중단한다. 위 수동 재계획 절차로 최신 develop에서 새 plan을 만들고 다시 승인한다. |
 | nested stack·Docker asset·추가 lookup | 지원 설계와 권한·테스트를 먼저 추가한다. 검증기를 우회하지 않는다. |
 | CDK 배포 실패 또는 rollback | 실패 결과를 보존하고 이후 진행을 멈춘다. 이미 완료된 스택까지 원자적으로 되돌아가지는 않는다. |
 
@@ -130,6 +155,7 @@ Pod·TLS·OIDC·DB·수집 E2E 성공을 선언하지 않는다.
 - PROJ-270: ADR·인덱스·런북 링크와 역할·승인·실행 계약을 검토한다.
 - PROJ-271: fixture 계정 template assertion, cicd synth, 기존 앱 역할 4개 보존을 확인한다.
 - PROJ-272: AWS 없는 fixture로 fork·승인·동시 실행·stale SHA·artifact 변조·잘못된 대상·조회 오류·
-  무변경·부분 실패를 검증한다. 전체 Jest·build와 dev/prod/cicd fixture synth를 수행한다.
+  무변경·부분 실패를 검증한다. 수동 실행의 develop 제한·새 plan·최신 SHA·artifact 검증도 확인한다.
+  전체 Jest·build와 dev/prod/cicd fixture synth를 수행한다.
 - 실제 OIDC 연결, PR diff, reviewer 승인, no-op, 변경 배포, 실패 결과 수집은 별도 승인된 실환경에서 확인한다.
   이번 로컬 구현 결과와 해당 증거를 구분해 기록한다.

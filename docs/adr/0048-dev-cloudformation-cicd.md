@@ -14,6 +14,10 @@ dev 배포 입력은 ADR-0040에 따라 추적된 `config/dev/deployment.json`�
 확인하지 않는다. 프론트엔드 Terraform CD는 승인 뒤 plan을 만드는 구조여서 PROJ-259의
 diff → 승인 → deploy 순서를 그대로 제공하지 않는다.
 
+승인 대기 중 문서·Helm 전용 변경이 develop에 병합되면 기존 plan은 최신 SHA 검사에서 중단된다.
+해당 변경은 CD의 `paths` 필터 밖이므로 새 plan도 자동 실행되지 않는다. GitHub의 기존 run 재실행은
+원래 SHA를 유지하므로, 최신 develop에서 plan부터 새로 시작할 수 있는 수동 실행 경로가 필요하다.
+
 현재 dev와 prod는 같은 계정·리전의 기본 `hnb659fds` bootstrap을 참조한다. 운영자가 기존
 CloudFormation 실행 역할의 `AdministratorAccess` 연결을 확인했고, 이번에는 해당 bootstrap을
 재사용하기로 선택했다. 이 확인은 전체 실효 권한·permissions boundary·SCP를 감사한 결과가 아니다.
@@ -73,6 +77,11 @@ Description의 `ADR-0044` 문자열은 불필요한 배포 차이를 피하기 �
 - CD는 `plan` → `deploy` 두 job이며 workflow 전체를 고정 concurrency group과
   `cancel-in-progress: false`로 직렬화한다. 기본 pending 교체 동작을 수용하고 최신 SHA만 배포한다.
 - CDK·profile·의존성·pipeline 변경이 CD를 실행한다. cicd 전용·Helm 전용 변경은 자동 CD를 실행하지 않는다.
+- `workflow_dispatch`는 `refs/heads/develop`에서만 허용하며 새 run의 `plan`부터 시작한다.
+  임의 SHA·artifact를 받는 입력은 두지 않는다. push와 동일한 concurrency·Environment 승인·최신 SHA·
+  baseline·artifact 검증을 적용한다. 다른 branch·tag는 AWS 인증 전에 job 조건으로 제외하고
+  스크립트의 실행 식별자 검사에서도 거부한다.
+  오래된 승인 대기는 거절하거나 취소한 뒤 최신 develop으로 새 run을 요청한다.
 - 네 스택을 명시해 의존 순서대로 직렬 배포한다. 배포 실패를 성공으로 바꾸거나 자동 재시도하지 않는다.
 - 무변경도 정상 plan으로 기록하고 승인 뒤 기본 deploy의 no-op을 사용한다. `--force`를 쓰지 않고,
   `diff --fail`의 exit 1을 변경 있음으로 해석하지 않는다.
@@ -87,6 +96,8 @@ Description의 `ADR-0044` 문자열은 불필요한 배포 차이를 피하기 �
   합성·asset 정책 변경을 포함한다. 사용자가 기존 bootstrap 재사용을 선택하여 후속으로 남긴다.
 - 기존 프론트엔드 CD 복사: 승인 뒤 plan이 생겨 검토 대상과 승인 순서가 다르다.
 - 승인 후 소스 재합성: 승인 대상과 배포 입력이 달라질 수 있어 사용하지 않는다.
+- 최신 SHA 검사 완화 또는 경로 필터 제거: 승인 대상의 최신성 보장과 자동 실행 범위를 유지하기 위해
+  채택하지 않는다. 수동 실행으로 재계획 경로만 보완한다.
 
 ## Consequences/Tradeoffs
 
@@ -100,6 +111,8 @@ Description의 `ADR-0044` 문자열은 불필요한 배포 차이를 피하기 �
 
 - bootstrap 관리자 권한을 재사용하므로 악성 dev 템플릿에 대한 계정 내 완전한 격리는 제공하지 않는다.
 - GitHub Environment·branch protection과 최초 역할 배포는 별도 관리자 설정이며 코드만으로 활성화되지 않는다.
+- 수동 실행 활성화에는 default branch의 `workflow_dispatch` 정의가 필요하다. 활성화 시점의
+  default branch와 workflow 등록 여부를 확인한다.
 - template diff의 교체 판정은 보수적일 수 있고, workflow 직렬화는 수동 AWS 작업을 잠그지 않는다.
 - 승인 대기 중 다른 변경이 생기면 재계획·재승인이 필요하다. 배포된 여러 스택 전체가 원자적으로 롤백되지는 않는다.
 
@@ -114,6 +127,7 @@ Description의 `ADR-0044` 문자열은 불필요한 배포 차이를 피하기 �
 
 - fixture 합성에서 기존 dev/prod 템플릿과 앱 역할 4개가 보존되고 cicd 역할 두 개만 추가된다.
 - AWS 없는 테스트가 fork·승인 순서·stale SHA·baseline 변경·artifact 변조·잘못된 대상·실패 결과 보존을 검증한다.
+- 수동 실행도 develop 최신 SHA만 허용하고 새 plan·승인을 요구하며 다른 branch·tag와 과거 artifact를 거부한다.
 - 코드·문서·테스트 커밋과 실환경 적용 여부가 분리되어 보고된다.
 
 ## References
@@ -122,3 +136,5 @@ Description의 `ADR-0044` 문자열은 불필요한 배포 차이를 피하기 �
 - [dev EKS 전용 ADR-0035](0035-dev-backend-eks-only.md), [배포 profile ADR-0040](0040-dev-public-origin-and-additional-certificates.md)
 - [AWS CDK diff](https://docs.aws.amazon.com/cdk/v2/guide/ref-cli-cmd-diff.html), [AWS CDK 보안](https://docs.aws.amazon.com/cdk/v2/guide/best-practices-security.html)
 - [GitHub OIDC AWS](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws)
+- [GitHub 수동 실행](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow),
+  [GitHub 재실행의 SHA·ref 유지](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)
