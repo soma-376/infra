@@ -60,7 +60,7 @@
 | 0045 | [정상 CLI 토큰 교환 본문에만 두 탐지의 후속 차단 예외를 둔다](0045-dev-waf-cli-token-body-exception.md) | Accepted (ADR 0027의 두 Body label 조건 부분 대체; 실제 배포 검증 별도) |
 | 0046 | [dev SES 수신 identity 권한은 승인 태그와 고정 발신 주소로 제한한다](0046-dev-ses-tagged-recipient-authorization.md) | Superseded by [ADR 0047](0047-dev-ses-fixed-sender-identity-authorization.md) |
 | 0047 | [dev SES identity 권한은 실행 계정·리전과 고정 발신 주소로 제한한다](0047-dev-ses-fixed-sender-identity-authorization.md) | Accepted (ADR 0046 대체; 실제 정상 초대 수신·설치 검증 별도) |
-| 0048 | [dev CloudFormation은 고정한 합성 결과를 승인한 뒤 GitHub Actions로 배포한다](0048-dev-cloudformation-cicd.md) | Accepted (PROJ-259·270·271·272; 로컬 구현·검증, 관리자 설정·실제 배포 별도) |
+| 0048 | [dev CloudFormation은 고정한 합성 결과를 승인한 뒤 GitHub Actions로 배포한다](0048-dev-cloudformation-cicd.md) | Accepted (PROJ-259·270·271·272; develop 수동 재계획 포함; 로컬 구현·검증, 관리자 설정·실제 배포 별도) |
 
 병행 작업에서 사용한 `0035`·`0036`은 각각 파일명·제목·링크를 보존한다. 번호만으로 대상을 식별하지 않는다.
 
