@@ -274,3 +274,9 @@ ECS circuit breaker/events와 실제 task digest를 확인한다. runner 소실 
 `aws ecs update-service --cluster soma-376-frontend-<env> --service soma-376-frontend-<env> --force-new-deployment`로
 배포 후 정상 상태를 검증한다. 평상시 코드 롤백은 프론트 revert PR을 해당 브랜치에 머지한다.
 고정 digest로 돌아가려면 CD 비활성 상태에서 `automatic_image_deployment=false`와 정상 `image_digest`를 PR로 적용한다.
+
+## 프론트 관측 전용 EC2 (PROJ-260)
+
+`modules/observability`와 dev의 `observability.auto.tfvars.json`이 관측 수신 기반을 정의한다.
+관리자 bootstrap의 전용 profile/배포 권한을 먼저 반영한 뒤 기존 dev CI에서 생성한다.
+실제 apply와 앱 연결은 별도 단계다. [생성 항목·머지 동작·운영 절차](modules/observability/README.md)를 따른다.

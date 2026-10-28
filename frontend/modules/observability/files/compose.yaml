@@ -1,0 +1,157 @@
+name: pulsemetry-observability
+
+x-runtime: &runtime
+  restart: unless-stopped
+  user: "10001:10001"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: [/tmp]
+  depends_on:
+    init-data:
+      condition: service_completed_successfully
+  logging:
+    driver: local
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  # 새 named volume만 준비한다. 이전 통합 LGTM 볼륨에는 접근하지 않는다.
+  init-data:
+    image: grafana/alloy:v1.21.2@sha256:89a5a320168387336b9ac3c850609c3ba7757eadd4ae5f1d819deb35e9854b18
+    user: "0:0"
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: [no-new-privileges:true]
+    entrypoint: /bin/sh
+    command:
+      [
+        "-ec",
+        "chown 10001:10001 /data/alloy /data/prometheus /data/tempo /data/loki /data/grafana",
+      ]
+    volumes:
+      - /srv/pulsemetry-observability/alloy:/data/alloy
+      - /srv/pulsemetry-observability/prometheus:/data/prometheus
+      - /srv/pulsemetry-observability/tempo:/data/tempo
+      - /srv/pulsemetry-observability/loki:/data/loki
+      - /srv/pulsemetry-observability/grafana:/data/grafana
+
+  alloy:
+    <<: *runtime
+    image: grafana/alloy:v1.21.2@sha256:89a5a320168387336b9ac3c850609c3ba7757eadd4ae5f1d819deb35e9854b18
+    mem_limit: 384m
+    command:
+      [
+        run,
+        --server.http.listen-addr=0.0.0.0:12345,
+        --storage.path=/data,
+        /etc/alloy/config.alloy,
+      ]
+    ports:
+      - "${HOST_PRIVATE_IP:?required}:4318:4318"
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - /srv/pulsemetry-observability/alloy:/data
+
+  prometheus:
+    <<: *runtime
+    image: prom/prometheus:v3.13.5@sha256:aafa9d694e6a883c02db516d9f6e5b84e14195f49a2a6456a4cca815edda72b9
+    mem_limit: 640m
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/data
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=20GB
+      - --web.enable-remote-write-receiver
+    volumes:
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - /srv/pulsemetry-observability/prometheus:/data
+
+  tempo:
+    <<: *runtime
+    image: grafana/tempo:3.1.1@sha256:64e2fbd56d9c2b3412a4b430a58ea59e91a670b1e75f920a0c702213ad145044
+    mem_limit: 768m
+    command: ["-config.file=/etc/tempo/config.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo/config.yaml:ro
+      - /srv/pulsemetry-observability/tempo:/data
+      - /srv/pulsemetry-observability/tempo:/var/tempo
+
+  loki:
+    <<: *runtime
+    image: grafana/loki:3.7.9@sha256:0db216b630ae1f348a1584c67f3cead8b4c1fc839169a39501db664744158e28
+    mem_limit: 512m
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./loki.yaml:/etc/loki/config.yaml:ro
+      - /srv/pulsemetry-observability/loki:/data
+
+  grafana:
+    <<: *runtime
+    image: grafana/grafana:13.2.4@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f
+    mem_limit: 512m
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_BASIC_ENABLED: "true"
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana-admin-password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_PLUGINS_CHECK_FOR_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_PLUGINS_PREINSTALL_AUTO_UPDATE: "false"
+    volumes:
+      - /srv/pulsemetry-observability/grafana:/var/lib/grafana
+      - ./datasources.yaml:/etc/grafana/provisioning/datasources/frontend.yaml:ro
+      - ./dashboards.yaml:/etc/grafana/provisioning/dashboards/frontend.yaml:ro
+      - /srv/pulsemetry-observability/secrets/grafana-admin-password:/run/secrets/grafana-admin-password:ro
+      - ./hosts.json:/etc/grafana/dashboards/hosts.json:ro
+    # up --wait는 Grafana뿐 아니라 저장소와 Alloy가 준비될 때까지 기다린다.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          wget -q -O /dev/null http://127.0.0.1:3000/api/health &&
+          wget -q -O /dev/null http://prometheus:9090/-/ready &&
+          wget -q -O /dev/null http://tempo:3200/ready &&
+          wget -q -O /dev/null http://loki:3100/ready &&
+          wget -q -O /dev/null http://alloy:12345/-/ready
+      interval: 5s
+      timeout: 10s
+      retries: 24
+      start_period: 30s
+
+  alloy-host:
+    image: grafana/alloy:v1.21.2@sha256:89a5a320168387336b9ac3c850609c3ba7757eadd4ae5f1d819deb35e9854b18
+    restart: unless-stopped
+    pid: host
+    user: "0:0"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 0.25
+    command: [run, --storage.path=/data, /etc/alloy/config.alloy]
+    environment:
+      HOST_INSTANCE_ID: ${HOST_INSTANCE_ID:?required}
+      HOST_ENVIRONMENT: shared
+      HOST_ROLE: observability
+      PROMETHEUS_REMOTE_WRITE_URL: http://prometheus:9090/api/v1/write
+    volumes:
+      - ./host.alloy:/etc/alloy/config.alloy:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
+      - /srv/pulsemetry-observability/alloy-host:/data
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"

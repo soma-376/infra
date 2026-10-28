@@ -87,7 +87,7 @@ export class DevDataStack extends Stack {
   public readonly dashboardRdsCacheSecret: ISecret;
   public readonly dashboardClickHouseSourceSecret: ISecret;
   public readonly dashboardClickHouseCacheSecret: ISecret;
-  /** 운영자가 독립 AES 키 버전을 초기화하는 원본. (ADR-0042) */
+  /** 운영자가 독립 AES 키 버전을 초기화하는 원본. (ADR-0043) */
   public readonly managementResponseKeySecret: ISecret;
   public readonly mailEncryptionKeySecret: ISecret;
   /** 운영자가 키 버전을 등록할 JWT 원본. PROJ-230이 IAM·파일 공급을 연결한다. */

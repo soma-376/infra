@@ -1,6 +1,6 @@
 # dev SES 초대 메일 준비·발송·복구
 
-ADR 0042가 원본·권한·공급을, backend ADR 0037·0057이 outbox와 발송을 소유한다.
+ADR 0043가 원본·권한·공급을, backend ADR 0037·0057이 outbox와 발송을 소유한다.
 대상은 `ap-northeast-2` dev EKS다. 코드·합성·SES 접수와 실제 수신·설치는 각각 증거를 남긴다.
 
 ## 1. 원본과 DNS 준비
