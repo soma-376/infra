@@ -35,7 +35,7 @@ export class DevDbRelay extends Construct {
     this.instance = new Instance(this, 'Instance', {
       vpc: props.vpc, vpcSubnets: { subnets: [props.vpc.publicSubnets[0]] },
       instanceType: new InstanceType(DEV_DB_RELAY_INSTANCE_TYPE),
-      machineImage: MachineImage.genericLinux({ [stack.region]: DEV_DB_RELAY_AMI_ID }),
+      machineImage: MachineImage.genericLinux({ 'ap-northeast-2': DEV_DB_RELAY_AMI_ID }),
       securityGroup: props.securityGroup, role,
       associatePublicIpAddress: true, requireImdsv2: true,
       blockDevices: [{ deviceName: '/dev/xvda', volume: BlockDeviceVolume.ebs(8, {
