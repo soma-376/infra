@@ -1,6 +1,7 @@
 name: Dev CDK Deploy
 
 on:
+  workflow_dispatch: {}
   push:
     branches: [develop]
     paths:
@@ -34,6 +35,8 @@ defaults:
 
 jobs:
   plan:
+    # 수동 재계획도 develop의 동일 승인 경로만 사용한다.
+    if: github.repository == 'soma-376/infra' && github.ref == 'refs/heads/develop' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: infra-dev-plan

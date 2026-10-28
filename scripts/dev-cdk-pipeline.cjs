@@ -7,6 +7,7 @@ const { load, JSON_SCHEMA } = require('js-yaml');
 
 const REGION = 'ap-northeast-2';
 const REPOSITORY = 'soma-376/infra';
+const CD_EVENTS = new Set(['push', 'workflow_dispatch']);
 const STACKS = ['DevNetworkStack', 'DevDataStack', 'DevEdgeStack', 'DevEksStack'];
 const QUALIFIER = 'hnb659fds';
 const VERSION_PARAMETER = `/cdk-bootstrap/${QUALIFIER}/version`;
@@ -150,7 +151,7 @@ function context(env) {
     runAttempt: env.GITHUB_RUN_ATTEMPT, account: env.AWS_ACCOUNT_ID, region: REGION, event: env.GITHUB_EVENT_NAME, ref: env.GITHUB_REF };
   if (value.repository !== REPOSITORY || !/^[a-f0-9]{40}$/.test(value.sourceSha ?? '') ||
       !/^[1-9]\d*$/.test(value.runId ?? '') || !/^[1-9]\d*$/.test(value.runAttempt ?? '') || !/^\d{12}$/.test(value.account ?? '')) fail('GitHub 실행 식별자·계정 오류');
-  if (value.event === 'push') equal(value.ref, 'refs/heads/develop', 'CD branch');
+  if (CD_EVENTS.has(value.event)) equal(value.ref, 'refs/heads/develop', 'CD branch');
   else if (value.event === 'pull_request') {
     if (!/^refs\/pull\/[1-9]\d*\/merge$/.test(value.ref ?? '')) fail('PR merge ref 오류');
   } else fail('허용하지 않은 GitHub 이벤트');
@@ -206,7 +207,7 @@ function createPipeline({ root, directory, env = process.env, runner = defaultRu
   }
   function checkSource(expected) {
     equal(command('git', ['rev-parse', 'HEAD']).trim(), expected.sourceSha, 'checkout SHA');
-    if (expected.event === 'push') {
+    if (CD_EVENTS.has(expected.event)) {
       // 비공개 저장소도 조회한다. 토큰은 인자·Git 설정 파일·로그에 쓰지 않는다.
       const gitEnv = { ...childEnv, GIT_TERMINAL_PROMPT: '0' };
       if (env.GH_TOKEN) Object.assign(gitEnv, {
@@ -295,7 +296,7 @@ function createPipeline({ root, directory, env = process.env, runner = defaultRu
     return plan;
   }
   function verifyPlan(expected) {
-    if (expected.event !== 'push') fail('PR artifact 배포 금지');
+    if (!CD_EVENTS.has(expected.event)) fail('PR artifact 배포 금지');
     if (!/^[1-9]\d*$/.test(env.PLAN_ARTIFACT_ID ?? '')) fail('plan artifact ID 누락');
     equal(env.DOWNLOADED_ARTIFACT_ID, env.PLAN_ARTIFACT_ID, '다운로드 artifact ID');
     if (!/^[a-f0-9]{64}$/.test(env.PLAN_SHA256 ?? '')) fail('plan hash 누락');
