@@ -1,13 +1,13 @@
 # dev SES 초대 메일 준비·발송·복구
 
-ADR 0043가 원본·권한·공급을, backend ADR 0037·0057이 outbox와 발송을 소유한다.
+ADR 0043·0046이 원본·권한·공급을, backend ADR 0037·0057이 outbox와 발송을 소유한다.
 대상은 `ap-northeast-2` dev EKS다. 코드·합성·SES 접수와 실제 수신·설치는 각각 증거를 남긴다.
 
 ## 1. 원본과 DNS 준비
 
 PR CI·리뷰·병합 뒤 현재 배포 profile로 Data와 EKS의 diff를 먼저 확인한다.
 Data 변경은 관리 응답/메일 키 원본 두 개·SES domain identity·출력, EKS 변경은 enrollment 역할의
-두 원본 읽기·해당 발신 identity의 SendEmail만 있어야 한다. 기존 JWT/OIDC/DB 원본과 prod는 유지한다.
+두 원본 읽기·해당 발신 identity와 승인 태그 수신 identity의 SendEmail만 있어야 한다. 기존 JWT/OIDC/DB 원본과 prod는 유지한다.
 먼저 DevDataStack의 `--method prepare-change-set --change-set-name <검토 이름>`을 실행한다.
 `describe-change-set --include-property-values`로 실제 `Replacement`와 변경 세부사항을 읽는다.
 기존 RDS·EC2·LaunchTemplate의 교체/변경과 예상하지 않은 IAM 변경이 있으면 실행하지 않는다.
@@ -27,6 +27,20 @@ DNS의 DKIM CNAME·DMARC 정책을 대조한다. DKIM 정렬로 DMARC를 충족�
 `sesv2 get-account`로 sandbox와 발송 중지·한도·suppression을 확인한다. sandbox에서는 사용자 지정
 수신 주소의 검증이 필요하다. 검증 메일도 지정 수신함에만 보내고 실제 수신 확인·링크 클릭을 받는다.
 production access 또는 다른 수신자를 자동 요청·사용하지 않는다.
+
+ADR 0046의 수신 identity 권한은 `pulsemetry:dev-mail-recipient=true`와 고정 FromAddress를 모두 요구한다.
+운영자는 명시 승인된 검증 완료 수신 identity의 기존 태그를 먼저 확인하고 이 태그 하나만 더한다.
+개인 주소·recipient ARN은 비공개 API 입력으로만 전달하며 셸 인자·출력·공유 문서에 넣지 않는다.
+AWS CLI 입력 파일이 필요하면 mode 0600 임시 파일을 쓰고 호출 직후 삭제한다.
+태그 없는 다른 identity에 권한을 주거나 앱에 TagResource 권한을 주지 않는다. 테스트 종료 시 이 태그만
+제거하고 기존 태그 보존과 제거 여부를 주소 없는 증거로 기록한다.
+
+발신 도메인 IAM 시뮬레이션의 allowed만으로 완료 처리하지 않는다. 같은 Pod의 실제 STS caller,
+오류 action/resource 유형을 비밀 없는 분류로 확인하고 수신 identity가 거부되는지 구분한다.
+원문 AWS 오류는 개인 주소를 포함할 수 있으므로 저장하거나 로그에 남기지 않는다.
+태그 정책 변경은 DevEksStack의 실제 prepared change set에서 enrollment 정책만 확인해 적용한다.
+검증 실패 메일을 DB에서 되살리지 않는다. 정상 재발급 API로 새 초대·outbox를 만들고 원래 실패 기록을 보존한다.
+
 
 ## 2. 키 초기화
 

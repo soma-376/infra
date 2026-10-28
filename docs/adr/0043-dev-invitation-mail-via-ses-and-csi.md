@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (PROJ-267 구현; 실제 DNS 인증·수신·설치 검증은 별도)
+Accepted — 수신 identity 권한은 [ADR 0046](0046-dev-ses-tagged-recipient-authorization.md)로 보완한다. 원본·공급·발신 도메인 제한은 유지한다.
 
 ## Context
 
