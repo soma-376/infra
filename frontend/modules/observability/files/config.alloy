@@ -1,0 +1,51 @@
+logging {
+  level = "warn"
+}
+otelcol.receiver.otlp "frontend" {
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+  output {
+    metrics = [otelcol.processor.memory_limiter.frontend.input]
+    traces = [otelcol.processor.memory_limiter.frontend.input]
+    logs = [otelcol.processor.memory_limiter.frontend.input]
+  }
+}
+otelcol.processor.memory_limiter "frontend" {
+  check_interval = "1s"
+  limit = "256MiB"
+  output {
+    metrics = [otelcol.processor.batch.frontend.input]
+    traces = [otelcol.processor.batch.frontend.input]
+    logs = [otelcol.processor.batch.frontend.input]
+  }
+}
+otelcol.processor.batch "frontend" {
+  timeout = "5s"
+  send_batch_size = 512
+  send_batch_max_size = 1024
+  output {
+    metrics = [otelcol.exporter.prometheus.local.input]
+    traces = [otelcol.exporter.otlphttp.tempo.input]
+    logs = [otelcol.exporter.otlphttp.loki.input]
+  }
+}
+otelcol.exporter.prometheus "local" {
+  resource_to_telemetry_conversion = true
+  forward_to = [prometheus.remote_write.local.receiver]
+}
+prometheus.remote_write "local" {
+  endpoint {
+    url = "http://prometheus:9090/api/v1/write"
+  }
+}
+otelcol.exporter.otlphttp "tempo" {
+  client {
+    endpoint = "http://tempo:4318"
+  }
+}
+otelcol.exporter.otlphttp "loki" {
+  client {
+    endpoint = "http://loki:3100/otlp"
+  }
+}

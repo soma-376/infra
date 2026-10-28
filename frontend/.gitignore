@@ -12,3 +12,4 @@ crash.*.log
 !*.example
 
 !environments/*/runtime.auto.tfvars.json
+!environments/dev/observability.auto.tfvars.json
