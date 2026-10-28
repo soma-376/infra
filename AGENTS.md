@@ -17,7 +17,10 @@ BFF 단일 프로세스에 맞춰 서비스 desired=1/min=0/max=100이다. 앱 �
 기존 CDK 전용 테스트 규칙은 그대로 유지하고, 새 Terraform은 fmt·validate·mock test로 검증한다.
 기존 CDK 리소스를 Terraform에 import하거나 같은 리소스를 두 도구가 수정하지 않는다.
 실제 apply는 리뷰·머지 후 보호된 CI에서 수행한다. 최초 bootstrap과 이후 bootstrap 변경은 관리자 작업이다.
-다음 미사용 ADR은 **0044**다.
+다음 미사용 ADR은 **0045**다.
+
+[ADR-0044](docs/adr/0044-dev-waf-cli-oidc-loopback-query-exception.md)에 따라 정확한 CLI OIDC authorize GET과
+검증된 loopback query에만 SSRF·RFI 두 label의 후속 Block을 제외한다. 다른 탐지·rate·로그 보호는 유지한다.
 
 ## PROJ-267 dev SES 초대 메일
 
@@ -145,7 +148,7 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 
 **ADR 우선 원칙은 이 레포의 기존 규칙과 같다** — 1장의 "코드와 ADR이 어긋나면 ADR이 기준이다"가
 전 레포 공통 규칙이며, 크로스레포 결정만 `../docs/adr/`가 소유한다. 스코프 판정은 `adr-new` 스킬이 안내한다.
-단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0044`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
+단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0045`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
 기존 병행 브랜치의 ADR `0028`·`0029`·`0030`은 번호가 겹치므로 파일명과 링크를 보존한다.
 프론트엔드 Terraform 절은 프론트엔드 ADR을, dashboard·EKS·기존 CDK 절은 해당 백엔드 ADR을 가리킨다.
 인용할 때는 번호와 함께 범위·제목 또는 파일 링크를 사용하며, 전체 목록은 [ADR 인덱스](docs/adr/README.md)를 따른다.
@@ -265,7 +268,7 @@ EKS API는 private 전용이다. SSM relay의 public IPv4는 NAT 없는 subnet�
 노드 직접 접속용이 아니다. Helm은 기존 generated YAML 순서를 유지하고 CDK는 OIDC 원본 key만 선언한다.
 
 dev WAF는 ALB 전체에 적용한다. 국가·악성 IP·URI·헤더 Block, 정확한 OTLP 본문/rate Count·query Block,
-등록 rate 세 조건, 429/Retry-After, 로그 마스킹·sampling 비활성화와 14일 보존을 유지한다.
+등록 API 세 조건과 정확한 `/unix`·`/windows`의 공유 rate, 429/Retry-After, 로그 마스킹·sampling 비활성화와 14일 보존을 유지한다.
 남는 앱 `Validation*` output은 EKS 주소/ARN이며 이름을 바꾸지 않는다. ClickHouse 공개 output은 ADR-0038로 제거한다. 인증서가 없으면 HTTP이고,
 선택적 HTTPS도 인증서 도메인·공개 URL·manifest의 정합과 실제 E2E를 별도로 확인해야 한다.
 
@@ -326,7 +329,7 @@ dev WAF는 ALB 전체에 적용한다. 국가·악성 IP·URI·헤더 Block, 정
 | JWT 키 일반 배포 시 재생성 금지 | verifier → signer → 마지막 구 발급 후 330초 → 구 공개키 제거 |
 | enrollment·ingest는 기존 token hash 원본 공유 | 발급과 검증의 HMAC 일치 |
 | `open:false`·명시 경로/method/OPTIONS·default 404 유지 | CIDR 우회 및 임의 public health 노출 방지 |
-| dev WAF 내용 검사와 등록 rate 범위를 분리 | 기존 등록 세 조건을 `/api/v1/*` 전체로 확대하지 않음 |
+| dev WAF 내용 검사와 등록 rate 범위를 분리 | 등록 API 세 조건과 정확한 `/unix`·`/windows`만 300건 예산 공유; `/api/v1/*` 전체로 확대하지 않음 |
 | CDK/Helm/Auto Mode 소유권 분리 | 기존 EKS TG만 TGB에 연결하고 AWS 리소스는 CDK가 소유 |
 | 새 설정은 비밀 원문 없는 입력만 허용 | Secret 원문은 synth/output/values/context에 넣지 않음 |
 | `bin/infra.ts`와 test helper는 synthDev로 조립 | CLI와 테스트의 배포 트리 불일치 방지 |
@@ -466,7 +469,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0044`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급, `0033`은 외부 ACM 기반 dev HTTPS, `0034`는 dev EKS SSM 릴레이 접근, `0035`는 MSK 배치와 dev EKS 전용 전환, `0036`은 telemetry Gateway·MSK IAM과 임시 blocked.certs 공급, `0037`은 관측 구성, `0038`은 dev DB 비공개 접근, `0039`는 Loki·Tempo·플랫폼 trace(Proposed), `0040`은 dev 공개 origin 영속화, `0041`은 dashboard 조회 권한 복구, `0042`는 프론트 관측 EC2, `0043`은 dev SES 초대 메일로 이미 쓰였다. `0020`은 프론트엔드 로그 정책이며, 프론트엔드 `0028`·`0029`·`0030`은 각각 Terraform 실행 환경·외부 DNS와 기존 인증서·독립 기반 상태를 다룬다. 중복 번호는 [ADR 인덱스](docs/adr/README.md)의 제목과 파일 링크로 구분하고, 기존 CDK 로그 정책 미결 사항은 위 (F)를 따른다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0045`**)를 쓴다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급, `0033`은 외부 ACM 기반 dev HTTPS, `0034`는 dev EKS SSM 릴레이 접근, `0035`는 MSK 배치와 dev EKS 전용 전환, `0036`은 telemetry Gateway·MSK IAM과 임시 blocked.certs 공급, `0037`은 관측 구성, `0038`은 dev DB 비공개 접근, `0039`는 Loki·Tempo·플랫폼 trace(Proposed), `0040`은 dev 공개 origin 영속화, `0041`은 dashboard 조회 권한 복구, `0042`는 프론트 관측 EC2, `0043`은 dev SES 초대 메일, `0044`는 정상 CLI OIDC loopback의 두 query label 예외로 이미 쓰였다. `0020`은 프론트엔드 로그 정책이며, 프론트엔드 `0028`·`0029`·`0030`은 각각 Terraform 실행 환경·외부 DNS와 기존 인증서·독립 기반 상태를 다룬다. 중복 번호는 [ADR 인덱스](docs/adr/README.md)의 제목과 파일 링크로 구분하고, 기존 CDK 로그 정책 미결 사항은 위 (F)를 따른다.
    형식은 `docs/adr/0000-adr-template.md`를 따른다.
 3. 상수는 **"이 값이 dev에서 달라야 할 이유가 있는가"**로 위치를 정한다 — 없으면 `lib/common/config.ts`, 운영 전용이면 `lib/prod/config.ts`, dev 전용이면 `lib/dev/config.ts`. 스택에서는 import만 한다 (4장).
 4. `test/prod/*.test.ts` / `test/dev/*.test.ts` / `test/cicd/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`(prod), `buildDevApp()`(dev), `buildCicdApp()`(cicd)를 재사용한다.
@@ -516,7 +519,8 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 - 서울 리전의 선택 버전 가용성·실제 룰·label은 AWS 세션 만료로 미확인이다. 배포 전
   `ListAvailableManagedRuleGroupVersions`·버전을 지정한 `DescribeManagedRuleGroup`으로 확인한다.
   버전 만료·변경 때는 override·label·예외를 다시 검증하고 CDK·commit·배포 시각을 남긴다.
-- WAF는 `NONE`으로 URI 원문을 비교하며 ALB normalization 정합 증거는 canonical·trailing slash·prefix
+- 기존 WAF 분류는 `NONE`으로 URI 원문을 비교한다. PROJ-269의 `/unix`·`/windows` rate와 나머지 제외에만
+  URL_DECODE를 한 번 적용하여 단일 인코딩 bootstrap도 같은 예산을 쓴다. ALB normalization 정합 증거는 canonical·trailing slash·prefix
   합성 조건에 한정한다. 배포 전 `curl --path-as-is`로 percent encoding·dot segment·중복 slash의
   ALB/WAF 분류를 확인하고 앱 라우팅이 디버깅 Count에 들어가면 정책을 보완한다.
 - 인프라 배포 principal의 WAF logging configuration·CloudWatch Logs delivery/resource policy
