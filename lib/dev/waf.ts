@@ -72,6 +72,15 @@ const CLI_OIDC_QUERY_LABELS = [
   `${CONTENT_RULES.common.prefix}GenericRFI_QueryArguments`,
 ] as const;
 
+const CLI_TOKEN_BODY_LABELS = [
+  `${CONTENT_RULES.common.prefix}EC2MetaDataSSRF_Body`,
+  `${CONTENT_RULES.common.prefix}GenericRFI_Body`,
+] as const;
+
+// backend URI.getPort와 같은 범위이며 선행 0은 허용한다. URI 길이는 각 경계에서 제한한다.
+const CLI_LOOPBACK_PORT = '0*(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])';
+const CLI_LOOPBACK_REDIRECT = `http://(?:127\\.0\\.0\\.1|\\[::1\\]):${CLI_LOOPBACK_PORT}/callback`;
+
 /**
  * dev ALB 전용 정책 (ADR-0027). Count는 평가를 계속하므로 OTLP 본문이나 debug SQL의
  * Count 예외가 국가·악성 IP·URI·헤더 등 다른 Block 규칙까지 우회하지 않는다.
@@ -259,7 +268,12 @@ function buildRules(): CfnWebACL.RuleProperty[] {
     actionRule(
       'AppBodyLabelBlock',
       90,
-      and([contentLabels('body'), app, not(otlp)]),
+      and([app, not(otlp), or([
+        ...Object.values(CONTENT_RULES).flatMap(group => group.body
+          .map(([, suffix]) => `${group.prefix}${suffix}`))
+          .filter(key => !CLI_TOKEN_BODY_LABELS.some(exception => exception === key)).map(label),
+        and([or(CLI_TOKEN_BODY_LABELS.map(label)), not(validCliTokenBody())]),
+      ])]),
       { block: {} },
     ),
     // query는 앱 경로에서 Block한다. 정상 CLI의 두 loopback 오탐만 제외하며
@@ -290,6 +304,42 @@ function buildRules(): CfnWebACL.RuleProperty[] {
 }
 
 /**
+ * JSONBody 파서의 부분/관대한 파싱 대신 작은 원문 JSON 전체를 검사한다. (ADR-0045)
+ * 정확히 세 항목 + 세 필수 key/value의 구조 경계를 함께 확인하므로 순서는 자유지만
+ * 추가·누락·중복 키와 escaped key/value는 예외가 아니다. oversize는 양성 조건부터 닫는다.
+ */
+function validCliTokenBody(): Statement {
+  const bodyField = { body: { oversizeHandling: 'NO_MATCH' } };
+  const body = (regexString: string): Statement => ({ regexMatchStatement: {
+    regexString, fieldToMatch: bodyField,
+    textTransformations: [{ priority: 0, type: 'NONE' }],
+  } });
+  const whitespace = '[ \\t\\r\\n]*';
+  const pair = `"[a-z_]+"${whitespace}:${whitespace}"[A-Za-z0-9._~:/\\[\\]-]+"${whitespace}`;
+  const field = (key: string, value: string): Statement => body(
+    `(?:\\{|,)${whitespace}"${key}"${whitespace}:${whitespace}"${value}"${whitespace}(?:,|\\})`,
+  );
+  return and([
+    path('/api/v1/auth/cli/token'),
+    { byteMatchStatement: { fieldToMatch: { method: {} }, positionalConstraint: 'EXACTLY',
+      searchString: 'POST', textTransformations: [{ priority: 0, type: 'NONE' }] } },
+    { regexMatchStatement: {
+      regexString: '\\Aapplication/json(?:[ \\t]*;[ \\t]*charset=utf-8)?\\z',
+      // CDK의 비정형 singleHeader는 CloudFormation 철자를 사용한다.
+      fieldToMatch: { singleHeader: { Name: 'content-type' } },
+      textTransformations: [{ priority: 0, type: 'LOWERCASE' }],
+    } },
+    { sizeConstraintStatement: { fieldToMatch: bodyField, comparisonOperator: 'LE', size: 1024,
+      textTransformations: [{ priority: 0, type: 'NONE' }] } },
+    body(`\\A${whitespace}\\{${whitespace}${pair}(?:,${whitespace}${pair}){2}\\}${whitespace}\\z`),
+    field('code', 'uac_[A-Za-z0-9_-]{43}'),
+    field('code_verifier', '[A-Za-z0-9._~-]{43,128}'),
+    field('redirect_uri', CLI_LOOPBACK_REDIRECT),
+    field('redirect_uri', '[A-Za-z0-9.:/\\[\\]]{1,256}'),
+  ]);
+}
+
+/**
  * SingleQueryArgument만 검사하면 중복 값 중 하나의 일치로 예외가 열릴 수 있다.
  * 전체 항목 수와 각 필수 key/value를 같이 검사하여 순서와 무관하게 5개 또는 6개만 허용한다.
  * query 전체 decode가 encoded &를 가짜 구분자로 만들지 못하게 원문 %26은 닫는다.
@@ -307,8 +357,6 @@ function validCliOidcLoopback(): Statement {
     textTransformations: [{ priority: 0, type: 'URL_DECODE' }],
   } });
   const items = (count: number): Statement => query(`\\A(?:[a-z_]+=[^&]*&){${count - 1}}[a-z_]+=[^&]*\\z`);
-  // Java URI.getPort와 같이 1..65535이며 선행 0은 허용한다. URI 길이는 별도 제한한다.
-  const port = '0*(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])';
   return and([
     path('/api/v1/auth/oidc/authorize'),
     { byteMatchStatement: { fieldToMatch: { method: {} }, positionalConstraint: 'EXACTLY',
@@ -316,7 +364,7 @@ function validCliOidcLoopback(): Statement {
     not({ byteMatchStatement: { fieldToMatch: { queryString: {} }, positionalConstraint: 'CONTAINS',
       searchString: '%26', textTransformations: [{ priority: 0, type: 'NONE' }] } }),
     parameter('tenant_id', '[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}'),
-    parameter('redirect_uri', `http://(?:127\\.0\\.0\\.1|\\[::1\\]):${port}/callback`),
+    parameter('redirect_uri', CLI_LOOPBACK_REDIRECT),
     maxLength('redirect_uri', 256),
     parameter('state', '[A-Za-z0-9._~-]{16,256}'),
     parameter('code_challenge', '[A-Za-z0-9_-]{43}'),
@@ -377,15 +425,6 @@ function not(statement: Statement): Statement {
 
 function label(key: string): Statement {
   return { labelMatchStatement: { scope: 'LABEL', key } };
-}
-
-function contentLabels(kind: 'body' | 'query'): Statement {
-  // namespace 전체를 차단하면 관찰용 크기·IP·User-Agent 예외까지 다시 Block하므로 exact key만 쓴다.
-  return or(
-    Object.values(CONTENT_RULES).flatMap((group) =>
-      group[kind].map(([, suffix]) => label(`${group.prefix}${suffix}`)),
-    ),
-  );
 }
 
 function ruleNames(rules: readonly RuleLabel[]): string[] {
