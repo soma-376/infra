@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — 수신 identity 권한은 [ADR 0046](0046-dev-ses-tagged-recipient-authorization.md)로 보완한다. 원본·공급·발신 도메인 제한은 유지한다.
+Accepted — SES identity 권한은 [ADR 0047](0047-dev-ses-fixed-sender-identity-authorization.md)로 대체한다. 원본·공급·고정 발신 주소는 유지한다.
 
 ## Context
 
@@ -21,7 +21,8 @@ enrollment-api의 SES 공급자는 구현되어 있지만 dev runtime은 관리�
 - dev SES 도메인은 `pulsemetry.co.kr`, 발신자는 `no-reply@pulsemetry.co.kr`, 리전은 `ap-northeast-2`다.
   DevDataStack은 Easy DKIM identity를 관리하고 DNS CNAME 참조만 출력한다. 외부 DNS는 기존 소유자가
   등록한다. 기존 루트 SPF·DMARC는 자동 변경하지 않는다.
-- enrollment Pod Identity에 해당 identity의 `ses:SendEmail`만 허용하고 `ses:FromAddress`를 고정한다.
+- **대체됨(ADR 0047)** — enrollment Pod Identity의 `ses:SendEmail` resource는 실행 계정·리전의
+  identity 범위이며 `ses:FromAddress` 정확 일치를 유지한다.
   정적 AWS 키·SMTP fallback·다른 Pod/EC2 역할의 발송 권한은 추가하지 않는다.
 - 관리·메일 활성화에는 각각 명시 설정과 키 버전이 필요하다. 초대 SSO URL과 설치 페이지 URL은
   분리하며 후자는 `https://dev.pulsemetry.co.kr/install`이다. 사용자 지정 수신함만 실제 발송한다.

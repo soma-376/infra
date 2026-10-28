@@ -248,19 +248,13 @@ test('SES 발송과 관리·메일 키 읽기는 enrollment Pod에만 허용한�
   expect(holders).toHaveLength(1);
   expect(holders[0][0]).toContain('Enrollment');
   const sendStatements = holders[0][1].Properties.PolicyDocument.Statement.filter((s: any) => s.Action === 'ses:SendEmail');
-  expect(sendStatements).toHaveLength(2);
-  const send = sendStatements.find((s: any) => JSON.stringify(s.Resource).includes('identity/pulsemetry.co.kr'));
+  expect(sendStatements).toHaveLength(1);
+  const send = sendStatements[0];
   expect(send.Condition).toEqual({ StringEquals: { 'ses:FromAddress': 'no-reply@pulsemetry.co.kr' } });
-  expect(JSON.stringify(send.Resource)).toContain('identity/pulsemetry.co.kr');
-  const recipient = sendStatements.find((s: any) => JSON.stringify(s.Resource).includes('identity/*'));
-  expect(recipient.Condition).toEqual({ StringEquals: {
-    'ses:FromAddress': 'no-reply@pulsemetry.co.kr',
-    'aws:ResourceTag/pulsemetry:dev-mail-recipient': 'true',
-  } });
   // 계정·리전 wildcard나 configuration-set, 추가 action으로 범위를 넓히지 않는다.
-  expect(JSON.stringify(recipient.Resource)).toContain(`:ses:${TEST_ENV.region}:${TEST_ENV.account}:identity/*`);
-  expect(recipient.Resource).not.toBe('*');
-  expect(JSON.stringify(sendStatements)).not.toMatch(/SendRawEmail|ses:\*|configuration-set|StringEqualsIfExists/);
+  expect(JSON.stringify(send.Resource)).toContain(`:ses:${TEST_ENV.region}:${TEST_ENV.account}:identity/*`);
+  expect(send.Resource).not.toBe('*');
+  expect(JSON.stringify(sendStatements)).not.toMatch(/SendRawEmail|ses:\*|configuration-set|StringEqualsIfExists|ResourceTag/);
   // 앱이 자신에게 수신 승인을 부여하거나 identity를 만들 수 없어야 한다.
   for (const [, policy] of policies) {
     const statements = policy.Properties.PolicyDocument.Statement;

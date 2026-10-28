@@ -73,19 +73,11 @@ export class DevEksRuntime extends Construct {
       // telemetry JWT 서명은 enrollment만 한다. 개인키 원본은 이 역할에만 연결한다. (ADR-0036)
       props.telemetryJwtPrivateKeySecret, props.telemetryJwtPublicKeysSecret,
     ]);
-    this.enrollmentRole.addToPolicy(new PolicyStatement({
-      actions: ['ses:SendEmail'],
-      resources: [Stack.of(this).formatArn({ service: 'ses', resource: 'identity', resourceName: DEV_MAIL.domain })],
-      conditions: { StringEquals: { 'ses:FromAddress': DEV_MAIL.from } },
-    }));
-    // sandbox 수신 identity 평가도 승인 태그와 고정 발신 주소를 함께 요구한다. (ADR-0046)
+    // 수신 identity 평가를 포함하되 실행 계정·리전과 정확한 발신 주소를 유지한다. (ADR-0047)
     this.enrollmentRole.addToPolicy(new PolicyStatement({
       actions: ['ses:SendEmail'],
       resources: [Stack.of(this).formatArn({ service: 'ses', resource: 'identity', resourceName: '*' })],
-      conditions: { StringEquals: {
-        'ses:FromAddress': DEV_MAIL.from,
-        [`aws:ResourceTag/${DEV_MAIL.recipientApprovalTag.key}`]: DEV_MAIL.recipientApprovalTag.value,
-      } },
+      conditions: { StringEquals: { 'ses:FromAddress': DEV_MAIL.from } },
     }));
     // 전환·복구용 HTTP JWT 호환을 위해 ingest는 telemetry 공개키만 추가로 읽는다. 사용자 JWT는 받지 않는다.
     this.grantSecretRead(this.telemetryIngestRole, [props.dbSecret, props.tokenHashSecret, props.telemetryJwtPublicKeysSecret]);
