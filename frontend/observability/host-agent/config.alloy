@@ -1,0 +1,44 @@
+// Linux 호스트의 /proc, /sys, 파일시스템을 읽는다. Node 프로세스 계측과 별개다.
+prometheus.exporter.unix "host" {
+  procfs_path = "/host/proc"
+  sysfs_path  = "/host/sys"
+  rootfs_path = "/host/root"
+  set_collectors = ["cpu", "meminfo", "filesystem", "diskstats", "loadavg", "uname"]
+  filesystem {
+    fs_types_exclude = "^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|mqueue|nsfs|overlay|proc|pstore|securityfs|sysfs|tracefs|tmpfs)$"
+    mount_points_exclude = "^/(dev|proc|sys|var/lib/docker|var/lib/containerd)($|/)"
+  }
+}
+
+prometheus.scrape "host" {
+  targets = prometheus.exporter.unix.host.targets
+  job_name = "frontend-host"
+  scrape_interval = "15s"
+  forward_to = [prometheus.relabel.host.receiver]
+}
+
+prometheus.relabel "host" {
+  forward_to = [prometheus.remote_write.host.receiver]
+  rule {
+    target_label = "job"
+    replacement = "frontend-host"
+  }
+  rule {
+    target_label = "instance"
+    replacement = sys.env("HOST_INSTANCE_ID")
+  }
+  rule {
+    target_label = "environment"
+    replacement = sys.env("HOST_ENVIRONMENT")
+  }
+  rule {
+    target_label = "host_role"
+    replacement = sys.env("HOST_ROLE")
+  }
+}
+
+prometheus.remote_write "host" {
+  endpoint {
+    url = sys.env("PROMETHEUS_REMOTE_WRITE_URL")
+  }
+}

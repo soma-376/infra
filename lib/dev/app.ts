@@ -81,6 +81,8 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     dashboardRdsCacheSecret: data.dashboardRdsCacheSecret,
     dashboardClickHouseSourceSecret: data.dashboardClickHouseSourceSecret,
     dashboardClickHouseCacheSecret: data.dashboardClickHouseCacheSecret,
+    managementResponseKeySecret: data.managementResponseKeySecret,
+    mailEncryptionKeySecret: data.mailEncryptionKeySecret,
     userJwtPrivateKeySecret: data.userJwtPrivateKeySecret,
     userJwtPublicKeysSecret: data.userJwtPublicKeysSecret,
     telemetryJwtPrivateKeySecret: data.telemetryJwtPrivateKeySecret,

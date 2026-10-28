@@ -1,0 +1,36 @@
+name: pulsemetry-host-agent
+services:
+  alloy-host:
+    image: grafana/alloy:v1.21.2@sha256:89a5a320168387336b9ac3c850609c3ba7757eadd4ae5f1d819deb35e9854b18
+    restart: unless-stopped
+    # 호스트 mount namespace의 파일시스템을 읽는다. 호스트 마운트는 읽기 전용이다.
+    pid: host
+    user: "0:0"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 0.25
+    command:
+      - run
+      - --server.http.listen-addr=127.0.0.1:12345
+      - --storage.path=/var/lib/alloy
+      - /etc/alloy/config.alloy
+    environment:
+      HOST_INSTANCE_ID: ${HOST_INSTANCE_ID:?EC2 instance ID required}
+      HOST_ENVIRONMENT: ${HOST_ENVIRONMENT:?dev or shared required}
+      HOST_ROLE: ${HOST_ROLE:?frontend-dev or observability required}
+      PROMETHEUS_REMOTE_WRITE_URL: ${PROMETHEUS_REMOTE_WRITE_URL:?private remote write URL required}
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
+      - alloy-host-data:/var/lib/alloy
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+volumes:
+  alloy-host-data:

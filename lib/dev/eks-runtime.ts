@@ -5,6 +5,8 @@ import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { IBucket } from 'aws-cdk-lib/aws-s3';
 import { ISecret } from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from 'constructs';
+import { Stack } from 'aws-cdk-lib';
+const DEV_MAIL = require('./mail-config.cjs');
 import { DEV_EKS_NAMESPACE, DEV_EKS_TELEMETRY_SERVICE_ACCOUNTS, DEV_EKS_TELEMETRY_SESSION_NAMES } from './eks-config';
 
 export interface DevEksRuntimeProps {
@@ -16,6 +18,8 @@ export interface DevEksRuntimeProps {
   readonly dashboardRdsCacheSecret: ISecret;
   readonly dashboardClickHouseSourceSecret: ISecret;
   readonly dashboardClickHouseCacheSecret: ISecret;
+  readonly managementResponseKeySecret: ISecret;
+  readonly mailEncryptionKeySecret: ISecret;
   readonly userJwtPrivateKeySecret: ISecret;
   readonly userJwtPublicKeysSecret: ISecret;
   readonly oidcClientSecrets?: Readonly<Record<string, ISecret>>;
@@ -62,12 +66,18 @@ export class DevEksRuntime extends Construct {
     );
     this.grantSecretRead(this.enrollmentRole, [
       props.dbSecret, props.tokenHashSecret, props.adminApiTokenSecret,
+      props.managementResponseKeySecret, props.mailEncryptionKeySecret,
       props.userJwtPrivateKeySecret, props.userJwtPublicKeysSecret,
       // EKS runtime YAML의 활성화와 CDK key 선언은 독립적이다. 선언된 원본만 미리 허용한다.
       ...Object.values(props.oidcClientSecrets ?? {}),
       // telemetry JWT 서명은 enrollment만 한다. 개인키 원본은 이 역할에만 연결한다. (ADR-0036)
       props.telemetryJwtPrivateKeySecret, props.telemetryJwtPublicKeysSecret,
     ]);
+    this.enrollmentRole.addToPolicy(new PolicyStatement({
+      actions: ['ses:SendEmail'],
+      resources: [Stack.of(this).formatArn({ service: 'ses', resource: 'identity', resourceName: DEV_MAIL.domain })],
+      conditions: { StringEquals: { 'ses:FromAddress': DEV_MAIL.from } },
+    }));
     // 전환·복구용 HTTP JWT 호환을 위해 ingest는 telemetry 공개키만 추가로 읽는다. 사용자 JWT는 받지 않는다.
     this.grantSecretRead(this.telemetryIngestRole, [props.dbSecret, props.tokenHashSecret, props.telemetryJwtPublicKeysSecret]);
 

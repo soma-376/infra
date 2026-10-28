@@ -156,7 +156,9 @@
                   "PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_USERNAME",
                   "PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_PASSWORD",
                   "PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_USERNAME",
-                  "PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_PASSWORD"
+                  "PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_PASSWORD",
+                  "PULSEMETRY_MANAGEMENT_RESPONSE_ENCRYPTION_KEY",
+                  "PULSEMETRY_MAIL_ENCRYPTION_KEY"
                 ]
               },
               {
@@ -165,6 +167,10 @@
               }
             ]
           }
+        },
+        "encryptionRevision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
         }
       }
     },

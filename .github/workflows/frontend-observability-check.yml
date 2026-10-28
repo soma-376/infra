@@ -1,0 +1,20 @@
+name: Frontend Observability Check
+on:
+  pull_request:
+    paths:
+      - 'frontend/modules/observability/**'
+      - 'frontend/scripts/test-observability.py'
+      - '.github/workflows/frontend-observability-check.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: 격리된 관측 스택 검증 (AWS 인증 없음)
+        run: python3 frontend/scripts/test-observability.py

@@ -261,6 +261,48 @@
           }
         }
       ]
+    },
+    "encryption": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "management": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "secretArn",
+            "versionId"
+          ],
+          "properties": {
+            "secretArn": {
+              "type": "string",
+              "pattern": "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:soma-376/dev/management/response-encryption-key-[A-Za-z0-9]{6}$"
+            },
+            "versionId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9-]{32,64}$"
+            }
+          }
+        },
+        "mail": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "secretArn",
+            "versionId"
+          ],
+          "properties": {
+            "secretArn": {
+              "type": "string",
+              "pattern": "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:soma-376/dev/mail/encryption-key-[A-Za-z0-9]{6}$"
+            },
+            "versionId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9-]{32,64}$"
+            }
+          }
+        }
+      }
     }
   }
 }

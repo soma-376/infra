@@ -26,3 +26,6 @@ telemetryJwt:
 # 빈 원본 생성과 OIDC 활성화는 분리한다. 비활성 상태에는 client 참조가 없다.
 oidc:
   enabled: false
+
+# 활성화한 기능의 독립된 키 원본과 고정 VersionId만 생성기가 전달한다.
+encryption: {}

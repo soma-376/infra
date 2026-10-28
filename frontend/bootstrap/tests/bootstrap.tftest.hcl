@@ -108,3 +108,15 @@ run "runtime_privileges_and_policy_quotas" {
     error_message = "CI는 외부 관리 DNS와 인증서를 조회하거나 변경하는 권한을 갖지 않습니다."
   }
 }
+
+run "observability_role_is_ssm_only" {
+  command = plan
+  assert {
+    condition     = aws_iam_role_policy_attachment.observability_ssm.policy_arn == "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore" && aws_iam_role.observability.name == "soma-376-frontend-observability"
+    error_message = "관측 호스트는 전용 SSM 역할을 사용해야 합니다."
+  }
+  assert {
+    condition     = aws_iam_role_policy_attachment.observability_write.role == aws_iam_role.terraform["dev-apply"].name && jsondecode(aws_iam_policy.observability_write.policy).Statement[0].Resource == aws_iam_role.observability.arn && jsondecode(aws_iam_policy.observability_write.policy).Statement[1].Condition.Bool["ec2:Encrypted"] == "true"
+    error_message = "관측 배포 권한은 dev apply의 전용 역할과 암호화 볼륨으로 제한해야 합니다."
+  }
+}

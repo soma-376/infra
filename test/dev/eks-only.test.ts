@@ -17,5 +17,5 @@ test('dev 최종 assembly는 EKS 전용 네 스택과 하나의 진입점만 가
   expect(count('AWS::EKS::Cluster')).toBe(1);
   expect(count('AWS::RDS::DBInstance')).toBe(1);
   expect(count('AWS::S3::Bucket')).toBe(2);
-  expect(count('AWS::SecretsManager::Secret')).toBe(12);
+  expect(count('AWS::SecretsManager::Secret')).toBe(14);
 });

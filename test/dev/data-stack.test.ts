@@ -51,10 +51,10 @@ describe('DevDataStack', () => {
     });
   });
 
-  // 기존 마스터·공유 토큰 해시·관리자 토큰 + dashboard DB 자격 증명 4개 + 사용자 JWT 2개 + telemetry JWT 2개.
+  // 기존 마스터·공유 토큰 해시·관리자 토큰 + dashboard DB 자격 증명 4개 + 사용자 JWT 2개 + telemetry JWT 2개 + AES 키 2개.
   // 폐기한 post-processor/auth-proxy 파생 접속 시크릿은 다시 만들지 않는다. (ADR-0026, ADR-0036)
-  test('기존 3개와 dashboard DB·사용자/telemetry JWT 원본 8개로 시크릿 11개를 만든다', () => {
-    template.resourceCountIs('AWS::SecretsManager::Secret', 11);
+  test('기존 원본 11개에 관리 응답·메일 키를 더해 시크릿 13개를 만든다', () => {
+    template.resourceCountIs('AWS::SecretsManager::Secret', 13);
   });
 
   /**
@@ -310,5 +310,26 @@ describe('DevDataStack', () => {
       },
     });
     expect(DEV_RAW_SIGNAL_EXPIRATION_DAYS).toBe(7);
+  });
+});
+
+describe('dev SES 원본', () => {
+  const { data } = buildDevApp();
+  const template = Template.fromStack(data);
+  test.each(['soma-376/dev/management/response-encryption-key', 'soma-376/dev/mail/encryption-key'])(
+    '%s는 값 없는 독립 Retain 원본이다', name => {
+      template.hasResource('AWS::SecretsManager::Secret', {
+        Properties: { Name: name, SecretString: Match.absent(), GenerateSecretString: Match.absent() },
+        DeletionPolicy: 'Retain', UpdateReplacePolicy: 'Retain',
+      });
+    },
+  );
+  test('발신 domain identity는 DKIM 2048 bit와 Retain을 사용한다', () => {
+    template.hasResource('AWS::SES::EmailIdentity', {
+      Properties: { EmailIdentity: 'pulsemetry.co.kr', DkimAttributes: { SigningEnabled: true },
+        DkimSigningAttributes: { NextSigningKeyLength: 'RSA_2048_BIT' } },
+      DeletionPolicy: 'Retain', UpdateReplacePolicy: 'Retain',
+    });
+    template.hasOutput('MailDkimRecords', { Value: Match.anyValue() });
   });
 });
