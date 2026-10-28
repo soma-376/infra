@@ -56,6 +56,8 @@ function outputs(prefix = 'eks_validation', otlpTarget = 'ingest') {
       ValidationOtlpTarget: otlpTarget,
     },
     DevDataStack: {
+      ManagementResponseKeySecretArn: secret('soma-376/dev/management/response-encryption-key'),
+      MailEncryptionKeySecretArn: secret('soma-376/dev/mail/encryption-key'),
       TelemetryJwtPrivateKeySecretArn: secret('soma-376/dev/telemetry-jwt/private-key'),
       TelemetryJwtPublicKeysSecretArn: secret('soma-376/dev/telemetry-jwt/public-keys'),
     },
