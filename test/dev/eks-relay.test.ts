@@ -31,10 +31,8 @@ describe('dev EKS private API SSM 릴레이', () => {
       GroupSet: [eks.resolve(built.network.eksRelaySecurityGroup!.securityGroupId)],
       SubnetId: eks.resolve(built.network.vpc.publicSubnets[0].subnetId),
     }]);
-    expect(json.Parameters[instance.Properties.ImageId.Ref]).toMatchObject({
-      Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>',
-      Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-arm64',
-    });
+    expect(instance.Properties.ImageId).toBe('ami-0be86884078364464');
+    expect(JSON.stringify(json.Parameters)).not.toContain('ami-amazon-linux-latest');
     expect(instance.Properties.BlockDeviceMappings).toEqual([{
       DeviceName: '/dev/xvda',
       Ebs: { DeleteOnTermination: true, Encrypted: true, VolumeSize: 8, VolumeType: 'gp3' },

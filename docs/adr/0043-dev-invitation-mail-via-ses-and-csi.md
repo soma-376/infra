@@ -28,6 +28,15 @@ enrollment-api의 SES 공급자는 구현되어 있지만 dev runtime은 관리�
 - sandbox·identity 검증·DNS 인증·수신 제한을 배포 전에 확인한다. `sent`와 SES MessageId는
   실제 받은 메일이나 설치 성공의 증거로 대신하지 않는다. AWS production access는 자동 요청하지 않는다.
 
+### 배포에서 기존 릴레이 보존
+
+첫 DataStack 적용의 CloudFormation change set은 템플릿 diff에 보이지 않던 공개 SSM latest AMI의
+새 값을 해결하여 DB 릴레이 교체를 시도했다. 이를 취소하고 기존 릴레이로 롤백했다. SES identity와
+빈 키 원본은 Retain으로 남았으며 삭제·재생성하지 않고 import한다.
+일반 SES/IAM 배포가 릴레이를 교체하지 않도록 DB·EKS 릴레이 AMI를 각각 현재 실제 이미지 ID로 고정한다.
+AMI 갱신은 별도 검토에서 수행한다. dev CDK 배포는 prepare-change-set 후 실제 Replacement와 상세 변경을
+검사하고 기존 RDS/EC2/LaunchTemplate 변경이 없는 것을 확인한 뒤 실행한다. template-only diff만으로 판단하지 않는다.
+
 ## Alternatives Considered
 
 - 관리 키나 token hash 재사용: 키 수명과 유출 범위가 섞이므로 제외한다.

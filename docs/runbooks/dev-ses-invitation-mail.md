@@ -8,7 +8,16 @@ ADR 0043가 원본·권한·공급을, backend ADR 0037·0057이 outbox와 발�
 PR CI·리뷰·병합 뒤 현재 배포 profile로 Data와 EKS의 diff를 먼저 확인한다.
 Data 변경은 관리 응답/메일 키 원본 두 개·SES domain identity·출력, EKS 변경은 enrollment 역할의
 두 원본 읽기·해당 발신 identity의 SendEmail만 있어야 한다. 기존 JWT/OIDC/DB 원본과 prod는 유지한다.
-먼저 DevDataStack을 단독 배포해 빈 원본과 identity를 만든다. 자동으로 메일을 보내지 않는다.
+먼저 DevDataStack의 `--method prepare-change-set --change-set-name <검토 이름>`을 실행한다.
+`describe-change-set --include-property-values`로 실제 `Replacement`와 변경 세부사항을 읽는다.
+기존 RDS·EC2·LaunchTemplate의 교체/변경과 예상하지 않은 IAM 변경이 있으면 실행하지 않는다.
+`cdk diff --change-set=false`는 SSM latest AMI의 재해결을 놓칠 수 있어 단독 승인 근거가 아니다.
+검토한 change set만 `execute-change-set`으로 실행해 빈 원본과 identity를 만든다. 자동으로 메일을 보내지 않는다.
+
+이전 적용이 롤백되어 Retain 원본이 남았다면 삭제하지 않는다. 현재 identity의 DKIM token과 빈 키 원본 ARN을
+확인하고 CloudFormation import change set으로 같은 logical ID에 다시 연결한다. import 단계는 기존 리소스
+수정과 섞지 않으며, 필요한 AMI pin 전환도 교체 없음이 확인된 별도 change set으로 먼저 처리한다.
+DB와 EKS 릴레이의 고정 AMI는 서로 다를 수 있다. 현재 인스턴스·CloudFormation resolved value와 대조한다.
 
 `MailDkimRecords` output의 CNAME 세 개를 외부 DNS에 등록한다. DNS 변경에 별도 사용자 확인이
 요청되었다면 정확한 이름·값을 보여주고 확인 후 적용한다. 기존 MX·SPF·DMARC를 덮어쓰지 않는다.

@@ -135,6 +135,8 @@ export const DEV_RDS_ALLOCATED_STORAGE_GIB = 20;
 
 /** DB 전용 SSM 릴레이. 기존 EKS API 릴레이의 이름·역할과 분리한다. (ADR-0038) */
 export const DEV_DB_RELAY_INSTANCE_TYPE = 't4g.micro';
+/** 현재 ap-northeast-2 dev 릴레이의 ARM64 AL2023 AMI. 일반 배포에서 latest SSM을 다시 해결하지 않는다. */
+export const DEV_DB_RELAY_AMI_ID = 'ami-012bcb5c12dcf8e43';
 export const DEV_DB_OPERATOR_ROLE_NAME = 'soma-376-dev-db-operator';
 export const DEV_DB_RELAY_POSTGRES_SESSION_DOCUMENT_NAME = 'soma-376-dev-db-postgres-tunnel';
 export const DEV_DB_RELAY_CLICKHOUSE_SESSION_DOCUMENT_NAME = 'soma-376-dev-db-clickhouse-tunnel';
