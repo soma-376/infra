@@ -14,6 +14,7 @@ type Invocation = { executable: string; args: string[]; options: Json };
 const root = path.resolve(__dirname, '../..');
 const sha = 'a'.repeat(40);
 const otherSha = 'b'.repeat(40);
+const cdEvents = ['push', 'workflow_dispatch'] as const;
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 const read = (file: string): Json => JSON.parse(fs.readFileSync(file, 'utf8'));
 const write = (file: string, value: unknown): void => fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
@@ -57,11 +58,11 @@ function editAsset(directory: string, change: (asset: Json, assets: Json) => voi
   change(Object.values(value.files)[0] as Json, value); write(file, value);
 }
 
-function makeHarness() {
+function makeHarness(event = 'push') {
   const directory = path.join(workspace, 'run');
   const env: NodeJS.ProcessEnv = {
     GITHUB_REPOSITORY: REPOSITORY, GITHUB_SHA: sha, GITHUB_RUN_ID: '12345', GITHUB_RUN_ATTEMPT: '1',
-    GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/develop', AWS_ACCOUNT_ID: TEST_ENV.account,
+    GITHUB_EVENT_NAME: event, GITHUB_REF: 'refs/heads/develop', AWS_ACCOUNT_ID: TEST_ENV.account,
     GITHUB_OUTPUT: path.join(workspace, 'outputs'), GITHUB_STEP_SUMMARY: path.join(workspace, 'summary'),
   };
   const state = {
@@ -213,9 +214,11 @@ describe('dev Cloud Assembly 실행 경계', () => {
 });
 
 describe('plan부터 승인 후 배포까지', () => {
-  test('조회와 local template diff만 사용해 plan을 만들고 승인한 Assembly로 no-op 배포한다', () => {
-    const h = makeHarness(), plan = h.plan();
+  test.each(cdEvents)('%s는 조회와 local template diff로 plan을 만들고 승인한 Assembly로 no-op 배포한다', event => {
+    const h = makeHarness(event), plan = h.plan();
     expect(plan.sourceSha).toBe(sha);
+    expect(plan.event).toBe(event);
+    expect(plan.ref).toBe('refs/heads/develop');
     expect(plan.runAttempt).toBe('1');
     expect(plan.baseline).toHaveLength(4);
     const synthCalls = h.calls.filter(call => call.args[1] === 'synth');
@@ -239,7 +242,16 @@ describe('plan부터 승인 후 배포까지', () => {
     expect(deployments[0].args).not.toContain('--force');
     expect(deployments[0].options.cwd).not.toBe(root);
     expect(h.calls.filter(call => call.args[1] === 'synth')).toHaveLength(1);
+    expect(h.calls.filter(call => call.executable === 'git' && call.args[0] === 'ls-remote')).toHaveLength(4);
     expect(read(path.join(h.directory, 'result-deploy.json'))).toMatchObject({ status: 'succeeded', sourceSha: sha });
+  });
+
+  test.each(cdEvents)('%s 시작 전에 develop이 바뀌면 AWS 조회·합성 없이 plan을 거부한다', event => {
+    const h = makeHarness(event); h.state.remote = otherSha;
+    expect(() => h.run('plan')).toThrow(/최신 develop/);
+    expect(h.calls.every(call => call.executable === 'git')).toBe(true);
+    expect(fs.existsSync(path.join(h.directory, 'plan.json'))).toBe(false);
+    expect(read(path.join(h.directory, 'result-plan.json')).status).toBe('failed');
   });
 
   test('같은 디렉터리에서 과거 plan을 덮어쓰지 않는다', () => {
@@ -304,7 +316,7 @@ describe('plan부터 승인 후 배포까지', () => {
     expect(summary).not.toContain('diff stderr <marker>');
   });
 
-  test.each([
+  test.each(cdEvents.flatMap(event => ([
     ['checkout SHA', (h: ReturnType<typeof makeHarness>) => { h.state.head = otherSha; }, /checkout SHA/],
     ['최신 develop SHA', (h: ReturnType<typeof makeHarness>) => { h.state.remote = otherSha; }, /최신 develop/],
     ['AWS 계정', (h: ReturnType<typeof makeHarness>) => { h.state.account = '222222222222'; }, /AWS 실행 계정/],
@@ -314,8 +326,9 @@ describe('plan부터 승인 후 배포까지', () => {
     ['갱신 시각', (h: ReturnType<typeof makeHarness>) => { h.state.stacks.DevDataStack.LastUpdatedTime = '2026-10-21T00:00:00Z'; }, /baseline 변경/],
     ['스택 metadata', (h: ReturnType<typeof makeHarness>) => { h.state.stacks.DevDataStack.Tags.push({ Key: 'Other', Value: 'new' }); }, /baseline 변경/],
     ['스택 진행 중', (h: ReturnType<typeof makeHarness>) => { h.state.stacks.DevDataStack.StackStatus = 'UPDATE_IN_PROGRESS'; }, /정상 완료 상태/],
-  ] as Array<[string, (h: ReturnType<typeof makeHarness>) => void, RegExp]>)('승인 후 %s 변경은 쓰기 전에 차단한다', (_name, change, message) => {
-    const h = makeHarness(); h.plan(); change(h);
+  ] as Array<[string, (h: ReturnType<typeof makeHarness>) => void, RegExp]>)
+    .map(([name, change, message]) => [event, name, change, message] as const)))('%s 승인 후 %s 변경은 쓰기 전에 차단한다', (event, _name, change, message) => {
+    const h = makeHarness(event); h.plan(); change(h);
     expect(() => h.run('deploy')).toThrow(message);
     expect(h.calls.some(call => call.args[1] === 'deploy')).toBe(false);
     expect(read(path.join(h.directory, 'result-deploy.json')).status).toBe('failed');
@@ -328,6 +341,7 @@ describe('plan부터 승인 후 배포까지', () => {
     ['deploy만 재실행한 attempt', (h: ReturnType<typeof makeHarness>) => { h.env.GITHUB_RUN_ATTEMPT = '2'; }, /runAttempt/],
     ['다른 SHA의 artifact', (h: ReturnType<typeof makeHarness>) => { h.env.GITHUB_SHA = otherSha; }, /sourceSha/],
     ['다른 계정의 artifact', (h: ReturnType<typeof makeHarness>) => { h.env.AWS_ACCOUNT_ID = '222222222222'; }, /account/],
+    ['다른 이벤트의 artifact', (h: ReturnType<typeof makeHarness>) => { h.env.GITHUB_EVENT_NAME = 'workflow_dispatch'; }, /plan event/],
     ['plan.json 변조', (h: ReturnType<typeof makeHarness>) => { fs.appendFileSync(path.join(h.directory, 'plan.json'), ' '); }, /plan hash/],
     ['누락 파일', (h: ReturnType<typeof makeHarness>) => { fs.unlinkSync(path.join(h.directory, 'payload/diff.txt')); }, /inventory/],
     ['추가 파일', (h: ReturnType<typeof makeHarness>) => { fs.writeFileSync(path.join(h.directory, 'payload/unreviewed'), 'new'); }, /inventory/],
@@ -346,10 +360,33 @@ describe('plan부터 승인 후 배포까지', () => {
     expect(() => h.run('deploy')).toThrow(/PR artifact/);
   });
 
+  test('PR artifact는 실행 이벤트를 수동 CD로 바꿔도 승격하지 못한다', () => {
+    const h = makeHarness('pull_request'); h.env.GITHUB_REF = 'refs/pull/71/merge';
+    h.plan();
+    h.env.GITHUB_EVENT_NAME = 'workflow_dispatch'; h.env.GITHUB_REF = 'refs/heads/develop';
+    const before = h.calls.length;
+    expect(() => h.run('verify')).toThrow(/plan event/);
+    expect(h.calls).toHaveLength(before);
+  });
+
+  test.each([
+    ['event', 'push'], ['ref', 'refs/heads/main'],
+  ])('수동 CD도 다른 %s에 묶인 plan을 허용하지 않는다', (key, value) => {
+    const h = makeHarness('workflow_dispatch'), plan = h.plan();
+    plan[key] = value; write(path.join(h.directory, 'plan.json'), plan);
+    h.approve();
+    const before = h.calls.length;
+    expect(() => h.run('verify')).toThrow(`plan ${key}`);
+    expect(h.calls).toHaveLength(before);
+  });
+
   test.each([
     ['main push', { GITHUB_REF: 'refs/heads/main' }, /CD branch/],
+    ['main 수동 실행', { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/main' }, /CD branch/],
+    ['feature 수동 실행', { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/feature/test' }, /CD branch/],
+    ['tag 수동 실행', { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/tags/develop' }, /CD branch/],
     ['다른 저장소', { GITHUB_REPOSITORY: 'other/infra' }, /식별자/],
-    ['임의 이벤트', { GITHUB_EVENT_NAME: 'workflow_dispatch' }, /이벤트/],
+    ['임의 이벤트', { GITHUB_EVENT_NAME: 'repository_dispatch' }, /이벤트/],
   ])('%s의 실행 식별자를 거부한다', (_name, changed, message) => {
     const h = makeHarness();
     expect(() => context({ ...h.env, ...changed })).toThrow(message);
@@ -379,8 +416,8 @@ describe('plan부터 승인 후 배포까지', () => {
     expect(() => h.run('plan')).toThrow(/baseline 수집 중 stack 변경/);
   });
 
-  test('배포 직전 두 번째 HEAD 확인에서 바뀐 develop도 차단한다', () => {
-    const h = makeHarness(); h.plan(); let reads = 0;
+  test.each(cdEvents)('%s 배포 직전 두 번째 HEAD 확인에서 바뀐 develop도 차단한다', event => {
+    const h = makeHarness(event); h.plan(); let reads = 0;
     h.intercept(call => {
       if (call.executable === 'git' && call.args[0] === 'ls-remote' && ++reads === 2) return { status: 0, stdout: `${otherSha}\trefs/heads/develop\n` };
       return undefined;

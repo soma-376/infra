@@ -43,9 +43,10 @@ describe('dev CDK workflow의 실행·승인 경계', () => {
     expect(command(pr.jobs.plan, 'deploy')).toBeUndefined();
   });
 
-  test('CD는 develop push의 plan→승인된 deploy 두 job을 전체 직렬화한다', () => {
-    expect(Object.keys(cd.on)).toEqual(['push']);
+  test('CD는 develop push·수동 실행의 plan→승인된 deploy 두 job을 전체 직렬화한다', () => {
+    expect(Object.keys(cd.on).sort()).toEqual(['push', 'workflow_dispatch']);
     expect(cd.on.push.branches).toEqual(['develop']);
+    expect(cd.on.workflow_dispatch).toEqual({});
     expect(Object.keys(cd.jobs)).toEqual(['plan', 'deploy']);
     expect(cd.jobs.plan.environment).toBe('infra-dev-plan');
     expect(cd.jobs.deploy.environment).toBe('infra-dev-deploy');
@@ -58,6 +59,21 @@ describe('dev CDK workflow의 실행·승인 경계', () => {
     expect(cd.jobs.deploy.concurrency).toBeUndefined();
     expect(cd.jobs.plan['timeout-minutes']).toBe(20);
     expect(cd.jobs.deploy['timeout-minutes']).toBe(75);
+  });
+
+  test.each([
+    ['push', 'soma-376/infra', 'refs/heads/develop', true],
+    ['workflow_dispatch', 'soma-376/infra', 'refs/heads/develop', true],
+    ['workflow_dispatch', 'other/infra', 'refs/heads/develop', false],
+    ['workflow_dispatch', 'soma-376/infra', 'refs/heads/main', false],
+    ['workflow_dispatch', 'soma-376/infra', 'refs/heads/feature/test', false],
+    ['workflow_dispatch', 'soma-376/infra', 'refs/tags/develop', false],
+    ['pull_request', 'soma-376/infra', 'refs/heads/develop', false],
+    ['repository_dispatch', 'soma-376/infra', 'refs/heads/develop', false],
+  ])('CD plan의 job 진입 조건: %s %s %s → %s', (event, repository, ref, allowed) => {
+    // 이 조건에서 사용하는 문자열 비교·논리 연산만 평가해 잘못된 ref가 AWS 단계에 진입하지 못하는지 확인한다.
+    const permitsPlan = new Function('github', `return (${cd.jobs.plan.if});`);
+    expect(permitsPlan({ event_name: event, repository, ref })).toBe(allowed);
   });
 
   test('CDK·profile·의존성·pipeline 변경은 검사하고 cicd·Helm 전용 변경은 자동 배포하지 않는다', () => {
@@ -76,7 +92,7 @@ describe('dev CDK workflow의 실행·승인 경계', () => {
       expect(matchesPath(pr.on.pull_request.paths, path)).toBe(true);
       expect(matchesPath(cd.on.push.paths, path)).toBe(false);
     }
-    for (const path of ['helm/dev/runtime/values.yaml', 'config/dev/runtime.yaml', 'frontend/main.tf']) {
+    for (const path of ['docs/adr/0048-dev-cloudformation-cicd.md', 'helm/dev/runtime/values.yaml', 'config/dev/runtime.yaml', 'frontend/main.tf']) {
       expect(matchesPath(cd.on.push.paths, path)).toBe(false);
     }
   });
