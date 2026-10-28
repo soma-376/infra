@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — 사용자 요청에 따른 IaC 구현. 실제 apply와 dev/prod 앱 연결은 이번 단계에서 수행하지 않는다.
+Accepted — 사용자 요청에 따른 IaC 구현. 수신 기반 배포 후 dev 앱 연결을 후속 구현한다. prod 연결은 별도 단계다.
 
 ## Context
 
@@ -19,7 +19,9 @@ Accepted — 사용자 요청에 따른 IaC 구현. 실제 apply와 dev/prod 앱
 - digest 고정 Docker Compose로 Grafana·Prometheus·Loki·Tempo·Alloy 및 OS 수집 Alloy를 실행한다.
 - 지표 7일(최대 TSDB 20GB), 로그·trace 3일을 시작값으로 한다. 전체 디스크의 강제 상한은 아니므로 OS 패널로 감시한다.
 - 비밀번호는 최초 부팅 시 데이터 디스크에서 생성하며 Terraform state/user data에 넣지 않는다.
-- 최초 앱 연결은 후속 변경이다. 수신 포트는 사설 IP에만 bind하고 SG ingress는 비워 둔다.
+- 수신 포트는 사설 IP에만 bind한다. dev 앱 연결 활성화 시 앱 SG → 관측 SG TCP 4318 ingress와 반대 방향 egress만 추가한다. 공개 CIDR ingress는 허용하지 않는다.
+- 기존 프론트 SDK의 OTLP HTTP를 사용한다. ECS 환경 변수로 SDK 활성화, dev 환경 이름, 서비스 이름, Terraform 관측 endpoint를 전달한다. 앱 코드·이미지 배포는 프론트 레포가 소유하며 기존 CloudWatch stdout 로그는 유지한다.
+- dev는 Docker bridge이므로 송신자 SG는 앱 EC2의 SG다. prod 기본값은 비활성이고 이 경로를 공유하지 않는다.
 - user data/config 변경은 EC2 교체를 수반한다. 데이터 볼륨이 붙기 전에는 스택을 시작하지 않는다.
 
 ## Alternatives Considered

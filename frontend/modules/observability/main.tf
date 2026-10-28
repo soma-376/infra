@@ -71,6 +71,9 @@ resource "aws_instance" "this" {
   tags        = merge(local.tags, { Name = local.name })
   volume_tags = local.tags
   lifecycle {
+    # 별도 aws_ebs_volume이 연결된 데이터 볼륨의 태그를 소유한다.
+    # EC2의 volume_tags refresh가 데이터 볼륨 Name까지 합쳐 반환하므로 덮어쓰지 않는다.
+    ignore_changes = [volume_tags]
     precondition {
       condition     = data.aws_subnet.this.vpc_id == var.vpc_id
       error_message = "관측 서브넷은 지정한 VPC에 속해야 합니다."
