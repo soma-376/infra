@@ -94,10 +94,17 @@ GRANT SELECT ON
   enrollment.teams, enrollment.tenants, enrollment.user_sessions,
   enrollment.vendor_billing_periods, enrollment.vendor_catalog_observed_products,
   enrollment.vendor_catalog_plans, enrollment.vendor_catalog_products,
-  enrollment.vendor_connections, enrollment.vendor_contract_versions,
+  enrollment.vendor_contract_versions,
   telemetry_ops.retention_operations, telemetry_ops.tenant_ingest_summary,
   telemetry_ops.tenant_retention_boundary, telemetry_ops.tenant_summary_backfill
 TO dashboard_rds_source;
+
+-- VendorConnections.active가 읽는 비밀 아닌 열과 WHERE 열만 허용한다(PROJ-262).
+GRANT SELECT (id, tenant_id, vendor_id, connector, settings, credential_updated_at,
+  check_status, checked_at, last_sync_succeeded_at, last_sync_failed_at, last_sync_error,
+  version, created_at, updated_at, last_billing_succeeded_at, last_billing_failed_at,
+  last_billing_error, deleted_at)
+ON enrollment.vendor_connections TO dashboard_rds_source;
 
 GRANT CREATE ON DATABASE controlplane TO dashboard_rds_cache;
 CREATE SCHEMA IF NOT EXISTS dashboard_cache AUTHORIZATION dashboard_rds_cache;
@@ -105,21 +112,14 @@ GRANT USAGE ON SCHEMA telemetry_ops TO dashboard_rds_cache;
 GRANT SELECT ON telemetry_ops.tenant_retention_boundary TO dashboard_rds_cache;
 ```
 
-원천 테이블을 실제로 생성하는 migration 역할마다 다음 설정도 적용한다. `<migration_owner>`를 schema
-owner로 추측하지 않는다. 역할마다 담당 schema가 다르면 해당 schema만 지정한다. default privileges는
-기존 테이블의 grant를 바꾸지 않으므로 위 SELECT grant와 함께 필요하다.
+신규 원천 테이블의 default privileges를 자동 부여하지 않는다. 이전 예시의 모든 미래 테이블 SELECT는
+자격증명 테이블을 열 수 있어 사용하지 않는다. reader·migration 변경마다 위 명시 허용목록과 실제 API 검증을
+함께 리뷰한다. 기존 broad/default grant가 있으면 자동 회수하지 말고 사용 역할·영향을 별도 확인한다.
+`user_refresh_tokens`·`user_authorization_codes`·`auth_attempts`·`installation_credentials`·`telemetry_tokens`는
+허용 목록이 아니다. `vendor_connections.credential_ciphertext`·`credential_key_id`도 읽지 못해야 한다.
 
-```sql
-ALTER DEFAULT PRIVILEGES FOR ROLE "<migration_owner>"
-IN SCHEMA enrollment, telemetry_ops
-GRANT SELECT ON TABLES TO dashboard_rds_source;
-```
-
-default privileges는 같은 역할이 이후 생성하는 모든 테이블에 적용된다. 신규 원천 테이블 migration은
-해당 계정을 쓰는 EKS dashboard 전체를 중지하고 활성 DB 연결이 없는 점검 구간에서 수행한다.
-migration 뒤 source의 두 schema SELECT를 모두 회수하고 현재 backend reader의 위 허용 목록만 재부여한 뒤
-effective privileges를 검사하고 dashboard를 재개한다. 실행 중인 구 replica를 남긴 채 사후 회수하지 않는다.
-`user_refresh_tokens`·`user_authorization_codes`·`auth_attempts`·`installation_credentials`는 현재 허용 목록이 아니다.
+이미 역할·cache DDL이 존재하는 dev의 누락 권한 복구는 [PROJ-262 절차](dev-dashboard-read-grants.md)를 따른다.
+그 도구는 위 계약의 필요한 SELECT/USAGE만 준비하며 DB CREATE·schema 생성·암호·소유권은 변경하지 않는다.
 
 source에는 원천 쓰기·schema CREATE·소유권을 주지 않는다. cache는 자기 schema를 소유하고 원천에서는
 retention boundary만 읽는다. RDS cache V1의 `CREATE SCHEMA IF NOT EXISTS`는 schema가 이미 있어도
