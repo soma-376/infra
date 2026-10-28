@@ -15,6 +15,8 @@ import {
   PostgresEngineVersion,
   StorageType,
 } from 'aws-cdk-lib/aws-rds';
+import { CfnEmailIdentity } from 'aws-cdk-lib/aws-ses';
+const DEV_MAIL = require('./mail-config.cjs');
 import { CfnSecret, ISecret, Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { BlockPublicAccess, Bucket, IBucket } from 'aws-cdk-lib/aws-s3';
 import {
@@ -85,6 +87,9 @@ export class DevDataStack extends Stack {
   public readonly dashboardRdsCacheSecret: ISecret;
   public readonly dashboardClickHouseSourceSecret: ISecret;
   public readonly dashboardClickHouseCacheSecret: ISecret;
+  /** 운영자가 독립 AES 키 버전을 초기화하는 원본. (ADR-0043) */
+  public readonly managementResponseKeySecret: ISecret;
+  public readonly mailEncryptionKeySecret: ISecret;
   /** 운영자가 키 버전을 등록할 JWT 원본. PROJ-230이 IAM·파일 공급을 연결한다. */
   public readonly userJwtPrivateKeySecret: ISecret;
   public readonly userJwtPublicKeysSecret: ISecret;
@@ -200,6 +205,30 @@ export class DevDataStack extends Stack {
       DEV_DASHBOARD_DB_CREDENTIALS.clickHouseCache,
       'Credentials for the dev dashboard-api ClickHouse cache connection.',
     );
+
+    // AES 키는 별도 초기화에서 Base64 32바이트를 등록한다. 일반 배포는 키를 회전하지 않는다.
+    const encryptionKey = (id: string, name: string): ISecret => {
+      const resource = new CfnSecret(this, id, { name, description: 'Versioned AES-256 key for dev enrollment.' });
+      resource.applyRemovalPolicy(RemovalPolicy.RETAIN);
+      return Secret.fromSecretCompleteArn(this, `${id}Reference`, resource.ref);
+    };
+    this.managementResponseKeySecret = encryptionKey('DevManagementResponseKeySecret', DEV_MAIL.managementSecretName);
+    this.mailEncryptionKeySecret = encryptionKey('DevMailEncryptionKeySecret', DEV_MAIL.mailSecretName);
+    for (const [name, secret] of [
+      ['ManagementResponseKeySecretArn', this.managementResponseKeySecret],
+      ['MailEncryptionKeySecretArn', this.mailEncryptionKeySecret],
+    ] as const) new CfnOutput(this, name, { value: secret.secretArn }).overrideLogicalId(name);
+    const identity = new CfnEmailIdentity(this, 'DevMailIdentity', {
+      emailIdentity: DEV_MAIL.domain,
+      dkimAttributes: { signingEnabled: true },
+      dkimSigningAttributes: { nextSigningKeyLength: 'RSA_2048_BIT' },
+    });
+    identity.applyRemovalPolicy(RemovalPolicy.RETAIN);
+    new CfnOutput(this, 'MailDkimRecords', { value: this.toJsonString([
+      { name: identity.attrDkimDnsTokenName1, value: identity.attrDkimDnsTokenValue1 },
+      { name: identity.attrDkimDnsTokenName2, value: identity.attrDkimDnsTokenValue2 },
+      { name: identity.attrDkimDnsTokenName3, value: identity.attrDkimDnsTokenValue3 },
+    ]) }).overrideLogicalId('MailDkimRecords');
 
     // L2 Secret은 값 미지정 시 임의 문자열을 생성하므로 JWT 원본에는 L1을 쓴다.
     // RSA 키 생성·검증·버전 등록은 수동 절차이며 이 리소스는 값 없이 생성한다.

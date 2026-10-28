@@ -144,7 +144,7 @@ describe('빈 원본 bootstrap과 소비자 권한', () => {
           statement.Action.includes('secretsmanager:GetSecretValue'));
         expect(read.Action).toEqual(['secretsmanager:DescribeSecret', 'secretsmanager:GetSecretValue']);
         expect(read.Condition).toEqual({ Bool: { 'aws:SecureTransport': 'true' } });
-        expect(read.Resource).toHaveLength(9);
+        expect(read.Resource).toHaveLength(11);
         for (const key of ['cognitoa', 'cognitob']) expect(JSON.stringify(read.Resource)).toContain(`DevOidcClientSecret${key}`);
       } else {
         expect(JSON.stringify(policy)).not.toContain('OidcClientSecret');

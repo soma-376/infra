@@ -3,7 +3,7 @@ import { Match, Template } from 'aws-cdk-lib/assertions';
 import { Bucket } from 'aws-cdk-lib/aws-s3';
 import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { DevEksRuntime } from '../../lib/dev/eks-runtime';
-import { TEST_ENV } from '../helpers';
+import { TEST_ENV, buildDevApp } from '../helpers';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -28,6 +28,8 @@ function synth(prefix: 'eks_validation' | 'eks' = 'eks_validation') {
     dashboardRdsCacheSecret: secret('dashboardRdsCacheSecret'),
     dashboardClickHouseSourceSecret: secret('dashboardClickHouseSourceSecret'),
     dashboardClickHouseCacheSecret: secret('dashboardClickHouseCacheSecret'),
+    managementResponseKeySecret: secret('managementResponseKeySecret'),
+    mailEncryptionKeySecret: secret('mailEncryptionKeySecret'),
     userJwtPrivateKeySecret: secret('userJwtPrivateKeySecret'),
     userJwtPublicKeysSecret: secret('userJwtPublicKeysSecret'),
     rawSignalBucket: Bucket.fromBucketName(stack, 'RawBucket', 'runtime-test-raw'),
@@ -92,7 +94,7 @@ describe('EKS runtime 소비자 경계', () => {
     const enrollmentRead = enrollment.Properties.PolicyDocument.Statement[0];
     expect(enrollmentRead.Action).toEqual(actions);
     expect(enrollmentRead.Condition).toEqual({ Bool: { 'aws:SecureTransport': 'true' } });
-    expect(enrollmentRead.Resource).toHaveLength(7);
+    expect(enrollmentRead.Resource).toHaveLength(9);
     for (const name of ['db', 'hmac', 'admin', 'userJwtPrivateKeySecret', 'userJwtPublicKeysSecret',
       'telemetryJwtPrivateKeySecret', 'telemetryJwtPublicKeysSecret']) {
       expect(JSON.stringify(enrollmentRead.Resource)).toContain(`:secret:${name}-abc123`);
@@ -236,4 +238,21 @@ describe('EKS runtime 소비자 경계', () => {
       }
     });
   });
+});
+
+test('SES 발송과 관리·메일 키 읽기는 enrollment Pod에만 허용한다', () => {
+  const { eks } = buildDevApp();
+  const template = Template.fromStack(eks);
+  const policies = Object.entries(template.findResources('AWS::IAM::Policy')) as [string, any][];
+  const holders = policies.filter(([, policy]) => JSON.stringify(policy).includes('ses:SendEmail'));
+  expect(holders).toHaveLength(1);
+  expect(holders[0][0]).toContain('Enrollment');
+  const send = holders[0][1].Properties.PolicyDocument.Statement.find((s: any) => s.Action === 'ses:SendEmail');
+  expect(send.Condition).toEqual({ StringEquals: { 'ses:FromAddress': 'no-reply@pulsemetry.co.kr' } });
+  expect(JSON.stringify(send.Resource)).toContain('identity/pulsemetry.co.kr');
+  for (const id of ['DevManagementResponseKeySecret', 'DevMailEncryptionKeySecret']) {
+    const readers = policies.filter(([, policy]) => JSON.stringify(policy).includes(id));
+    expect(readers).toHaveLength(1);
+    expect(readers[0][0]).toContain('Enrollment');
+  }
 });

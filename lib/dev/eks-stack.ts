@@ -22,6 +22,8 @@ export interface DevEksStackProps extends StackProps {
   readonly dashboardRdsCacheSecret: ISecret;
   readonly dashboardClickHouseSourceSecret: ISecret;
   readonly dashboardClickHouseCacheSecret: ISecret;
+  readonly managementResponseKeySecret: ISecret;
+  readonly mailEncryptionKeySecret: ISecret;
   readonly userJwtPrivateKeySecret: ISecret;
   readonly userJwtPublicKeysSecret: ISecret;
   readonly telemetryJwtPrivateKeySecret: ISecret;
@@ -116,6 +118,8 @@ export class DevEksStack extends Stack {
       dashboardRdsCacheSecret: props.dashboardRdsCacheSecret,
       dashboardClickHouseSourceSecret: props.dashboardClickHouseSourceSecret,
       dashboardClickHouseCacheSecret: props.dashboardClickHouseCacheSecret,
+      managementResponseKeySecret: props.managementResponseKeySecret,
+      mailEncryptionKeySecret: props.mailEncryptionKeySecret,
       userJwtPrivateKeySecret: props.userJwtPrivateKeySecret,
       userJwtPublicKeysSecret: props.userJwtPublicKeysSecret,
       oidcClientSecrets: props.oidcClientSecrets,
