@@ -4,6 +4,8 @@
 
 Accepted (PROJ-269 설치 코드 검사 경로의 등록 rate 합산 포함; 실제 적용 증거 별도)
 
+[ADR 0044](0044-dev-waf-cli-oidc-loopback-query-exception.md)가 정상 CLI OIDC loopback 요청의 SSRF·RFI 두 query label 후속 차단만 부분 대체한다. 그 밖의 내용·국가·IP·rate·로그 정책은 유지한다.
+
 PROJ-159의 PROJ-197·198·199는 문서·CDK·테스트·환경별 synth까지 구현한다. 이 상태는
 정책이 확정됐다는 뜻이며, AWS 배포·실제 차단·로그 전달·정상 요청 오탐 0건의 증거는 아니다.
 기존 로그 그룹 정책용 ADR-0020 예약은 유지한다.
@@ -149,7 +151,7 @@ namespace 전체를 Block하지 않는다.
 | SQLi | `SQLiExtendedPatterns_QUERYARGUMENTS` | `awswaf:managed:aws:sql-database:SQLiExtendedPatterns_QueryArguments` |
 
 query label Block의 조건은 **query label 중 하나 AND 앱 경로**다. query는 정확한 OTLP 경로에서도
-Block하고 앱 경로 밖에서만 Count로 둔다.
+Block하고 앱 경로 밖에서만 Count로 둔다. **부분 대체(ADR 0044)** — exact GET OIDC authorize의 검증된 loopback query에만 SSRF·RFI 두 label의 후속 Block 예외를 적용한다.
 
 `RestrictedExtensions_URIPATH`도 개별 Count로 override한 뒤 label
 `awswaf:managed:aws:core-rule-set:RestrictedExtensions_URIPath`가 매칭되고 **NOT `/bin/` prefix**일 때

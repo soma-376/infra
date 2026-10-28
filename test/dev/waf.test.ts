@@ -182,21 +182,23 @@ const EXPECTED_RULE_PRIORITIES: readonly (
 
 // 합성된 사용자 정의 statement의 제한된 평가기. 탐지기·국가·IP 평판·rate 상태를
 // 모사하지 않는다. 미지원 statement는 false로 놓치지 않고 즉시 실패시킨다.
-// UriPath NONE 조건만 평가하며 실제 ALB URI 정규화와의 동치를 증명하지 않는다.
+// PCRE 절대 경계와 query decode를 포함한 합성 조건을 평가한다. 실제 AWS signature나
+// ALB/servlet parser와의 동치를 증명하지 않으며 서비스 CheckCapacity·live 검증은 별도다.
 function matchesCustomStatement(
   statement: Statement,
   uriPath: string,
   labels: readonly string[] = [],
+  request: { method?: string; query?: string } = {},
 ): boolean {
   expect(Object.keys(statement)).toHaveLength(1);
   if (statement.AndStatement) {
     return statement.AndStatement.Statements.every((child: Statement) =>
-      matchesCustomStatement(child, uriPath, labels),
+      matchesCustomStatement(child, uriPath, labels, request),
     );
   }
   if (statement.OrStatement) {
     return statement.OrStatement.Statements.some((child: Statement) =>
-      matchesCustomStatement(child, uriPath, labels),
+      matchesCustomStatement(child, uriPath, labels, request),
     );
   }
   if (statement.NotStatement) {
@@ -204,6 +206,7 @@ function matchesCustomStatement(
       statement.NotStatement.Statement,
       uriPath,
       labels,
+      request,
     );
   }
   if (statement.LabelMatchStatement) {
@@ -212,24 +215,50 @@ function matchesCustomStatement(
   }
   if (statement.RegexMatchStatement) {
     const match = statement.RegexMatchStatement;
-    expect(match.FieldToMatch).toEqual({ UriPath: {} });
-    expect(match.TextTransformations).toEqual([{ Priority: 0, Type: 'NONE' }]);
-    return new RegExp(match.RegexString).test(uriPath);
+    // JS에는 PCRE \A/\z가 없다. 끝의 개행도 허용하지 않는 절대 경계로 변환한다.
+    const pattern = match.RegexString.replaceAll('\\A', '^').replaceAll('\\z', '$(?![\\s\\S])');
+    return candidates(match).some(value => new RegExp(pattern).test(value));
   }
   if (statement.ByteMatchStatement) {
     const match = statement.ByteMatchStatement;
-    expect(match.FieldToMatch).toEqual({ UriPath: {} });
-    const transformation = match.TextTransformations[0].Type;
-    expect(['NONE', 'URL_DECODE']).toContain(transformation);
-    const candidate = transformation === 'URL_DECODE' ? decodeURIComponent(uriPath) : uriPath;
     if (match.PositionalConstraint === 'EXACTLY') {
-      return candidate === match.SearchString;
+      return candidates(match).some(value => value === match.SearchString);
     }
     if (match.PositionalConstraint === 'STARTS_WITH') {
-      return candidate.startsWith(match.SearchString);
+      return candidates(match).some(value => value.startsWith(match.SearchString));
+    }
+    if (match.PositionalConstraint === 'CONTAINS') {
+      return candidates(match).some(value => value.includes(match.SearchString));
     }
   }
+  if (statement.SizeConstraintStatement) {
+    const match = statement.SizeConstraintStatement;
+    expect(match.ComparisonOperator).toBe('LE');
+    return candidates(match).some(value => Buffer.byteLength(value, 'utf8') <= match.Size);
+  }
   throw new Error(`검증하지 않는 사용자 정의 statement: ${JSON.stringify(statement)}`);
+
+  function candidates(match: Statement): string[] {
+    const field = match.FieldToMatch;
+    let values: string[];
+    if (field.UriPath) values = [uriPath];
+    else if (field.Method) values = [request.method ?? 'GET'];
+    else if (field.QueryString) values = [request.query ?? ''];
+    else if (field.SingleQueryArgument) {
+      // 단일 query parameter는 중복 값 중 하나가 맞아도 일치한다. 이 의미를 감추지 않는다.
+      values = (request.query ?? '').split('&').filter(item =>
+        item.split('=', 1)[0].toLowerCase() === field.SingleQueryArgument.Name,
+      ).map(item => item.slice(item.indexOf('=') + 1));
+    } else throw new Error('미지원 FieldToMatch');
+    expect(match.TextTransformations).toHaveLength(1);
+    const transformation = match.TextTransformations[0].Type;
+    expect(['NONE', 'URL_DECODE']).toContain(transformation);
+    return values.flatMap(value => {
+      if (transformation === 'NONE') return [value];
+      try { return [decodeURIComponent(field.UriPath ? value : value.replaceAll('+', ' '))]; }
+      catch { return []; }
+    });
+  }
 }
 
 function visitStatements(
@@ -345,11 +374,21 @@ describe('dev ALB WAF 정책 합성', () => {
       visitStatements(value.Statement, (statement) => {
         if (statement.RegexMatchStatement) {
           const match = statement.RegexMatchStatement;
-          expect(match.FieldToMatch).toEqual({ UriPath: {} });
-          expect(match.TextTransformations).toEqual([{ Priority: 0, Type: 'NONE' }]);
+          if (match.FieldToMatch.QueryString) {
+            expect(value.Name).toBe('AppQueryLabelBlock');
+            expect(match.TextTransformations).toEqual([{ Priority: 0, Type: 'URL_DECODE' }]);
+          } else {
+            expect(match.FieldToMatch).toEqual({ UriPath: {} });
+            expect(match.TextTransformations).toEqual([{ Priority: 0, Type: 'NONE' }]);
+          }
+          expect(match.RegexString.length).toBeLessThanOrEqual(512);
         }
         if (statement.ByteMatchStatement) {
-          expect(statement.ByteMatchStatement.FieldToMatch).toEqual({ UriPath: {} });
+          const field = statement.ByteMatchStatement.FieldToMatch;
+          if (!field.UriPath) {
+            expect(value.Name).toBe('AppQueryLabelBlock');
+            expect([JSON.stringify({ Method: {} }), JSON.stringify({ QueryString: {} })]).toContain(JSON.stringify(field));
+          }
           const isBootstrapRate = ['EnrollmentRateBlock', 'RemainingRateBlock'].includes(value.Name)
             && ['/unix', '/windows'].includes(statement.ByteMatchStatement.SearchString);
           expect(statement.ByteMatchStatement.TextTransformations).toEqual([
@@ -465,6 +504,114 @@ describe('dev ALB WAF 정책 합성', () => {
     for (const path of ['/v1/traces', '/v1/metrics', '/v1/logs']) {
       expect(anyLabelBlock(path, [BODY_RULES[0][1], QUERY_RULES[0][1]])).toBe(true);
     }
+  });
+
+  describe('정상 CLI loopback authorize의 두 query label 예외', () => {
+    const uri = '/api/v1/auth/oidc/authorize';
+    const exceptions = [QUERY_RULES[0][1], QUERY_RULES[3][1]];
+    const parameters = {
+      tenant_id: '00000000-0000-4000-8000-000000000001',
+      redirect_uri: 'http://127.0.0.1:54610/callback',
+      state: 's'.repeat(32),
+      code_challenge: 'c'.repeat(43),
+      code_challenge_method: 'S256',
+    };
+    const query = (values: Record<string, string> = {}) => new URLSearchParams({ ...parameters, ...values }).toString();
+    const blocks = (value: string, labels = exceptions, path = uri, method = 'GET') => matchesCustomStatement(
+      rule('AppQueryLabelBlock').Statement, path, labels, { query: value, method },
+    );
+
+    test.each([
+      'http://127.0.0.1:1/callback',
+      'http://127.0.0.1:65535/callback',
+      'http://127.0.0.1:00054610/callback',
+      'http://[::1]:54610/callback',
+      'http://[::1]:65535/callback',
+      `http://127.0.0.1:${'0'.repeat(229)}1/callback`,
+    ])('정상 loopback %s는 해당 두 label의 후속 Block만 제외한다', redirect_uri => {
+      expect(blocks(query({ redirect_uri }))).toBe(false);
+      for (const label of exceptions) expect(blocks(query({ redirect_uri }), [label])).toBe(false);
+    });
+
+    test('파라미터 순서·표준 hint·허용된 state와 한 번 인코딩된 값은 유지한다', () => {
+      expect(blocks(query({ login_hint: 'person+dev@example.test' }))).toBe(false);
+      expect(blocks(query().split('&').reverse().join('&'))).toBe(false);
+      expect(blocks(query({ state: 'A._~-0123456789ab', tenant_id: parameters.tenant_id.toUpperCase() }))).toBe(false);
+      expect(blocks(query({ state: 's'.repeat(256) }))).toBe(false);
+      expect(blocks(query({ login_hint: `${'a'.repeat(241)}@example.test` }))).toBe(false);
+    });
+
+    test.each([
+      'https://127.0.0.1:54610/callback', 'HTTP://127.0.0.1:54610/callback',
+      'http://localhost:54610/callback', 'http://127.1:54610/callback',
+      'http://2130706433:54610/callback', 'http://169.254.169.254:80/callback',
+      'http://127.0.0.1.example.test:54610/callback', 'http://[::ffff:127.0.0.1]:54610/callback',
+      'http://127.0.0.1/callback', 'http://127.0.0.1:0/callback',
+      'http://127.0.0.1:65536/callback', 'http://127.0.0.1:99999/callback',
+      'http://127.0.0.1:-1/callback', 'http://127.0.0.1:+1/callback',
+      'http://127.0.0.1:54610/callback/', 'http://127.0.0.1:54610/other',
+      'http://127.0.0.1:54610/x/../callback', 'http://127.0.0.1:54610/%63allback',
+      'http://user@127.0.0.1:54610/callback', 'http://127.0.0.1@evil.test:54610/callback',
+      'http://127.0.0.1:54610/callback?extra=1', 'http://127.0.0.1:54610/callback#fragment',
+      'http://127.0.0.1:54610/callback\n', 'http://127.0.0.1:54610/callback\r\n',
+      `http://127.0.0.1:${'0'.repeat(230)}1/callback`,
+    ])('잘못된 redirect %s는 예외를 받지 않는다', redirect_uri => {
+      expect(blocks(query({ redirect_uri }))).toBe(true);
+    });
+
+    test.each(Object.keys(parameters))('%s 누락·중복·빈 값은 예외를 받지 않는다', key => {
+      const missing = new URLSearchParams(parameters);
+      missing.delete(key);
+      expect(blocks(missing.toString())).toBe(true);
+      expect(blocks(`${query()}&${key}=${encodeURIComponent(parameters[key as keyof typeof parameters])}`)).toBe(true);
+      expect(blocks(query({ [key]: '' }))).toBe(true);
+    });
+
+    test.each([
+      ['추가 unknown', () => `${query()}&unknown=1`],
+      ['빈 항목', () => `${query()}&`],
+      ['중복 hint', () => `${query({ login_hint: 'person@example.test' })}&login_hint=other%40example.test`],
+      ['중복 redirect와 hint', () => `${query({ login_hint: 'person@example.test' })}&redirect_uri=http%3A%2F%2Fevil.test`],
+      ['encoded 구분자로 전체 항목 병합', () => query().replaceAll('&', '%26')],
+      ['encoded 구분자로 마지막 항목 병합', () => query().replace('&code_challenge_method=', '%26code_challenge_method=')],
+      ['이중 인코딩 구분자', () => query().replaceAll('&', '%2526')],
+      ['이중 인코딩 redirect', () => query({ redirect_uri: encodeURIComponent(parameters.redirect_uri) })],
+      ['encoded 중복 key', () => `${query()}&redirect%5Furi=http%3A%2F%2Fevil.test`],
+      ['대소문자 중복 key', () => `${query()}&REDIRECT_URI=http%3A%2F%2Fevil.test`],
+      ['짧은 state', () => query({ state: 's'.repeat(15) })],
+      ['긴 state', () => query({ state: 's'.repeat(257) })],
+      ['짧은 challenge', () => query({ code_challenge: 'c'.repeat(42) })],
+      ['긴 challenge', () => query({ code_challenge: 'c'.repeat(44) })],
+      ['challenge padding', () => query({ code_challenge: `${'c'.repeat(42)}=` })],
+      ['plain PKCE', () => query({ code_challenge_method: 'plain' })],
+      ['비표준 UUID', () => query({ tenant_id: '1-1-1-1-1' })],
+      ['hint URL 공격', () => query({ login_hint: 'http://evil.test/x' })],
+      ['hint colon 공격', () => query({ login_hint: 'x:y@example.test' })],
+      ['hint 줄바꿈', () => query({ login_hint: 'person@example.test\n' })],
+      ['hint 길이 초과', () => query({ login_hint: `${'a'.repeat(242)}@example.test` })],
+      ['raw plus hint', () => query({ login_hint: 'person+dev@example.test' }).replace('%2B', '+')],
+      ['잘못된 percent encoding', () => query().replace('http%3A', 'http%ZZ')],
+    ] as const)('%s는 예외를 받지 않는다', (_name, value) => {
+      expect(blocks(value())).toBe(true);
+    });
+
+    test('정확한 GET·원문 URI에서만 예외가 적용된다', () => {
+      for (const method of ['POST', 'HEAD', 'get', 'OPTIONS']) expect(blocks(query(), exceptions, uri, method)).toBe(true);
+      for (const path of [`${uri}/`, `${uri}-other`, '/api/v1/auth/oidc/%61uthorize', '/api/v1/auth/oidc/Authorize']) {
+        expect(blocks(query(), exceptions, path)).toBe(true);
+      }
+    });
+
+    test('나머지 query·본문·URI label과 rate 검사를 건너뛰지 않는다', () => {
+      for (const [, label] of QUERY_RULES.filter(([, value]) => !exceptions.includes(value))) {
+        expect(blocks(query(), [...exceptions, label])).toBe(true);
+      }
+      for (const [, label] of BODY_RULES) {
+        expect(matchesCustomStatement(rule('AppBodyLabelBlock').Statement, uri, [label], { query: query() })).toBe(true);
+      }
+      expect(matchesCustomStatement(rule('RestrictedExtensionsOutsideBinBlock').Statement, uri, [RESTRICTED_EXTENSION_LABEL], { query: query() })).toBe(true);
+      expect(matchesCustomStatement(rule('RemainingRateBlock').Statement.RateBasedStatement.ScopeDownStatement, uri, [], { query: query() })).toBe(true);
+    });
   });
 
   test.each([

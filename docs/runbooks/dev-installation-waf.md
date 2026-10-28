@@ -1,6 +1,6 @@
 # dev 설치 경로 WAF 적용·검증·복구
 
-기준은 ADR 0027과 PROJ-269다. 정확한 `/unix`, `/windows`와 기존 등록 API 세 조건이
+기준은 ADR 0027·0044와 PROJ-269다. 정확한 `/unix`, `/windows`와 기존 등록 API 세 조건이
 출발지 IP별 300건/300초를 공유한다. bootstrap 두 조건은 URL_DECODE 한 번을 적용하여
 `/%75nix`·`/%77indows` 같은 단일 인코딩 경로도 같은 예산에 넣고 나머지 예산에서 제외한다. `429`·`Retry-After: 60`은 재시도 안내이며 정확한 해제 시각은 아니다.
 
@@ -8,11 +8,12 @@
 
 1. 최신 `develop`에서 `npm run build`, `npm test -- --runInBand`, prod/dev/cicd synth를 실행한다.
 2. 추적된 `config/dev/deployment.json`으로 합성하고 현재 DevEdgeStack 템플릿과 비교한다.
-   WebACL의 등록·나머지 rate 범위에 두 URL_DECODE exact path가 이동한 것 외 변경이 있으면 먼저 원인을 확인한다.
+   WebACL의 등록·나머지 rate 범위에 두 URL_DECODE exact path가 이동하고, 정상 CLI OIDC loopback query에만
+   SSRF·RFI 후속 Block 예외가 추가된다. 이외 변경이 있으면 먼저 원인을 확인한다.
 3. 현재 EKS ALB ARN에 연결된 Web ACL과 관리형 버전 가용성을 읽고 합성 Rules의 `CheckCapacity`를 확인한다.
 4. PR CI·필수 리뷰와 병합을 확인한 뒤 dev profile로 DevEdgeStack만 `--exclusively` 배포한다.
    다른 스택, prod, Helm 앱은 이 정책 변경의 배포 대상이 아니다.
-5. 배포된 Web ACL의 `EnrollmentRateBlock`·`RemainingRateBlock`, association ARN을 다시 조회한다.
+5. 배포된 Web ACL의 `EnrollmentRateBlock`·`RemainingRateBlock`·`AppQueryLabelBlock`, association ARN을 다시 조회한다.
 
 ## 배포 전 경로 확인
 
@@ -34,6 +35,22 @@
 - 요청을 멈춘 뒤 회복을 확인한다. 공유 NAT의 정상 사용자 영향과 검증 시간대를 기록한다.
 - 성공 증거에는 commit·PR·배포 시각·Web ACL ID·실제 요청 상태 요약·비소비 비교 결과를 남긴다.
   template assertion이나 WAF 로그의 COUNT만으로 실제 차단 완료를 표시하지 않는다.
+
+## CLI OIDC 오탐 회귀 검증
+
+배포 전 확인된 403은 정확한 `/api/v1/auth/oidc/authorize`의 `EC2MetaDataSSRF_QueryArguments`와
+`GenericRFI_QueryArguments` label이 `AppQueryLabelBlock`에서 종료된 요청이다. query 원문은 계속 마스킹한다.
+ADR 0044는 원문 GET·URI·필수 다섯 파라미터와 선택 hint·loopback URI 전체가 검증된 경우에만 이 두 label을 제외한다.
+
+- 배포 전에 합성 Rules의 `CheckCapacity`가 성공하는지 확인한다. 2026-10-28 최종 후보는 1,407 WCU로 서비스 검증을 통과했다.
+  불필요한 OR 직접 중첩은 평탄화했다. 합성 테스트와 `CheckCapacity`는 실제 요청 차단 검증을 대체하지 않는다.
+- 정상 CLI PKCE 요청의 loopback과 기존 HTTPS 웹 callback이 제공자 authorize로 이동하는지 확인한다.
+  실제 로그인은 정상 브라우저·callback·token 교환을 사용하며 로그/증거에 URL query·코드·토큰을 쓰지 않는다.
+- 무인 공격 검증은 별도 비밀 없는 fixture로 수행한다. SSRF/RFI label을 유발하는 잘못된 redirect, 중복/unknown key,
+  인코딩 구분자, 다른 query 공격 label 동시 탐지가 계속 403인지 확인한다. WAF가 탐지하지 않은 fixture는
+  backend 400일 수 있으므로 403과 동일한 증거로 기록하지 않는다.
+- 실제 로그에서는 URI·action·terminating rule·label·query redaction 여부만 수집한다. 모든 header/query 출력은 금지한다.
+- 국가·IP·header·본문·URI·remaining rate 정책과 기존 sampling/data protection의 변경이 없어야 한다.
 
 ## 복구
 

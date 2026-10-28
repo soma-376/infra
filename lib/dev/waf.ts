@@ -66,6 +66,12 @@ const CONTENT_RULES = {
   },
 } as const;
 
+// 정상 CLI loopback redirect에서 실제로 관측한 두 오탐만 좁힌다. (ADR-0044)
+const CLI_OIDC_QUERY_LABELS = [
+  `${CONTENT_RULES.common.prefix}EC2MetaDataSSRF_QueryArguments`,
+  `${CONTENT_RULES.common.prefix}GenericRFI_QueryArguments`,
+] as const;
+
 /**
  * dev ALB 전용 정책 (ADR-0027). Count는 평가를 계속하므로 OTLP 본문이나 debug SQL의
  * Count 예외가 국가·악성 IP·URI·헤더 등 다른 Block 규칙까지 우회하지 않는다.
@@ -256,11 +262,17 @@ function buildRules(): CfnWebACL.RuleProperty[] {
       and([contentLabels('body'), app, not(otlp)]),
       { block: {} },
     ),
-    // query는 OTLP를 포함한 앱 경로에서 Block하고 경로 밖 SQL 디버깅에서는 Count한다.
+    // query는 앱 경로에서 Block한다. 정상 CLI의 두 loopback 오탐만 제외하며
+    // 다른 query label이 함께 있으면 계속 Block한다. (ADR-0044)
     actionRule(
       'AppQueryLabelBlock',
       100,
-      and([contentLabels('query'), app]),
+      and([app, or([
+        ...Object.values(CONTENT_RULES).flatMap(group => group.query
+          .map(([, suffix]) => `${group.prefix}${suffix}`))
+          .filter(key => !CLI_OIDC_QUERY_LABELS.some(exception => exception === key)).map(label),
+        and([or(CLI_OIDC_QUERY_LABELS.map(label)), not(validCliOidcLoopback())]),
+      ])]),
       { block: {} },
     ),
     // Windows 설치 파일의 .exe URI를 위해 확장자 탐지만 /bin/에서 Count한다.
@@ -275,6 +287,46 @@ function buildRules(): CfnWebACL.RuleProperty[] {
       { block: {} },
     ),
   ];
+}
+
+/**
+ * SingleQueryArgument만 검사하면 중복 값 중 하나의 일치로 예외가 열릴 수 있다.
+ * 전체 항목 수와 각 필수 key/value를 같이 검사하여 순서와 무관하게 5개 또는 6개만 허용한다.
+ * query 전체 decode가 encoded &를 가짜 구분자로 만들지 못하게 원문 %26은 닫는다.
+ * PCRE의 \A·\z는 마지막 개행 앞을 허용하는 $와 달리 문자열 전체 경계를 고정한다.
+ */
+function validCliOidcLoopback(): Statement {
+  const query = (regexString: string): Statement => ({ regexMatchStatement: {
+    regexString, fieldToMatch: { queryString: {} },
+    textTransformations: [{ priority: 0, type: 'URL_DECODE' }],
+  } });
+  const parameter = (key: string, value: string): Statement => query(`(?:\\A|&)${key}=${value}(?:&|\\z)`);
+  const maxLength = (name: string, size: number): Statement => ({ sizeConstraintStatement: {
+    // CDK의 singleQueryArgument는 비정형 객체이므로 CloudFormation의 Name 철자를 쓴다.
+    fieldToMatch: { singleQueryArgument: { Name: name } }, comparisonOperator: 'LE', size,
+    textTransformations: [{ priority: 0, type: 'URL_DECODE' }],
+  } });
+  const items = (count: number): Statement => query(`\\A(?:[a-z_]+=[^&]*&){${count - 1}}[a-z_]+=[^&]*\\z`);
+  // Java URI.getPort와 같이 1..65535이며 선행 0은 허용한다. URI 길이는 별도 제한한다.
+  const port = '0*(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])';
+  return and([
+    path('/api/v1/auth/oidc/authorize'),
+    { byteMatchStatement: { fieldToMatch: { method: {} }, positionalConstraint: 'EXACTLY',
+      searchString: 'GET', textTransformations: [{ priority: 0, type: 'NONE' }] } },
+    not({ byteMatchStatement: { fieldToMatch: { queryString: {} }, positionalConstraint: 'CONTAINS',
+      searchString: '%26', textTransformations: [{ priority: 0, type: 'NONE' }] } }),
+    parameter('tenant_id', '[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}'),
+    parameter('redirect_uri', `http://(?:127\\.0\\.0\\.1|\\[::1\\]):${port}/callback`),
+    maxLength('redirect_uri', 256),
+    parameter('state', '[A-Za-z0-9._~-]{16,256}'),
+    parameter('code_challenge', '[A-Za-z0-9_-]{43}'),
+    parameter('code_challenge_method', 'S256'),
+    or([items(5), and([
+      items(6),
+      parameter('login_hint', '[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,63}'),
+      maxLength('login_hint', 254),
+    ])]),
+  ]);
 }
 
 /**
