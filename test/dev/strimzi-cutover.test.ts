@@ -26,10 +26,10 @@ describe('Strimzi main Gateway 준비와 공개 전환', () => {
   const gateway = buildDevApp({ ...context, devEksOtlpTarget: 'gateway' });
   const gatewayEdge = asJson(gateway.edge);
 
-  test('main/Strimzi/retain·ALB Gateway·JWT 발급을 유지하며 ingest를 Kafka 전용으로 둔다', () => {
+  test('main/Strimzi/network-removed·ALB Gateway·JWT 발급과 Kafka 전용 ingest를 유지한다', () => {
     expect(profile.context).toMatchObject({
       devEksArchivePrefix: 'eks', devKafkaProvider: 'strimzi',
-      devMskRetirementStage: 'retain', devEksOtlpTarget: 'gateway',
+      devMskRetirementStage: 'network-removed', devEksOtlpTarget: 'gateway',
     });
     const runtime = load(readFileSync(profile.runtimeValuesPath, 'utf8')) as any;
     expect(runtime.ingestMode).toBe('kafka');
@@ -38,7 +38,7 @@ describe('Strimzi main Gateway 준비와 공개 전환', () => {
 
   test('준비는 HTTPS OTLP Actions만 ingest100/Gateway0으로 바꾸고 전체 나머지 Edge와 output을 보존한다', () => {
     // Edge는 MSK 리소스를 소유하지 않는다. 같은 입력의 MSK Edge가 준비 전 단일 ingest 형태다.
-    const before = asJson(buildDevApp({ ...context, devKafkaProvider: 'msk', devEksOtlpTarget: 'ingest' }).edge);
+    const before = asJson(buildDevApp({ ...context, devKafkaProvider: 'msk', devMskRetirementStage: 'retain', devEksOtlpTarget: 'ingest' }).edge);
     expect(rule(before).Actions).toEqual(single(before, 'ingest'));
     expect(rule(preparedEdge).Actions).toEqual(weighted(preparedEdge));
     expect(preparedEdge.Outputs.ValidationOtlpTarget).toEqual({ Value: 'ingest' });
@@ -64,7 +64,7 @@ describe('Strimzi main Gateway 준비와 공개 전환', () => {
     ['msk', 'eks', 'gateway'], ['msk', 'eks_validation', 'gateway'],
     ['strimzi', 'eks_validation', 'ingest'], ['strimzi', 'eks_validation', 'gateway'],
   ])('%s/%s/%s는 기존 단일 target action을 유지한다', (provider, prefix, target) => {
-    const edge = asJson(buildDevApp({ ...context, devKafkaProvider: provider, devEksArchivePrefix: prefix, devEksOtlpTarget: target }).edge);
+    const edge = asJson(buildDevApp({ ...context, devKafkaProvider: provider, devMskRetirementStage: provider === 'msk' ? 'retain' : context.devMskRetirementStage, devEksArchivePrefix: prefix, devEksOtlpTarget: target }).edge);
     expect(rule(edge).Actions).toEqual(single(edge, target));
     const expected = structuredClone(preparedEdge);
     expected.Resources[ruleId].Properties.Actions = single(preparedEdge, target);

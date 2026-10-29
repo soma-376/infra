@@ -49,8 +49,9 @@ Operator의 9093 접속은 필요하지 않으므로 해당 앱 listener의 peer
 
 병렬 준비 profile은 `devKafkaProvider=strimzi`, `devMskRetirementStage=retain`, `devEksOtlpTarget=ingest`,
 `devEksArchivePrefix=eks_validation`으로 시작한다. diff에서 새 Kafka SG만 추가되고 기존 MSK·PVC·Data 리소스는 삭제/교체되지 않는지 확인한다.
-현재 추적 profile은 §4의 main 준비 단계(`eks`, `retain`, ALB ingest)다. validation 준비를 재현할 때는
-그 단계의 profile과 일치하는 output·metadata를 사용하며 main profile에 validation output을 섞지 않는다.
+최종 추적 profile은 §6의 후속 정합 상태(`eks`, `network-removed`, ALB Gateway, ingest kafka)를 나타낸다.
+이 profile은 실제 두 단계 철거와 MSK/ENI 부재 확인 뒤에만 머지·사용하며, 아래 초기 설치 절차로 삭제를 시작하지 않는다.
+validation 준비를 재현할 때는 해당 단계의 별도 profile과 일치하는 output·metadata를 사용하며 main profile에 validation output을 섞지 않는다.
 `DEPLOYMENT_PROFILE`은 이번 CDK 적용에 사용한 추적 profile의 파일 경로다. validation 재현에는
 `devEksArchivePrefix=eks_validation`인 profile을 선택한다. 같은 파일을 §3 앱 값 생성에도 사용한다.
 기존 절차로 CDK를 적용해 output을 모은 후:
@@ -294,6 +295,8 @@ stage 외 origin·인증서·main prefix·Gateway 대상·runtime·키 버전을
 4. Kafka 재접속·lag·ISR·앱 E2E를 다시 확인하고 비용/리소스 잔존을 기록한다. MSK 삭제 후 재생성은 복구 절차가 아니다.
 5. 두 수동 삭제가 끝난 뒤에만 추적 profile을 `network-removed`로 갱신하는 별도 PR을 만든다.
    CI가 실제 안정 AWS baseline의 MSK cluster/configuration·전용 SG/subnet 부재를 확인해야 한다.
+   이 최종 profile은 이미 수동 철거한 baseline과 소스를 맞추는 용도다. PR 본문에 두 단독 배포·ENI0·수집 보존의
+   실제 증거를 연결하고, retain 합성본과의 삭제 차이만으로 live 삭제 성공이나 자동 최초 삭제를 승인하지 않는다.
 
 수동 철거 완료 후 `network-removed` profile의 다음 자동 plan은 실제 AWS baseline에서 MSK 부재를 검사한다.
 verify는 무결성 검증된 baseline artifact를 검사하고 deploy는 실제 AWS baseline을 다시 읽어 승인 당시와 비교한다.
