@@ -98,6 +98,9 @@ Strimzi 모드는 MSK ARN/bootstrap/list-nodes 입력이 필요 없다. MSK 조�
 init container의 readable/nonempty 확인 후 backend가 PKCS12와 password를 검증한다. 비밀번호는 YAML/env/로그에 없다.
 관측 설치는 [관측 런북](dev-observability.md)과 생성한 observability.yaml을 사용한다. broker/exporter는9404,
 operator는8080, entity operator는8080/8081이며 해당 namespace selector·SG 경로를 함께 확인한다.
+Fluent Bit도 정적 runtime values → Loki overlay(사용 중인 경우) → generated values 순서로 갱신한다.
+`workload=kafka` toleration이 반영되고 Kafka 노드 3대마다 Fluent Bit·node-exporter Pod가 Ready인지 확인한다.
+broker 로그가 `/eks/dev/application` 및 사용 중인 Loki에 도착해야 로그 수집 완료다.
 
 ## 4. 실제 승인 기준과 main 전환
 
