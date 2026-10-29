@@ -174,8 +174,19 @@ validation E2E를 확인한 뒤 기존 HTTP ALB 경로를 유지한 채 아래 �
    승인된 CD plan을 배포한 뒤 공개 ALB에 실제 telemetry JWT 요청을 보내 Gateway Kafka ACK → main consumer → offset commit 및
    S3/ClickHouse 저장을 확인한다. 로그인·등록 경로도 유지되어야 한다. 실패 시 dual ingest가 Ready인 것을 확인하고
    profile의 OTLP 대상만 `ingest`로 되돌려 ingest 100/Gateway 0 준비 상태로 복구한다. Kafka/PVC/offset은 지우거나 초기화하지 않는다.
-7. 공개 경로 성공 뒤 별도 runtime PR에서만 `ingestMode=kafka`로 바꾸고 새 values/Helm을 적용한다.
-   이때 ingest의 HTTP TGB가 사라지므로 이후 HTTP 복구는 dual ingest/TGB를 먼저 복구한 뒤 ALB를 되돌린다.
+7. 공개 경로 성공 뒤 별도 runtime PR에서만 `ingestMode=kafka`로 바꾼다. 실제 ALB rule과 새 CDK output이
+   이미 Gateway를 가리키고 main consumer가 정상인 것을 다시 확인한다. 생성기는 ALB ingest + Kafka 전용 조합을 거부한다.
+   전환 전에 현재 main output·기존 앱 이미지 digest·JWT 키 버전·최신 Strimzi Secret metadata로
+   main `dual` 복구 values를 새로 생성해 비공개 실행 폴더에 보관한다. 현행 runtime 사본에서 `ingestMode`만 dual로
+   바꿔 `--runtime-values`로 공급한다. 이는 Secret 원문 복제나 validation 배포 재사용을 의미하지 않는다.
+8. 같은 입력으로 Kafka 전용 values를 생성하고 ingest release에만 적용한다. Service는 ClusterIP로 바뀌어
+   NodePort를 해제하고 HTTP TGB는 제거된다. CDK 소유 ingest TG와 Gateway의 NodePort/TGB는 남긴다.
+   TGB 삭제/finalizer 완료, ingest Ready·main consumer commit, 공개 Gateway ACK와 S3/ClickHouse 저장을 확인한다.
+   runtime 변경·Helm 적용은 서로 별도다. 이번 단계는 ALB·CDK 리소스를 바꾸거나 Kafka offset을 초기화하지 않는다.
+9. Kafka 전용 전환 후 HTTP 복구가 필요하면 현재 입력과 인증서 metadata를 대조하여 main dual values를
+   다시 생성하거나 보관본의 유효성을 확인한다. main dual ingest/TGB를 먼저 배포하고 직접 서비스·NodePort·Pod Ready·
+   target 등록을 확인한 뒤 ALB 대상만 ingest로 되돌려 weight 100/0 준비 상태로 복구한다. listener 연결 전 NotInUse이면
+   healthy를 기다리지 않고 연결 뒤 실제 target healthy와 공개 수집을 확인한다. 과거 validation Helm revision으로 rollback하지 않는다.
 
 두 prefix 권한은 세 조건이 모두 일치할 때만 존재한다. `cluster-removed` 배포에서 validation 권한을 회수하며
 `network-removed`도 main 권한만 유지한다. MSK 공급자·validation prefix·prod에는 추가 경로를 주지 않는다.

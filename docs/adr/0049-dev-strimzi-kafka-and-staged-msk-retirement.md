@@ -65,6 +65,12 @@ ADR-0037의 MSK 관측 부분을 대체한다. 기존 HTTP 복구·JWT·Data·pr
   이때는 기존 단일 Gateway forward action을 사용한다. main prefix·Strimzi·retain·JWT 발급·dual을 유지하며,
   공개 ALB의 실제 Kafka ACK/consume/commit·S3/ClickHouse 검증 후 별도 runtime 변경으로만 ingest를 `kafka`로 바꾼다.
   가중치 0 연결만으로 실제 healthy 또는 Kafka 수집 성공을 판정하지 않는다.
+- Kafka 전용 runtime 적용은 실제 ALB가 이미 Gateway를 가리킬 때만 수행한다. Helm은 ingest Service를
+  ClusterIP로 바꾸어 NodePort를 해제하고 HTTP TargetGroupBinding을 제거한다. CDK 소유 ingest TG는 보존한다.
+  HTTP 복구용 main dual values는 현재 main output·이미지 digest·JWT 버전·Strimzi Secret metadata로 새로 생성해
+  비공개로 보관한다. 인증서나 입력이 바뀌면 다시 생성하며, 과거 validation Helm revision을 복구 원본으로 쓰지 않는다.
+  복구는 main dual 수신기/TGB의 직접 서비스·NodePort·Ready·등록 확인 → ALB ingest 연결 → 실제 healthy 확인 순서다.
+  listener에 연결되기 전 ingest TG가 NotInUse이면 healthy를 기다리지 않는다. Kafka 데이터·offset·PVC는 유지한다.
 
 ## Alternatives Considered
 

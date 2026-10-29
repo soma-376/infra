@@ -81,8 +81,8 @@ function strimziOutputs(result: any = outputs()) {
 const strimziMetadata = (currentStage = 'validation') => ({ items: ['soma-376-dev-telemetry-cluster-ca-cert', ...['gateway', 'ingest', 'topic-admin', 'offset-admin'].map(role => `pulsemetry-${role}-${currentStage}`)].map((name, i) => ({ metadata: { name, namespace: 'pulsemetry-dev', uid: `fixture-${i}`, resourceVersion: '123' } })) });
 
 const oidcArn = (key: string) => secret(`soma-376/dev/oidc/clients/${key}`);
-function oidcOutputs(prefix = 'eks_validation') {
-  const source = outputs(prefix);
+function oidcOutputs(prefix = 'eks_validation', otlpTarget = 'ingest') {
+  const source = outputs(prefix, otlpTarget);
   return { ...source, DevDataStack: { ...source.DevDataStack, OidcClientSecretArns: JSON.stringify(Object.fromEntries(
     ['cognito-a', 'cognito-b', 'unused'].map(key => [key, oidcArn(key)]),
   )) } };
@@ -164,7 +164,7 @@ describe('배포 output→values 변환', () => {
   });
 
   test('공식 배포 프로필은 다른 cwd에서도 상대 runtime을 읽고 현행 키·issuer·TLS·tracing을 보존한다', () => {
-    const source = strimziOutputs(oidcOutputs('eks'));
+    const source = strimziOutputs(oidcOutputs('eks', 'gateway'));
     source.DevEdgeStack.ValidationPublicBaseUrl = 'https://api-dev.pulsemetry.co.kr';
     const runtime = load(readFileSync(join(root, 'config/dev/runtime.yaml'), 'utf8'));
     const output = run(source, undefined, undefined, undefined, {
@@ -196,7 +196,9 @@ describe('배포 output→values 변환', () => {
     }
     expect(dashboard.env.PULSEMETRY_DASHBOARD_RDS_SOURCE_URL).toBe('jdbc:postgresql://database.example.test:5432/controlplane');
     expect(dashboard.env.PULSEMETRY_DASHBOARD_RDS_CACHE_URL).toBe('jdbc:postgresql://database.example.test:5432/controlplane');
-    expect(ingest.ingestMode).toBe(runtime.ingestMode);
+    expect(ingest.ingestMode).toBe('kafka');
+    expect(ingest.service).toEqual({ type: 'ClusterIP' });
+    expect(ingest.targetGroupBindings).toEqual([]);
     expect(ingest.kafka.topic).toBe('pulsemetry-dev-telemetry-ingress-main');
     expect(gateway.kafka.topic).toBe('pulsemetry-dev-telemetry-ingress-main');
     expect(ingest.kafka.consumerGroup).toBe('pulsemetry-dev-telemetry-ingest-main');
@@ -210,8 +212,37 @@ describe('배포 output→values 변환', () => {
     for (const file of readdirSync(output.dir)) expect(output.read(file)).toEqual(explicit.read(file));
   });
 
+  test('main Kafka 전용에서 fresh dual HTTP 복구는 같은 자격·topic·prefix를 유지하고 ALB 선행 전환을 요구한다', () => {
+    const source = strimziOutputs(oidcOutputs('eks', 'gateway'));
+    source.DevEdgeStack.ValidationPublicBaseUrl = 'https://api-dev.pulsemetry.co.kr';
+    const current = load(readFileSync(join(root, 'config/dev/runtime.yaml'), 'utf8'));
+    const options = { profile: join(root, 'config/dev/deployment.json'), strimziSecrets: JSON.stringify(strimziMetadata('main')) };
+    const kafka = run(source, undefined, undefined, dump(current), options);
+    const dual = run(source, undefined, undefined, dump({ ...current, ingestMode: 'dual' }), options);
+    expect(kafka.result.status).toBe(0);
+    expect(dual.result.status).toBe(0);
+    const kafkaIngest = kafka.read('telemetry-ingest.yaml'), dualIngest = dual.read('telemetry-ingest.yaml');
+    expect(kafkaIngest.service).toEqual({ type: 'ClusterIP' });
+    expect(kafkaIngest.targetGroupBindings).toEqual([]);
+    expect(dualIngest.ingestMode).toBe('dual');
+    expect(dualIngest.service).toBeUndefined();
+    // TGB의 validation 이름은 보존된 ALB 소유권 식별자이며 Kafka main stage와 독립이다.
+    expect(dualIngest.targetGroupBindings).toEqual([{ stage: 'validation', targetGroupARN: tg('ingest-v'), confirmExclusiveOwnership: true }]);
+    const { ingestMode: _mode, service: _service, targetGroupBindings: _bindings, ...preserved } = kafkaIngest;
+    expect(dualIngest).toEqual({ ...preserved, ingestMode: 'dual', targetGroupBindings: dualIngest.targetGroupBindings });
+    for (const file of readdirSync(kafka.dir).filter(name => name !== 'telemetry-ingest.yaml')) {
+      expect(dual.read(file)).toEqual(kafka.read(file));
+    }
+    const oldAlb = structuredClone(source);
+    oldAlb.DevEdgeStack.ValidationOtlpTarget = 'ingest';
+    const rejected = run(oldAlb, undefined, undefined, dump(current), options);
+    expect(rejected.result.status).not.toBe(0);
+    expect(rejected.result.stderr).toContain('ValidationOtlpTarget=ingest');
+    expect(existsSync(rejected.dir)).toBe(false);
+  });
+
   test('프로필과 도메인이 일치하는 명시적 runtime 입력을 우선한다', () => {
-    const source = strimziOutputs(oidcOutputs('eks'));
+    const source = strimziOutputs(oidcOutputs('eks', 'gateway'));
     source.DevEdgeStack.ValidationPublicBaseUrl = 'https://api-dev.pulsemetry.co.kr';
     const runtime = load(readFileSync(join(root, 'config/dev/runtime.yaml'), 'utf8'));
     runtime.userAuth.audience = 'explicit-runtime-audience';
@@ -264,7 +295,7 @@ describe('배포 output→values 변환', () => {
     const file = join(temp, 'deployment.json');
     writeFileSync(file, JSON.stringify(profile));
     const runtime = readFileSync(join(root, 'config/dev/runtime.yaml'), 'utf8');
-    const source = oidcOutputs('eks'); source.DevEdgeStack.ValidationPublicBaseUrl = profile.publicBaseUrl;
+    const source = oidcOutputs('eks', 'gateway'); source.DevEdgeStack.ValidationPublicBaseUrl = profile.publicBaseUrl;
     const accepted = run(source, undefined, undefined, runtime, { profile: file });
     expect({ status: accepted.result.status, stderr: accepted.result.stderr }).toEqual({ status: 0, stderr: '' });
     const rejected = run(strimziOutputs(source), undefined, undefined, runtime, { profile: file, strimziSecrets: JSON.stringify(strimziMetadata()) });
