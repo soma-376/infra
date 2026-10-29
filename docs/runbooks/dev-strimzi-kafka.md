@@ -149,14 +149,19 @@ validation E2E를 확인한 뒤 기존 HTTP ALB 경로를 유지한 채 아래 �
 
 1. 추적 profile을 `strimzi`, `devEksArchivePrefix=eks`, `retain`, `devEksOtlpTarget=ingest`로 변경한다.
    `runtime.yaml`의 `ingestMode=dual`·telemetry JWT 발급 활성화·기존 키 버전·이미지 digest는 유지한다.
-   CDK diff에서 ingest S3 정책만 정확한 `eks/*` + `eks_validation/*` PutObject/TLS 조건으로 확장되는지 확인하고
+   CDK diff에서 ingest S3 정책이 정확한 `eks/*` + `eks_validation/*` PutObject/TLS 조건으로 확장되는지 확인하고
    이를 먼저 배포한다. 아직 실행 중인 validation HTTP ingest는 `eks_validation/*`에 계속 쓸 수 있어야 한다.
+   현재 코드는 이 profile 조건에서 Edge의 ingest 100/Gateway 0 연결도 함께 합성한다. 따라서 이 버전으로 main을
+   처음 적용하면 내부 E2E 전에도 listener 준비가 반영될 수 있다. weight 0은 외부 수집을 Gateway로 보내지 않으며,
+   내부 main E2E 성공과 실제 Gateway healthy는 이후 단일 Gateway 전환 전에 반드시 확인하는 운영 gate다.
 2. validation Gateway의 합성 입력을 중지하고 validation backlog가 모두 처리·commit됐는지 확인한다.
    외부 HTTP 수집은 계속 유지한다. Kafka 데이터나 offset을 main으로 복사하지 않는다.
 3. main CDK 적용 후 `DEPLOYMENT_PROFILE=config/dev/deployment.json`을 선택한다. 새 `KafkaStage=main` output과
    main Secret metadata로 앱 값을 다시 만들고 main `dual` ingest와 Gateway를 배포한다.
    실제 Pod의 prefix·topic·group·인증서와 HTTP 및 내부 main ACK/consume/commit/S3/ClickHouse를 확인한다.
-4. 내부 main 검증 뒤 listener 연결 준비를 먼저 적용한다. Gateway TG가 아직 어느 listener에도 참조되지 않으면
+4. 내부 main 검증 뒤 listener 연결 준비가 적용됐는지 확인하고, 아직 없으면 적용한다. 이번 전환은 `a26a90f`의
+   main CDK·앱과 내부 E2E를 먼저 검증한 뒤 준비 코드를 추가했으므로 이 단계에서 Edge만 별도로 바뀐다.
+   Gateway TG가 아직 어느 listener에도 참조되지 않으면
    `unused/Target.NotInUse`이며 healthy를 기다려도 health check가 시작되지 않는다.
    `strimzi` + main prefix `eks` + `devEksOtlpTarget=ingest`에서만 기존 OTLP 규칙을 ingest weight 100/Gateway weight 0으로 연결한다.
    실제 외부 수집은 ingest로 유지하고 `ValidationOtlpTarget=ingest`, `retain`, `ingestMode=dual`·JWT 발급·키 버전을 보존한다.
