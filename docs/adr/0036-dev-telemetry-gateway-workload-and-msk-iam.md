@@ -2,6 +2,8 @@
 
 ## Status
 
+부분 대체: dev Strimzi 공급자·mTLS·토픽 소유·관측 및 단계적 MSK 제거는 [ADR-0049](0049-dev-strimzi-kafka-and-staged-msk-retirement.md)를 따른다. 기존 HTTP·JWT·Data·prod 경계는 유지한다.
+
 Accepted (PROJ-246; 로컬 구현·검증 대상, AWS 배포·MSK IAM 실접속·ALB 전환 증거 별도)
 
 [ADR-0028](0028-dev-eks-auto-mode-transition.md)의 "앱 세 종류, 모든 앱 NodePort" 전제와

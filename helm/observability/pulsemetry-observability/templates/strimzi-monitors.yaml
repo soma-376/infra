@@ -1,0 +1,49 @@
+{{- if eq .Values.global.pulsemetry.kafkaProvider "strimzi" }}
+{{- $p := .Values.global.pulsemetry }}
+{{- /* Strimzi 1.3.0의 exporter도 tcp-prometheus(9404)다. upstream standalone 9308을 쓰지 않는다. */}}
+{{- range $target := list
+  (dict "job" "strimzi-jmx" "namespace" $p.targetNamespace "labels" (dict "strimzi.io/cluster" $p.kafkaClusterName "strimzi.io/name" (printf "%s-kafka" $p.kafkaClusterName)) "ports" (list "tcp-prometheus"))
+  (dict "job" "strimzi-exporter" "namespace" $p.targetNamespace "labels" (dict "strimzi.io/cluster" $p.kafkaClusterName "strimzi.io/name" (printf "%s-kafka-exporter" $p.kafkaClusterName)) "ports" (list "tcp-prometheus"))
+  (dict "job" "strimzi-cluster-operator" "namespace" "strimzi-system" "labels" (dict "strimzi.io/kind" "cluster-operator") "ports" (list "http"))
+  (dict "job" "strimzi-entity-operator" "namespace" $p.targetNamespace "labels" (dict "strimzi.io/cluster" $p.kafkaClusterName "app.kubernetes.io/name" "entity-operator") "ports" (list "healthcheck-to" "healthcheck-uo")) }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ $target.job }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    observability.pulsemetry.io/stack: pulsemetry
+spec:
+  namespaceSelector:
+    matchNames: [{{ $target.namespace | quote }}]
+  selector:
+    matchLabels:
+      {{- toYaml $target.labels | nindent 6 }}
+  podMetricsEndpoints:
+    {{- range $port := $target.ports }}
+    - port: {{ $port }}
+      path: /metrics
+      interval: 10s
+      scrapeTimeout: 5s
+      honorLabels: false
+      relabelings:
+        - targetLabel: job
+          replacement: {{ $target.job }}
+        - targetLabel: cluster
+          replacement: {{ $p.clusterName | quote }}
+        - targetLabel: kafka_cluster
+          replacement: {{ $p.kafkaClusterName | quote }}
+        - targetLabel: environment
+          replacement: {{ $p.environment | quote }}
+      metricRelabelings:
+        # Operator CA 지표의 cluster는 Kafka 이름이다. 공통 cluster=EKS와 혼동하지 않는다.
+        - sourceLabels: [exported_cluster]
+          regex: '(.+)'
+          targetLabel: kafka_cluster
+          replacement: '$1'
+        - action: labeldrop
+          regex: 'exported_cluster|request_id|trace_id|tenant_id|member_id|installation_id|run_id|exception_message'
+    {{- end }}
+{{- end }}
+{{- end }}

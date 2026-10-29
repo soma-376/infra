@@ -1,0 +1,138 @@
+{{- if ne .Release.Namespace "pulsemetry-dev" }}{{ fail "Kafka namespace는 pulsemetry-dev다" }}{{ end }}
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: dual-role
+  namespace: {{ .Release.Namespace }}
+  labels:
+    strimzi.io/cluster: {{ .Values.clusterName }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  replicas: 3
+  roles: [controller, broker]
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: 100Gi
+        class: pulsemetry-kafka-gp3
+        deleteClaim: false
+        kraftMetadata: shared
+  resources:
+    requests: {cpu: "1", memory: 4Gi}
+    limits: {memory: 6Gi}
+  jvmOptions:
+    -Xms: 2g
+    -Xmx: 2g
+  template:
+    pod:
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: kafka
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: karpenter.sh/nodepool
+                    operator: In
+                    values: [pulsemetry-dev-kafka]
+                  - key: topology.kubernetes.io/zone
+                    operator: In
+                    values: [{{ .Values.availabilityZone | quote }}]
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  strimzi.io/cluster: {{ .Values.clusterName }}
+                  strimzi.io/pool-name: dual-role
+              topologyKey: kubernetes.io/hostname
+      terminationGracePeriodSeconds: 120
+---
+apiVersion: kafka.strimzi.io/v1
+kind: Kafka
+metadata:
+  name: {{ .Values.clusterName }}
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  clusterCa: {validityDays: 365, renewalDays: 30}
+  clientsCa: {validityDays: 365, renewalDays: 30}
+  kafka:
+    version: 4.2.2
+    image: quay.io/strimzi/kafka@sha256:b9b9e37491ce17c1b2722b3668661de91430d9437acf18c5f5bafaef38138652
+    listeners:
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+        authentication: {type: tls}
+        networkPolicyPeers:
+          - podSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [telemetry-gateway, telemetry-ingest, telemetry-kafka-admin]
+    authorization: {type: simple}
+    config:
+      auto.create.topics.enable: false
+      default.replication.factor: 3
+      min.insync.replicas: 2
+      num.partitions: 6
+      unclean.leader.election.enable: false
+      message.max.bytes: 13631488
+      replica.fetch.max.bytes: 13631488
+      log.retention.hours: 72
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+    metricsConfig:
+      type: jmxPrometheusExporter
+      valueFrom:
+        configMapKeyRef:
+          name: pulsemetry-kafka-metrics
+          key: kafka-metrics-config.yml
+    template:
+      podDisruptionBudget:
+        maxUnavailable: 1
+  entityOperator:
+    topicOperator:
+      resources:
+        requests: {cpu: 100m, memory: 256Mi}
+        limits: {memory: 512Mi}
+    userOperator:
+      resources:
+        requests: {cpu: 100m, memory: 256Mi}
+        limits: {memory: 512Mi}
+    template:
+      pod:
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: karpenter.sh/nodepool
+                      operator: In
+                      values: [pulsemetry-dev-apps]
+  kafkaExporter:
+    image: quay.io/strimzi/kafka@sha256:b9b9e37491ce17c1b2722b3668661de91430d9437acf18c5f5bafaef38138652
+    topicRegex: "pulsemetry-dev-telemetry-ingress-(validation|main)"
+    groupRegex: "pulsemetry-dev-telemetry-ingest-(validation|main)"
+    resources:
+      requests: {cpu: 100m, memory: 128Mi}
+      limits: {memory: 256Mi}
+    template:
+      pod:
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: karpenter.sh/nodepool
+                      operator: In
+                      values: [pulsemetry-dev-apps]

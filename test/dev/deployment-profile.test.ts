@@ -83,8 +83,8 @@ describe('추적된 dev 배포 profile', () => {
     ]) expect(() => readFixture({ ...base, certificates })).toThrow(/certificates/);
   });
 
-  test('모든 현재 context를 요구하고 임의 context·비밀 필드를 거부한다', () => {
-    for (const key of Object.keys(fixture().context)) {
+  test('기존 필수 context를 요구하고 임의 context·비밀 필드를 거부한다', () => {
+    for (const key of Object.keys(fixture().context).filter(key => !['devKafkaProvider', 'devMskRetirementStage'].includes(key))) {
       const value = fixture();
       delete value.context[key];
       expect(() => readFixture(value)).toThrow(key);
@@ -96,11 +96,23 @@ describe('추적된 dev 배포 profile', () => {
     }
   });
 
+  test('기존 profile은 MSK 유지로 해석하고 삭제는 Strimzi에서만 허용한다', () => {
+    const value = fixture();
+    delete value.context.devKafkaProvider;
+    delete value.context.devMskRetirementStage;
+    expect(readFixture(value).context).toMatchObject({ devKafkaProvider: 'msk', devMskRetirementStage: 'retain' });
+    value.context.devMskRetirementStage = 'cluster-removed';
+    expect(() => readFixture(value)).toThrow('devMskRetirementStage');
+    value.context.devKafkaProvider = 'strimzi';
+    expect(readFixture(value).context.devMskRetirementStage).toBe('cluster-removed');
+  });
+
   test.each([
     ['devOidcClientKeys', '["same","same"]'], ['devOidcClientKeys', ['bad key']],
     ['devAllowedCidr', '0.0.0.0/33'], ['devAllowedCidr', '999.0.0.0/24'], ['devAllowedCidr', ''],
     ['devAllowedCidr', '0.0.0.0/0,0.0.0.0/0'], ['devHttpRedirectEnabled', 'yes'],
     ['devEksArchivePrefix', 'unknown'], ['devEksOtlpTarget', 'unknown'],
+    ['devKafkaProvider', 'unknown'], ['devMskRetirementStage', 'unknown'],
   ])('context %s의 잘못된 값을 거부한다', (key, value) => {
     const raw = fixture();
     raw.context[key as string] = value;

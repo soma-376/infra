@@ -11,7 +11,7 @@ import { IVpc, ISecurityGroup, ISubnet } from 'aws-cdk-lib/aws-ec2';
 import { CfnAccessEntry, CfnCluster } from 'aws-cdk-lib/aws-eks';
 import { AccountPrincipal, ManagedPolicy, PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
-import { DEV_EKS_CLUSTER_NAME, DEV_EKS_NODE_PORTS, DEV_EKS_OPERATOR_ROLE_NAME, DEV_EKS_VERSION, DevEksConfig, devTelemetryStage } from './eks-config';
+import { DEV_EKS_CLUSTER_NAME, DEV_EKS_NODE_PORTS, DEV_EKS_OPERATOR_ROLE_NAME, DEV_EKS_VERSION, DevEksConfig, devTelemetryStage, devTelemetryTopicName, devTelemetryConsumerGroupName } from './eks-config';
 
 export interface DevEksStackProps extends StackProps {
   readonly dbEndpoint: string;
@@ -38,7 +38,8 @@ export interface DevEksStackProps extends StackProps {
   readonly observabilityNodeSecurityGroup: ISecurityGroup;
   /** ADR-0035의 MSK 전용 subnet 3개와 broker SG. Network가 소유한다. */
   readonly mskSubnets: readonly ISubnet[];
-  readonly mskSecurityGroup: ISecurityGroup;
+  readonly mskSecurityGroup?: ISecurityGroup;
+  readonly kafkaNodeSecurityGroup?: ISecurityGroup;
   readonly config: DevEksConfig;
 }
 
@@ -47,7 +48,7 @@ export class DevEksStack extends Stack {
   public readonly cluster: CfnCluster;
   public readonly nodeRole: Role;
   public readonly operatorRole: Role;
-  public readonly msk: DevEksMsk;
+  public readonly msk?: DevEksMsk;
 
   constructor(scope: Construct, id: string, props: DevEksStackProps) {
     super(scope, id, props);
@@ -107,10 +108,13 @@ export class DevEksStack extends Stack {
       clusterEndpoint: this.cluster.attrEndpoint, operatorRole: this.operatorRole,
     });
     new DevEksLbc(this, 'Lbc', { clusterName: this.cluster.ref });
-    this.msk = new DevEksMsk(this, 'Msk', {
-      subnets: props.mskSubnets, securityGroup: props.mskSecurityGroup,
-      stage: devTelemetryStage(props.config.archivePrefix),
-    });
+    const stage = devTelemetryStage(props.config.archivePrefix);
+    if (props.config.mskRetirementStage === 'retain') {
+      if (!props.mskSecurityGroup) throw new Error('MSK 보존 단계에는 broker SG가 필요하다');
+      this.msk = new DevEksMsk(this, 'Msk', {
+        subnets: props.mskSubnets, securityGroup: props.mskSecurityGroup, stage,
+      });
+    }
     const runtime = new DevEksRuntime(this, 'Runtime', {
       clusterName: this.cluster.ref, dbSecret: props.dbSecret,
       tokenHashSecret: props.tokenHashSecret, adminApiTokenSecret: props.adminApiTokenSecret,
@@ -126,14 +130,15 @@ export class DevEksStack extends Stack {
       rawSignalBucket: props.rawSignalBucket, archivePrefix: props.config.archivePrefix,
       telemetryJwtPrivateKeySecret: props.telemetryJwtPrivateKeySecret,
       telemetryJwtPublicKeysSecret: props.telemetryJwtPublicKeysSecret,
-      msk: { clusterArn: this.msk.cluster.attrArn, topicArn: this.msk.topicArn, consumerGroupArn: this.msk.consumerGroupArn },
+      msk: this.msk ? { clusterArn: this.msk.cluster.attrArn, topicArn: this.msk.topicArn, consumerGroupArn: this.msk.consumerGroupArn } : undefined,
     });
     new DevEksObservability(this, 'Observability', { clusterName: this.cluster.ref,
-      applicationLogGroup: runtime.applicationLogGroup, brokerLogGroup: this.msk.logGroup,
+      applicationLogGroup: runtime.applicationLogGroup, brokerLogGroup: this.msk?.logGroup,
       fluentBitRole: runtime.fluentBitRole, operatorRole: this.operatorRole,
     });
     new DevEksTelemetryAlarms(this, 'TelemetryAlarms', {
-      topicName: this.msk.topicName, consumerGroupName: this.msk.consumerGroupName,
+      topicName: devTelemetryTopicName(stage), consumerGroupName: devTelemetryConsumerGroupName(stage),
+      mskMetricsEnabled: props.config.kafkaProvider === 'msk',
       applicationLogGroup: runtime.applicationLogGroup,
     });
 
@@ -162,7 +167,16 @@ export class DevEksStack extends Stack {
       EksOperatorRoleArn: this.operatorRole.roleArn, EksOperatorRoleName: this.operatorRole.roleName,
       EksRelayInstanceId: relay.instance.instanceId,
       EksRelaySessionDocumentName: relay.sessionDocument.ref,
+      KafkaProvider: props.config.kafkaProvider,
+      KafkaStage: stage,
+      KafkaTopicName: devTelemetryTopicName(stage),
+      KafkaConsumerGroupName: devTelemetryConsumerGroupName(stage),
     };
+    if (props.config.kafkaProvider === 'strimzi') {
+      if (!props.kafkaNodeSecurityGroup) throw new Error('Strimzi 공급자에는 Kafka node SG가 필요하다');
+      outputs.EksKafkaNodeSecurityGroupId = props.kafkaNodeSecurityGroup.securityGroupId;
+      outputs.EksKafkaAvailabilityZone = props.vpc.publicSubnets[0].availabilityZone;
+    }
     for (const [name, value] of Object.entries(outputs)) {
       new CfnOutput(this, name, { value }).overrideLogicalId(name);
     }

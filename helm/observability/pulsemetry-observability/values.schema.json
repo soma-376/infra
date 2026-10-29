@@ -14,16 +14,14 @@
             "region",
             "clusterName",
             "grafanaAdminSecretArn",
-            "mskClusterName",
             "applicationLogGroup",
-            "brokerLogGroup",
             "observabilityLogGroup",
             "kubernetesEventsLogGroup",
             "diagnosticsBucket",
             "topic",
             "consumerGroup",
-            "mskBrokers",
-            "controlPlaneLogGroup"
+            "controlPlaneLogGroup",
+            "kafkaProvider"
           ],
           "properties": {
             "environment": {
@@ -53,8 +51,7 @@
             },
             "mskClusterName": {
               "type": "string",
-              "minLength": 1,
-              "pattern": "^[A-Za-z0-9_./:+-]+$"
+              "pattern": "^$|^[A-Za-z0-9_./:+-]+$"
             },
             "applicationLogGroup": {
               "type": "string",
@@ -63,8 +60,7 @@
             },
             "brokerLogGroup": {
               "type": "string",
-              "minLength": 1,
-              "pattern": "^[A-Za-z0-9_./:+-]+$"
+              "pattern": "^$|^[A-Za-z0-9_./:+-]+$"
             },
             "observabilityLogGroup": {
               "type": "string",
@@ -93,7 +89,6 @@
             },
             "mskBrokers": {
               "type": "array",
-              "minItems": 3,
               "maxItems": 3,
               "uniqueItems": true,
               "items": {
@@ -104,8 +99,60 @@
               "type": "string",
               "minLength": 1,
               "pattern": "^[A-Za-z0-9_./:+-]+$"
+            },
+            "kafkaProvider": {
+              "enum": [
+                "msk",
+                "strimzi"
+              ]
+            },
+            "kafkaClusterName": {
+              "type": "string",
+              "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "kafkaProvider": {
+                    "const": "msk"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "mskClusterName",
+                  "mskBrokers",
+                  "brokerLogGroup"
+                ],
+                "properties": {
+                  "mskClusterName": {
+                    "minLength": 1
+                  },
+                  "brokerLogGroup": {
+                    "minLength": 1
+                  },
+                  "mskBrokers": {
+                    "minItems": 3
+                  }
+                }
+              },
+              "else": {
+                "required": [
+                  "kafkaClusterName"
+                ],
+                "properties": {
+                  "kafkaClusterName": {
+                    "minLength": 1
+                  },
+                  "environment": {
+                    "const": "dev"
+                  }
+                }
+              }
+            }
+          ]
         }
       }
     }

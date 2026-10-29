@@ -2,7 +2,12 @@
 {{- $oidc := .Values.oidc | default (dict "enabled" false) -}}
 {{- $telemetry := .Values.telemetryJwt | default (dict "enabled" false) -}}
 {{- $kafka := .Values.kafka | default (dict "enabled" false) -}}
+{{- $mtls := and $kafka.enabled (eq ($kafka.security | default "iam") "mtls") -}}
 {{- $mounts := list -}}
+{{- if $mtls -}}
+{{- $mounts = append $mounts (dict "name" "kafka-ca" "mountPath" "/mnt/kafka-tls/cluster" "readOnly" true) -}}
+{{- $mounts = append $mounts (dict "name" "kafka-user" "mountPath" "/mnt/kafka-tls/user" "readOnly" true) -}}
+{{- end -}}
 {{- $volumes := list -}}
 {{- if .Values.runtime.enabled -}}
 {{- $mounts = append $mounts (dict "name" "secrets-store" "mountPath" "/mnt/secrets-store" "readOnly" true) -}}
@@ -63,6 +68,9 @@ spec:
   template:
     metadata:
       annotations:
+        {{- if $mtls }}
+        pulsemetry.io/kafka-tls-revision: {{ $kafka.tlsRevision | quote }}
+        {{- end }}
         pulsemetry.io/blocked-certs-revision: {{ include "pulsemetry.app.blockedCerts" . | sha256sum | quote }}
         {{- if .Values.runtime.encryptionRevision }}
         pulsemetry.io/encryption-revision: {{ .Values.runtime.encryptionRevision | quote }}
@@ -101,6 +109,13 @@ spec:
           command: ["/bin/sh", "-ec"]
           args:
             - |
+              {{- if $mtls }}
+              for file in /mnt/kafka-tls/cluster/ca.p12 /mnt/kafka-tls/cluster/ca.password /mnt/kafka-tls/user/user.p12 /mnt/kafka-tls/user/user.password; do
+                test -f "$file"
+                test -r "$file"
+                test -s "$file"
+              done
+              {{- end }}
               {{- if .Values.runtime.enabled }}
               test -x /mnt/secrets-store
               for file in {{ join " " .Values.runtime.requiredFiles }}; do
@@ -219,17 +234,28 @@ spec:
             - name: PULSEMETRY_KAFKA_BOOTSTRAP_SERVERS
               value: {{ $kafka.bootstrapServers | quote }}
             - name: PULSEMETRY_KAFKA_SECURITY
-              value: "iam"
+              value: {{ $kafka.security | default "iam" | quote }}
             - name: PULSEMETRY_KAFKA_TOPIC
               value: {{ $kafka.topic | quote }}
             {{- if $kafka.consumerGroup }}
             - name: PULSEMETRY_KAFKA_CONSUMER_GROUP
               value: {{ $kafka.consumerGroup | quote }}
             {{- end }}
+            {{- if $mtls }}
+            - name: PULSEMETRY_KAFKA_TLS_TRUSTSTORE_LOCATION
+              value: /mnt/kafka-tls/cluster/ca.p12
+            - name: PULSEMETRY_KAFKA_TLS_TRUSTSTORE_PASSWORD_FILE
+              value: /mnt/kafka-tls/cluster/ca.password
+            - name: PULSEMETRY_KAFKA_TLS_KEYSTORE_LOCATION
+              value: /mnt/kafka-tls/user/user.p12
+            - name: PULSEMETRY_KAFKA_TLS_KEYSTORE_PASSWORD_FILE
+              value: /mnt/kafka-tls/user/user.password
+            {{- else }}
             - name: PULSEMETRY_KAFKA_IAM_ROLE_ARN
               value: {{ $kafka.iamRoleArn | quote }}
             - name: PULSEMETRY_KAFKA_IAM_SESSION_NAME
               value: {{ $kafka.iamSessionName | quote }}
+            {{- end }}
             {{- end }}
             {{- if .Values.tracing.enabled }}
             # 플랫폼 trace(ADR-0039). resource의 namespace·Pod 이름은 Downward API로 받는다.
@@ -300,6 +326,22 @@ spec:
               subPath: blocked.certs
               readOnly: true
       volumes:
+        {{- if $mtls }}
+        - name: kafka-ca
+          secret:
+            secretName: {{ $kafka.clusterCaSecretName }}
+            defaultMode: 288 # 0440; fsGroup 10001이 읽는다. PKCS12/password 키만 마운트한다.
+            items:
+              - {key: ca.p12, path: ca.p12}
+              - {key: ca.password, path: ca.password}
+        - name: kafka-user
+          secret:
+            secretName: {{ $kafka.userSecretName }}
+            defaultMode: 288
+            items:
+              - {key: user.p12, path: user.p12}
+              - {key: user.password, path: user.password}
+        {{- end }}
         {{- range $volumes }}
         - name: {{ .name }}
           csi:

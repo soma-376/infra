@@ -109,8 +109,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- fail "Kafka 설정은 Gateway와 telemetry-ingest만 소비한다" -}}
 {{- end -}}
 {{- if $kafka.enabled -}}
+{{- if eq ($kafka.security | default "iam") "mtls" -}}
+{{- $stage := trimPrefix "pulsemetry-dev-telemetry-ingress-" $kafka.topic -}}
+{{- $user := printf "pulsemetry-%s-%s" (ternary "gateway" "ingest" $gateway) $stage -}}
+{{- if ne $kafka.userSecretName $user -}}{{- fail "Kafka TLS Secret은 workload와 stage 전용이어야 한다" -}}{{- end -}}
+{{- else -}}
 {{- $session := printf "pulsemetry-dev-telemetry-%s" (ternary "gateway" "ingest" $gateway) -}}
 {{- if ne $kafka.iamSessionName $session -}}{{- fail (printf "MSK 세션 이름은 %s여야 한다" $session) -}}{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- if .Values.runtime.enabled -}}
 {{- $_ := required "runtime.secretProviderClass가 필요하다" .Values.runtime.secretProviderClass -}}

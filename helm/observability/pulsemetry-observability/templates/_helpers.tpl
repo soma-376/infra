@@ -1,17 +1,23 @@
 {{- define "pulsemetry.observability.validate" -}}
 {{- if ne .Release.Namespace "pulsemetry-observability" -}}{{ fail "관측 release namespace는 pulsemetry-observability여야 한다" }}{{- end -}}
 {{- $p := .Values.global.pulsemetry -}}
-{{- range $key := list "environment" "targetNamespace" "clusterName" "grafanaAdminSecretArn" "mskClusterName" "controlPlaneLogGroup" "applicationLogGroup" "brokerLogGroup" "observabilityLogGroup" "kubernetesEventsLogGroup" "diagnosticsBucket" "topic" "consumerGroup" -}}
+{{- range $key := list "environment" "targetNamespace" "clusterName" "grafanaAdminSecretArn" "controlPlaneLogGroup" "applicationLogGroup" "observabilityLogGroup" "kubernetesEventsLogGroup" "diagnosticsBucket" "topic" "consumerGroup" -}}
 {{- $_ := required (printf "global.pulsemetry.%s는 generated values에서 공급한다" $key) (index $p $key) -}}
 {{- end -}}
 {{- if not (has $p.environment (list "dev" "perf")) -}}{{ fail "environment는 dev 또는 perf다" }}{{- end -}}
 {{- if ne $p.targetNamespace (printf "pulsemetry-%s" $p.environment) -}}{{ fail "targetNamespace와 environment가 다르다" }}{{- end -}}
 {{- if not (regexMatch "^[a-z]{2}-[a-z]+-[0-9]$" $p.region) -}}{{ fail "AWS region 형식이 유효하지 않다" }}{{- end -}}
 {{- if not (regexMatch (printf "^arn:aws:secretsmanager:%s:[0-9]{12}:secret:.+$" $p.region) $p.grafanaAdminSecretArn) -}}{{ fail "Grafana Secret ARN이 유효하지 않다" }}{{- end -}}
+{{- if eq $p.kafkaProvider "msk" -}}
+{{- $_ := required "MSK cluster 이름이 필요하다" $p.mskClusterName -}}
+{{- $_ := required "MSK broker 로그 그룹이 필요하다" $p.brokerLogGroup -}}
 {{- if ne (len $p.mskBrokers) 3 -}}{{ fail "list-nodes로 확인한 MSK broker DNS 3개가 필요하다" }}{{- end -}}
 {{- if ne (len (uniq $p.mskBrokers)) 3 -}}{{ fail "MSK broker DNS가 중복됐다" }}{{- end -}}
 {{- range $p.mskBrokers -}}
 {{- if not (regexMatch (printf "^b-[1-3]\\.[a-z0-9.-]+\\.kafka\\.%s\\.amazonaws\\.com$" $p.region) .) -}}{{ fail "MSK broker는 포트가 없는 입력 리전의 private DNS여야 한다" }}{{- end -}}
+{{- end -}}
+{{- else -}}
+{{- $_ := required "Strimzi Kafka cluster 이름이 필요하다" $p.kafkaClusterName -}}
 {{- end -}}
 {{- $m := .Values.monitoring -}}
 {{- if or $m.grafana.ingress.enabled $m.prometheus.ingress.enabled (ne $m.grafana.service.type "ClusterIP") (ne $m.prometheus.service.type "ClusterIP") -}}{{ fail "Grafana·Prometheus는 private ClusterIP만 허용한다" }}{{- end -}}

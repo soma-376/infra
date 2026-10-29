@@ -51,6 +51,8 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     env,
     allowedCidrs: config.allowedCidrs,
     eksHttpsEnabled: config.edge.eksCertificateArn !== undefined,
+    kafkaProvider: config.eks.kafkaProvider,
+    mskRetirementStage: config.eks.mskRetirementStage,
   });
 
   const data = new DevDataStack(app, 'DevDataStack', {
@@ -95,6 +97,7 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     relaySecurityGroup: network.eksRelaySecurityGroup,
     observabilityNodeSecurityGroup: network.eksObservabilityNodeSecurityGroup,
     mskSubnets: network.mskSubnets, mskSecurityGroup: network.mskSecurityGroup,
+    kafkaNodeSecurityGroup: network.eksKafkaNodeSecurityGroup,
   });
 
   return { network, data, edge, eks };
