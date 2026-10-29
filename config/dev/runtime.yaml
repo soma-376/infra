@@ -22,11 +22,11 @@ telemetryJwt:
     - alias: telemetry-primary.pem
       kid: telemetry-2026-10-25-1b6e697f
   publicVersionId: 4f27b05d-09f8-46b6-96b9-136e4428e674
-  issueEnabled: false
-ingestMode: http
+  issueEnabled: true
+ingestMode: dual
 dashboard:
-  managementEnabled: false
-  mailEnabled: false
+  managementEnabled: true
+  mailEnabled: true
   settings:
     PULSEMETRY_DASHBOARD_RETRY_AFTER: 5s
     PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_QUERY_TIMEOUT: 20s
@@ -69,3 +69,19 @@ clickhouse:
   metricLog:
     maxCompressBlockSize: 65536
     mergeMaxBlockSize: 512
+
+# ADR-0043: 각 원본을 독립 초기화한 고정 버전이다. 원문은 CSI/configtree로만 공급한다.
+management:
+  responseKeyVersionId: 842cf3fb-b963-4296-846b-b64d0c2f21e2
+  onboardingOtlpEndpoint: https://api-dev.pulsemetry.co.kr
+  invitationAcceptUrl: https://dev.pulsemetry.co.kr/login
+  installationPageUrl: https://dev.pulsemetry.co.kr/install
+mail:
+  encryptionKeyVersionId: c66b8e09-563e-434f-99f0-10eed3c84309
+  provider: ses
+  from: no-reply@pulsemetry.co.kr
+  region: ap-northeast-2
+  dispatchInterval: PT5S
+  retryInterval: PT1M
+  maxAttempts: 3
+  sendTimeout: PT15S

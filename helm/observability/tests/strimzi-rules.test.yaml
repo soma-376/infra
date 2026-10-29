@@ -1,0 +1,130 @@
+# 테스트 실행기가 실제 Helm 렌더 규칙 파일을 이 경로로 공급한다.
+rule_files: [strimzi-rendered-rules.yaml]
+evaluation_interval: 1m
+tests:
+  - name: 정상 ISR·disk·lag·인증·인증서는 경보하지 않는다
+    interval: 1m
+    input_series:
+      - series: 'kafka_server_replicamanager_underminisrpartitioncount{job="strimzi-jmx",pod="broker-0"}'
+        values: '0+0x10'
+      - series: 'kafka_server_replicamanager_underminisrpartitioncount{job="strimzi-jmx",pod="broker-1"}'
+        values: '0+0x10'
+      - series: 'kafka_server_replicamanager_underminisrpartitioncount{job="strimzi-jmx",pod="broker-2"}'
+        values: '0+0x10'
+      - series: 'kafka_controller_kafkacontroller_offlinepartitionscount{job="strimzi-jmx"}'
+        values: '0+0x10'
+      - series: 'kafka_server_socket_server_metrics_failed_authentication_total{job="strimzi-jmx"}'
+        values: '0+0x10'
+      - series: 'kafka_consumergroup_lag{job="strimzi-exporter",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main"}'
+        values: '500+0x10'
+      - series: 'kubelet_volume_stats_available_bytes{namespace="pulsemetry-dev",persistentvolumeclaim="data-0-soma-376-dev-telemetry-dual-role-0"}'
+        values: '80+0x10'
+      - series: 'kubelet_volume_stats_capacity_bytes{namespace="pulsemetry-dev",persistentvolumeclaim="data-0-soma-376-dev-telemetry-dual-role-0"}'
+        values: '100+0x10'
+      - series: 'strimzi_certificate_expiration_timestamp_ms{job="strimzi-cluster-operator",resource_namespace="pulsemetry-dev",kafka_cluster="soma-376-dev-telemetry",type="cluster-ca"}'
+        values: '5184000000+0x10'
+    alert_rule_test:
+      - {eval_time: 10m, alertname: KafkaUnderMinimumIsr, exp_alerts: []}
+      - {eval_time: 10m, alertname: KafkaOfflinePartitions, exp_alerts: []}
+      - {eval_time: 10m, alertname: KafkaAuthenticationFailures, exp_alerts: []}
+      - {eval_time: 10m, alertname: KafkaConsumerLagHigh, exp_alerts: []}
+      - {eval_time: 10m, alertname: KafkaDiskSpaceLow, exp_alerts: []}
+      - {eval_time: 10m, alertname: KafkaCertificateExpirySoon, exp_alerts: []}
+      - {eval_time: 10m, alertname: KafkaCertificateRenewalObserved, exp_alerts: []}
+      - {eval_time: 10m, alertname: KafkaSafetyMetricsMissing, exp_alerts: []}
+  - name: 정상 scrape 중 한 broker의 min ISR 지표만 누락되어도 경보한다
+    interval: 1m
+    input_series:
+      - series: 'up{job="strimzi-jmx",pod="broker-0"}'
+        values: '1+0x10'
+      - series: 'up{job="strimzi-jmx",pod="broker-1"}'
+        values: '1+0x10'
+      - series: 'up{job="strimzi-jmx",pod="broker-2"}'
+        values: '1+0x10'
+      - series: 'kafka_server_replicamanager_underminisrpartitioncount{job="strimzi-jmx",pod="broker-0"}'
+        values: '0+0x10'
+      - series: 'kafka_server_replicamanager_underminisrpartitioncount{job="strimzi-jmx",pod="broker-1"}'
+        values: '0+0x10'
+      - series: 'kafka_controller_kafkacontroller_offlinepartitionscount{job="strimzi-jmx"}'
+        values: '0+0x10'
+      - series: 'kafka_server_socket_server_metrics_failed_authentication_total{job="strimzi-jmx"}'
+        values: '0+0x10'
+    alert_rule_test:
+      - {eval_time: 10m, alertname: KafkaJmxTargetSetIncomplete, exp_alerts: []}
+      - eval_time: 10m
+        alertname: KafkaSafetyMetricsMissing
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations: {summary: 'Kafka 필수 JMX 지표가 없다. 빈 값을 정상으로 해석하지 않는다'}
+  - name: ISR 미달·offline·lag 경계에서 경보한다
+    interval: 1m
+    input_series:
+      - series: 'kafka_server_replicamanager_underminisrpartitioncount{job="strimzi-jmx"}'
+        values: '1+0x10'
+      - series: 'kafka_controller_kafkacontroller_offlinepartitionscount{job="strimzi-jmx"}'
+        values: '1+0x10'
+      - series: 'kafka_consumergroup_lag{job="strimzi-exporter",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main"}'
+        values: '1001+0x10'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: KafkaUnderMinimumIsr
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations: {summary: 'Kafka min ISR 2를 만족하지 못한다'}
+      - eval_time: 10m
+        alertname: KafkaOfflinePartitions
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations: {summary: 'Kafka offline partition이 존재한다'}
+      - eval_time: 10m
+        alertname: KafkaConsumerLagHigh
+        exp_alerts:
+          - exp_labels: {severity: warning, consumergroup: pulsemetry-dev-telemetry-ingest-main, topic: pulsemetry-dev-telemetry-ingress-main}
+            exp_annotations: {summary: 'Kafka commit 기준 lag가 5분간 1000 record를 넘었다'}
+  - name: 최초 scrape 전에 발생한 인증 실패도 감지한다
+    interval: 1m
+    input_series:
+      - series: 'kafka_server_socket_server_metrics_failed_authentication_total{job="strimzi-jmx",listener="TLS-9093"}'
+        values: '1+0x5'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: KafkaAuthenticationFailures
+        exp_alerts:
+          - exp_labels: {severity: warning, listener: TLS-9093}
+            exp_annotations: {summary: 'Kafka TLS 인증 실패가 발생했다. CA·사용자 인증서와 앱 재배포 상태를 확인한다'}
+  - name: PVC 여유와 CA 만료·갱신은 별도로 감지한다
+    interval: 1m
+    input_series:
+      - series: 'kubelet_volume_stats_available_bytes{namespace="pulsemetry-dev",persistentvolumeclaim="data-0-soma-376-dev-telemetry-dual-role-0"}'
+        values: '14+0x10'
+      - series: 'kubelet_volume_stats_capacity_bytes{namespace="pulsemetry-dev",persistentvolumeclaim="data-0-soma-376-dev-telemetry-dual-role-0"}'
+        values: '100+0x10'
+      - series: 'strimzi_certificate_expiration_timestamp_ms{job="strimzi-cluster-operator",resource_namespace="pulsemetry-dev",kafka_cluster="soma-376-dev-telemetry",type="cluster-ca"}'
+        values: '864000000+0x10'
+      - series: 'strimzi_certificate_expiration_timestamp_ms{job="strimzi-cluster-operator",resource_namespace="pulsemetry-dev",kafka_cluster="soma-376-dev-telemetry",type="client-ca"}'
+        values: '5184000000+0x4 6048000000+0x5'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: KafkaDiskSpaceLow
+        exp_alerts:
+          - exp_labels: {severity: critical, namespace: pulsemetry-dev, persistentvolumeclaim: data-0-soma-376-dev-telemetry-dual-role-0}
+            exp_annotations: {summary: 'Kafka PVC 여유가 15% 미만이다. 보존/용량을 확인하고 PVC를 삭제하지 않는다'}
+      - eval_time: 10m
+        alertname: KafkaCertificateExpirySoon
+        exp_alerts:
+          - exp_labels: {severity: warning, job: strimzi-cluster-operator, resource_namespace: pulsemetry-dev, kafka_cluster: soma-376-dev-telemetry, type: cluster-ca}
+            exp_annotations: {summary: 'Kafka CA 만료까지 30일 미만이다. 갱신 및 앱 재접속을 확인한다'}
+      - eval_time: 10m
+        alertname: KafkaCertificateRenewalObserved
+        exp_alerts:
+          - exp_labels: {severity: info, job: strimzi-cluster-operator, resource_namespace: pulsemetry-dev, kafka_cluster: soma-376-dev-telemetry, type: client-ca}
+            exp_annotations: {summary: 'Kafka CA 만료 시각이 바뀌었다. 앱 tlsRevision 재생성·재배포·실제 재접속 증거를 확인한다'}
+  - name: 필수 Kafka 지표 누락은 정상 값으로 덮지 않는다
+    interval: 1m
+    input_series: []
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: KafkaSafetyMetricsMissing
+        exp_alerts:
+          - exp_labels: {severity: warning, job: strimzi-jmx}
+            exp_annotations: {summary: 'Kafka 필수 JMX 지표가 없다. 빈 값을 정상으로 해석하지 않는다'}

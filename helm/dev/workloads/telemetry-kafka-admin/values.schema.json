@@ -52,8 +52,7 @@
       "const": "ap-northeast-2"
     },
     "bootstrapServers": {
-      "type": "string",
-      "pattern": "^b-[0-9]+\\.[A-Za-z0-9-]+\\.[a-z0-9]+\\.c[0-9]+\\.kafka\\.ap-northeast-2\\.amazonaws\\.com:9098(,b-[0-9]+\\.[A-Za-z0-9-]+\\.[a-z0-9]+\\.c[0-9]+\\.kafka\\.ap-northeast-2\\.amazonaws\\.com:9098){0,2}$"
+      "type": "string"
     },
     "stage": {
       "enum": [
@@ -72,34 +71,24 @@
     "topicAdmin": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "roleArn",
-        "sessionName"
-      ],
       "properties": {
         "roleArn": {
-          "type": "string",
-          "pattern": "^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]{1,512}$"
+          "type": "string"
         },
         "sessionName": {
-          "const": "pulsemetry-dev-telemetry-kafka-admin"
+          "type": "string"
         }
       }
     },
     "offsetAdmin": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "roleArn",
-        "sessionName"
-      ],
       "properties": {
         "roleArn": {
-          "type": "string",
-          "pattern": "^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]{1,512}$"
+          "type": "string"
         },
         "sessionName": {
-          "const": "pulsemetry-dev-telemetry-kafka-offsets"
+          "type": "string"
         }
       }
     },
@@ -194,6 +183,130 @@
           }
         }
       ]
+    },
+    "provider": {
+      "enum": [
+        "msk",
+        "strimzi"
+      ]
+    },
+    "tls": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clusterCaSecretName",
+        "userSecretName",
+        "tlsRevision"
+      ],
+      "properties": {
+        "clusterCaSecretName": {
+          "const": "soma-376-dev-telemetry-cluster-ca-cert"
+        },
+        "userSecretName": {
+          "pattern": "^pulsemetry-offset-admin-(validation|main)$"
+        },
+        "tlsRevision": {
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "provider"
+        ],
+        "properties": {
+          "provider": {
+            "const": "strimzi"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "tls"
+        ],
+        "properties": {
+          "bootstrapServers": {
+            "const": "soma-376-dev-telemetry-kafka-bootstrap.pulsemetry-dev.svc.cluster.local:9093"
+          },
+          "topicInit": {
+            "properties": {
+              "enabled": {
+                "const": false
+              }
+            }
+          },
+          "topicAdmin": {
+            "properties": {
+              "roleArn": {
+                "const": ""
+              },
+              "sessionName": {
+                "const": ""
+              }
+            }
+          },
+          "offsetAdmin": {
+            "properties": {
+              "roleArn": {
+                "const": ""
+              },
+              "sessionName": {
+                "const": ""
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "bootstrapServers": {
+            "type": "string",
+            "pattern": "^b-[0-9]+\\.[A-Za-z0-9-]+\\.[a-z0-9]+\\.c[0-9]+\\.kafka\\.ap-northeast-2\\.amazonaws\\.com:9098(,b-[0-9]+\\.[A-Za-z0-9-]+\\.[a-z0-9]+\\.c[0-9]+\\.kafka\\.ap-northeast-2\\.amazonaws\\.com:9098){0,2}$"
+          },
+          "topicAdmin": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "roleArn",
+              "sessionName"
+            ],
+            "properties": {
+              "roleArn": {
+                "type": "string",
+                "pattern": "^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]{1,512}$"
+              },
+              "sessionName": {
+                "const": "pulsemetry-dev-telemetry-kafka-admin"
+              }
+            }
+          },
+          "offsetAdmin": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "roleArn",
+              "sessionName"
+            ],
+            "properties": {
+              "roleArn": {
+                "type": "string",
+                "pattern": "^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]{1,512}$"
+              },
+              "sessionName": {
+                "const": "pulsemetry-dev-telemetry-kafka-offsets"
+              }
+            }
+          }
+        },
+        "not": {
+          "required": [
+            "tls"
+          ]
+        }
+      }
+    }
+  ]
 }

@@ -7,7 +7,7 @@ import {
   DEV_BOOTSTRAP_PATHS,
   DEV_ENROLLMENT_API_PATHS,
   DEV_ENROLLMENT_MANAGEMENT_PATHS,
-  DEV_ENROLLMENT_REGISTRATION_PATHS,
+  DEV_ENROLLMENT_RATE_PATHS,
   DEV_OTLP_PATHS,
   DEV_WAF_BLOCKED_COUNTRIES,
   DEV_WAF_LOG_GROUP_NAME,
@@ -65,6 +65,21 @@ const CONTENT_RULES = {
     ],
   },
 } as const;
+
+// 정상 CLI loopback redirect에서 실제로 관측한 두 오탐만 좁힌다. (ADR-0044)
+const CLI_OIDC_QUERY_LABELS = [
+  `${CONTENT_RULES.common.prefix}EC2MetaDataSSRF_QueryArguments`,
+  `${CONTENT_RULES.common.prefix}GenericRFI_QueryArguments`,
+] as const;
+
+const CLI_TOKEN_BODY_LABELS = [
+  `${CONTENT_RULES.common.prefix}EC2MetaDataSSRF_Body`,
+  `${CONTENT_RULES.common.prefix}GenericRFI_Body`,
+] as const;
+
+// backend URI.getPort와 같은 범위이며 선행 0은 허용한다. URI 길이는 각 경계에서 제한한다.
+const CLI_LOOPBACK_PORT = '0*(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])';
+const CLI_LOOPBACK_REDIRECT = `http://(?:127\\.0\\.0\\.1|\\[::1\\]):${CLI_LOOPBACK_PORT}/callback`;
 
 /**
  * dev ALB 전용 정책 (ADR-0027). Count는 평가를 계속하므로 OTLP 본문이나 debug SQL의
@@ -152,9 +167,10 @@ export class DevWaf extends Construct {
 
 function buildRules(): CfnWebACL.RuleProperty[] {
   const otlp = paths(DEV_OTLP_PATHS);
-  // 등록 rate는 기존 세 조건만 공유한다. 인증·조회·관리 경로는 본문/query Block과
+  // 등록 rate는 기존 API 세 조건과 정확한 bootstrap 두 경로가 공유한다. 인증·조회·관리 경로는 본문/query Block과
   // 별개로 RemainingRateBlock의 1,000건 범위에 포함한다. (ADR-0027, PROJ-200)
-  const enrollment = paths(DEV_ENROLLMENT_REGISTRATION_PATHS);
+  const enrollmentPaths = DEV_ENROLLMENT_RATE_PATHS.map(enrollmentRatePath);
+  const enrollment = or(enrollmentPaths);
   const app = or([
     ...[...DEV_OTLP_PATHS, ...DEV_ENROLLMENT_API_PATHS, ...DEV_ENROLLMENT_MANAGEMENT_PATHS,
       ...DEV_BOOTSTRAP_PATHS, ...DEV_DASHBOARD_WAF_EXACT_PATHS].map(path),
@@ -162,9 +178,9 @@ function buildRules(): CfnWebACL.RuleProperty[] {
       regexString, fieldToMatch: { uriPath: {} }, textTransformations: [{ priority: 0, type: 'NONE' }],
     } })),
   ]);
-  // 제외할 여섯 경로 조건을 OR 하나로 합쳐 불필요한 OR 안의 OR 중첩을 없앤다.
+  // 제외할 여덟 경로 조건을 OR 하나로 합쳐 불필요한 OR 안의 OR 중첩을 없앤다.
   // 경로·rate 정책은 같으며 서비스 입력 수용 여부는 CheckCapacity로 별도 검증한다. (ADR-0027)
-  const remaining = not(paths([...DEV_OTLP_PATHS, ...DEV_ENROLLMENT_REGISTRATION_PATHS]));
+  const remaining = not(or([...DEV_OTLP_PATHS.map(path), ...enrollmentPaths]));
 
   return [
     actionRule(
@@ -252,14 +268,25 @@ function buildRules(): CfnWebACL.RuleProperty[] {
     actionRule(
       'AppBodyLabelBlock',
       90,
-      and([contentLabels('body'), app, not(otlp)]),
+      and([app, not(otlp), or([
+        ...Object.values(CONTENT_RULES).flatMap(group => group.body
+          .map(([, suffix]) => `${group.prefix}${suffix}`))
+          .filter(key => !CLI_TOKEN_BODY_LABELS.some(exception => exception === key)).map(label),
+        and([or(CLI_TOKEN_BODY_LABELS.map(label)), not(validCliTokenBody())]),
+      ])]),
       { block: {} },
     ),
-    // query는 OTLP를 포함한 앱 경로에서 Block하고 경로 밖 SQL 디버깅에서는 Count한다.
+    // query는 앱 경로에서 Block한다. 정상 CLI의 두 loopback 오탐만 제외하며
+    // 다른 query label이 함께 있으면 계속 Block한다. (ADR-0044)
     actionRule(
       'AppQueryLabelBlock',
       100,
-      and([contentLabels('query'), app]),
+      and([app, or([
+        ...Object.values(CONTENT_RULES).flatMap(group => group.query
+          .map(([, suffix]) => `${group.prefix}${suffix}`))
+          .filter(key => !CLI_OIDC_QUERY_LABELS.some(exception => exception === key)).map(label),
+        and([or(CLI_OIDC_QUERY_LABELS.map(label)), not(validCliOidcLoopback())]),
+      ])]),
       { block: {} },
     ),
     // Windows 설치 파일의 .exe URI를 위해 확장자 탐지만 /bin/에서 Count한다.
@@ -274,6 +301,80 @@ function buildRules(): CfnWebACL.RuleProperty[] {
       { block: {} },
     ),
   ];
+}
+
+/**
+ * JSONBody 파서의 부분/관대한 파싱 대신 작은 원문 JSON 전체를 검사한다. (ADR-0045)
+ * 정확히 세 항목 + 세 필수 key/value의 구조 경계를 함께 확인하므로 순서는 자유지만
+ * 추가·누락·중복 키와 escaped key/value는 예외가 아니다. oversize는 양성 조건부터 닫는다.
+ */
+function validCliTokenBody(): Statement {
+  const bodyField = { body: { oversizeHandling: 'NO_MATCH' } };
+  const body = (regexString: string): Statement => ({ regexMatchStatement: {
+    regexString, fieldToMatch: bodyField,
+    textTransformations: [{ priority: 0, type: 'NONE' }],
+  } });
+  const whitespace = '[ \\t\\r\\n]*';
+  const pair = `"[a-z_]+"${whitespace}:${whitespace}"[A-Za-z0-9._~:/\\[\\]-]+"${whitespace}`;
+  const field = (key: string, value: string): Statement => body(
+    `(?:\\{|,)${whitespace}"${key}"${whitespace}:${whitespace}"${value}"${whitespace}(?:,|\\})`,
+  );
+  return and([
+    path('/api/v1/auth/cli/token'),
+    { byteMatchStatement: { fieldToMatch: { method: {} }, positionalConstraint: 'EXACTLY',
+      searchString: 'POST', textTransformations: [{ priority: 0, type: 'NONE' }] } },
+    { regexMatchStatement: {
+      regexString: '\\Aapplication/json(?:[ \\t]*;[ \\t]*charset=utf-8)?\\z',
+      // CDK의 비정형 singleHeader는 CloudFormation 철자를 사용한다.
+      fieldToMatch: { singleHeader: { Name: 'content-type' } },
+      textTransformations: [{ priority: 0, type: 'LOWERCASE' }],
+    } },
+    { sizeConstraintStatement: { fieldToMatch: bodyField, comparisonOperator: 'LE', size: 1024,
+      textTransformations: [{ priority: 0, type: 'NONE' }] } },
+    body(`\\A${whitespace}\\{${whitespace}${pair}(?:,${whitespace}${pair}){2}\\}${whitespace}\\z`),
+    field('code', 'uac_[A-Za-z0-9_-]{43}'),
+    field('code_verifier', '[A-Za-z0-9._~-]{43,128}'),
+    field('redirect_uri', CLI_LOOPBACK_REDIRECT),
+    field('redirect_uri', '[A-Za-z0-9.:/\\[\\]]{1,256}'),
+  ]);
+}
+
+/**
+ * SingleQueryArgument만 검사하면 중복 값 중 하나의 일치로 예외가 열릴 수 있다.
+ * 전체 항목 수와 각 필수 key/value를 같이 검사하여 순서와 무관하게 5개 또는 6개만 허용한다.
+ * query 전체 decode가 encoded &를 가짜 구분자로 만들지 못하게 원문 %26은 닫는다.
+ * PCRE의 \A·\z는 마지막 개행 앞을 허용하는 $와 달리 문자열 전체 경계를 고정한다.
+ */
+function validCliOidcLoopback(): Statement {
+  const query = (regexString: string): Statement => ({ regexMatchStatement: {
+    regexString, fieldToMatch: { queryString: {} },
+    textTransformations: [{ priority: 0, type: 'URL_DECODE' }],
+  } });
+  const parameter = (key: string, value: string): Statement => query(`(?:\\A|&)${key}=${value}(?:&|\\z)`);
+  const maxLength = (name: string, size: number): Statement => ({ sizeConstraintStatement: {
+    // CDK의 singleQueryArgument는 비정형 객체이므로 CloudFormation의 Name 철자를 쓴다.
+    fieldToMatch: { singleQueryArgument: { Name: name } }, comparisonOperator: 'LE', size,
+    textTransformations: [{ priority: 0, type: 'URL_DECODE' }],
+  } });
+  const items = (count: number): Statement => query(`\\A(?:[a-z_]+=[^&]*&){${count - 1}}[a-z_]+=[^&]*\\z`);
+  return and([
+    path('/api/v1/auth/oidc/authorize'),
+    { byteMatchStatement: { fieldToMatch: { method: {} }, positionalConstraint: 'EXACTLY',
+      searchString: 'GET', textTransformations: [{ priority: 0, type: 'NONE' }] } },
+    not({ byteMatchStatement: { fieldToMatch: { queryString: {} }, positionalConstraint: 'CONTAINS',
+      searchString: '%26', textTransformations: [{ priority: 0, type: 'NONE' }] } }),
+    parameter('tenant_id', '[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}'),
+    parameter('redirect_uri', CLI_LOOPBACK_REDIRECT),
+    maxLength('redirect_uri', 256),
+    parameter('state', '[A-Za-z0-9._~-]{16,256}'),
+    parameter('code_challenge', '[A-Za-z0-9_-]{43}'),
+    parameter('code_challenge_method', 'S256'),
+    or([items(5), and([
+      items(6),
+      parameter('login_hint', '[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,63}'),
+      maxLength('login_hint', 254),
+    ])]),
+  ]);
 }
 
 /**
@@ -295,6 +396,17 @@ function path(pattern: string): Statement {
   };
 }
 
+// ALB와 앱이 단일 URL decode한 /%75nix·/%77indows도 bootstrap handler에 도달한다.
+// 새 bootstrap rate leaf만 decode하고 기존 API/내용 검사 분류는 유지한다. (PROJ-269)
+function enrollmentRatePath(pattern: string): Statement {
+  const statement = path(pattern);
+  if (pattern !== '/unix' && pattern !== '/windows') return statement;
+  return { byteMatchStatement: {
+    ...statement.byteMatchStatement as CfnWebACL.ByteMatchStatementProperty,
+    textTransformations: [{ priority: 0, type: 'URL_DECODE' }],
+  } };
+}
+
 function paths(patterns: readonly string[]): Statement {
   return or(patterns.map(path));
 }
@@ -313,15 +425,6 @@ function not(statement: Statement): Statement {
 
 function label(key: string): Statement {
   return { labelMatchStatement: { scope: 'LABEL', key } };
-}
-
-function contentLabels(kind: 'body' | 'query'): Statement {
-  // namespace 전체를 차단하면 관찰용 크기·IP·User-Agent 예외까지 다시 Block하므로 exact key만 쓴다.
-  return or(
-    Object.values(CONTENT_RULES).flatMap((group) =>
-      group[kind].map(([, suffix]) => label(`${group.prefix}${suffix}`)),
-    ),
-  );
 }
 
 function ruleNames(rules: readonly RuleLabel[]): string[] {

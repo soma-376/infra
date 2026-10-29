@@ -1,0 +1,131 @@
+name: Dev CDK PR
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - 'bin/**'
+      - 'lib/**'
+      - 'config/dev/deployment.json'
+      - 'scripts/dev-cdk-pipeline.mjs'
+      - 'scripts/dev-cdk-pipeline.cjs'
+      - 'test/dev/**'
+      - 'test/prod/**'
+      - 'test/cicd/**'
+      - 'test/helpers.ts'
+      - 'test/scripts/dev-cdk-pipeline.test.ts'
+      - 'test/workflows/dev-cdk.test.ts'
+      - 'package*.json'
+      - 'cdk.json'
+      - 'tsconfig.json'
+      - 'jest.config.js'
+      - '.github/workflows/dev-cdk-*.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-cdk-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # fork도 AWS 인증 없이 같은 코드·권한·workflow 검증을 수행한다.
+    env:
+      AWS_EC2_METADATA_DISABLED: 'true'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: CDK·배포 경계 검증
+        run: npm test -- --runInBand test/dev test/prod test/cicd test/scripts/dev-cdk-pipeline.test.ts test/workflows/dev-cdk.test.ts
+
+  plan:
+    needs: validate
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # 관리자 설정에서 필수 reviewer·자기 승인 방지·보호 우회 차단을 적용한다.
+    environment: infra-dev-pr-plan
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      CDK_DIFF_ROLE_ARN: ${{ vars.CDK_DIFF_ROLE_ARN }}
+      AWS_EC2_METADATA_DISABLED: 'true'
+    steps:
+      - name: 결과 디렉터리 준비
+        run: mkdir -p "$RUNNER_TEMP/dev-cdk-plan/logs"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: 의존성 준비
+        run: npm ci 2>&1 | tee "$RUNNER_TEMP/dev-cdk-plan/logs/npm-ci.log"
+      - name: 역할 입력 확인
+        run: |
+          test -n "$AWS_ACCOUNT_ID"
+          test -n "$CDK_DIFF_ROLE_ARN"
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c # v4
+        with:
+          role-to-assume: ${{ env.CDK_DIFF_ROLE_ARN }}
+          aws-region: ap-northeast-2
+          allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
+          role-duration-seconds: 3600
+          role-session-name: infra-dev-pr-${{ github.run_id }}
+      - name: 읽기 전용 dev diff와 Job Summary
+        id: plan
+        run: node scripts/dev-cdk-pipeline.mjs plan --directory "$RUNNER_TEMP/dev-cdk-plan"
+      - name: PR 계획 보관
+        if: success() && steps.plan.outputs.plan_sha256 != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dev-cdk-pr-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/dev-cdk-plan/plan.json
+            ${{ runner.temp }}/dev-cdk-plan/payload
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+      - name: workflow 결과 보완
+        if: always()
+        env:
+          WORKFLOW_JOB_STATUS: ${{ job.status }}
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const directory = path.join(process.env.RUNNER_TEMP, 'dev-cdk-plan');
+          fs.mkdirSync(path.join(directory, 'logs'), { recursive: true });
+          const result = path.join(directory, 'result-workflow.json');
+          fs.writeFileSync(result, JSON.stringify({ phase: 'workflow', status: process.env.WORKFLOW_JOB_STATUS }, null, 2) + '\n');
+          if (!fs.readdirSync(directory).some(name => /^result-(plan|deploy)\.json$/.test(name))) {
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### dev CDK PR\n\n계획 시작 전 결과: ${process.env.WORKFLOW_JOB_STATUS}\n`);
+          }
+          NODE
+      - name: PR 실행 결과 보관
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dev-cdk-pr-result-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/dev-cdk-plan/logs
+            ${{ runner.temp }}/dev-cdk-plan/result*.json
+          if-no-files-found: error
+          retention-days: 14

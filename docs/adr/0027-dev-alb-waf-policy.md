@@ -2,16 +2,20 @@
 
 ## Status
 
-Accepted (배포 증거 대기)
+Accepted (PROJ-269 설치 코드 검사 경로의 등록 rate 합산 포함; 실제 적용 증거 별도)
+
+[ADR 0044](0044-dev-waf-cli-oidc-loopback-query-exception.md)가 정상 CLI OIDC loopback 요청의 SSRF·RFI 두 query label 후속 차단만 부분 대체한다. 그 밖의 내용·국가·IP·rate·로그 정책은 유지한다.
 
 PROJ-159의 PROJ-197·198·199는 문서·CDK·테스트·환경별 synth까지 구현한다. 이 상태는
 정책이 확정됐다는 뜻이며, AWS 배포·실제 차단·로그 전달·정상 요청 오탐 0건의 증거는 아니다.
 기존 로그 그룹 정책용 ADR-0020 예약은 유지한다.
 
-[ADR-0029](0029-dev-dashboard-api-ecs-and-eks-deployment.md)이 dashboard의 명시한 경로를 앱 본문/query 검사에 추가한다. 기존 등록 rate 세 조건과 OTLP·나머지 rate, 국가·악성 IP·URI·헤더 차단 및 로그 보호 결정은 유효하다. 이번 문서 채택은 WAF 코드 변경·배포 증거가 아니다.
+[ADR-0029](0029-dev-dashboard-api-ecs-and-eks-deployment.md)이 dashboard의 명시한 경로를 앱 본문/query 검사에 추가한다. 등록 rate의 기존 API 세 조건과 OTLP·나머지 rate, 국가·악성 IP·URI·헤더 차단 및 로그 보호 결정은 유효하다. 이번 문서 채택은 WAF 코드 변경·배포 증거가 아니다.
 
 [ADR 0038](0038-dev-databases-private-access-via-ssm-relay.md)이 ClickHouse 8123 디버깅 listener 유지 가정을 부분 대체한다.
 DB 운영자 접속은 별도 SSM 릴레이를 사용하며 나머지 앱·데이터·환경 경계는 유지한다.
+
+[ADR 0045](0045-dev-waf-cli-token-body-exception.md)가 정상 CLI token 교환의 SSRF·RFI 두 Body label 조건만 부분 대체한다. 다른 Body label·query·rate·로그 정책은 유효하다.
 
 ## Context
 
@@ -42,7 +46,9 @@ Allow이며 명시한 Block 규칙만 요청 평가를 종료한다. 기존 list
 WAF는 ALB를 통과하지 않는 RDS·ClickHouse 직접 접근을 보호하지 않는다.
 
 URI 경로의 단일 정의를 ALB와 WAF가 공유한다. 아래의 앱 경로는 OTLP·등록·인증·관리·bootstrap의
-합집합이며, 등록 rate 범위는 그중 등록·토큰·초대 세 조건에 한정한다.
+합집합이며, 등록 rate 범위는 등록·토큰·초대 세 조건과 정확한 `/unix`·`/windows`다.
+bootstrap 두 조건은 URL_DECODE를 한 번 적용하여 ALB가 정규화하는 단일 인코딩 경로도 같은 300건 예산에 포함한다.
+기존 API와 내용 검사 경로의 변환은 NONE으로 유지한다.
 
 | 분류 | URI 조건 | 내용 검사 본문 | 내용 검사 query |
 |---|---|---|---|
@@ -59,7 +65,8 @@ exact 경로의 trailing slash·자식 경로와 `/api/v1/healthz`도 공개 앱
 구 `/v1/enroll`·`/v1/installations/*`·`/v1/invitations*`는 더 이상 앱 경로가 아니며,
 `/api/v1/*` 전체 wildcard를 추가하지 않는다. OTLP는 `/api/v1`로 옮기지 않는다.
 
-WAF의 URI 비교는 `TextTransformations: NONE`으로 client 원문을 사용한다. ALB는 URI normalization
+기존 WAF의 URI 비교는 `TextTransformations: NONE`으로 client 원문을 사용한다. PROJ-269의 bootstrap
+rate 두 조건과 나머지 rate 제외에서만 URL_DECODE를 한 번 적용한다. ALB는 URI normalization
 후 path-pattern을 평가하지만 구체적인 decode·dot segment·중복 slash 처리와 WAF의 실제 분류
 정합은 이번 로컬 검증에서 확인하지 않았다. 공유 경로 상수와 template assertion의 정합 증거는
 canonical 경로·trailing slash·prefix 경계에 한정한다. ALB와 같은 전체 normalization 동작을 구현했다고
@@ -146,7 +153,7 @@ namespace 전체를 Block하지 않는다.
 | SQLi | `SQLiExtendedPatterns_QUERYARGUMENTS` | `awswaf:managed:aws:sql-database:SQLiExtendedPatterns_QueryArguments` |
 
 query label Block의 조건은 **query label 중 하나 AND 앱 경로**다. query는 정확한 OTLP 경로에서도
-Block하고 앱 경로 밖에서만 Count로 둔다.
+Block하고 앱 경로 밖에서만 Count로 둔다. **부분 대체(ADR 0044)** — exact GET OIDC authorize의 검증된 loopback query에만 SSRF·RFI 두 label의 후속 Block 예외를 적용한다.
 
 `RestrictedExtensions_URIPATH`도 개별 Count로 override한 뒤 label
 `awswaf:managed:aws:core-rule-set:RestrictedExtensions_URIPath`가 매칭되고 **NOT `/bin/` prefix**일 때
@@ -166,10 +173,14 @@ JSON/protobuf 파싱, OTLP 구조 검증**을 수행해야 한다. ALB의 8KB �
 | 대상 | IP별 300초 제한 | 초과 동작 | 초기값의 의도 |
 |---|---:|---|---|
 | 정확한 OTLP 세 경로 | 10,000건 | Count | 배치·재시도·공유 NAT의 burst 관찰 |
-| 등록·토큰·초대 API 세 조건 | 300건 | Block, HTTP 429 | 기존 세 경로의 범위를 `/api/v1`로 이동해 저빈도 API의 반복 호출 제한 |
-| 나머지, 인증·manifest·조직 관리·문의·업데이트·bootstrap·다운로드·디버깅 포함 | 1,000건 | Block, HTTP 429 | 여러 설치 GET·재시도·같은 NAT의 동시 설치에 여유 제공 |
+| 등록·토큰·초대 API 세 조건 + 정확한 `/unix`·`/windows` | 300건 | Block, HTTP 429 | 초대 코드를 검사·소비하는 다섯 조건의 반복 호출을 같은 예산으로 제한 |
+| 나머지, 인증·manifest·조직 관리·문의·업데이트·다운로드·디버깅 포함 | 1,000건 | Block, HTTP 429 | 여러 설치 GET·재시도·같은 NAT의 동시 설치에 여유 제공 |
 
-세 숫자는 실측값이나 AWS 권장값이 아닌 **dev 초기 가설**이다. bootstrap·다운로드·SQL 디버깅처럼
+`/unix`·`/windows`는 exact match로만 등록 그룹에 포함한다. `/unix/`·`/windows.exe`·`/bin/*`는
+등록 그룹이 아니다. ALB의 다섯 경로 조건 제한을 보존하기 위해 WAF rate 목록과 라우팅 목록은
+별도 상수로 둔다. backend DB 사전 조회 공개 전에 이 정책을 dev에 적용하고 검증한다.
+
+세 숫자는 실측값이나 AWS 권장값이 아닌 **dev 초기 가설**이다. 다운로드·SQL 디버깅처럼
 서로 다른 특성의 요청을 함께 합산하는 한계가 있다. 요청 건수는 다운로드 바이트·전송 비용·SQL
 쿼리 복잡도를 제한하지 않는다. 공유 NAT 뒤의
 정상 요청도 같은 IP로 합산될 수 있으므로 실트래픽으로 재검토한다. 추가된 인증·조회·관리 경로를
@@ -187,7 +198,7 @@ bootstrap 등 모든 CLI HTTP 요청의 자동 재시도를 뜻하지 않는다.
 평가 순서는 국가 → Amazon IP·Anonymous IP 그룹 → 세 rate 규칙 → Common·KnownBadInputs·SQLi
 그룹 → 본문·query·확장자 label Block으로 고정한다. Count는 이후 규칙 평가를 계속하고 Block은 종료한다.
 
-나머지 rate의 scope-down은 `NOT(OR(OTLP 3개 + /api/v1 등록·토큰·초대 3개 경로 조건))`로 표현한다.
+나머지 rate의 scope-down은 `NOT(OR(OTLP 3개 + /api/v1 등록·토큰·초대 3개 + bootstrap 2개 경로 조건))`로 표현한다.
 두 경로 그룹의 OR을 다시 OR로 감싸는 불필요한 중첩을 만들지 않는다. 이는 경로·제한·동작을
 바꾸지 않는 구문 정리다. PROJ-198 배포에서 `OR_STATEMENT`의 nested statement 오류가 보고됐으며,
 논리 평가기와 CDK synth만으로 AWS WAF의 서비스 입력 수용 여부를 검증하지 못했다.

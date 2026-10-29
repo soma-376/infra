@@ -22,9 +22,13 @@ spec:
   ttlSecondsAfterFinished: 86400
   template:
     metadata:
+      {{- if eq .Values.provider "strimzi" }}
+      annotations:
+        pulsemetry.io/kafka-tls-revision: {{ .Values.tls.tlsRevision | quote }}
+      {{- end }}
       labels:
         {{- include "kafkaAdmin.labels" . | nindent 8 }}
         pulsemetry.io/job: offsets-{{ .Values.offsets.mode }}
     spec:
-      {{- include "kafkaAdmin.podSpec" (dict "root" . "serviceAccount" "telemetry-kafka-offsets" "configMap" "telemetry-kafka-offsets-client" "container" "offsets" "script" $script "env" $env) | nindent 6 }}
+      {{- include (ternary "kafkaAdmin.tlsPodSpec" "kafkaAdmin.podSpec" (eq .Values.provider "strimzi")) (dict "root" . "serviceAccount" "telemetry-kafka-offsets" "configMap" "telemetry-kafka-offsets-client" "container" "offsets" "script" $script "env" $env) | nindent 6 }}
 {{- end }}

@@ -24,6 +24,7 @@ export interface DevEksTelemetryAlarmsProps {
   readonly topicName: string;
   readonly consumerGroupName: string;
   readonly applicationLogGroup: ILogGroup;
+  readonly mskMetricsEnabled?: boolean;
 }
 
 /**
@@ -35,32 +36,35 @@ export class DevEksTelemetryAlarms extends Construct {
 
   constructor(scope: Construct, id: string, props: DevEksTelemetryAlarmsProps) {
     super(scope, id);
-    const cluster = { 'Cluster Name': DEV_EKS_MSK.clusterName };
-    const kafka = (metricName: string, dimensions: Record<string, string>, statistic: string, period: Duration) => new Metric({
-      namespace: 'AWS/Kafka', metricName, dimensionsMap: dimensions, statistic, period,
-    });
-    const brokers = (metricName: string, statistic: string, period: Duration) => Object.fromEntries(
-      Array.from({ length: DEV_EKS_MSK.brokerCount }, (_, index) => [
-        `b${index + 1}`, kafka(metricName, { ...cluster, 'Broker ID': String(index + 1) }, statistic, period),
-      ]));
-    const minute = Duration.minutes(1), fiveMinutes = Duration.minutes(5);
-    const group = { ...cluster, 'Consumer Group': props.consumerGroupName, Topic: props.topicName };
+    if (props.mskMetricsEnabled !== false) {
+      const cluster = { 'Cluster Name': DEV_EKS_MSK.clusterName };
+      const kafka = (metricName: string, dimensions: Record<string, string>, statistic: string, period: Duration) => new Metric({
+        namespace: 'AWS/Kafka', metricName, dimensionsMap: dimensions, statistic, period,
+      });
+      const brokers = (metricName: string, statistic: string, period: Duration) => Object.fromEntries(
+        Array.from({ length: DEV_EKS_MSK.brokerCount }, (_, index) => [
+          `b${index + 1}`, kafka(metricName, { ...cluster, 'Broker ID': String(index + 1) }, statistic, period),
+        ]));
+      const minute = Duration.minutes(1), fiveMinutes = Duration.minutes(5);
+      const group = { ...cluster, 'Consumer Group': props.consumerGroupName, Topic: props.topicName };
 
-    // broker별 지표를 하나의 경보로 모은다. broker ID는 MSK가 1부터 부여한다.
-    this.add('MskDiskUsed', 'Highest MSK broker data log disk usage is at or above 80 percent', 'msk-disk-used',
-      new MathExpression({ expression: 'MAX([b1, b2, b3])', usingMetrics: brokers('KafkaDataLogsDiskUsed', 'Maximum', fiveMinutes), period: fiveMinutes, label: 'MaxKafkaDataLogsDiskUsed' }),
-      80, 2, 2, TreatMissingData.MISSING);
-    this.add('MskUnderMinIsr', 'MSK partitions are below min.insync.replicas and reject acks=all writes', 'msk-under-min-isr',
-      new MathExpression({ expression: 'SUM([b1, b2, b3])', usingMetrics: brokers('UnderMinIsrPartitionCount', 'Maximum', minute), period: minute, label: 'UnderMinIsrPartitionCount' }),
-      1, 5, 3, TreatMissingData.MISSING);
-    this.add('MskOfflinePartitions', 'MSK has offline partitions', 'msk-offline-partitions',
-      kafka('OfflinePartitionsCount', cluster, 'Maximum', minute), 1, 5, 3, TreatMissingData.MISSING);
-    // group이 offset을 commit하기 전에는 lag 지표가 없다.
-    this.add('ConsumerTimeLag', 'Telemetry ingest consumer is more than 10 minutes behind', 'consumer-time-lag',
-      kafka('EstimatedMaxTimeLag', group, 'Maximum', fiveMinutes), 600, 3, 3, TreatMissingData.NOT_BREACHING);
-    this.add('ConsumerOffsetLag', 'Telemetry ingest consumer backlog exceeds 10000 records', 'consumer-offset-lag',
-      kafka('SumOffsetLag', group, 'Maximum', fiveMinutes), 10_000, 3, 3, TreatMissingData.NOT_BREACHING);
+      // broker별 지표를 하나의 경보로 모은다. broker ID는 MSK가 1부터 부여한다.
+      this.add('MskDiskUsed', 'Highest MSK broker data log disk usage is at or above 80 percent', 'msk-disk-used',
+        new MathExpression({ expression: 'MAX([b1, b2, b3])', usingMetrics: brokers('KafkaDataLogsDiskUsed', 'Maximum', fiveMinutes), period: fiveMinutes, label: 'MaxKafkaDataLogsDiskUsed' }),
+        80, 2, 2, TreatMissingData.MISSING);
+      this.add('MskUnderMinIsr', 'MSK partitions are below min.insync.replicas and reject acks=all writes', 'msk-under-min-isr',
+        new MathExpression({ expression: 'SUM([b1, b2, b3])', usingMetrics: brokers('UnderMinIsrPartitionCount', 'Maximum', minute), period: minute, label: 'UnderMinIsrPartitionCount' }),
+        1, 5, 3, TreatMissingData.MISSING);
+      this.add('MskOfflinePartitions', 'MSK has offline partitions', 'msk-offline-partitions',
+        kafka('OfflinePartitionsCount', cluster, 'Maximum', minute), 1, 5, 3, TreatMissingData.MISSING);
+      // group이 offset을 commit하기 전에는 lag 지표가 없다.
+      this.add('ConsumerTimeLag', 'Telemetry ingest consumer is more than 10 minutes behind', 'consumer-time-lag',
+        kafka('EstimatedMaxTimeLag', group, 'Maximum', fiveMinutes), 600, 3, 3, TreatMissingData.NOT_BREACHING);
+      this.add('ConsumerOffsetLag', 'Telemetry ingest consumer backlog exceeds 10000 records', 'consumer-offset-lag',
+        kafka('SumOffsetLag', group, 'Maximum', fiveMinutes), 10_000, 3, 3, TreatMissingData.NOT_BREACHING);
+    }
 
+    const fiveMinutes = Duration.minutes(5);
     for (const [event, { metricName, threshold }] of Object.entries(DEV_TELEMETRY_LOG_EVENTS)) {
       const filter = new MetricFilter(this, `${metricName}Filter`, {
         logGroup: props.applicationLogGroup,

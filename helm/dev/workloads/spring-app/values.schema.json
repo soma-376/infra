@@ -498,8 +498,7 @@
           "type": "boolean"
         },
         "bootstrapServers": {
-          "type": "string",
-          "pattern": "^b-[0-9]+\\.[A-Za-z0-9-]+\\.[a-z0-9]+\\.c[0-9]+\\.kafka\\.ap-northeast-2\\.amazonaws\\.com:9098(,b-[0-9]+\\.[A-Za-z0-9-]+\\.[a-z0-9]+\\.c[0-9]+\\.kafka\\.ap-northeast-2\\.amazonaws\\.com:9098){0,2}$"
+          "type": "string"
         },
         "topic": {
           "type": "string",
@@ -518,6 +517,23 @@
             "pulsemetry-dev-telemetry-gateway",
             "pulsemetry-dev-telemetry-ingest"
           ]
+        },
+        "security": {
+          "enum": [
+            "iam",
+            "mtls"
+          ]
+        },
+        "clusterCaSecretName": {
+          "const": "soma-376-dev-telemetry-cluster-ca-cert"
+        },
+        "userSecretName": {
+          "type": "string",
+          "pattern": "^pulsemetry-(gateway|ingest)-(validation|main)$"
+        },
+        "tlsRevision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
         }
       },
       "allOf": [
@@ -532,10 +548,75 @@
           "then": {
             "required": [
               "bootstrapServers",
-              "topic",
-              "iamRoleArn",
-              "iamSessionName"
-            ]
+              "topic"
+            ],
+            "if": {
+              "required": [
+                "security"
+              ],
+              "properties": {
+                "security": {
+                  "const": "mtls"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "clusterCaSecretName",
+                "userSecretName",
+                "tlsRevision"
+              ],
+              "properties": {
+                "bootstrapServers": {
+                  "const": "soma-376-dev-telemetry-kafka-bootstrap.pulsemetry-dev.svc.cluster.local:9093"
+                }
+              },
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "iamRoleArn"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "iamSessionName"
+                    ]
+                  }
+                ]
+              }
+            },
+            "else": {
+              "required": [
+                "iamRoleArn",
+                "iamSessionName"
+              ],
+              "properties": {
+                "bootstrapServers": {
+                  "type": "string",
+                  "pattern": "^b-[0-9]+\\.[A-Za-z0-9-]+\\.[a-z0-9]+\\.c[0-9]+\\.kafka\\.ap-northeast-2\\.amazonaws\\.com:9098(,b-[0-9]+\\.[A-Za-z0-9-]+\\.[a-z0-9]+\\.c[0-9]+\\.kafka\\.ap-northeast-2\\.amazonaws\\.com:9098){0,2}$"
+                }
+              },
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "clusterCaSecretName"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "userSecretName"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "tlsRevision"
+                    ]
+                  }
+                ]
+              }
+            }
           },
           "else": {
             "maxProperties": 1

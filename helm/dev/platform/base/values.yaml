@@ -16,3 +16,9 @@ observabilityNodeSecurityGroupId: ""
 # 끄기 전에 그 정책부터 지운다(런북 PROJ-256 절의 복구 순서).
 networkPolicyController:
   enabled: true
+
+# ADR-0049: 기존 풀과 독립된 단일 AZ Kafka 전용 노드·스토리지다.
+kafka:
+  enabled: false
+  securityGroupId: ""
+  availabilityZone: ""

@@ -8,9 +8,14 @@ app.kubernetes.io/part-of: pulsemetry
 {{- if ne .Release.Namespace "pulsemetry-dev" -}}{{- fail "namespace는 pulsemetry-dev여야 한다" -}}{{- end -}}
 {{- if ne .Values.topic (printf "pulsemetry-dev-telemetry-ingress-%s" .Values.stage) -}}{{- fail "topic은 stage와 같은 ingress 이름이어야 한다" -}}{{- end -}}
 {{- if ne .Values.consumerGroup (printf "pulsemetry-dev-telemetry-ingest-%s" .Values.stage) -}}{{- fail "consumer group은 stage와 같은 ingest 이름이어야 한다" -}}{{- end -}}
+{{- if eq .Values.provider "strimzi" -}}
+{{- if .Values.topicInit.enabled -}}{{- fail "Strimzi topic은 KafkaTopic이 소유하며 init Job은 금지한다" -}}{{- end -}}
+{{- if ne .Values.tls.userSecretName (printf "pulsemetry-offset-admin-%s" .Values.stage) -}}{{- fail "offset TLS Secret의 stage가 다르다" -}}{{- end -}}
+{{- else -}}
 {{- if eq .Values.topicAdmin.roleArn .Values.offsetAdmin.roleArn -}}{{- fail "topic 관리와 offset 재처리는 서로 다른 MSK 역할을 쓴다" -}}{{- end -}}
+{{- end -}}
 {{- if and .Values.topicInit.enabled .Values.offsets.enabled -}}{{- fail "topic 초기화와 offset 재처리는 같은 실행에서 함께 켜지 않는다" -}}{{- end -}}
-{{- if not (or .Values.topicInit.enabled .Values.offsets.enabled) -}}{{- fail "topicInit 또는 offsets 중 하나를 켜야 한다" -}}{{- end -}}
+{{- if and (ne .Values.provider "strimzi") (not (or .Values.topicInit.enabled .Values.offsets.enabled)) -}}{{- fail "topicInit 또는 offsets 중 하나를 켜야 한다" -}}{{- end -}}
 {{- end -}}
 {{/* aws-msk-iam-auth가 Pod Identity 자격으로 전용 MSK 역할을 고정 세션 이름으로 assume한다. */}}
 {{- define "kafkaAdmin.clientProperties" -}}

@@ -2,12 +2,14 @@
 
 ## Status
 
-[ADR-0035](0035-dev-backend-eks-only.md)가 dev 백엔드의 ECS 실행·병행 유지·입력·배포 권한 가정을 부분 대체한다. prod·frontend Terraform과 이 문서의 나머지 계약은 유지한다. 아래 ECS 구성은 당시 결정 기록이다.
-
 Accepted — 부분 대체: [ADR 0026](0026-dev-backend-deployment-units-and-staged-migration.md)이 dev backend의
 배포 대상을 `enrollment-api`·`telemetry-ingest`로 바꾸고, 기존 pipeline dev 역할은 신뢰 정책과 output만
 유지한 채 permission statement를 0개로 만든다. 역할 4개 구조, prod 대상, OIDC 신뢰 경계와
 `iam:PassRole`·태스크 정의 등록 금지는 그대로 유효하다.
+
+[ADR-0035](0035-dev-backend-eks-only.md)가 dev 백엔드의 ECS 실행·병행 유지·입력·배포 권한 가정을 부분 대체한다. prod·frontend Terraform과 이 문서의 나머지 계약은 유지한다. 아래 ECS 구성은 당시 결정 기록이다.
+
+[ADR-0048](0048-dev-cloudformation-cicd.md)가 infra 저장소의 dev CloudFormation 역할 두 개와 Environment 승인 경계를 더한다. 이 문서의 앱 역할 4개·권한·branch trust는 유지한다.
 
 [ADR-0029](0029-dev-dashboard-api-ecs-and-eks-deployment.md)이 backend-dev의 ECS 재배포 목표를 enrollment·ingest·dashboard 세 앱으로 확장한다. PROJ-226 기준 코드는 ECR 공급 권한만 추가한 상태이며 서비스 재배포 권한 구현은 PROJ-221이다. 기존 prod·OIDC trust와 태스크 정의 등록·PassRole 금지는 유효하다.
 

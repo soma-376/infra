@@ -1,3 +1,4 @@
+provider: msk
 # Kafka CLI 이미지와 MSK IAM jar는 검증한 고정값이다. 바꾸려면 schema와 함께 갱신한다. (ADR-0036)
 # apache/kafka:3.9.2 multi-arch index digest (registry-1.docker.io, 2026-10-21 확인)
 image:

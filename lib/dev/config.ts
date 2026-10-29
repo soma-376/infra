@@ -35,6 +35,8 @@ export const DEV_ENROLLMENT_REGISTRATION_PATHS = [
   '/api/v1/installations/*',
   '/api/v1/invitations*',
 ] as const;
+/** 초대 코드 조회·소비가 같은 IP 예산을 공유한다. ALB 경로 조건 수와 독립적이다. (PROJ-269) */
+export const DEV_ENROLLMENT_RATE_PATHS = [...DEV_ENROLLMENT_REGISTRATION_PATHS, '/unix', '/windows'] as const;
 /** ALB priority 3의 최대 다섯 경로 조건. WAF 내용 검사는 모두 Block한다. */
 export const DEV_ENROLLMENT_API_PATHS = [
   ...DEV_ENROLLMENT_REGISTRATION_PATHS,
@@ -79,8 +81,8 @@ export const DEV_WAF_RATE_EVALUATION_WINDOW_SECONDS = 300;
 
 /**
  * 실측값이나 AWS 권장값이 아닌 dev 초기 가설이다. OTLP는 배치·재시도·공유 NAT의 burst를
- * Count로 관찰하고 등록·토큰·초대 세 조건은 저빈도 등록·토큰 발급의 반복 호출을 제한한다.
- * remaining에는 새 인증·manifest·조직 관리·문의·업데이트와 bootstrap·다운로드가
+ * Count로 관찰하고 등록·토큰·초대 세 조건과 /unix·/windows는 등록·설치의 반복 호출을 제한한다.
+ * remaining에는 새 인증·manifest·조직 관리·문의·업데이트와 /bin/* 다운로드가
  * 포함된다. 여러 설치 GET·반복 요청과 같은 NAT의
  * 동시 설치에 여유를 두되, 서로 다른 요청을 한 IP로 합산하는 한계는 실트래픽으로 재검토한다.
  * 요청 건수는 다운로드 바이트·비용을 제한하지 않는다. (ADR-0027·0038)

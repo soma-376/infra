@@ -1,0 +1,63 @@
+# 렌더링 전용 합성 값이다. AWS 배포 결과가 아니다.
+global:
+  pulsemetry:
+    environment: dev
+    targetNamespace: pulsemetry-dev
+    region: ap-northeast-2
+    clusterName: fixture-eks
+    grafanaAdminSecretArn: >-
+      arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:soma-376/dev/observability/grafana-admin-ABC123
+    kafkaProvider: strimzi
+    kafkaClusterName: soma-376-dev-telemetry
+    controlPlaneLogGroup: /aws/eks/fixture-eks/cluster
+    applicationLogGroup: /eks/dev/application
+    observabilityLogGroup: /eks/dev/observability
+    kubernetesEventsLogGroup: /eks/dev/events
+    diagnosticsBucket: fixture-diagnostics
+    topic: pulsemetry-dev-telemetry-ingress-validation
+    consumerGroup: pulsemetry-dev-telemetry-ingest-validation
+monitoring:
+  kubelet:
+    serviceMonitor:
+      relabelings:
+        - targetLabel: cluster
+          replacement: fixture-eks
+        - targetLabel: environment
+          replacement: dev
+  prometheus:
+    serviceMonitor:
+      relabelings:
+        - targetLabel: cluster
+          replacement: fixture-eks
+        - targetLabel: environment
+          replacement: dev
+  prometheusOperator:
+    serviceMonitor:
+      relabelings:
+        - targetLabel: cluster
+          replacement: fixture-eks
+        - targetLabel: environment
+          replacement: dev
+  grafana:
+    serviceMonitor:
+      relabelings:
+        - targetLabel: cluster
+          replacement: fixture-eks
+        - targetLabel: environment
+          replacement: dev
+  kube-state-metrics:
+    prometheus:
+      monitor:
+        relabelings:
+          - targetLabel: cluster
+            replacement: fixture-eks
+          - targetLabel: environment
+            replacement: dev
+  prometheus-node-exporter:
+    prometheus:
+      monitor:
+        relabelings:
+          - targetLabel: cluster
+            replacement: fixture-eks
+          - targetLabel: environment
+            replacement: dev

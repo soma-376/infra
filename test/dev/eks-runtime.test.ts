@@ -247,9 +247,25 @@ test('SES 발송과 관리·메일 키 읽기는 enrollment Pod에만 허용한�
   const holders = policies.filter(([, policy]) => JSON.stringify(policy).includes('ses:SendEmail'));
   expect(holders).toHaveLength(1);
   expect(holders[0][0]).toContain('Enrollment');
-  const send = holders[0][1].Properties.PolicyDocument.Statement.find((s: any) => s.Action === 'ses:SendEmail');
+  const sendStatements = holders[0][1].Properties.PolicyDocument.Statement.filter((s: any) => s.Action === 'ses:SendEmail');
+  expect(sendStatements).toHaveLength(1);
+  const send = sendStatements[0];
   expect(send.Condition).toEqual({ StringEquals: { 'ses:FromAddress': 'no-reply@pulsemetry.co.kr' } });
-  expect(JSON.stringify(send.Resource)).toContain('identity/pulsemetry.co.kr');
+  // 단일 ARN 전체를 비교해 추가 wildcard가 든 Resource 배열도 거부한다.
+  expect(send.Resource).toBe(`arn:aws:ses:${TEST_ENV.region}:${TEST_ENV.account}:identity/*`);
+  expect(JSON.stringify(sendStatements)).not.toMatch(/SendRawEmail|ses:\*|configuration-set|StringEqualsIfExists|ResourceTag/);
+  // 앱이 자신에게 수신 승인을 부여하거나 identity를 만들 수 없어야 한다.
+  for (const [, policy] of policies) {
+    const statements = policy.Properties.PolicyDocument.Statement;
+    for (const statement of statements) {
+      const actions = [statement.Action].flat();
+      expect(actions).not.toEqual(expect.arrayContaining(['ses:*']));
+      expect(actions.filter((a: string) => a.startsWith('ses:'))).toEqual(
+        actions.includes('ses:SendEmail') ? ['ses:SendEmail'] : [],
+      );
+    }
+  }
+
   for (const id of ['DevManagementResponseKeySecret', 'DevMailEncryptionKeySecret']) {
     const readers = policies.filter(([, policy]) => JSON.stringify(policy).includes(id));
     expect(readers).toHaveLength(1);

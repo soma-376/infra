@@ -11,7 +11,7 @@ export const DEV_OBSERVABILITY_NAMESPACE = 'pulsemetry-observability';
 /** AWS 참조와 권한만 소유한다. 설치·dashboard·Events collector는 Helm이 소유한다. (ADR-0037) */
 export class DevEksObservability extends Construct {
   constructor(scope: Construct, id: string, props: {
-    clusterName: string; applicationLogGroup: ILogGroup; brokerLogGroup: ILogGroup;
+    clusterName: string; applicationLogGroup: ILogGroup; brokerLogGroup?: ILogGroup;
     fluentBitRole: Role; operatorRole: Role;
   }) {
     super(scope, id);
@@ -58,7 +58,7 @@ export class DevEksObservability extends Construct {
     });
     grafana.addToPolicy(new PolicyStatement({
       actions: ['logs:StartQuery', 'logs:GetLogGroupFields', 'logs:GetLogEvents', 'logs:DescribeLogStreams'],
-      resources: [props.applicationLogGroup.logGroupArn, props.brokerLogGroup.logGroupArn, logs.logGroupArn, events.logGroupArn, controlPlaneArn],
+      resources: [props.applicationLogGroup.logGroupArn, ...(props.brokerLogGroup ? [props.brokerLogGroup.logGroupArn] : []), logs.logGroupArn, events.logGroupArn, controlPlaneArn],
     }));
     // 이 API는 log-group ARN 수준의 리소스 제한을 지원하지 않는다.
     grafana.addToPolicy(new PolicyStatement({

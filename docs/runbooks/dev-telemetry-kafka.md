@@ -1,5 +1,8 @@
 # dev telemetry Gateway·MSK 설치·전환·복구 런북
 
+> **Strimzi 전환:** 새 `strimzi` 공급자는 [dev Strimzi 런북](dev-strimzi-kafka.md)을 따른다.
+> 이 문서의 MSK IAM·topic-init·bootstrap 조회는 `msk` 호환 경로 전용이다.
+
 > PROJ-246 구현 인터페이스의 운영 절차다. 이 문서의 AWS/Kubernetes 명령은 이번 작업에서 실행하지 않았다.
 > 로컬 build·Jest·synth·Helm 렌더링 통과는 MSK 생성·IAM 접속·ALB 전환 성공을 뜻하지 않는다.
 > 결정은 [ADR-0035](../adr/0035-dev-msk-isolated-subnets-under-eks-stack.md)(MSK·네트워크)와

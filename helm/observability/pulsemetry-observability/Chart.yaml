@@ -1,6 +1,6 @@
 apiVersion: v2
 name: pulsemetry-observability
-description: Pulsemetry Gateway·MSK·Pipeline·ClickHouse 관측 스택
+description: Pulsemetry Gateway·Kafka·Pipeline·ClickHouse 관측 스택
 type: application
 version: 0.1.0
 dependencies:
