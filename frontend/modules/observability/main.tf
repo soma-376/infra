@@ -73,7 +73,9 @@ resource "aws_instance" "this" {
   lifecycle {
     # 별도 aws_ebs_volume이 연결된 데이터 볼륨의 태그를 소유한다.
     # EC2의 volume_tags refresh가 데이터 볼륨 Name까지 합쳐 반환하므로 덮어쓰지 않는다.
-    ignore_changes = [volume_tags]
+    # user data는 최초 생성 시에만 적용한다. 기존 호스트 업데이트는 별도 배포로 수행한다.
+    # AMI 변경/명시적 교체는 계속 계획된다. 부팅 스크립트 수정만으로 기존 서버를 교체하지 않는다.
+    ignore_changes = [volume_tags, user_data_base64]
     precondition {
       condition     = data.aws_subnet.this.vpc_id == var.vpc_id
       error_message = "관측 서브넷은 지정한 VPC에 속해야 합니다."

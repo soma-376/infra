@@ -22,7 +22,10 @@ Accepted — 사용자 요청에 따른 IaC 구현. 수신 기반 배포 후 dev
 - 수신 포트는 사설 IP에만 bind한다. dev 앱 연결 활성화 시 앱 SG → 관측 SG TCP 4318 ingress와 반대 방향 egress만 추가한다. 공개 CIDR ingress는 허용하지 않는다.
 - 기존 프론트 SDK의 OTLP HTTP를 사용한다. ECS 환경 변수로 SDK 활성화, dev 환경 이름, 서비스 이름, Terraform 관측 endpoint를 전달한다. 앱 코드·이미지 배포는 프론트 레포가 소유하며 기존 CloudWatch stdout 로그는 유지한다.
 - dev는 Docker bridge이므로 송신자 SG는 앱 EC2의 SG다. prod 기본값은 비활성이고 이 경로를 공유하지 않는다.
-- user data/config 변경은 EC2 교체를 수반한다. 데이터 볼륨이 붙기 전에는 스택을 시작하지 않는다.
+- user data는 최초 부팅에만 적용하며 기존 EC2에서는 user_data_base64 변경을 무시한다. AMI 변경 또는 명시적 교체는 별도 계획으로 수행한다. 부팅/스택 설정 수정은 기존 호스트에 자동 반영되지 않으므로 별도 전환 작업이 필요하다.
+- 대시보드 JSON은 infra/frontend/observability/dashboards가 소유하며 user data에서 제외한다. 영구 EBS 디렉터리를 Grafana에 마운트하고 독립 CI가 SSM 전용 문서로 갱신한다.
+- 대시보드 배포 역할은 지정 SSM 문서와 관측 태그 EC2에만 접근한다. 일반 RunShellScript·Terraform·앱 배포 권한은 없다.
+- 최초 마운트 전환은 Grafana 컨테이너만 재생성한다. 이후에는 provisioning reload로 반영하며 실패 시 이전 파일로 복구한다. 데이터 볼륨이 붙기 전에는 스택을 시작하지 않는다.
 
 ## Alternatives Considered
 

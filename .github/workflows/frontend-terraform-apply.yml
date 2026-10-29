@@ -5,6 +5,9 @@ on:
     branches: [develop, main]
     paths:
       - 'frontend/**'
+      - '!frontend/observability/dashboards/**'
+      - '!frontend/scripts/deploy-dashboards.py'
+      - '!frontend/scripts/test-dashboards.py'
       - '.github/workflows/frontend-terraform-*.yml'
 
 permissions:

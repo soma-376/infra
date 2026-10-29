@@ -1,5 +1,8 @@
 mock_provider "aws" {
   override_during = plan
+  mock_resource "aws_ssm_document" {
+    defaults = { arn = "arn:aws:ssm:ap-northeast-2:111111111111:document/soma-376-frontend-dashboards" }
+  }
   mock_resource "aws_iam_role" {
     defaults = { arn = "arn:aws:iam::111111111111:role/mock-frontend-role" }
   }
@@ -118,5 +121,21 @@ run "observability_role_is_ssm_only" {
   assert {
     condition     = aws_iam_role_policy_attachment.observability_write.role == aws_iam_role.terraform["dev-apply"].name && jsondecode(aws_iam_policy.observability_write.policy).Statement[0].Resource == aws_iam_role.observability.arn && jsondecode(aws_iam_policy.observability_write.policy).Statement[1].Condition.Bool["ec2:Encrypted"] == "true"
     error_message = "관측 배포 권한은 dev apply의 전용 역할과 암호화 볼륨으로 제한해야 합니다."
+  }
+}
+
+run "dashboard_deploy_boundary" {
+  command = plan
+  assert {
+    condition     = jsondecode(aws_iam_role.dashboards.assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:soma-376/infra:environment:frontend-dashboards"
+    error_message = "대시보드는 전용 GitHub Environment에서만 배포해야 합니다."
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.dashboards.policy).Statement[2].Condition.StringEquals["ssm:resourceTag/Component"] == "observability" && !strcontains(aws_iam_role_policy.dashboards.policy, "AWS-RunShellScript") && !strcontains(aws_iam_role_policy.dashboards.policy, "ec2:TerminateInstances")
+    error_message = "관측 EC2와 고정 SSM 문서만 허용해야 합니다."
+  }
+  assert {
+    condition     = jsondecode(aws_ssm_document.dashboards.content).parameters.DashboardBundle.interpolationType == "ENV_VAR" && !strcontains(aws_ssm_document.dashboards.content, "{{DashboardBundle}}")
+    error_message = "대시보드 payload를 shell 문자열로 보간하지 않아야 합니다."
   }
 }

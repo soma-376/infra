@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'frontend/modules/observability/**'
+      - 'frontend/observability/dashboards/**'
+      - 'frontend/observability/host-agent/**'
       - 'frontend/scripts/test-observability.py'
       - '.github/workflows/frontend-observability-check.yml'
   workflow_dispatch:

@@ -1,0 +1,814 @@
+{
+  "editable": true,
+  "panels": [
+    {
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "content": "dev EC2 OS → Node 프로세스 → 요청·에러 → 로그·트레이스 순서로 확인합니다. **No data는 사용량 0이 아니라 해당 지표가 없는 상태입니다.** OS와 앱 OTel은 별도 수집 경로입니다.",
+        "mode": "markdown"
+      },
+      "title": "수집 범위와 읽는 방법",
+      "type": "text"
+    },
+    {
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "id": 10,
+      "options": {
+        "content": "호스트 Alloy 연결 전에는 그래프가 비어 있습니다. Node SDK만 활성화해도 EC2 전체 자원은 수집되지 않습니다.",
+        "mode": "markdown"
+      },
+      "title": "dev 프론트 EC2",
+      "type": "text"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "100 * (1 - avg by (instance, environment, host_role) (rate(node_cpu_seconds_total{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",mode=\"idle\"}[$__rate_interval])))",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
+      "title": "dev 프론트 EC2 · OS CPU · 전체 코어 사용률",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "100 * (1 - node_memory_MemAvailable_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\"} / node_memory_MemTotal_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\"})",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
+      "title": "dev 프론트 EC2 · OS RAM · 사용률 (MemAvailable 기준)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 15
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "node_memory_MemAvailable_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\"}",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
+      "title": "dev 프론트 EC2 · OS RAM · 가용 바이트",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 15
+      },
+      "id": 14,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "100 * (1 - node_filesystem_avail_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",fstype!~\"tmpfs|overlay|squashfs|ramfs|rpc_pipefs\",mountpoint!~\"/host/root.*\"} / node_filesystem_size_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",fstype!~\"tmpfs|overlay|squashfs|ramfs|rpc_pipefs\",mountpoint!~\"/host/root.*\"})",
+          "legendFormat": "{{instance}} {{mountpoint}}",
+          "refId": "A"
+        }
+      ],
+      "title": "dev 프론트 EC2 · 파일시스템 · 사용률",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 22
+      },
+      "id": 15,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "node_filesystem_avail_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",fstype!~\"tmpfs|overlay|squashfs|ramfs|rpc_pipefs\",mountpoint!~\"/host/root.*\"}",
+          "legendFormat": "{{instance}} {{mountpoint}}",
+          "refId": "A"
+        }
+      ],
+      "title": "dev 프론트 EC2 · 파일시스템 · 가용 용량",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 22
+      },
+      "id": 16,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "up{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\"}",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
+      "title": "dev 프론트 EC2 · 수집 상태 · 1=성공, 0=실패, No data=미수신",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "orange",
+                  "text": "미수신"
+                },
+                "1": {
+                  "color": "green",
+                  "text": "수신 중"
+                }
+              },
+              "type": "value"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 29
+      },
+      "id": 17,
+      "targets": [
+        {
+          "expr": "count(present_over_time(node_memory_MemTotal_bytes{job=\"frontend-host\",instance=\"i-069f59e2280925158\"}[5m])) or vector(0)",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "dev 프론트 EC2 · 최근 5분 수신 여부",
+      "type": "stat"
+    },
+    {
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "id": 18,
+      "options": {
+        "content": "범례의 service_instance_id는 Node 프로세스 시작마다 달라지는 ID입니다. EC2 ID와는 다릅니다. CPU는 코어 1개=100%, RSS는 프로세스 전체 상주 메모리입니다. heapUsed/heapTotal은 현재 확보한 힙 대비 비율이며 컨테이너 메모리 한도가 아닙니다.",
+        "mode": "markdown"
+      },
+      "title": "dev Node.js · 인스턴스별 비교",
+      "type": "text"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "프론트 Node.js 프로세스의 최근 1분 CPU 사용률. user+system CPU 초 / 경과 초. 여러 스레드가 코어를 쓰면 100%를 넘을 수 있습니다. 컴퓨터/EC2 전체 및 컨테이너 할당량 대비 사용률이 아닙니다.",
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 36
+      },
+      "id": 22,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(frontend_node_cpu_time_seconds_total{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"}[1m])",
+          "instant": false,
+          "legendFormat": "{{service_instance_id}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Node.js CPU · 코어 1개 = 100%",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "프로세스가 차지하는 물리 메모리. 브라우저 메모리가 아닙니다.",
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 36
+      },
+      "id": 23,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",kind=~\"rss\"}",
+          "legendFormat": "{{kind}} · {{service_instance_id}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Node.js process RSS",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "heapUsed: 사용 중인 JS 힙. heapTotal: 현재 확보한 힙이며 최대 한도가 아닙니다.",
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 43
+      },
+      "id": 24,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",kind=~\"heapUsed|heapTotal\"}",
+          "legendFormat": "{{kind}} · {{service_instance_id}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "JavaScript heap",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "arrayBuffers는 external에 포함됩니다. RSS, heap, external 값을 더하지 마세요.",
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 43
+      },
+      "id": 25,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",kind=~\"external|arrayBuffers\"}",
+          "legendFormat": "{{kind}} · {{service_instance_id}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Native memory / ArrayBuffers",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "V8 최대 힙 제한이나 컨테이너 RAM 대비 사용률이 아닙니다. GC에 따라 변동하므로 누수 여부는 안정화 여부와 함께 판단합니다.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 50
+      },
+      "id": 26,
+      "targets": [
+        {
+          "expr": "100 * frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",kind=\"heapUsed\"} / ignoring(kind) frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",kind=\"heapTotal\"}",
+          "legendFormat": "{{service_instance_id}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Node heapUsed / heapTotal · 현재 확보한 힙 대비",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Next.js 요청 span 기준. Prometheus increase 추정치이며 첫 수집 이전 요청은 빠질 수 있습니다. 페이지/RSC/API 요청을 포함하며 방문자 수가 아닙니다. 정적 파일 등 Next 계측을 거치지 않는 요청은 제외됩니다.",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 50
+      },
+      "id": 19,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(frontend_http_server_duration_seconds_count{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"}[$__range]))",
+          "instant": true,
+          "legendFormat": "요청 수 · 선택 기간 (추정)",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "요청 수 · 선택 기간 (추정)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "최근 5분 요청 중 HTTP 500–599 응답 비율. 4xx는 제외합니다. 요청이 없는 구간은 비율을 계산할 수 없어 No data/빈 구간으로 표시합니다.",
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 57
+      },
+      "id": 20,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "(sum(rate(frontend_http_server_duration_seconds_count{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",http_response_status_code=~\"5..\"}[5m])) or (0 * sum(rate(frontend_http_server_duration_seconds_count{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"}[5m])))) / (sum(rate(frontend_http_server_duration_seconds_count{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"}[5m])) > 0)",
+          "instant": false,
+          "legendFormat": "서버 에러율 · 5xx (5분)",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "서버 에러율 · 5xx (5분)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "최근 5분 완료된 Next.js 요청 span 시간의 95백분위 추정값. 95%의 요청이 이 시간 이내입니다. 개발 컴파일 시간이 포함될 수 있고 브라우저 전체 로딩 시간은 아닙니다. 요청이 없으면 빈 구간입니다.",
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 57
+      },
+      "id": 21,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(frontend_http_server_duration_seconds_bucket{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"}[5m])))",
+          "instant": false,
+          "legendFormat": "응답 시간 p95 · 5분",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "응답 시간 p95 · 5분",
+      "type": "timeseries"
+    },
+    {
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 64
+      },
+      "id": 27,
+      "options": {
+        "content": "Explore → Tempo에서 다음 TraceQL로 검색합니다.\n```traceql\n{ resource.service.name = \"pulsemetry-frontend\" && resource.deployment.environment.name = \"dev\" }\n```\n프론트에서 /login 등의 요청을 만든 뒤 확인합니다. Trace를 통해 BFF 처리와 하위 API 호출 시간을 나눠 봅니다.",
+        "mode": "markdown"
+      },
+      "title": "Trace · 요청이 느린 구간 찾기",
+      "type": "text"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "서버 console.error 및 Next.js 요청 오류. 오류가 없으면 No data가 정상입니다. 로그를 펼치면 stack trace와 trace_id를 확인할 수 있습니다.",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 68
+      },
+      "id": 28,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "{service_name=\"pulsemetry-frontend\", deployment_environment_name=\"dev\"} | severity_text=~\"ERROR|FATAL\"",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "dev 서버 에러 로그 · Loki",
+      "type": "logs"
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 39,
+  "tags": [
+    "pulsemetry",
+    "dev",
+    "frontend"
+  ],
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "Pulsemetry · Dev Frontend",
+  "uid": "pulsemetry-dev-overview",
+  "version": 1,
+  "description": "dev EC2 전체 자원과 Node 프로세스, 요청 및 오류를 함께 확인합니다.",
+  "links": [
+    {
+      "title": "Pulsemetry · Observability Server",
+      "type": "link",
+      "url": "/d/pulsemetry-frontend-hosts",
+      "includeVars": false,
+      "keepTime": true,
+      "targetBlank": false
+    }
+  ]
+}

@@ -112,7 +112,7 @@ services:
       - ./datasources.yaml:/etc/grafana/provisioning/datasources/frontend.yaml:ro
       - ./dashboards.yaml:/etc/grafana/provisioning/dashboards/frontend.yaml:ro
       - /srv/pulsemetry-observability/secrets/grafana-admin-password:/run/secrets/grafana-admin-password:ro
-      - ./hosts.json:/etc/grafana/dashboards/hosts.json:ro
+      - /srv/pulsemetry-observability/dashboards:/etc/grafana/dashboards:ro
     # up --wait는 Grafana뿐 아니라 저장소와 Alloy가 준비될 때까지 기다린다.
     healthcheck:
       test:

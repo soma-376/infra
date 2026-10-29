@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -42,6 +43,9 @@ def eventually(check):
 
 with tempfile.TemporaryDirectory(prefix='proj260-observability-') as directory:
     temp = Path(directory)
+    dashboards = temp / 'dashboards'
+    dashboards.mkdir()
+    shutil.copy2(ROOT / 'observability/dashboards/observability.json', dashboards / 'observability.json')
     env = dict(os.environ, HOST_INSTANCE_ID='validation', HOST_PRIVATE_IP='127.0.0.1')
     data = json.loads(run('docker', 'compose', '-f', str(FILES / 'compose.yaml'), 'config', '--format', 'json', env=env, capture_output=True).stdout)
     project = 'proj260-validation-' + secrets.token_hex(4)
@@ -59,7 +63,9 @@ with tempfile.TemporaryDirectory(prefix='proj260-observability-') as directory:
         for volume in service.get('volumes', []):
             if volume['source'].startswith('/srv/pulsemetry-observability/'):
                 suffix = volume['source'].split('/srv/pulsemetry-observability/')[1]
-                if suffix.startswith('secrets/'):
+                if suffix == 'dashboards':
+                    volume['source'] = str(dashboards)
+                elif suffix.startswith('secrets/'):
                     volume['source'] = str(secret)
                 else:
                     volume['source'] = suffix
@@ -105,6 +111,20 @@ with tempfile.TemporaryDirectory(prefix='proj260-observability-') as directory:
     try:
         run(*compose, 'up', '-d', '--wait', '--wait-timeout', '180', stdout=subprocess.DEVNULL)
         assert len(get('/api/dashboards/uid/pulsemetry-frontend-hosts')['dashboard']['panels']) == 9
+        # 기존 API 관리 대시보드를 같은 UID의 파일 관리로 전환한다.
+        dev = json.loads((ROOT / 'observability/dashboards/dev-frontend.json').read_text())
+        def grafana_post(path, body):
+            request = urllib.request.Request(f'http://127.0.0.1:{grafana_port}' + path,
+                data=json.dumps(body).encode(), headers=dict(auth, **{'Content-Type': 'application/json'}))
+            with urllib.request.urlopen(request, timeout=15) as response:
+                return json.load(response)
+        grafana_post('/api/dashboards/db', {'dashboard': dev, 'overwrite': True})
+        assert not get('/api/dashboards/uid/pulsemetry-dev-overview')['meta']['provisioned']
+        shutil.copy2(ROOT / 'observability/dashboards/dev-frontend.json', dashboards / 'dev-frontend.json')
+        grafana_post('/api/admin/provisioning/dashboards/reload', {})
+        actual = get('/api/dashboards/uid/pulsemetry-dev-overview')
+        assert actual['meta']['provisioned'] and actual['dashboard']['panels'] == dev['panels']
+        print('PASS: 기존 DB 대시보드의 UID를 유지하며 파일 provisioning 전환', flush=True)
         assert {s['uid'] for s in get('/api/datasources')} == {'prometheus', 'loki', 'tempo'}
         try:
             get('/api/datasources', authenticated=False)
