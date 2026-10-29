@@ -7,6 +7,8 @@ services:
     pid: host
     user: "0:0"
     read_only: true
+    tmpfs:
+      - /var/lib/alloy:rw,nosuid,nodev,size=64m,mode=0755
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     mem_limit: 256m
@@ -20,17 +22,14 @@ services:
       HOST_INSTANCE_ID: ${HOST_INSTANCE_ID:?EC2 instance ID required}
       HOST_ENVIRONMENT: ${HOST_ENVIRONMENT:?dev or shared required}
       HOST_ROLE: ${HOST_ROLE:?frontend-dev or observability required}
-      PROMETHEUS_REMOTE_WRITE_URL: ${PROMETHEUS_REMOTE_WRITE_URL:?private remote write URL required}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:?private OTLP HTTP endpoint required}
     volumes:
       - ./config.alloy:/etc/alloy/config.alloy:ro
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/host/root:ro,rslave
-      - alloy-host-data:/var/lib/alloy
     logging:
       driver: json-file
       options:
         max-size: 10m
         max-file: "3"
-volumes:
-  alloy-host-data:

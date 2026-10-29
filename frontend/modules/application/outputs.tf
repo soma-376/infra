@@ -4,3 +4,5 @@ output "certificate_arn" { value = var.runtime.certificate_arn }
 output "cluster_name" { value = aws_ecs_cluster.frontend.name }
 output "service_name" { value = aws_ecs_service.frontend.name }
 output "dev_instance_id" { value = try(aws_instance.dev[0].id, null) }
+
+output "security_group_id" { value = aws_security_group.app.id }

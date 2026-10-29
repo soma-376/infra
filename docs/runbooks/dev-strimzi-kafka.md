@@ -28,6 +28,20 @@ backend PKCS12 지원 커밋을 포함한 새 Gateway·ingest ARM64 이미지를
 NodePool 8 vCPU 제한 외에도 계정 vCPU quota·해당 AZ의 m7g.large 용량과 세 노드의 4Gi allocatable 여유를 확인한다.
 CRD `kafkas.kafka.strimzi.io`가 이미 있으면 운영자 중복 설치 대신 기존 버전·소유권을 먼저 확인한다.
 
+Operator는 apps 노드에 있으므로 다음 경로를 CDK의 apps SG → Kafka SG와 Strimzi가 생성한 NetworkPolicy에서 함께 확인한다.
+9090·8443은 Strimzi 1.3.0 [KafkaRoller](https://github.com/strimzi/strimzi-kafka-operator/blob/1.3.0/cluster-operator/src/main/java/io/strimzi/operator/cluster/operator/resource/KafkaRoller.java)의
+controller Admin 및 KafkaAgent 복구 상태 조회에 필요하다. [KafkaCluster.generateNetworkPolicy](https://github.com/strimzi/strimzi-kafka-operator/blob/1.3.0/cluster-operator/src/main/java/io/strimzi/operator/cluster/model/KafkaCluster.java)는 두 포트의 Operator peer를 이미 허용한다.
+
+| 출발 Pod → Kafka Pod | TCP | 목적 |
+|---|---|---|
+| Cluster Operator → 각 controller | 9090 | metadata quorum·active controller 확인, 안전한 순차 재시작 |
+| Cluster Operator → 각 broker | 9091 | 내부 broker Admin 연결 |
+| Cluster Operator → 각 broker의 KafkaAgent | 8443 | 준비되지 않은 broker의 log recovery 상태 확인 |
+| Gateway·ingest·수동 관리 Job → broker | 9093 | 명시적으로 허용된 앱의 mTLS 접속 |
+
+외부 CIDR 또는 9092를 추가하지 않는다. SG는 노드 단위이며 Pod 접근은 기존 Strimzi NetworkPolicy가 제한한다.
+Operator의 9093 접속은 필요하지 않으므로 해당 앱 listener의 peer 목록에 Operator를 추가하지 않는다.
+
 이하 `RUN_DIR`는 접근 제한된 배포 기록 디렉터리, `HELM`은 검증된 Helm 3.22.0 실행 경로다.
 이미지 변수는 기존 운영 digest 또는 이번 검증된 backend digest이며 가변 태그를 쓰지 않는다.
 
@@ -65,6 +79,13 @@ Helm `--wait`는 Kafka CR readiness를 보장하지 않으므로 위 `kubectl wa
 Kafka Pod 3개가 다른 hostname이며 모두 ClickHouse AZ인지, PVC가 각각 100Gi/Bound인지 확인한다.
 KafkaTopic 두 개와 stage별 4개 KafkaUser는 계속 선언한다. stage 전환으로 이전 리소스를 제거하지 않는다.
 Topic 설정은 KafkaTopic만 바꾼다. Strimzi에 `topicInit.enabled=true`를 주면 schema가 실패한다.
+
+broker 3개가 Ready여도 Operator의 제어 경로는 막혀 있을 수 있다. 순차 재시작 전에 Operator에서 각 Kafka Pod의
+9090·8443 TCP 연결과 quorum 조회가 가능한지 확인한다. `Error determining active controller` 또는
+`describeMetadataQuorum` timeout으로 rolling이 멈추면 두 포트의 SG·NetworkPolicy를 대조한다.
+KafkaAgent 연결 실패도 복구 상태 확인을 막으므로 9090만 열어 해결됐다고 판단하지 않는다.
+경로를 수정한 뒤 Operator reconciliation·순차 재시작 완료, 새 Pod UID, 동일 PVC/PV, ISR 복구와 실제 수집을 확인한다.
+검사 실패를 강제 재시작으로 우회하거나 PVC를 삭제하지 않는다.
 
 ## 3. 앱 값 생성과 검증 경로
 

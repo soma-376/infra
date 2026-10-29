@@ -41,6 +41,29 @@ describe('dev Strimzi 병렬 설치와 MSK 단계별 제거', () => {
     expect(ingress.some(rule => [9092, 9098].includes(rule.Properties.FromPort))).toBe(false);
   });
 
+  test.each([
+    ['retain', parallel], ['cluster-removed', removed], ['network-removed', retired],
+  ] as const)('%s에서도 Operator의 controller quorum·KafkaAgent 경로를 apps SG에만 허용한다', (_, current) => {
+    const network = Template.fromStack(current.network);
+    const kafkaGroup = current.network.resolve(current.network.eksKafkaNodeSecurityGroup!.securityGroupId);
+    const appGroup = current.network.resolve(current.network.eksAppNodeSecurityGroup.securityGroupId);
+    const ingress = Object.values<any>(network.findResources('AWS::EC2::SecurityGroupIngress'))
+      .map(resource => resource.Properties)
+      .filter(rule => JSON.stringify(rule.GroupId) === JSON.stringify(kafkaGroup));
+    const appsIngress = ingress.filter(rule => JSON.stringify(rule.SourceSecurityGroupId) === JSON.stringify(appGroup));
+    // Strimzi 1.3.0 KafkaRoller의 controller Admin(9090)·KafkaAgent(8443)는 rolling safety 검사에 필수다.
+    expect(appsIngress.map(rule => rule.FromPort).sort((a, b) => a - b)).toEqual([8443, 9090, 9091, 9093]);
+    for (const port of [9090, 8443]) {
+      const matches = ingress.filter(rule => rule.FromPort === port);
+      expect(matches).toHaveLength(1);
+      expect(matches[0]).toEqual(expect.objectContaining({
+        GroupId: kafkaGroup, SourceSecurityGroupId: appGroup, IpProtocol: 'tcp', FromPort: port, ToPort: port,
+      }));
+      expect(matches[0].CidrIp).toBeUndefined();
+      expect(matches[0].CidrIpv6).toBeUndefined();
+    }
+  });
+
   test('클러스터 제거 단계는 MSK와 전용 권한만 제거하고 JWT·RDS·S3 접근을 보존한다', () => {
     const eks = Template.fromStack(removed.eks), json = eks.toJSON();
     eks.resourceCountIs('AWS::MSK::Cluster', 0);
