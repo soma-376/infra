@@ -11,6 +11,8 @@ export interface DevEdgeStackProps extends StackProps {
   readonly vpc: IVpc;
   readonly eksValidationAlbSecurityGroup: ISecurityGroup;
   readonly eksOtlpTarget?: DevEksOtlpTarget;
+  /** dev Strimzi main/ingest에서만 Gateway를 weight 0으로 연결한다. */
+  readonly eksPrepareGateway?: boolean;
   readonly dbEndpoint: string;
   readonly dbSecretArn: string;
   readonly tokenHashSecretArn: string;
@@ -34,6 +36,7 @@ export class DevEdgeStack extends Stack {
       publicBaseUrl: props.edge?.eksPublicBaseUrl,
       httpRedirectEnabled: props.edge?.httpRedirectEnabled,
       otlpTarget: props.eksOtlpTarget,
+      prepareGateway: props.eksPrepareGateway,
     });
 
     // 기존 소비자가 사용하는 공유 데이터 output은 ARN만 그대로 노출한다.

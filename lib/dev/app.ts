@@ -69,6 +69,8 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     vpc: network.vpc,
     eksValidationAlbSecurityGroup: network.eksValidationAlbSecurityGroup,
     eksOtlpTarget: config.eks.otlpTarget,
+    // listener 참조가 있어야 Gateway TG health check가 시작된다. 외부 수집은 ingest에 유지한다. (ADR-0049)
+    eksPrepareGateway: config.eks.kafkaProvider === 'strimzi' && config.eks.archivePrefix === 'eks' && config.eks.otlpTarget === 'ingest',
     dbEndpoint: data.dbEndpoint,
     dbSecretArn: data.dbSecretArn,
     tokenHashSecretArn: data.tokenHashSecretArn,
