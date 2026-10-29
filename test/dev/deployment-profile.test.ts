@@ -155,7 +155,7 @@ describe('추적된 dev 배포 profile', () => {
     ['devEksPublicBaseUrl', 'https://old.example.com'], ['devHttpRedirectEnabled', false],
     ['devOidcClientKeys', []], ['devAllowedCidr', '10.0.0.0/8'],
     ['devEksAdditionalCertificateArns', []], ['devEksAdditionalCertificateLogicalIds', {}],
-    ['devEksArchivePrefix', 'eks_validation'], ['devEksOtlpTarget', 'gateway'],
+    ['devEksArchivePrefix', 'eks_validation'], ['devEksOtlpTarget', 'ingest'],
   ])('명시한 %s가 충돌하면 context를 일부 적용하거나 리소스를 만들지 않는다', (key, value) => {
     const app = new App({ context: { [key as string]: value } });
     expect(() => applyProfileContext(app, readDeploymentProfile(profilePath), TEST_ENV.account)).toThrow(/충돌/);
