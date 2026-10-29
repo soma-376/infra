@@ -26,13 +26,13 @@ describe('Strimzi main Gateway 준비와 공개 전환', () => {
   const gateway = buildDevApp({ ...context, devEksOtlpTarget: 'gateway' });
   const gatewayEdge = asJson(gateway.edge);
 
-  test('main/Strimzi/retain·ALB Gateway·JWT 발급·dual을 유지한다', () => {
+  test('main/Strimzi/retain·ALB Gateway·JWT 발급을 유지하며 ingest를 Kafka 전용으로 둔다', () => {
     expect(profile.context).toMatchObject({
       devEksArchivePrefix: 'eks', devKafkaProvider: 'strimzi',
       devMskRetirementStage: 'retain', devEksOtlpTarget: 'gateway',
     });
     const runtime = load(readFileSync(profile.runtimeValuesPath, 'utf8')) as any;
-    expect(runtime.ingestMode).toBe('dual');
+    expect(runtime.ingestMode).toBe('kafka');
     expect(runtime.telemetryJwt.issueEnabled).toBe(true);
   });
 
