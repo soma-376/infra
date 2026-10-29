@@ -514,7 +514,7 @@
       "id": 7,
       "type": "timeseries",
       "title": "Kafka PVC 사용률",
-      "description": "100Gi PVC 3개의 여유를 확인한다. 15% 미만이면 용량/보존을 조정하고 PVC를 삭제하지 않는다.",
+      "description": "100Gi PVC 3개의 사용률을 확인한다. 사용률 85% 초과(여유 15% 미만)이면 용량/보존을 조정하고 PVC를 삭제하지 않는다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"

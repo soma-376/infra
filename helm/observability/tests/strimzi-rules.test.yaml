@@ -5,7 +5,11 @@ tests:
   - name: 정상 ISR·disk·lag·인증·인증서는 경보하지 않는다
     interval: 1m
     input_series:
-      - series: 'kafka_server_replicamanager_underminisrpartitioncount{job="strimzi-jmx"}'
+      - series: 'kafka_server_replicamanager_underminisrpartitioncount{job="strimzi-jmx",pod="broker-0"}'
+        values: '0+0x10'
+      - series: 'kafka_server_replicamanager_underminisrpartitioncount{job="strimzi-jmx",pod="broker-1"}'
+        values: '0+0x10'
+      - series: 'kafka_server_replicamanager_underminisrpartitioncount{job="strimzi-jmx",pod="broker-2"}'
         values: '0+0x10'
       - series: 'kafka_controller_kafkacontroller_offlinepartitionscount{job="strimzi-jmx"}'
         values: '0+0x10'
@@ -27,6 +31,31 @@ tests:
       - {eval_time: 10m, alertname: KafkaDiskSpaceLow, exp_alerts: []}
       - {eval_time: 10m, alertname: KafkaCertificateExpirySoon, exp_alerts: []}
       - {eval_time: 10m, alertname: KafkaCertificateRenewalObserved, exp_alerts: []}
+      - {eval_time: 10m, alertname: KafkaSafetyMetricsMissing, exp_alerts: []}
+  - name: 정상 scrape 중 한 broker의 min ISR 지표만 누락되어도 경보한다
+    interval: 1m
+    input_series:
+      - series: 'up{job="strimzi-jmx",pod="broker-0"}'
+        values: '1+0x10'
+      - series: 'up{job="strimzi-jmx",pod="broker-1"}'
+        values: '1+0x10'
+      - series: 'up{job="strimzi-jmx",pod="broker-2"}'
+        values: '1+0x10'
+      - series: 'kafka_server_replicamanager_underminisrpartitioncount{job="strimzi-jmx",pod="broker-0"}'
+        values: '0+0x10'
+      - series: 'kafka_server_replicamanager_underminisrpartitioncount{job="strimzi-jmx",pod="broker-1"}'
+        values: '0+0x10'
+      - series: 'kafka_controller_kafkacontroller_offlinepartitionscount{job="strimzi-jmx"}'
+        values: '0+0x10'
+      - series: 'kafka_server_socket_server_metrics_failed_authentication_total{job="strimzi-jmx"}'
+        values: '0+0x10'
+    alert_rule_test:
+      - {eval_time: 10m, alertname: KafkaJmxTargetSetIncomplete, exp_alerts: []}
+      - eval_time: 10m
+        alertname: KafkaSafetyMetricsMissing
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations: {summary: 'Kafka 필수 JMX 지표가 없다. 빈 값을 정상으로 해석하지 않는다'}
   - name: ISR 미달·offline·lag 경계에서 경보한다
     interval: 1m
     input_series:

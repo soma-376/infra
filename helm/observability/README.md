@@ -62,7 +62,7 @@ lag 1000 record 초과 5분, PVC 여유 15% 미만 5분을 초기 경계로 사�
 `strimzi_certificate_expiration_timestamp_ms`의 cluster/client CA만료를, `KafkaCertificateRenewalObserved`는
 최근 1시간의 만료 시각 변경을 표시한다. **개별 KafkaUser 인증서 만료·갱신과 앱이 새 인증서를 읽었는지는
 이 CA 지표로 증명하지 않는다.** User Operator 갱신과 `KafkaUser Ready`, 개별 사용자 인증서의 notAfter를
-[전환 런북](../../docs/runbooks/dev-telemetry-kafka.md)의 인증서 절차에서 함께 확인한다.
+[Strimzi 런북](../../docs/runbooks/dev-strimzi-kafka.md)의 인증서 절차에서 함께 확인한다.
 Strimzi 1.2에서 제거된 `strimzi_resource_state`는 사용하지 않는다.
 
 갱신 후에는 Secret UID/resourceVersion에서 `kafka.tlsRevision`을 재생성하고 기존 Helm 배포를 실행한다.

@@ -65,6 +65,7 @@ groups:
           absent(kafka_server_replicamanager_underminisrpartitioncount{job="strimzi-jmx"})
           or absent(kafka_controller_kafkacontroller_offlinepartitionscount{job="strimzi-jmx"})
           or absent(kafka_server_socket_server_metrics_failed_authentication_total{job="strimzi-jmx"})
+          or count(count by (pod) (kafka_server_replicamanager_underminisrpartitioncount{job="strimzi-jmx"})) != 3
         for: 5m
         labels: {severity: warning}
         annotations:

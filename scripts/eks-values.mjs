@@ -196,8 +196,7 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
   const gatewayNodePort = required('EksTelemetryGatewayNodePort');
   if (gatewayNodePort !== TELEMETRY_CONTRACT.gatewayNodePort) throw new Error('EksTelemetryGatewayNodePort는 30082여야 한다');
   // msk 호환 경로에만 ARN/IAM/bootstrap/list-nodes 입력을 요구한다.
-  const provider = outputs.KafkaProvider ?? 'msk';
-  if (!['msk', 'strimzi'].includes(provider)) throw new Error('KafkaProvider는 msk 또는 strimzi여야 한다');
+  const provider = kafkaProvider(outputs, deploymentProfile);
   const stage = prefix === 'eks' ? 'main' : 'validation';
   const keyPrefix = provider === 'msk' ? 'Msk' : 'Kafka';
   if (required(`${keyPrefix}Stage`) !== stage) throw new Error(`${keyPrefix}Stage가 ArchivePrefix와 다르다`);
@@ -387,6 +386,15 @@ const PLATFORM_TRACE_ENDPOINT = 'http://pulsemetry-otel-platform.pulsemetry-obse
 const REQUIRED_OPTIONS = ['--outputs', '--output-dir', '--enrollment-image', '--ingest-image', '--dashboard-image', '--gateway-image'];
 const OPTIONS = [...REQUIRED_OPTIONS, '--runtime-values', '--deployment-profile', '--msk-bootstrap', '--msk-nodes', '--strimzi-secrets', '--prepare-kafka'];
 
+function kafkaProvider(outputs, deploymentProfile) {
+  const provider = outputs.KafkaProvider ?? 'msk';
+  if (!['msk', 'strimzi'].includes(provider)) throw new Error('KafkaProvider는 msk 또는 strimzi여야 한다');
+  if (deploymentProfile && provider !== deploymentProfile.context.devKafkaProvider) {
+    throw new Error('deployment-profile: devKafkaProvider와 KafkaProvider output이 다르다');
+  }
+  return provider;
+}
+
 export function main(argv) {
   const options = {};
   for (let i = 0; i < argv.length; i += 2) {
@@ -397,12 +405,14 @@ export function main(argv) {
   const requiredOptions = options['--prepare-kafka'] === 'true' ? ['--outputs', '--output-dir'] : REQUIRED_OPTIONS;
   for (const name of requiredOptions) if (!options[name]) throw new Error(`${name} 옵션이 필요하다`);
   if (options['--prepare-kafka'] && options['--prepare-kafka'] !== 'true') throw new Error('--prepare-kafka는 true만 허용한다');
+  const deploymentProfile = options['--deployment-profile'] ? readDeploymentProfile(options['--deployment-profile']) : undefined;
   if (options['--prepare-kafka']) {
-    const values = kafkaPlatformValues(collectOutputs(JSON.parse(readFileSync(options['--outputs'], 'utf8'))));
+    const outputs = collectOutputs(JSON.parse(readFileSync(options['--outputs'], 'utf8')));
+    kafkaProvider(outputs, deploymentProfile);
+    const values = kafkaPlatformValues(outputs);
     writeValues(values, options['--output-dir']);
     return;
   }
-  const deploymentProfile = options['--deployment-profile'] ? readDeploymentProfile(options['--deployment-profile']) : undefined;
   const runtimePath = options['--runtime-values'] ?? deploymentProfile?.runtimeValuesPath;
   if (!runtimePath) throw new Error('--runtime-values 옵션이 필요하다 (--deployment-profile로 기본 runtime을 선택할 수 있다)');
   const images = { enrollment: options['--enrollment-image'], ingest: options['--ingest-image'], dashboard: options['--dashboard-image'], gateway: options['--gateway-image'] };

@@ -47,11 +47,20 @@ suite('Strimzi 고정 버전·CRD·노드·권한 계약', () => {
     for (const user of docs.filter((x: any) => x.kind === 'KafkaUser')) {
       expect(user.spec.authentication).toEqual({ type: 'tls', validityDays: 365, renewalDays: 30 });
       const stage = user.metadata.name.endsWith('main') ? 'main' : 'validation';
+      const role = user.metadata.name.slice('pulsemetry-'.length, -stage.length - 1);
+      const operations: Record<string, Record<string, string[]>> = {
+        gateway: { topic: ['Describe', 'Write'], cluster: ['IdempotentWrite'] },
+        ingest: { topic: ['Describe', 'Read'], group: ['Describe', 'Read'] },
+        'topic-admin': { topic: ['Describe', 'DescribeConfigs'] },
+        'offset-admin': { topic: ['Describe', 'Read'], group: ['Describe', 'Read', 'Alter'] },
+      };
+      expect(operations[role]).toBeDefined();
+      expect(user.spec.authorization.acls.map((acl: any) => acl.resource.type)).toEqual(Object.keys(operations[role]));
       for (const acl of user.spec.authorization.acls) {
         if (acl.resource.type === 'topic') expect(acl.resource).toEqual({ type: 'topic', name: `pulsemetry-dev-telemetry-ingress-${stage}`, patternType: 'literal' });
-        if (acl.resource.type === 'group') expect(acl.resource.name).toBe(`pulsemetry-dev-telemetry-ingest-${stage}`);
-        expect(acl.operations).not.toContain('All');
-        expect(acl.operations).not.toContain('Create');
+        if (acl.resource.type === 'group') expect(acl.resource).toEqual({ type: 'group', name: `pulsemetry-dev-telemetry-ingest-${stage}`, patternType: 'literal' });
+        if (acl.resource.type === 'cluster') expect(acl.resource).toEqual({ type: 'cluster' });
+        expect(acl.operations).toEqual(operations[role][acl.resource.type]);
       }
     }
   });
