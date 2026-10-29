@@ -86,6 +86,9 @@ export const DEV_EKS_TELEMETRY_SERVICE_ACCOUNTS = {
 export interface DevEksConfig {
   readonly enabled: true;
   readonly archivePrefix: 'eks_validation' | 'eks';
+  readonly kafkaProvider: 'msk' | 'strimzi';
+  /** 실제 클러스터 삭제·ENI 해제 뒤에만 마지막 단계로 진행한다. ADR-0049. */
+  readonly mskRetirementStage: 'retain' | 'cluster-removed' | 'network-removed';
   /** 검증 ALB의 OTLP 규칙 대상. ECS listener와 규칙 ID·우선순위는 바뀌지 않는다. (ADR-0036) */
   readonly otlpTarget: DevEksOtlpTarget;
 }
@@ -109,5 +112,16 @@ export function loadDevEksConfig(app: App): DevEksConfig {
   if (archivePrefix !== 'eks_validation' && archivePrefix !== 'eks') {
     throw new Error('devEksArchivePrefix는 eks_validation 또는 eks여야 한다');
   }
-  return { enabled: true, archivePrefix, otlpTarget };
+  const kafkaProvider = app.node.tryGetContext('devKafkaProvider') ?? 'msk';
+  if (kafkaProvider !== 'msk' && kafkaProvider !== 'strimzi') {
+    throw new Error('devKafkaProvider는 msk 또는 strimzi여야 한다');
+  }
+  const mskRetirementStage = app.node.tryGetContext('devMskRetirementStage') ?? 'retain';
+  if (!['retain', 'cluster-removed', 'network-removed'].includes(mskRetirementStage)) {
+    throw new Error('devMskRetirementStage는 retain, cluster-removed, network-removed 중 하나여야 한다');
+  }
+  if (kafkaProvider === 'msk' && mskRetirementStage !== 'retain') {
+    throw new Error('devMskRetirementStage의 제거 단계는 devKafkaProvider=strimzi에서만 사용할 수 있다');
+  }
+  return { enabled: true, archivePrefix, otlpTarget, kafkaProvider, mskRetirementStage };
 }

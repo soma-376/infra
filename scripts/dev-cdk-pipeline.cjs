@@ -59,6 +59,29 @@ function inventory(root) {
 }
 function role(account, kind) { return `arn:aws:iam::${account}:role/cdk-${QUALIFIER}-${kind}-role-${account}-${REGION}`; }
 function normalizedArn(value) { return typeof value === 'string' ? value.replaceAll('${AWS::Partition}', 'aws') : value; }
+// 최초 제거는 ENI 해제를 기다리는 수동 절차다. 제거가 끝난 baseline의 후속 자동 배포는 허용한다.
+function automaticRetirementStage(profile) {
+  const stage = profile?.context?.devMskRetirementStage ?? 'retain';
+  if (!['retain', 'cluster-removed', 'network-removed'].includes(stage)) fail('MSK 제거 단계가 올바르지 않다');
+  if (stage === 'cluster-removed') fail('MSK 제거는 자동 전체 스택 배포가 아닌 EKS 단독 → ENI 확인 → Network 단독 절차로 수행한다');
+  return stage;
+}
+function assertAutomaticRetirement(profile, templates) {
+  if (automaticRetirementStage(profile) === 'retain') return;
+  if (!templates || Object.keys(templates).sort().join() !== [...STACKS].sort().join()) fail('MSK 제거 완료 확인에 네 스택 baseline이 필요하다');
+  for (const template of Object.values(templates)) {
+    assertTemplate(template);
+    for (const [id, resource] of Object.entries(template.Resources)) {
+      if (/^AWS::MSK::/.test(resource.Type) || /^DevMsk/.test(id) ||
+          /\/DevMsk(?:Sg|Subnet)[^/]*\//.test(resource.Metadata?.['aws:cdk:path'] ?? '') ||
+          (resource.Type === 'AWS::EC2::Subnet' && /^10\.1\.(32|33|34)\.0\/24$/.test(resource.Properties?.CidrBlock ?? '')) ||
+          (resource.Type === 'AWS::EC2::SecurityGroup' && resource.Properties?.GroupDescription === 'dev MSK brokers')) {
+        fail('MSK 리소스가 baseline 또는 배포 템플릿에 남아 있다. Network 단독 제거 완료 후 자동 배포한다');
+      }
+    }
+    if (Object.keys(template.Outputs ?? {}).some(key => key.startsWith('Msk'))) fail('MSK output이 baseline 또는 배포 템플릿에 남아 있다');
+  }
+}
 function assertTemplate(template) {
   if (!template || typeof template !== 'object' || !template.Resources || typeof template.Resources !== 'object' || Array.isArray(template.Resources)) fail('CloudFormation 템플릿 오류');
   for (const [id, resource] of Object.entries(template.Resources)) {
@@ -177,6 +200,12 @@ function createPipeline({ root, directory, env = process.env, runner = defaultRu
   const childEnv = { ...env, AWS_REGION: REGION, AWS_DEFAULT_REGION: REGION, CDK_DEFAULT_REGION: REGION,
     CDK_DEFAULT_ACCOUNT: env.AWS_ACCOUNT_ID, AWS_EC2_METADATA_DISABLED: 'true', AWS_PAGER: '', CDK_DISABLE_VERSION_CHECK: 'true' };
   const result = { operation: null, status: 'failed', stacks: [] };
+  const retirementProfile = () => document(path.join(root, 'config/dev/deployment.json'));
+  function checkRetirementFiles(base, filename) {
+    const templates = Object.fromEntries(STACKS.map(name => [name, document(relative(base, filename(name)))]));
+    assertAutomaticRetirement(retirementProfile(), templates);
+    return templates;
+  }
   function command(executable, args, options = {}) {
     const response = runner(executable, args, { cwd: root, env: childEnv, ...options });
     if (options.log) {
@@ -238,15 +267,17 @@ function createPipeline({ root, directory, env = process.env, runner = defaultRu
   function captureBaseline(expected, write = false) {
     checkLegacy();
     const before = Object.fromEntries(STACKS.map(name => [name, describe(name, expected)]));
-    const baseline = [];
+    const baseline = [], templates = {};
     for (const name of STACKS) {
       const response = aws('cloudformation', 'get-template', ['--stack-name', name, '--template-stage', 'Original']);
       const template = typeof response.TemplateBody === 'string' ? load(response.TemplateBody, { schema: JSON_SCHEMA }) : response.TemplateBody;
       assertTemplate(template);
+      templates[name] = template;
       if (write) writeJson(path.join(payload, 'baseline', `${name}.json`), template);
       baseline.push({ ...before[name], templateHash: sha256(canonical(template)) });
     }
     for (const name of STACKS) equal(describe(name, expected), before[name], 'baseline 수집 중 stack 변경');
+    assertAutomaticRetirement(retirementProfile(), templates);
     return baseline;
   }
   function inputs() {
@@ -274,6 +305,7 @@ function createPipeline({ root, directory, env = process.env, runner = defaultRu
     const appCommand = `node --import ${quote(path.join(root, 'node_modules/tsx/dist/loader.mjs'))} ${quote(path.join(root, 'bin/infra.ts'))}`;
     cdk(['synth', ...STACKS, '--app', appCommand, '-c', 'env=dev', '-c', `devDeploymentProfile=${path.join(root, 'config/dev/deployment.json')}`, '--output', assembly], 'synth.log', synthesis);
     const order = validateAssembly(assembly, expected.account);
+    checkRetirementFiles(assembly, name => `${name}.template.json`);
     const diff = [];
     for (const name of order) {
       diff.push(cdk(['diff', name, '--app', assembly, '--exclusively', '--template', path.join(payload, 'baseline', `${name}.json`), '--method', 'template'], `diff-${name}.log`, synthesis));
@@ -309,6 +341,15 @@ function createPipeline({ root, directory, env = process.env, runner = defaultRu
     equal(plan.inputs, inputs(), '배포 입력');
     equal(inventory(payload), plan.files, 'artifact 파일 inventory');
     equal(validateAssembly(assembly, expected.account), plan.order, '배포 순서');
+    checkRetirementFiles(assembly, name => `${name}.template.json`);
+    // verify는 AWS 인증 전이다. 승인 artifact의 baseline을 검사하고 deploy에서 실제 AWS를 다시 검사한다.
+    const baselineTemplates = checkRetirementFiles(path.join(payload, 'baseline'), name => `${name}.json`);
+    if (!Array.isArray(plan.baseline) || plan.baseline.length !== STACKS.length) fail('plan baseline 목록 오류');
+    for (const name of STACKS) {
+      const records = plan.baseline.filter(stack => stack.name === name);
+      if (records.length !== 1 || !STABLE.has(records[0].status)) fail('plan baseline 안정 상태 오류');
+      equal(sha256(canonical(baselineTemplates[name])), records[0].templateHash, 'plan baseline template hash');
+    }
     return plan;
   }
   function collectResult(expected) {
@@ -337,6 +378,7 @@ function createPipeline({ root, directory, env = process.env, runner = defaultRu
     fs.mkdirSync(directory, { recursive: true });
     result.operation = operation;
     try {
+      automaticRetirementStage(retirementProfile());
       const expected = context(env);
       result.sourceSha = expected.sourceSha;
       if (operation === 'plan') preparePlan(expected);
@@ -356,4 +398,4 @@ function createPipeline({ root, directory, env = process.env, runner = defaultRu
   return { execute, preparePlan, verifyPlan, captureBaseline };
 }
 
-module.exports = { REGION, REPOSITORY, STACKS, sha256, canonical, inventory, validateAssembly, assertTemplate, stackRecord, context, createPipeline };
+module.exports = { REGION, REPOSITORY, STACKS, sha256, canonical, inventory, validateAssembly, assertTemplate, assertAutomaticRetirement, stackRecord, context, createPipeline };

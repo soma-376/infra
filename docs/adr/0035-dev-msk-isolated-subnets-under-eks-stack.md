@@ -2,6 +2,8 @@
 
 ## Status
 
+부분 대체: dev Strimzi 공급자·mTLS·토픽 소유·관측 및 단계적 MSK 제거는 [ADR-0049](0049-dev-strimzi-kafka-and-staged-msk-retirement.md)를 따른다. 기존 HTTP·JWT·Data·prod 경계는 유지한다.
+
 Accepted (PROJ-246; 로컬 구현·검증 대상, AWS 배포·MSK 접속·장애 검증 증거 별도)
 
 [ADR-0022](0022-dev-infrastructure-topology.md)의 "퍼블릭 서브넷 전용" 구성을 EKS 활성화 경로에서 부분 대체한다.

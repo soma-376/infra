@@ -6,6 +6,8 @@ global:
     region: ap-northeast-2
     clusterName: ""
     grafanaAdminSecretArn: ""
+    kafkaProvider: msk
+    kafkaClusterName: ""
     mskClusterName: ""
     mskBrokers: []
     controlPlaneLogGroup: ""
@@ -135,6 +137,7 @@ monitoring:
         matchLabels:
           kubernetes.io/metadata.name: pulsemetry-observability
       additionalScrapeConfigs: |
+        {{- if eq .Values.global.pulsemetry.kafkaProvider "msk" }}
         # MSK JMX endpoint는 10초 간격에서 HTTP 429로 broker별 표본 약 1/3을 거부했다(2026-10-23 실측).
         # 간격만으로 해소된다는 보장이 없으므로 성공률을 따로 기록하고, JMX rate는 4배 이상 범위로 계산한다.
         - job_name: msk-jmx
@@ -170,6 +173,9 @@ monitoring:
             - source_labels: [__name__]
               regex: 'node_cpu_seconds_total|node_memory_(MemAvailable|MemTotal)_bytes|node_filesystem_(avail|size)_bytes|node_disk_(read|written)_bytes_total|node_network_(receive|transmit)_bytes_total|node_time_seconds'
               action: keep
+        {{- else }}
+        []
+        {{- end }}
   kube-state-metrics:
     image:
       sha: sha256:1545919b72e3ae035454fc054131e8d0f14b42ef6fc5b2ad5c751cafa6b2130e

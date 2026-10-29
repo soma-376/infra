@@ -1,0 +1,11 @@
+{{- if eq .Values.global.pulsemetry.kafkaProvider "strimzi" }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: pulsemetry-strimzi
+  namespace: {{ .Release.Namespace }}
+  labels:
+    observability.pulsemetry.io/stack: pulsemetry
+spec:
+  {{- .Files.Get "rules/strimzi.yaml" | replace "__KAFKA_CLUSTER__" .Values.global.pulsemetry.kafkaClusterName | replace "__TARGET_NAMESPACE__" .Values.global.pulsemetry.targetNamespace | nindent 2 }}
+{{- end }}

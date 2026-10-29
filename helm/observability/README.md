@@ -1,6 +1,6 @@
 # PROJ-191 관측 차트
 
-Gateway HTTP ACK부터 MSK·Pipeline·ClickHouse 적재까지 같은 UTC 구간으로 진단한다. 플랫폼 trace·Loki는
+Gateway HTTP ACK부터 Kafka·Pipeline·ClickHouse 적재까지 같은 UTC 구간으로 진단한다. 플랫폼 trace·Loki는
 아래 Loki·Tempo 절(ADR-0039, Proposed)의 별도 release가 맡는다. 운영 적용 순서와 로그/노드 진단은
 [dev 관측 런북](../../docs/runbooks/dev-observability.md)을 따른다. 이 디렉터리의 로컬 검증 결과는 AWS 배포 완료를 뜻하지 않는다.
 
@@ -24,6 +24,68 @@ ARM64 manifest 확인이며 실제 EKS 기동 검증과 구분한다. k6는 1.8.
   앱·ClickHouse·관측 노드의 taint를 허용하는 DaemonSet이다. 서비스는 모두 ClusterIP다.
 - `gp3-observability` StorageClass와 PVC는 보존한다. Helm uninstall/rollback이 데이터 삭제 절차가 아니다.
   Alertmanager와 외부 알림 채널은 포함하지 않는다. 규칙 상태는 Prometheus/Grafana에서 확인한다.
+
+## dev Strimzi 관측 (ADR-0049 · PROJ-283)
+
+`global.pulsemetry.kafkaProvider`는 `msk`(기존 기본값) 또는 `strimzi`다. `strimzi`에서는
+`kafkaClusterName=soma-376-dev-telemetry`를 사용하고 MSK broker DNS·cluster 이름·broker 로그 그룹을
+요구하지 않는다. `scripts/eks-values.mjs`의 generated observability values가 공급한다.
+현재 Strimzi 경로는 dev만 허용한다. 기존 `msk` 렌더와 아래 MSK 진단 이력은 보존한다.
+
+| 수집 대상 | PodMonitor selector / endpoint | 확인할 내용 |
+|---|---|---|
+| broker/controller 3개 | `strimzi.io/name=<cluster>-kafka`, `tcp-prometheus` 9404 | ISR, min ISR, offline partition, record 수신, TLS 인증 실패 |
+| Kafka exporter | `strimzi.io/name=<cluster>-kafka-exporter`, `tcp-prometheus` 9404 | validation/main topic·consumer group의 commit 기준 lag |
+| Cluster Operator | `strimzi.io/kind=cluster-operator`, `strimzi-system`, `http` 8080 | CA 만료·갱신 및 reconciliation 실패 |
+| Entity Operator | `app.kubernetes.io/name=entity-operator`, `healthcheck-to` 8080 / `healthcheck-uo` 8081 | Topic/User Operator 수집 및 reconciliation 실패 |
+| Pod/PVC | 기존 kubelet/cAdvisor/kube-state-metrics | broker Ready, CPU·memory, gp3 PVC 3개 사용량 |
+
+Strimzi 1.3.0이 생성하는 **Kafka exporter 포트도 9404**다. standalone exporter의 9308을 적용하지 않는다.
+PodMonitor는 `pulsemetry-observability`에 두고 필요한 namespace만 선택한다. 관측 노드에서 위 포트로
+접근할 수 있도록 CDK SG와 Strimzi 소유 NetworkPolicy가 함께 허용되어야 한다.
+Strimzi가 생성하는 exporter metrics NetworkPolicy는 `from: []`로 9404를 허용한다.
+추가 NetworkPolicy는 허용 규칙의 합집합이므로 이 정책을 관측 namespace 전용으로 좁히지 못한다.
+이번 dev는 Strimzi의 정책 생성을 유지하고 노드 간 접근을 CDK SG로 제한한다. 동일 apps 노드 내의
+metrics 접근까지 관측 Pod만 가능하다고 주장하지 않는다. Kafka 9093의 앱 peer 제한과는 별도 경계다.
+`cluster`는 EKS 이름, `kafka_cluster`는 Kafka 이름이다. Operator 원본의 `cluster` label은 scrape 시
+`exported_cluster`에서 `kafka_cluster`로 옮겨 의미가 섞이지 않게 한다.
+
+Strimzi 렌더는 MSK static scrape와 MSK 전용 recording/alert rules·dashboard를 제외한다.
+`Pulsemetry · Strimzi Kafka` 대시보드와 Overview/Pipeline의 exporter lag를 대신 제공하며
+진단 로그는 기존 애플리케이션 로그 그룹에서 Kafka namespace/Pod로 좁힌다.
+일반 애플리케이션·EKS·Events의 CloudWatch 수집과 기존 HTTP 관측은 유지한다.
+빈 ISR·offline·인증 지표, 누락된 broker/PVC/Operator target은 정상 0으로 덮지 않고 별도 경보한다.
+lag 1000 record 초과 5분, PVC 여유 15% 미만 5분을 초기 경계로 사용한다.
+인증 실패 counter는 TLS handshake 실패이며 topic/group ACL 거부 검증을 대신하지 않는다.
+
+인증서 유효기간은 365일, 갱신 창은 30일이다. `KafkaCertificateExpirySoon`은 공식
+`strimzi_certificate_expiration_timestamp_ms`의 cluster/client CA만료를, `KafkaCertificateRenewalObserved`는
+최근 1시간의 만료 시각 변경을 표시한다. **개별 KafkaUser 인증서 만료·갱신과 앱이 새 인증서를 읽었는지는
+이 CA 지표로 증명하지 않는다.** User Operator 갱신과 `KafkaUser Ready`, 개별 사용자 인증서의 notAfter를
+[전환 런북](../../docs/runbooks/dev-telemetry-kafka.md)의 인증서 절차에서 함께 확인한다.
+Strimzi 1.2에서 제거된 `strimzi_resource_state`는 사용하지 않는다.
+
+갱신 후에는 Secret UID/resourceVersion에서 `kafka.tlsRevision`을 재생성하고 기존 Helm 배포를 실행한다.
+실제 Pod template/Pod annotation이 새 revision과 일치하며 Gateway ACK→소비→commit→ClickHouse의
+새 요청과 로그/trace 연결이 성공했는지 확인해 PROJ-285에 증거를 남긴다. `Kafka`·`KafkaTopic`·`KafkaUser`의
+Ready/observedGeneration도 대조한다. 현재 앱 replica 1/Recreate이므로 이 재배포에 짧은 중단이 생길 수 있다.
+CA 갱신 알림이나 Ready만으로 앱 재접속을 완료 처리하지 않는다.
+
+검증 명령은 고정 의존성 준비 뒤 다음과 같다. 기존 MSK suite와 Strimzi suite 모두 실행한다.
+
+```bash
+HELM_BIN=/path/to/helm-3.22.0 PROMTOOL_BIN=/path/to/promtool-3.9.1 \
+  npm test -- --runInBand test/helm/observability-stack.test.ts test/helm/strimzi-observability.test.ts
+```
+
+Strimzi suite는 MSK 입력 없는 렌더, 공급자/범위 오류 거부, 4개 PodMonitor의 selector/port,
+공통 대시보드의 MSK 의존 제거, 실제 PromQL 문법과 정상/ISR/lag/인증/PVC/CA 만료·갱신·누락 fixture를 검증한다.
+실제 endpoint metric 이름·라벨·target 수, TLS 실패/강제 갱신, 장애 중 lag/ISR과 복구는 배포 검증에서 따로 확인한다.
+
+공식 근거: [1.3.0 KafkaExporter](https://github.com/strimzi/strimzi-kafka-operator/blob/1.3.0/cluster-operator/src/main/java/io/strimzi/operator/cluster/model/KafkaExporter.java),
+[metrics 포트](https://github.com/strimzi/strimzi-kafka-operator/blob/1.3.0/cluster-operator/src/main/java/io/strimzi/operator/cluster/model/metrics/MetricsModel.java),
+[PodMonitor 예제](https://github.com/strimzi/strimzi-kafka-operator/tree/1.3.0/examples/metrics/prometheus-install/pod-monitors),
+[인증서 경보](https://github.com/strimzi/strimzi-kafka-operator/blob/1.3.0/examples/metrics/prometheus-install/prometheus-rules/prometheus-kafka-certificate-rules.yaml).
 
 ## Loki·Tempo·플랫폼 Collector (ADR-0039, Proposed)
 
@@ -51,7 +113,7 @@ ARM64 manifest 확인이며 실제 EKS 기동 검증과 구분한다. k6는 1.8.
 ## 재현과 설치
 
 먼저 기존 platform, CSI/ASCP, Fluent Bit과 metrics가 켜진 Gateway/ingest/ClickHouse를 준비한다.
-생성기의 `--msk-nodes` 입력은 실제 `list-nodes` 전체 결과여야 한다. bootstrap DNS만으로 3개 broker를 추정하지 않는다.
+MSK 공급자에서만 생성기의 `--msk-nodes` 입력은 실제 `list-nodes` 전체 결과여야 한다. bootstrap DNS만으로 3개 broker를 추정하지 않는다.
 `generated/observability.yaml`에는 CDK의 cluster/region/log groups/Secret ARN/topic/group, 실제 broker DNS 3개,
 upstream ServiceMonitor의 cluster/environment relabeling을 넣는다. 비밀 원문은 values에 없다.
 

@@ -17,12 +17,22 @@ BFF 단일 프로세스에 맞춰 서비스 desired=1/min=0/max=100이다. 앱 �
 기존 CDK 전용 테스트 규칙은 그대로 유지하고, 새 Terraform은 fmt·validate·mock test로 검증한다.
 기존 CDK 리소스를 Terraform에 import하거나 같은 리소스를 두 도구가 수정하지 않는다.
 실제 apply는 리뷰·머지 후 보호된 CI에서 수행한다. 최초 bootstrap과 이후 bootstrap 변경은 관리자 작업이다.
-다음 미사용 ADR은 **0049**다.
+다음 미사용 ADR은 **0050**다.
 
 [ADR-0044](docs/adr/0044-dev-waf-cli-oidc-loopback-query-exception.md)에 따라 정확한 CLI OIDC authorize GET과
 검증된 loopback query에만 SSRF·RFI 두 label의 후속 Block을 제외한다.
 [ADR-0045](docs/adr/0045-dev-waf-cli-token-body-exception.md)는 정확한 CLI token POST의 1KB 이하 원문 JSON
 세 필드를 검증한 경우에만 두 Body label을 제외한다. 다른 탐지·rate·로그 보호는 유지한다.
+
+## PROJ-282 dev Strimzi 전환
+
+[ADR-0049](docs/adr/0049-dev-strimzi-kafka-and-staged-msk-retirement.md)와
+[허브 Kafka 계약](https://github.com/soma-376/docs/blob/main/contracts/telemetry-kafka.md)을 따른다.
+Strimzi 1.3.0/Kafka 4.2.2는 ClickHouse와 같은 AZ의 전용 ARM64 노드 3대에서 실행한다.
+Kafka 인증서에 한해 Strimzi 소유 Kubernetes Secret을 읽기 전용 mount한다. 기존 AWS Secret의 CSI 원칙은 유지한다.
+현재 추적 profile은 Strimzi 병렬 준비(`retain`)이며 실제 전환·30분 안정화·MSK 제거 완료를 뜻하지 않는다.
+`devMskRetirementStage`의 `cluster-removed`는 EKS 단독 배포, `network-removed`는 MSK ENI 해제 확인 뒤 Network 단독 배포다.
+삭제에 최초 전체 스택 배포를 사용하지 않는다. 기존 HTTP 경로를 복구 경로로 유지한다.
 
 ## PROJ-259 dev CloudFormation CI/CD
 
@@ -165,7 +175,7 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 
 **ADR 우선 원칙은 이 레포의 기존 규칙과 같다** — 1장의 "코드와 ADR이 어긋나면 ADR이 기준이다"가
 전 레포 공통 규칙이며, 크로스레포 결정만 `../docs/adr/`가 소유한다. 스코프 판정은 `adr-new` 스킬이 안내한다.
-단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0049`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
+단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0050`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
 기존 병행 브랜치의 ADR `0028`·`0029`·`0030`은 번호가 겹치므로 파일명과 링크를 보존한다.
 프론트엔드 Terraform 절은 프론트엔드 ADR을, dashboard·EKS·기존 CDK 절은 해당 백엔드 ADR을 가리킨다.
 인용할 때는 번호와 함께 범위·제목 또는 파일 링크를 사용하며, 전체 목록은 [ADR 인덱스](docs/adr/README.md)를 따른다.

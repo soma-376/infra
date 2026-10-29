@@ -6,4 +6,20 @@ metadata:
   labels:
     observability.pulsemetry.io/stack: pulsemetry
 spec:
+  {{- if eq .Values.global.pulsemetry.kafkaProvider "msk" }}
   {{- .Files.Get "rules/pulsemetry.yaml" | nindent 2 }}
+  {{- else }}
+  {{- /* MSK target 부재는 Strimzi의 장애가 아니다. 공통 규칙만 재사용한다. */}}
+  {{- $groups := list }}
+  {{- range $group := (.Files.Get "rules/pulsemetry.yaml" | fromYaml).groups }}
+    {{- $rules := list }}
+    {{- range $rule := $group.rules }}
+      {{- if not (or (hasPrefix "Msk" ($rule.alert | default "")) (contains ":msk_" ($rule.record | default "")) (hasPrefix "msk-" (dig "labels" "component" "" $rule))) }}
+        {{- $rules = append $rules $rule }}
+      {{- end }}
+    {{- end }}
+    {{- $_ := set $group "rules" $rules }}
+    {{- $groups = append $groups $group }}
+  {{- end }}
+  {{- dict "groups" $groups | toYaml | nindent 2 }}
+  {{- end }}

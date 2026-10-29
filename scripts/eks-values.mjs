@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { dump, load, JSON_SCHEMA } from 'js-yaml';
 import runtimeInputs from '../lib/dev/runtime-input.cjs';
 import deploymentProfiles from '../lib/dev/deployment-profile.cjs';
+import { kafkaPlatformValues, parseStrimziSecrets, STRIMZI_BOOTSTRAP, STRIMZI_CLUSTER } from './strimzi-values.mjs';
 const { parseRuntimeInputs, oidcClientBindings } = runtimeInputs;
 const { readDeploymentProfile } = deploymentProfiles;
 
@@ -131,7 +132,7 @@ function oidcValues(oidc, outputs, existingSecrets) {
   return { ...oidc, clients };
 }
 
-export function generateValues(document, images, runtimeInput, mskBootstrapText, mskNodesText, deploymentProfile) {
+export function generateValues(document, images, runtimeInput, mskBootstrapText, mskNodesText, deploymentProfile, strimziSecretsText) {
   const runtime = parseRuntimeInputs(runtimeInput, { eks: true });
   const outputs = collectOutputs(document);
   const required = key => {
@@ -194,29 +195,41 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
   if (dashboardNodePort !== '30081') throw new Error('EksDashboardApiNodePort는 30081이어야 한다');
   const gatewayNodePort = required('EksTelemetryGatewayNodePort');
   if (gatewayNodePort !== TELEMETRY_CONTRACT.gatewayNodePort) throw new Error('EksTelemetryGatewayNodePort는 30082여야 한다');
-  // MSK: stage·topic·group은 archive prefix와 같은 입력에서 정해진다. 세션 이름은 역할 trust 조건과 같아야 한다.
+  // msk 호환 경로에만 ARN/IAM/bootstrap/list-nodes 입력을 요구한다.
+  const provider = outputs.KafkaProvider ?? 'msk';
+  if (!['msk', 'strimzi'].includes(provider)) throw new Error('KafkaProvider는 msk 또는 strimzi여야 한다');
   const stage = prefix === 'eks' ? 'main' : 'validation';
-  if (required('MskStage') !== stage) throw new Error('MskStage가 ArchivePrefix와 다르다');
-  const topic = required('MskTopicName'), consumerGroup = required('MskConsumerGroupName');
+  const keyPrefix = provider === 'msk' ? 'Msk' : 'Kafka';
+  if (required(`${keyPrefix}Stage`) !== stage) throw new Error(`${keyPrefix}Stage가 ArchivePrefix와 다르다`);
+  const topic = required(`${keyPrefix}TopicName`), consumerGroup = required(`${keyPrefix}ConsumerGroupName`);
   if (topic !== `pulsemetry-dev-telemetry-ingress-${stage}` || consumerGroup !== `pulsemetry-dev-telemetry-ingest-${stage}`) {
-    throw new Error('MSK topic·consumer group이 stage 계약과 다르다');
+    throw new Error('Kafka topic·consumer group이 stage 계약과 다르다');
   }
-  const mskClusterName = required('MskClusterName');
+  let mskRoles, bootstrapServers, mskBrokers, tlsUsers, kafkaPlatform;
+  const mskClusterName = provider === 'msk' ? required('MskClusterName') : STRIMZI_CLUSTER;
   if (!/^[a-z0-9-]{1,64}$/.test(mskClusterName)) throw new Error('MskClusterName이 올바르지 않다');
-  const mskAccount = new RegExp(`^arn:aws:kafka:${region}:([0-9]{12}):cluster/${mskClusterName}/[A-Za-z0-9-]+$`).exec(required('MskClusterArn'))?.[1];
-  if (!mskAccount) throw new Error('MskClusterArn이 MskClusterName·리전과 다르다');
-  const mskRole = key => {
-    const value = required(key);
-    if (!new RegExp(`^arn:aws:iam::${mskAccount}:role/[A-Za-z0-9+=,.@_/-]{1,512}$`).test(value)) throw new Error(`${key}: 같은 계정의 IAM role ARN이 필요하다`);
-    return value;
-  };
-  const mskRoles = Object.fromEntries(['MskGatewayRoleArn', 'MskIngestRoleArn', 'MskTopicAdminRoleArn', 'MskOffsetAdminRoleArn'].map(key => [key, mskRole(key)]));
-  if (new Set(Object.values(mskRoles)).size !== 4) throw new Error('workload별 MSK 역할은 서로 달라야 한다');
-  for (const [key, value] of Object.entries(TELEMETRY_CONTRACT.sessions)) {
-    if (required(key) !== value) throw new Error(`${key}가 MSK 역할 trust의 고정 세션 이름과 다르다`);
+  if (provider === 'msk') {
+    if (strimziSecretsText !== undefined) throw new Error('MSK 공급자에는 strimzi-secrets를 공급하지 않는다');
+    const mskAccount = new RegExp(`^arn:aws:kafka:${region}:([0-9]{12}):cluster/${mskClusterName}/[A-Za-z0-9-]+$`).exec(required('MskClusterArn'))?.[1];
+    if (!mskAccount) throw new Error('MskClusterArn이 MskClusterName·리전과 다르다');
+    const mskRole = key => {
+      const value = required(key);
+      if (!new RegExp(`^arn:aws:iam::${mskAccount}:role/[A-Za-z0-9+=,.@_/-]{1,512}$`).test(value)) throw new Error(`${key}: 같은 계정의 IAM role ARN이 필요하다`);
+      return value;
+    };
+    mskRoles = Object.fromEntries(['MskGatewayRoleArn', 'MskIngestRoleArn', 'MskTopicAdminRoleArn', 'MskOffsetAdminRoleArn'].map(key => [key, mskRole(key)]));
+    if (new Set(Object.values(mskRoles)).size !== 4) throw new Error('workload별 MSK 역할은 서로 달라야 한다');
+    for (const [key, value] of Object.entries(TELEMETRY_CONTRACT.sessions)) {
+      if (required(key) !== value) throw new Error(`${key}가 MSK 역할 trust의 고정 세션 이름과 다르다`);
+    }
+    bootstrapServers = parseMskBootstrap(mskBootstrapText ?? '', region);
+    mskBrokers = parseMskNodes(mskNodesText ?? '', region, bootstrapServers);
+  } else {
+    if (mskBootstrapText || mskNodesText) throw new Error('strimzi 공급자에 MSK 조회 입력을 전달하지 않는다');
+    kafkaPlatform = kafkaPlatformValues(outputs);
+    bootstrapServers = STRIMZI_BOOTSTRAP;
+    tlsUsers = parseStrimziSecrets(strimziSecretsText ?? '', stage);
   }
-  const bootstrapServers = parseMskBootstrap(mskBootstrapText ?? '', region);
-  const mskBrokers = parseMskNodes(mskNodesText ?? '', region, bootstrapServers);
   const obsSg = required('ObservabilityNodeSecurityGroupId');
   if (!/^sg-[a-f0-9]{8}([a-f0-9]{9})?$/.test(obsSg)) throw new Error('ObservabilityNodeSecurityGroupId가 올바르지 않다');
   if (required('ObservabilityNamespace') !== 'pulsemetry-observability') throw new Error('ObservabilityNamespace가 계약과 다르다');
@@ -280,8 +293,10 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
   const kafka = workload => ({
     enabled: true, bootstrapServers, topic,
     ...(workload === 'telemetry-ingest' ? { consumerGroup } : {}),
-    iamRoleArn: mskRoles[workload === 'telemetry-ingest' ? 'MskIngestRoleArn' : 'MskGatewayRoleArn'],
-    iamSessionName: required(workload === 'telemetry-ingest' ? 'MskIngestSessionName' : 'MskGatewaySessionName'),
+    ...(provider === 'msk' ? {
+      iamRoleArn: mskRoles[workload === 'telemetry-ingest' ? 'MskIngestRoleArn' : 'MskGatewayRoleArn'],
+      iamSessionName: required(workload === 'telemetry-ingest' ? 'MskIngestSessionName' : 'MskGatewaySessionName'),
+    } : { security: 'mtls', ...tlsUsers[workload === 'telemetry-ingest' ? 'ingest' : 'gateway'] }),
   });
   const consumer = ['dual', 'kafka'].includes(runtime.ingestMode);
   const jvm = runtime.jvmGcSafepointLog ? { jvm: { gcSafepointLog: true } } : {};
@@ -290,7 +305,7 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
     ? { tracing: { enabled: true, endpoint: PLATFORM_TRACE_ENDPOINT, sampleProbability: String(runtime.platformTracing.sampleProbability ?? 0.1), cluster: clusterName } }
     : {};
   const values = {
-    'base.yaml': { nodeRoleName, subnetIds, appNodeSecurityGroupId: appSg, clickhouseNodeSecurityGroupId: chSg, clickhouseAvailabilityZone: zone, observabilityNodeSecurityGroupId: obsSg },
+    'base.yaml': { ...(kafkaPlatform?.['base.yaml'] ?? {}), nodeRoleName, subnetIds, appNodeSecurityGroupId: appSg, clickhouseNodeSecurityGroupId: chSg, clickhouseAvailabilityZone: zone, observabilityNodeSecurityGroupId: obsSg },
     'lbc.yaml': { clusterName, region, vpcId },
     'runtime.yaml': {
       region, secrets: { dbArn: arn('DbSecretArn', 'secretsmanager'), tokenHashArn: arn('TokenHashSecretArn', 'secretsmanager'), adminApiTokenArn: arn('AdminApiTokenSecretArn', 'secretsmanager'), ...dashboardSecrets, ...telemetrySecrets },
@@ -325,8 +340,10 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
     },
     'telemetry-kafka-admin.yaml': {
       region, bootstrapServers, stage, topic, consumerGroup,
-      topicAdmin: { roleArn: mskRoles.MskTopicAdminRoleArn, sessionName: required('MskTopicAdminSessionName') },
-      offsetAdmin: { roleArn: mskRoles.MskOffsetAdminRoleArn, sessionName: required('MskOffsetAdminSessionName') },
+      ...(provider === 'msk' ? {
+        topicAdmin: { roleArn: mskRoles.MskTopicAdminRoleArn, sessionName: required('MskTopicAdminSessionName') },
+        offsetAdmin: { roleArn: mskRoles.MskOffsetAdminRoleArn, sessionName: required('MskOffsetAdminSessionName') },
+      } : { provider, topicInit: { enabled: false }, tls: tlsUsers['offset-admin'] }),
     },
     'dashboard-api.yaml': {
       image: image(images.dashboard, 'dashboard image'), vpcId, nodePort: Number(dashboardNodePort),
@@ -341,9 +358,10 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
     'fluent-bit.yaml': { env: [{ name: 'AWS_REGION', value: region }, { name: 'APPLICATION_LOG_GROUP', value: required('ApplicationLogGroupName') }, { name: 'OBSERVABILITY_LOG_GROUP', value: required('ObservabilityLogGroupName') }, { name: 'CLUSTER_NAME', value: clusterName }] },
     'ascp.yaml': { awsRegion: region },
     'observability.yaml': { global: { pulsemetry: {
-      environment: 'dev', targetNamespace: 'pulsemetry-dev', region, clusterName, mskBrokers,
-      grafanaAdminSecretArn: arn('GrafanaAdminSecretArn', 'secretsmanager'), mskClusterName,
-      applicationLogGroup: required('ApplicationLogGroupName'), brokerLogGroup: required('MskBrokerLogGroupName'),
+      environment: 'dev', targetNamespace: 'pulsemetry-dev', region, clusterName,
+      ...(provider === 'msk' ? { mskBrokers, mskClusterName, brokerLogGroup: required('MskBrokerLogGroupName') } : { kafkaProvider: provider, kafkaClusterName: STRIMZI_CLUSTER }),
+      grafanaAdminSecretArn: arn('GrafanaAdminSecretArn', 'secretsmanager'),
+      applicationLogGroup: required('ApplicationLogGroupName'),
       controlPlaneLogGroup: required('EksControlPlaneLogGroupName'),
       observabilityLogGroup: required('ObservabilityLogGroupName'), kubernetesEventsLogGroup: required('KubernetesEventsLogGroupName'),
       diagnosticsBucket: required('DiagnosticsBucketName'), topic, consumerGroup,
@@ -357,6 +375,7 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
       return [name, path.reduceRight((value, key) => ({ [key]: value }), { relabelings })];
     })) },
   };
+  if (kafkaPlatform) values['kafka-strimzi.yaml'] = kafkaPlatform['kafka-strimzi.yaml'];
   const groups = ['ValidationEnrollmentApiTargetGroupArn', 'ValidationTelemetryIngestTargetGroupArn', 'ValidationDashboardApiTargetGroupArn', 'ValidationTelemetryGatewayTargetGroupArn'].map(required);
   if (new Set(groups).size !== groups.length) throw new Error('네 앱 TG ARN은 서로 달라야 한다');
   if (required('ApplicationLogGroupName') !== '/eks/dev/application') throw new Error('ApplicationLogGroupName이 런타임 계약과 다르다');
@@ -365,23 +384,34 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
 
 const PLATFORM_TRACE_ENDPOINT = 'http://pulsemetry-otel-platform.pulsemetry-observability.svc:4318/v1/traces';
 
-const REQUIRED_OPTIONS = ['--outputs', '--output-dir', '--enrollment-image', '--ingest-image', '--dashboard-image', '--gateway-image', '--msk-bootstrap', '--msk-nodes'];
-const OPTIONS = [...REQUIRED_OPTIONS, '--runtime-values', '--deployment-profile'];
+const REQUIRED_OPTIONS = ['--outputs', '--output-dir', '--enrollment-image', '--ingest-image', '--dashboard-image', '--gateway-image'];
+const OPTIONS = [...REQUIRED_OPTIONS, '--runtime-values', '--deployment-profile', '--msk-bootstrap', '--msk-nodes', '--strimzi-secrets', '--prepare-kafka'];
 
 export function main(argv) {
   const options = {};
   for (let i = 0; i < argv.length; i += 2) {
-    if (!OPTIONS.includes(argv[i]) || !argv[i + 1]) throw new Error('사용법: node scripts/eks-values.mjs --outputs <cdk-output.json> --output-dir <dir> --enrollment-image <repository@sha256:digest> --ingest-image <repository@sha256:digest> --dashboard-image <repository@sha256:digest> --gateway-image <repository@sha256:digest> [--deployment-profile <profile.json>] [--runtime-values <runtime.yaml>] --msk-bootstrap <get-bootstrap-brokers.json> --msk-nodes <list-nodes.json>');
+    if (!OPTIONS.includes(argv[i]) || !argv[i + 1]) throw new Error('사용법: node scripts/eks-values.mjs --outputs <cdk-output.json> --output-dir <dir> --enrollment-image <repository@sha256:digest> --ingest-image <repository@sha256:digest> --dashboard-image <repository@sha256:digest> --gateway-image <repository@sha256:digest> [--deployment-profile <profile.json>] [--runtime-values <runtime.yaml>] [--msk-bootstrap <get-bootstrap-brokers.json> --msk-nodes <list-nodes.json> | --strimzi-secrets <metadata.json>] 또는 --outputs <cdk-output.json> --output-dir <dir> --prepare-kafka true');
     if (options[argv[i]]) throw new Error(`${argv[i]} 옵션이 중복된다`);
     options[argv[i]] = argv[i + 1];
   }
-  for (const name of REQUIRED_OPTIONS) if (!options[name]) throw new Error(`${name} 옵션이 필요하다`);
+  const requiredOptions = options['--prepare-kafka'] === 'true' ? ['--outputs', '--output-dir'] : REQUIRED_OPTIONS;
+  for (const name of requiredOptions) if (!options[name]) throw new Error(`${name} 옵션이 필요하다`);
+  if (options['--prepare-kafka'] && options['--prepare-kafka'] !== 'true') throw new Error('--prepare-kafka는 true만 허용한다');
+  if (options['--prepare-kafka']) {
+    const values = kafkaPlatformValues(collectOutputs(JSON.parse(readFileSync(options['--outputs'], 'utf8'))));
+    writeValues(values, options['--output-dir']);
+    return;
+  }
   const deploymentProfile = options['--deployment-profile'] ? readDeploymentProfile(options['--deployment-profile']) : undefined;
   const runtimePath = options['--runtime-values'] ?? deploymentProfile?.runtimeValuesPath;
   if (!runtimePath) throw new Error('--runtime-values 옵션이 필요하다 (--deployment-profile로 기본 runtime을 선택할 수 있다)');
   const images = { enrollment: options['--enrollment-image'], ingest: options['--ingest-image'], dashboard: options['--dashboard-image'], gateway: options['--gateway-image'] };
-  const values = generateValues(JSON.parse(readFileSync(options['--outputs'], 'utf8')), images, parseRuntimeValues(readFileSync(runtimePath, 'utf8')), readFileSync(options['--msk-bootstrap'], 'utf8'), readFileSync(options['--msk-nodes'], 'utf8'), deploymentProfile);
-  const dir = resolve(options['--output-dir']);
+  const values = generateValues(JSON.parse(readFileSync(options['--outputs'], 'utf8')), images, parseRuntimeValues(readFileSync(runtimePath, 'utf8')), options['--msk-bootstrap'] ? readFileSync(options['--msk-bootstrap'], 'utf8') : undefined, options['--msk-nodes'] ? readFileSync(options['--msk-nodes'], 'utf8') : undefined, deploymentProfile, options['--strimzi-secrets'] ? readFileSync(options['--strimzi-secrets'], 'utf8') : undefined);
+  writeValues(values, options['--output-dir']);
+}
+
+function writeValues(values, outputDir) {
+  const dir = resolve(outputDir);
   mkdirSync(dir, { recursive: true });
   for (const [filename, value] of Object.entries(values)) {
     writeFileSync(resolve(dir, filename), '# CDK output 참조에서 생성했다. Secret 값을 넣지 않는다.\n' + dump(value, { noRefs: true, lineWidth: -1 }), { mode: 0o600 });

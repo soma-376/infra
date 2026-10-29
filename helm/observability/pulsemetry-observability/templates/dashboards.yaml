@@ -4,8 +4,37 @@ metadata:
   name: pulsemetry-dashboards
   namespace: {{ .Release.Namespace }}
 data:
+{{- $p := .Values.global.pulsemetry }}
+{{- $strimzi := eq $p.kafkaProvider "strimzi" }}
 {{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
+{{- if not (or (and $strimzi (eq (base $path) "pulsemetry-msk.json")) (and (not $strimzi) (eq (base $path) "pulsemetry-kafka.json"))) }}
   {{ base $path }}: |-
-    {{- /* JSON 내의 Grafana {{label}}과 Helm 템플릿을 섞지 않는다. */}}
-    {{- $.Files.Get $path | replace "__AWS_REGION__" $.Values.global.pulsemetry.region | replace "__ENVIRONMENT__" $.Values.global.pulsemetry.environment | replace "__TARGET_NAMESPACE__" $.Values.global.pulsemetry.targetNamespace | replace "__CLUSTER_NAME__" $.Values.global.pulsemetry.clusterName | replace "__MSK_CLUSTER__" $.Values.global.pulsemetry.mskClusterName | replace "__TOPIC__" $.Values.global.pulsemetry.topic | replace "__CONSUMER_GROUP__" $.Values.global.pulsemetry.consumerGroup | replace "__CONTROL_PLANE_LOG_GROUP__" $.Values.global.pulsemetry.controlPlaneLogGroup | replace "__APPLICATION_LOG_GROUP__" $.Values.global.pulsemetry.applicationLogGroup | replace "__BROKER_LOG_GROUP__" $.Values.global.pulsemetry.brokerLogGroup | replace "__OBSERVABILITY_LOG_GROUP__" $.Values.global.pulsemetry.observabilityLogGroup | replace "__EVENTS_LOG_GROUP__" $.Values.global.pulsemetry.kubernetesEventsLogGroup | nindent 4 }}
+    {{- $json := $.Files.Get $path }}
+    {{- if $strimzi }}
+      {{- $dashboard := $json | fromJson }}
+      {{- range $panel := $dashboard.panels }}
+        {{- range $target := $panel.targets }}
+          {{- if $target.expr }}
+            {{- $_ := set $target "expr" ($target.expr | replace "job!=\"msk-node\"," "") }}
+          {{- end }}
+          {{- if eq ($target.namespace | default "") "AWS/Kafka" }}
+            {{- /* 공통 Overview/Pipeline의 MSK lag 패널을 같은 위치에서 교체한다. */}}
+            {{- $datasource := dict "type" "prometheus" "uid" "pulsemetry-prometheus" }}
+            {{- $_ := set $panel "datasource" $datasource }}
+            {{- $_ := set $panel "title" "Kafka commit 기준 총 lag · exporter" }}
+            {{- $_ := set $panel "description" "Kafka exporter의 commit 기준 offset lag(record 수)다. commit 전·비활성 group·수집 실패는 빈 값이며 0으로 바꾸지 않는다. ingest http 모드에서는 해당 없다." }}
+            {{- $_ := set $panel "targets" (list (dict "refId" "A" "datasource" $datasource "expr" "sum(kafka_consumergroup_lag{job=\"strimzi-exporter\",cluster=\"$cluster\",kafka_cluster=\"$kafka_cluster\",topic=\"$topic\",consumergroup=\"$consumer_group\"})" "legendFormat" "committed lag")) }}
+          {{- end }}
+          {{- if has "__BROKER_LOG_GROUP__" ($target.logGroupNames | default list) }}
+            {{- $_ := set $panel "title" "Kafka broker Pod 로그" }}
+            {{- $_ := set $target "logGroupNames" (list $p.applicationLogGroup) }}
+            {{- $_ := set $target "expression" (printf "fields @timestamp, @message | filter kubernetes.namespace_name = '%s' and kubernetes.pod_name like /^%s-dual-role-[0-9]+$/ | sort @timestamp desc | limit 100" $p.targetNamespace $p.kafkaClusterName) }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+      {{- $json = $dashboard | toPrettyJson | replace "msk_cluster" "kafka_cluster" | replace "msk-jmx|msk-node" "strimzi-jmx|strimzi-exporter" | replace "MSK record" "Kafka record" | replace "MSK broker 로그" "Kafka broker Pod 로그" }}
+    {{- end }}
+    {{- /* Grafana {{label}}를 Helm tpl로 평가하지 않는다. 비밀 원문은 들어가지 않는다. */}}
+    {{- $json | replace "__AWS_REGION__" $p.region | replace "__ENVIRONMENT__" $p.environment | replace "__TARGET_NAMESPACE__" $p.targetNamespace | replace "__CLUSTER_NAME__" $p.clusterName | replace "__MSK_CLUSTER__" (ternary $p.kafkaClusterName $p.mskClusterName $strimzi) | replace "__KAFKA_CLUSTER__" $p.kafkaClusterName | replace "__TOPIC__" $p.topic | replace "__CONSUMER_GROUP__" $p.consumerGroup | replace "__CONTROL_PLANE_LOG_GROUP__" $p.controlPlaneLogGroup | replace "__APPLICATION_LOG_GROUP__" $p.applicationLogGroup | replace "__BROKER_LOG_GROUP__" ($p.brokerLogGroup | default "") | replace "__OBSERVABILITY_LOG_GROUP__" $p.observabilityLogGroup | replace "__EVENTS_LOG_GROUP__" $p.kubernetesEventsLogGroup | nindent 4 }}
+{{- end }}
 {{- end }}

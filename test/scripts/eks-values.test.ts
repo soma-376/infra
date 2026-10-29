@@ -86,7 +86,7 @@ function oidcRuntime(enabled = true, scheme: 'http' | 'https' = 'https') {
   return value;
 }
 
-type InvocationOptions = { gateway?: string; bootstrap?: string; nodes?: string; profile?: string; omitRuntime?: boolean; cwd?: string };
+type InvocationOptions = { gateway?: string; bootstrap?: string; nodes?: string; profile?: string; omitRuntime?: boolean; cwd?: string; strimziSecrets?: string };
 function invoke(document: any, image = enrollmentImage, dashboard = dashboardImage, runtimeText = readFileSync(runtimeFile, 'utf8'),
   extra: InvocationOptions = {}) {
   const temp = mkdtempSync(join(tmpdir(), 'eks-values-test-'));
@@ -99,13 +99,15 @@ function invoke(document: any, image = enrollmentImage, dashboard = dashboardIma
   writeFileSync(bootstrap, extra.bootstrap ?? readFileSync(bootstrapFile, 'utf8'));
   const nodes = join(temp, 'nodes.json');
   writeFileSync(nodes, extra.nodes ?? readFileSync(resolve(__dirname, 'fixtures/msk-nodes.json'), 'utf8'));
+  const metadata = join(temp, 'strimzi-secrets.json');
+  if (extra.strimziSecrets !== undefined) writeFileSync(metadata, extra.strimziSecrets);
   const result = spawnSync(process.execPath, [
     join(root, 'scripts/eks-values.mjs'), '--outputs', source, '--output-dir', dir,
     '--enrollment-image', image, '--ingest-image', ingestImage, '--dashboard-image', dashboard,
     '--gateway-image', extra.gateway ?? gatewayImage,
     ...(extra.omitRuntime ? [] : ['--runtime-values', runtime]),
     ...(extra.profile ? ['--deployment-profile', extra.profile] : []),
-    '--msk-bootstrap', bootstrap, '--msk-nodes', nodes,
+    ...(extra.strimziSecrets === undefined ? ['--msk-bootstrap', bootstrap, '--msk-nodes', nodes] : ['--strimzi-secrets', metadata]),
   ], { cwd: extra.cwd ?? root, encoding: 'utf8' });
   return { temp, dir, result, read: (file: string) => load(readFileSync(join(dir, file), 'utf8')) };
 }
@@ -1288,4 +1290,91 @@ test('두 암호화 키의 명시 버전 변경은 enrollment Pod revision을 �
       finally { rmSync(changed.temp, { recursive: true, force: true }); }
     }
   } finally { rmSync(base.temp, { recursive: true, force: true }); }
+});
+
+describe('Strimzi 공급자와 Secret metadata 경계', () => {
+  const temps: string[] = [];
+  afterEach(() => { for (const temp of temps.splice(0)) rmSync(temp, { recursive: true, force: true }); });
+  const source = () => {
+    const result: any = outputs();
+    for (const key of Object.keys(result.DevEksStack)) if (key.startsWith('Msk')) delete result.DevEksStack[key];
+    Object.assign(result.DevEksStack, {
+      KafkaProvider: 'strimzi', KafkaStage: 'validation',
+      KafkaTopicName: 'pulsemetry-dev-telemetry-ingress-validation', KafkaConsumerGroupName: 'pulsemetry-dev-telemetry-ingest-validation',
+      EksKafkaNodeSecurityGroupId: 'sg-0123456789abcdef3', EksKafkaAvailabilityZone: 'ap-northeast-2a',
+    });
+    return result;
+  };
+  const metadata = () => ({ items: ['soma-376-dev-telemetry-cluster-ca-cert', ...['gateway', 'ingest', 'topic-admin', 'offset-admin'].map(role => `pulsemetry-${role}-validation`)].map((name, i) => ({ metadata: { name, namespace: 'pulsemetry-dev', uid: `fixture-${i}`, resourceVersion: '123' } })) });
+  const run = (data = metadata(), document = source()) => {
+    const runtime = load(readFileSync(runtimeFile, 'utf8'));
+    runtime.ingestMode = 'dual';
+    const out = invoke(document, undefined, undefined, dump(runtime), { strimziSecrets: JSON.stringify(data) });
+    temps.push(out.temp); return out;
+  };
+  test('MSK output·조회 없이 생성하고 TLS 전용 참조를 앱과 수동 관리자에게 공급한다', () => {
+    const out = run();
+    expect({ status: out.result.status, stderr: out.result.stderr }).toEqual({ status: 0, stderr: '' });
+    expect(out.read('base.yaml').kafka).toEqual({ enabled: true, securityGroupId: 'sg-0123456789abcdef3', availabilityZone: 'ap-northeast-2a' });
+    for (const role of ['gateway', 'ingest']) {
+      const config = out.read(`telemetry-${role}.yaml`).kafka;
+      expect(config).toMatchObject({ security: 'mtls', userSecretName: `pulsemetry-${role}-validation`, tlsRevision: expect.stringMatching(/^[a-f0-9]{64}$/) });
+      expect(config.iamRoleArn).toBeUndefined();
+      expect(config.bootstrapServers).toBe('soma-376-dev-telemetry-kafka-bootstrap.pulsemetry-dev.svc.cluster.local:9093');
+    }
+    expect(out.read('telemetry-kafka-admin.yaml')).toMatchObject({ provider: 'strimzi', topicInit: { enabled: false }, tls: { userSecretName: 'pulsemetry-offset-admin-validation' } });
+    expect(out.read('observability.yaml').global.pulsemetry).toMatchObject({ kafkaProvider: 'strimzi', kafkaClusterName: 'soma-376-dev-telemetry' });
+    expect(out.read('observability.yaml').global.pulsemetry.mskBrokers).toBeUndefined();
+  });
+  test('사용자 revision 변경은 해당 앱만, CA revision 변경은 양쪽 앱을 재시작한다', () => {
+    const initial = run(); const changed = metadata(); changed.items[1].metadata.resourceVersion = '124';
+    const user = run(changed); changed.items[0].metadata.uid = 'new-ca-uid'; const ca = run(changed);
+    const revision = (out: any, role: string) => out.read(`telemetry-${role}.yaml`).kafka.tlsRevision;
+    expect(revision(initial, 'gateway')).not.toBe(revision(user, 'gateway'));
+    expect(revision(initial, 'ingest')).toBe(revision(user, 'ingest'));
+    for (const role of ['gateway', 'ingest']) expect(revision(user, role)).not.toBe(revision(ca, role));
+  });
+  test.each(['namespace', 'stage', 'data', 'duplicate', 'missing'])('잘못된 Secret metadata %s는 fail closed', kind => {
+    const data: any = metadata();
+    if (kind === 'namespace') data.items[0].metadata.namespace = 'default';
+    if (kind === 'stage') data.items[1].metadata.name = 'pulsemetry-gateway-main';
+    if (kind === 'data') data.items[0].data = { 'ca.password': 'must-not-read' };
+    if (kind === 'duplicate') data.items.push(data.items[1]);
+    if (kind === 'missing') data.items.pop();
+    const out = run(data);
+    expect(out.result.status).not.toBe(0); expect(out.result.stderr).toContain('strimzi-secrets');
+    expect(out.result.stderr).not.toContain('must-not-read');
+  });
+  test('ClickHouse와 다른 AZ를 거부한다', () => {
+    const document = source(); document.DevEksStack.EksKafkaAvailabilityZone = 'ap-northeast-2c';
+    expect(run(metadata(), document).result.stderr).toContain('AZ');
+  });
+  helmTest('생성한 mTLS 앱과 오프셋 Job은 PKCS12 파일만 마운트하고 topic init은 렌더링하지 않는다', () => {
+    const out = run(); expect(out.result.status).toBe(0);
+    for (const role of ['gateway', 'ingest']) {
+      const name = `telemetry-${role}`;
+      const result = spawnSync(process.env.HELM_BIN!, ['template', name, 'helm/dev/workloads/spring-app', '-n', 'pulsemetry-dev', '--kube-version', '1.36.0', '-f', `helm/dev/workloads/${name}.yaml`, '-f', join(out.dir, `${name}.yaml`)], { cwd: root, encoding: 'utf8' });
+      expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' });
+      const deployment = require('js-yaml').loadAll(result.stdout).find((doc: any) => doc?.kind === 'Deployment');
+      const pod = deployment.spec.template;
+      expect(pod.metadata.annotations['pulsemetry.io/kafka-tls-revision']).toBe(out.read(`${name}.yaml`).kafka.tlsRevision);
+      const env = Object.fromEntries(pod.spec.containers[0].env.map((item: any) => [item.name, item.value]));
+      expect(env.PULSEMETRY_KAFKA_SECURITY).toBe('mtls');
+      expect(env.PULSEMETRY_KAFKA_TLS_KEYSTORE_LOCATION).toBe('/mnt/kafka-tls/user/user.p12');
+      expect(env.PULSEMETRY_KAFKA_IAM_ROLE_ARN).toBeUndefined();
+      expect(pod.spec.volumes.find((v: any) => v.name === 'kafka-user').secret.items).toEqual([{ key: 'user.p12', path: 'user.p12' }, { key: 'user.password', path: 'user.password' }]);
+    }
+    const args = ['template', 'offsets', 'helm/dev/workloads/telemetry-kafka-admin', '-n', 'pulsemetry-dev', '--kube-version', '1.36.0', '-f', join(out.dir, 'telemetry-kafka-admin.yaml')];
+    const disabled = spawnSync(process.env.HELM_BIN!, args, { cwd: root, encoding: 'utf8' });
+    expect(disabled.status).toBe(0); expect(disabled.stdout).not.toContain('kind: Job'); expect(disabled.stdout).not.toContain('kind: ConfigMap');
+    const enabled = spawnSync(process.env.HELM_BIN!, [...args, '--set', 'offsets.enabled=true,offsets.partition=0,offsets.toOffset=1'], { cwd: root, encoding: 'utf8' });
+    expect({ status: enabled.status, stderr: enabled.stderr }).toEqual({ status: 0, stderr: '' });
+    const job = require('js-yaml').loadAll(enabled.stdout).find((doc: any) => doc?.kind === 'Job');
+    expect(job.spec.template.spec.volumes.find((v: any) => v.name === 'client-config').emptyDir.medium).toBe('Memory');
+    expect(job.spec.template.spec.initContainers).toBeUndefined();
+    expect(job.spec.template.spec.containers[0].args[0]).toContain('ssl.endpoint.identification.algorithm=https');
+    expect(job.spec.template.spec.containers[0].args[0]).toContain('committed offset');
+    const forbidden = spawnSync(process.env.HELM_BIN!, [...args, '--set', 'topicInit.enabled=true'], { cwd: root, encoding: 'utf8' });
+    expect(forbidden.status).not.toBe(0);
+  });
 });

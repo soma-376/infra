@@ -1,0 +1,6 @@
+apiVersion: v2
+name: pulsemetry-kafka
+version: 0.1.0
+appVersion: "4.2.2"
+description: dev Strimzi Kafka 계약·사용자·토픽
+kubeVersion: ">=1.36.0-0 <1.37.0-0"

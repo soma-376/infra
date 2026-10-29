@@ -29,7 +29,7 @@ export interface DevEksRuntimeProps {
   readonly telemetryJwtPrivateKeySecret: ISecret;
   readonly telemetryJwtPublicKeysSecret: ISecret;
   /** MSK 데이터 권한의 리소스 ARN. stage topic/group 하나씩만 허용한다. (ADR-0036) */
-  readonly msk: DevEksRuntimeMskTargets;
+  readonly msk?: DevEksRuntimeMskTargets;
 }
 
 export interface DevEksRuntimeMskTargets {
@@ -46,10 +46,10 @@ export class DevEksRuntime extends Construct {
   public readonly fluentBitRole: Role;
   public readonly applicationLogGroup: LogGroup;
   public readonly telemetryGatewayRole: Role;
-  public readonly telemetryKafkaAdminRole: Role;
-  public readonly telemetryKafkaOffsetsRole: Role;
+  public readonly telemetryKafkaAdminRole?: Role;
+  public readonly telemetryKafkaOffsetsRole?: Role;
   /** workload별 MSK 전용 역할. 해당 Pod 역할만 고정 세션 이름으로 assume한다. */
-  public readonly mskRoles: Readonly<Record<keyof typeof DEV_EKS_TELEMETRY_SESSION_NAMES, Role>>;
+  public readonly mskRoles?: Readonly<Record<keyof typeof DEV_EKS_TELEMETRY_SESSION_NAMES, Role>>;
 
   constructor(scope: Construct, id: string, props: DevEksRuntimeProps) {
     super(scope, id);
@@ -102,35 +102,38 @@ export class DevEksRuntime extends Construct {
     const accounts = DEV_EKS_TELEMETRY_SERVICE_ACCOUNTS;
     this.telemetryGatewayRole = this.podRole('TelemetryGateway', props.clusterName, DEV_EKS_NAMESPACE, accounts.gateway);
     this.grantSecretRead(this.telemetryGatewayRole, [props.telemetryJwtPublicKeysSecret]);
-    // 관리 Job은 Secret 없이 각자의 MSK 역할만 assume한다.
-    this.telemetryKafkaAdminRole = this.podRole('TelemetryKafkaAdmin', props.clusterName, DEV_EKS_NAMESPACE, accounts.topicAdmin);
-    this.telemetryKafkaOffsetsRole = this.podRole('TelemetryKafkaOffsets', props.clusterName, DEV_EKS_NAMESPACE, accounts.offsetAdmin);
-
-    const { clusterArn, topicArn, consumerGroupArn } = props.msk;
-    const kafka = (resource: string, ...actions: string[]) => new PolicyStatement({
-      actions: actions.map(action => `kafka-cluster:${action}`), resources: [resource],
-    });
     const sessions = DEV_EKS_TELEMETRY_SESSION_NAMES;
-    this.mskRoles = {
-      gateway: this.mskRole('Gateway', this.telemetryGatewayRole, accounts.gateway, sessions.gateway, [
-        kafka(clusterArn, 'Connect', 'WriteDataIdempotently'),
-        kafka(topicArn, 'DescribeTopic', 'WriteData'),
-      ]),
-      ingest: this.mskRole('Ingest', this.telemetryIngestRole, 'telemetry-ingest', sessions.ingest, [
-        kafka(clusterArn, 'Connect'),
-        kafka(topicArn, 'DescribeTopic', 'ReadData'),
-        kafka(consumerGroupArn, 'DescribeGroup', 'AlterGroup'),
-      ]),
-      topicAdmin: this.mskRole('TopicAdmin', this.telemetryKafkaAdminRole, accounts.topicAdmin, sessions.topicAdmin, [
-        kafka(clusterArn, 'Connect'),
-        kafka(topicArn, 'CreateTopic', 'DescribeTopic', 'DescribeTopicDynamicConfiguration', 'AlterTopicDynamicConfiguration'),
-      ]),
-      offsetAdmin: this.mskRole('OffsetAdmin', this.telemetryKafkaOffsetsRole, accounts.offsetAdmin, sessions.offsetAdmin, [
-        kafka(clusterArn, 'Connect'),
-        kafka(consumerGroupArn, 'DescribeGroup', 'AlterGroup'),
-        kafka(topicArn, 'DescribeTopic', 'ReadData'),
-      ]),
-    };
+    // Strimzi 삭제 단계에서도 앱의 JWT·RDS·S3 Pod Identity는 보존한다. (ADR-0049)
+    if (props.msk) {
+      // 관리 Job은 Secret 없이 각자의 MSK 역할만 assume한다.
+      this.telemetryKafkaAdminRole = this.podRole('TelemetryKafkaAdmin', props.clusterName, DEV_EKS_NAMESPACE, accounts.topicAdmin);
+      this.telemetryKafkaOffsetsRole = this.podRole('TelemetryKafkaOffsets', props.clusterName, DEV_EKS_NAMESPACE, accounts.offsetAdmin);
+
+      const { clusterArn, topicArn, consumerGroupArn } = props.msk;
+      const kafka = (resource: string, ...actions: string[]) => new PolicyStatement({
+        actions: actions.map(action => `kafka-cluster:${action}`), resources: [resource],
+      });
+      this.mskRoles = {
+        gateway: this.mskRole('Gateway', this.telemetryGatewayRole, accounts.gateway, sessions.gateway, [
+          kafka(clusterArn, 'Connect', 'WriteDataIdempotently'),
+          kafka(topicArn, 'DescribeTopic', 'WriteData'),
+        ]),
+        ingest: this.mskRole('Ingest', this.telemetryIngestRole, 'telemetry-ingest', sessions.ingest, [
+          kafka(clusterArn, 'Connect'),
+          kafka(topicArn, 'DescribeTopic', 'ReadData'),
+          kafka(consumerGroupArn, 'DescribeGroup', 'AlterGroup'),
+        ]),
+        topicAdmin: this.mskRole('TopicAdmin', this.telemetryKafkaAdminRole, accounts.topicAdmin, sessions.topicAdmin, [
+          kafka(clusterArn, 'Connect'),
+          kafka(topicArn, 'CreateTopic', 'DescribeTopic', 'DescribeTopicDynamicConfiguration', 'AlterTopicDynamicConfiguration'),
+        ]),
+        offsetAdmin: this.mskRole('OffsetAdmin', this.telemetryKafkaOffsetsRole, accounts.offsetAdmin, sessions.offsetAdmin, [
+          kafka(clusterArn, 'Connect'),
+          kafka(consumerGroupArn, 'DescribeGroup', 'AlterGroup'),
+          kafka(topicArn, 'DescribeTopic', 'ReadData'),
+        ]),
+      };
+    }
 
     this.applicationLogGroup = new LogGroup(this, 'ApplicationLogs', {
       logGroupName: '/eks/dev/application',
@@ -152,19 +155,21 @@ export class DevEksRuntime extends Construct {
       RuntimeDashboardRoleArn: this.dashboardRole.roleArn,
       RuntimeFluentBitRoleArn: this.fluentBitRole.roleArn,
       RuntimeTelemetryGatewayRoleArn: this.telemetryGatewayRole.roleArn,
-      RuntimeTelemetryKafkaAdminRoleArn: this.telemetryKafkaAdminRole.roleArn,
-      RuntimeTelemetryKafkaOffsetsRoleArn: this.telemetryKafkaOffsetsRole.roleArn,
       ApplicationLogGroupName: this.applicationLogGroup.logGroupName,
       ArchivePrefix: props.archivePrefix,
       // 앱·Job이 aws-msk-iam-auth의 awsRoleArn·awsRoleSessionName으로 사용한다.
-      MskGatewayRoleArn: this.mskRoles.gateway.roleArn,
-      MskIngestRoleArn: this.mskRoles.ingest.roleArn,
-      MskTopicAdminRoleArn: this.mskRoles.topicAdmin.roleArn,
-      MskOffsetAdminRoleArn: this.mskRoles.offsetAdmin.roleArn,
-      MskGatewaySessionName: sessions.gateway,
-      MskIngestSessionName: sessions.ingest,
-      MskTopicAdminSessionName: sessions.topicAdmin,
-      MskOffsetAdminSessionName: sessions.offsetAdmin,
+      ...(this.mskRoles && this.telemetryKafkaAdminRole && this.telemetryKafkaOffsetsRole ? {
+        RuntimeTelemetryKafkaAdminRoleArn: this.telemetryKafkaAdminRole.roleArn,
+        RuntimeTelemetryKafkaOffsetsRoleArn: this.telemetryKafkaOffsetsRole.roleArn,
+        MskGatewayRoleArn: this.mskRoles.gateway.roleArn,
+        MskIngestRoleArn: this.mskRoles.ingest.roleArn,
+        MskTopicAdminRoleArn: this.mskRoles.topicAdmin.roleArn,
+        MskOffsetAdminRoleArn: this.mskRoles.offsetAdmin.roleArn,
+        MskGatewaySessionName: sessions.gateway,
+        MskIngestSessionName: sessions.ingest,
+        MskTopicAdminSessionName: sessions.topicAdmin,
+        MskOffsetAdminSessionName: sessions.offsetAdmin,
+      } : {}),
     })) {
       const output = new CfnOutput(this, name, { value });
       output.overrideLogicalId(name);
