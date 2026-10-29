@@ -37,10 +37,13 @@ CRD `kafkas.kafka.strimzi.io`가 이미 있으면 운영자 중복 설치 대신
 `devEksArchivePrefix=eks_validation`으로 시작한다. diff에서 새 Kafka SG만 추가되고 기존 MSK·PVC·Data 리소스는 삭제/교체되지 않는지 확인한다.
 현재 추적 profile은 §4의 main 준비 단계(`eks`, `retain`, ALB ingest)다. validation 준비를 재현할 때는
 그 단계의 profile과 일치하는 output·metadata를 사용하며 main profile에 validation output을 섞지 않는다.
+`DEPLOYMENT_PROFILE`은 이번 CDK 적용에 사용한 추적 profile의 파일 경로다. validation 재현에는
+`devEksArchivePrefix=eks_validation`인 profile을 선택한다. 같은 파일을 §3 앱 값 생성에도 사용한다.
 기존 절차로 CDK를 적용해 output을 모은 후:
 
 ```bash
-node scripts/eks-values.mjs --outputs "$RUN_DIR/cdk-outputs.json" \
+: "${DEPLOYMENT_PROFILE:?이번 CDK 단계와 일치하는 추적 profile 경로가 필요하다}"
+node scripts/eks-values.mjs --deployment-profile "$DEPLOYMENT_PROFILE" --outputs "$RUN_DIR/cdk-outputs.json" \
   --output-dir "$RUN_DIR/generated" --prepare-kafka true
 "$HELM" upgrade --install dev-platform helm/dev/platform/base \
   -f "$RUN_DIR/generated/base.yaml" --wait --timeout 10m
@@ -70,7 +73,7 @@ Secret 원문을 `kubectl get -o yaml/json`으로 저장하지 않는다. 다음
 
 ```bash
 node scripts/strimzi-secret-metadata.mjs validation "$RUN_DIR/strimzi-metadata.json"
-node scripts/eks-values.mjs --deployment-profile config/dev/deployment.json \
+node scripts/eks-values.mjs --deployment-profile "$DEPLOYMENT_PROFILE" \
   --outputs "$RUN_DIR/cdk-outputs.json" --output-dir "$RUN_DIR/generated" \
   --enrollment-image "$ENROLLMENT_IMAGE" --ingest-image "$INGEST_MTLS_IMAGE" \
   --dashboard-image "$DASHBOARD_IMAGE" --gateway-image "$GATEWAY_MTLS_IMAGE" \
@@ -129,7 +132,8 @@ validation E2E를 확인한 뒤 기존 HTTP ALB 경로를 유지한 채 아래 �
    이를 먼저 배포한다. 아직 실행 중인 validation HTTP ingest는 `eks_validation/*`에 계속 쓸 수 있어야 한다.
 2. validation Gateway의 합성 입력을 중지하고 validation backlog가 모두 처리·commit됐는지 확인한다.
    외부 HTTP 수집은 계속 유지한다. Kafka 데이터나 offset을 main으로 복사하지 않는다.
-3. 새 `KafkaStage=main` output과 main Secret metadata로 앱 값을 다시 만들고 main `dual` ingest와 Gateway를 배포한다.
+3. main CDK 적용 후 `DEPLOYMENT_PROFILE=config/dev/deployment.json`을 선택한다. 새 `KafkaStage=main` output과
+   main Secret metadata로 앱 값을 다시 만들고 main `dual` ingest와 Gateway를 배포한다.
    실제 Pod의 prefix·topic·group·인증서와 HTTP 및 내부 main ACK/consume/commit/S3/ClickHouse를 확인한다.
 4. 내부 main 검증 뒤 `devEksOtlpTarget=gateway` ALB 전환을 적용하고 ingest를 `kafka`로 바꾼다.
 
