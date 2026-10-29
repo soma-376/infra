@@ -11,7 +11,37 @@ CPU·RAM·파일시스템 용량/inode·디스크 I/O 원본을 15초 간격으�
 
 - infra PR #66의 dev 앱 SG → 관측 SG TCP 4318 송수신 규칙이 필요하다.
 - 관측 EC2 자체 수집기는 모듈 내 `host.alloy`를 사용하며 Compose 내부 Prometheus로 직접 전송한다.
-- 아래 수동 설치는 dev EC2용이다. 재부팅은 Docker restart 정책으로 복구되지만 EC2 **교체 시에는 재설치**해야 한다. 현재 EC2 부팅 IaC에 자동 설치된 것으로 간주하지 않는다.
+- 아래 수동 설치는 장애 진단용이다. 기본 설치 경로는 Terraform의 SSM Association이다. 코드 구현과 실제 apply 완료는 별도로 확인한다.
+
+
+### 자동 설치·갱신 (2026-10-30 추가, 실제 apply 전)
+
+`frontend/environments/dev/host-agent.tf`가 고정 설치 문서와 SSM Association을 관리한다.
+`frontend_telemetry_enabled=true`일 때만 생성한다. 대상은 application 모듈이 출력한 **단일 dev EC2 ID**다.
+관측 EC2나 prod는 대상에 포함하지 않는다. 기존 user data를 변경하지 않아 수집기 추가만으로 EC2가 교체되지 않는다.
+
+- 최초 apply: 기존 dev EC2에 SSM으로 설치한다. 앱·ECS Agent는 재시작하지 않는다.
+- EC2 교체: Terraform이 새 인스턴스 ID로 Association을 갱신해 설치한다. SSM/Docker가 준비된 뒤 실행되므로 부팅 완료와 수집 시작은 동시가 아니다.
+- 설정/설치기/관측 endpoint 변경: dev state의 SSM 문서 버전이 바뀌고 Association이 그 숫자 버전을 실행한다. 대시보드 문서와 달리 이후 수집기 코드 수정마다 bootstrap apply가 필요하지 않다.
+- 재부팅: `--restart unless-stopped`로 복구한다. 수동 stop은 자동 복구하지 않는다.
+- 주기적 재설치 일정은 없다. Association 삭제/관측 비활성화는 이미 설치한 컨테이너를 제거하지 않는다. 완전 중지 시 별도로 해당 컨테이너만 중지·제거한다.
+
+적용 순서:
+
+1. 관리자가 `frontend/bootstrap` plan을 확인하고 호스트 문서·Association 관리 권한을 적용한다. dev-plan은 읽기만, dev-apply만 쓰기 권한을 갖는다. prod 역할은 바뀌지 않는다.
+2. 리뷰·머지 후 기존 `Frontend Terraform Apply` CI가 dev 문서와 Association을 생성한다. SG 연결 완료 후 설치하며 성공 대기 시간은 900초다.
+3. SSM 설치 성공은 컨테이너 실행까지만 검증한다. 아래 PromQL로 dev 호스트 지표와 timestamp가 갱신되는지 확인해야 실제 전송 완료다.
+
+```promql
+up{job="frontend-host",environment="dev",host_role="frontend-dev"}
+time() - timestamp(node_memory_MemTotal_bytes{job="frontend-host",environment="dev",host_role="frontend-dev"})
+```
+
+실패 시 SSM State Manager에서 `soma-376-frontend-dev-host-agent` 실행 상세와
+`docker logs --tail=100 pulsemetry-dev-host-agent`를 확인한다. 실패 뒤 단순 apply가 실행을 다시 유발한다고 가정하지 않는다.
+관리자가 원인을 해결한 뒤 해당 Association의 Apply association now로 재실행하고 수신을 확인한다.
+설치기는 새 이미지 pull·설정 validate를 기존 컨테이너 제거 전에 수행하지만, 제거 후 실행 실패에 대한 자동 롤백은 없다.
+프론트 앱은 유지되며 호스트 수집만 중단될 수 있다.
 
 ### Compose 없는 dev EC2
 
