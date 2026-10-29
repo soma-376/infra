@@ -38,6 +38,9 @@ ADR-0037의 MSK 관측 부분을 대체한다. 기존 HTTP 복구·JWT·Data·pr
   (생략 retain)를 도입한다. msk 공급자에서 제거 단계는 거부한다. 전환 중에는 Strimzi와 기존 MSK 리소스를 병존시킨다.
   cluster-removed는 MSK cluster/configuration/log·전용 IAM을 제거하고 subnet/SG를 남긴다.
   실제 MSK 삭제·ENI 해제 확인 뒤 network-removed를 NetworkStack에 적용한다. 최초 삭제 deploy --all은 금지한다.
+  자동 CI/CD가 차단하는 cluster-removed profile을 먼저 머지하지 않는다. 검증한 최신 merged SHA의 profile/runtime을
+  같은 private 폴더에 복사해 원본 해시를 보관하고 단계 값만 바꾼다. 각 단계의 검토된 고정 Assembly로 해당 스택만
+  배포하며 retain 자동 배포와 동시에 실행하지 않는다. 수동 철거가 모두 끝난 뒤 추적 profile을 network-removed로 갱신한다.
 - KafkaProvider/KafkaStage/KafkaTopicName/KafkaConsumerGroupName, EksKafkaNodeSecurityGroupId/EksKafkaAvailabilityZone을 출력한다.
   Strimzi values 생성에는 MSK ARN/bootstrap/list-nodes가 필요 없다. 기존 MSK 입력 검증은 호환 경로에만 남긴다.
   profile의 공급자와 archive prefix가 배포 output과 다르면 앱·Kafka 준비 values 생성을 모두 거부한다.
@@ -53,6 +56,15 @@ ADR-0037의 MSK 관측 부분을 대체한다. 기존 HTTP 복구·JWT·Data·pr
   두 경로 허용을 먼저 배포·확인한 뒤 validation 입력 중지 및 backlog drain, main dual ingest/Gateway 배포,
   내부 main 검증, ALB 전환을 순서대로 수행한다. `cluster-removed`부터 임시 validation 권한을 회수하며
   `network-removed`에서도 `eks/*`만 남긴다. 제거 전 validation writer가 없는지 확인한다.
+- Gateway TG가 listener에 참조되지 않으면 `unused/Target.NotInUse`이며 health check를 시작하지 않는다.
+  내부 main E2E 후 dev의 `strimzi` + `archivePrefix=eks` + `otlpTarget=ingest` 조합에서만 기존 OTLP
+  priority 1 규칙을 ingest weight 100/Gateway weight 0으로 연결한다. 가중치는 고정하고 stickiness를 켜지 않는다.
+  외부 트래픽은 ingest로 유지하고 `ValidationOtlpTarget=ingest`·`ingestMode=dual` 및 나머지 규칙·TG는 보존한다.
+  MSK 공급자·validation stage·prod는 바꾸지 않는다. listener 연결 후 실제 Gateway target healthy를 확인한다.
+- 준비 단계의 health check와 외부 HTTP 연속성을 확인한 뒤 별도 profile 변경으로 `devEksOtlpTarget=gateway`를 적용한다.
+  이때는 기존 단일 Gateway forward action을 사용한다. main prefix·Strimzi·retain·JWT 발급·dual을 유지하며,
+  공개 ALB의 실제 Kafka ACK/consume/commit·S3/ClickHouse 검증 후 별도 runtime 변경으로만 ingest를 `kafka`로 바꾼다.
+  가중치 0 연결만으로 실제 healthy 또는 Kafka 수집 성공을 판정하지 않는다.
 
 ## Alternatives Considered
 
@@ -81,6 +93,8 @@ Operator → 각 Kafka Pod의 9090·8443 경로와 quorum 조회·순차 재시�
 
 ## References
 
+- [AWS ALB target health check의 listener 연결 전제](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/target-group-health-checks.html)
+- [AWS ALB forward action의 0~999 target group weight](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/rule-action-types.html)
 - [Kafka 4.2.2 Group 지원 권한](https://github.com/apache/kafka/blob/4.2.2/server/src/main/java/org/apache/kafka/security/authorizer/AclEntry.java)
 - [Kafka 4.2.2 offset 변경 요청](https://github.com/apache/kafka/blob/4.2.2/clients/src/main/java/org/apache/kafka/clients/admin/internals/AlterConsumerGroupOffsetsHandler.java)
 - [Kafka 4.2 ACL 프로토콜 표](https://kafka.apache.org/42/security/authorization-and-acls/)

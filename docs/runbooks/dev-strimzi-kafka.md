@@ -149,14 +149,33 @@ validation E2E를 확인한 뒤 기존 HTTP ALB 경로를 유지한 채 아래 �
 
 1. 추적 profile을 `strimzi`, `devEksArchivePrefix=eks`, `retain`, `devEksOtlpTarget=ingest`로 변경한다.
    `runtime.yaml`의 `ingestMode=dual`·telemetry JWT 발급 활성화·기존 키 버전·이미지 digest는 유지한다.
-   CDK diff에서 ingest S3 정책만 정확한 `eks/*` + `eks_validation/*` PutObject/TLS 조건으로 확장되는지 확인하고
+   CDK diff에서 ingest S3 정책이 정확한 `eks/*` + `eks_validation/*` PutObject/TLS 조건으로 확장되는지 확인하고
    이를 먼저 배포한다. 아직 실행 중인 validation HTTP ingest는 `eks_validation/*`에 계속 쓸 수 있어야 한다.
+   현재 코드는 이 profile 조건에서 Edge의 ingest 100/Gateway 0 연결도 함께 합성한다. 따라서 이 버전으로 main을
+   처음 적용하면 내부 E2E 전에도 listener 준비가 반영될 수 있다. weight 0은 외부 수집을 Gateway로 보내지 않으며,
+   내부 main E2E 성공과 실제 Gateway healthy는 이후 단일 Gateway 전환 전에 반드시 확인하는 운영 gate다.
 2. validation Gateway의 합성 입력을 중지하고 validation backlog가 모두 처리·commit됐는지 확인한다.
    외부 HTTP 수집은 계속 유지한다. Kafka 데이터나 offset을 main으로 복사하지 않는다.
 3. main CDK 적용 후 `DEPLOYMENT_PROFILE=config/dev/deployment.json`을 선택한다. 새 `KafkaStage=main` output과
    main Secret metadata로 앱 값을 다시 만들고 main `dual` ingest와 Gateway를 배포한다.
    실제 Pod의 prefix·topic·group·인증서와 HTTP 및 내부 main ACK/consume/commit/S3/ClickHouse를 확인한다.
-4. 내부 main 검증 뒤 `devEksOtlpTarget=gateway` ALB 전환을 적용하고 ingest를 `kafka`로 바꾼다.
+4. 내부 main 검증 뒤 listener 연결 준비가 적용됐는지 확인하고, 아직 없으면 적용한다. 이번 전환은 `a26a90f`의
+   main CDK·앱과 내부 E2E를 먼저 검증한 뒤 준비 코드를 추가했으므로 이 단계에서 Edge만 별도로 바뀐다.
+   Gateway TG가 아직 어느 listener에도 참조되지 않으면
+   `unused/Target.NotInUse`이며 healthy를 기다려도 health check가 시작되지 않는다.
+   `strimzi` + main prefix `eks` + `devEksOtlpTarget=ingest`에서만 기존 OTLP 규칙을 ingest weight 100/Gateway weight 0으로 연결한다.
+   실제 외부 수집은 ingest로 유지하고 `ValidationOtlpTarget=ingest`, `retain`, `ingestMode=dual`·JWT 발급·키 버전을 보존한다.
+   보호된 CD plan에서 `DevEdgeStack`의 `EksValidationAlbHttpOtlpRule810EC07C` forward 대상과
+   가중치 외에는 output·Network/Data/EKS·인증서·WAF·나머지 경로·TG가 그대로인지 확인하고 승인된 같은 Assembly로 배포한다.
+5. 실제 listener action이 ingest 100/Gateway 0인지, 기존 HTTP 수집과 로그인·등록이 유지되는지 확인한다.
+   연결 후 Gateway TG의 등록 target들이 실제 healthy가 되어야 한다. weight 0은 수집 전환이나 Kafka E2E 성공 증거가 아니다.
+6. 준비 단계 검증 뒤 별도 PR에서 추적 profile의 `devEksOtlpTarget`만 `gateway`로 바꾼다.
+   기존 단일 Gateway forward와 `ValidationOtlpTarget=gateway`만 바뀌고 main·Strimzi·retain·dual을 유지하는지 확인한다.
+   승인된 CD plan을 배포한 뒤 공개 ALB에 실제 telemetry JWT 요청을 보내 Gateway Kafka ACK → main consumer → offset commit 및
+   S3/ClickHouse 저장을 확인한다. 로그인·등록 경로도 유지되어야 한다. 실패 시 dual ingest가 Ready인 것을 확인하고
+   profile의 OTLP 대상만 `ingest`로 되돌려 ingest 100/Gateway 0 준비 상태로 복구한다. Kafka/PVC/offset은 지우거나 초기화하지 않는다.
+7. 공개 경로 성공 뒤 별도 runtime PR에서만 `ingestMode=kafka`로 바꾸고 새 values/Helm을 적용한다.
+   이때 ingest의 HTTP TGB가 사라지므로 이후 HTTP 복구는 dual ingest/TGB를 먼저 복구한 뒤 ALB를 되돌린다.
 
 두 prefix 권한은 세 조건이 모두 일치할 때만 존재한다. `cluster-removed` 배포에서 validation 권한을 회수하며
 `network-removed`도 main 권한만 유지한다. MSK 공급자·validation prefix·prod에는 추가 경로를 주지 않는다.
@@ -223,32 +242,47 @@ PKCS12 password는 Job 안에서만 읽고 memory emptyDir의0600 properties에 
 
 ## 6. 복구와 MSK 단계별 제거
 
-실패하면 먼저 ALB OTLP target을 ingest로 복구하고 ingest를 `http` 또는 `dual`로 유지한다. JWT·DB·S3·ClickHouse 설정은 보존한다.
+실패하면 ingest의 `http` 또는 main `dual` 수신기·TGB를 먼저 복구하고 직접 서비스·NodePort 응답, Pod Ready와 target 등록을 확인한 뒤 ALB OTLP target을 ingest로 돌린다. JWT·DB·S3·ClickHouse 설정은 보존한다.
+단일 Gateway forward 뒤 ingest TG도 listener 참조가 없어 `Target.NotInUse`일 수 있으므로 연결 전 healthy를 기다리지 않는다.
+ALB를 연결한 뒤 실제 ingest target healthy와 공개 수집 복구를 확인한다. 연결 전에 ALB health check를 마쳐야 하는 복구라면
+별도 Gateway 100/ingest 0 준비 변경이 필요하며, 현재 profile 복귀만으로 무중단을 보장하지 않는다.
 Gateway 유입을 중지해 중복 입력을 피하고 Kafka backlog를 보관한다. Kafka release/operator/CRD/PVC/Secret을 삭제하거나
 Helm uninstall로 되돌리지 않는다. retained PVC는 디스크 보존 수단이며 백업 대체가 아니다.
 
 MSK 삭제는 실제 main 성공·30분 안정화·비정상 증거 없음·HTTP 복구 가능 확인 후에만 진행한다.
 자동 dev-cdk 파이프라인은 `cluster-removed`를 차단한다. `network-removed`는 실제 AWS의 안정 baseline에서
 MSK cluster/configuration·전용 SG/subnet 제거가 모두 끝났을 때만 허용한다. 최초 삭제에 `deploy --all`을 사용하지 않는다.
-각 단계는 추적 profile을 수정하고 동일 profile로 synth/diff한다. profile과 상충하는 CLI context는 거부된다.
+`cluster-removed`를 추적 profile에 넣어 먼저 머지하지 않는다. 검증을 마친 최신 merged SHA를 고정하고,
+그 SHA의 `config/dev/deployment.json`·`runtime.yaml`을 같은 private 폴더(`RETIRE_DIR`)에 복사한다.
+상대 `runtimeValuesFile` 경로가 유지되어야 하며 commit SHA와 두 원본 파일 SHA256, 변경 전 profile 사본을 보관한다.
+stage 외 origin·인증서·main prefix·Gateway 대상·runtime·키 버전을 바꾸지 않는다. profile과 상충하는 CLI context는 거부된다.
+실행 중인 retain 자동 CD가 끝났는지 확인하고, 수동 철거 중에는 대기 중 retain CD를 승인하거나 다른 dev 배포를 실행하지 않는다.
+자동 guard·환경 보호·승인 설정은 변경하지 않는다.
 
-1. `devMskRetirementStage=cluster-removed`: `DevEksStack`만 diff/deploy `--exclusively`한다.
+1. private profile의 `devMskRetirementStage` 한 값만 `cluster-removed`로 바꾸고 원본 대비 diff를 root가 검토한다.
+   이 입력으로 Assembly를 한 번 합성하고 template/manifest 해시를 보관한다. `DevEksStack`만 diff/deploy `--exclusively`한다.
    MSK cluster/configuration/log·전용 IAM·PodIdentity 제거와 ingest의 임시 `eks_validation/*` PutObject 회수만 확인한다.
    기존 앱 Pod Identity·Secret 권한·`eks/*` PutObject/TLS 조건 및 Kafka/EKS/기존 Data는 보존한다.
    이 전에 모든 ingest가 main prefix를 쓰며 validation writer·backlog가 없는지 확인한다.
    ```bash
-   npx cdk diff DevEksStack --exclusively -c env=dev -c devDeploymentProfile=config/dev/deployment.json
-   npx cdk deploy DevEksStack --exclusively -c env=dev -c devDeploymentProfile=config/dev/deployment.json
+   npx cdk synth --all -c env=dev -c devDeploymentProfile="$RETIRE_DIR/deployment.json" --output "$RETIRE_DIR/cluster-removed-assembly"
+   npx cdk diff DevEksStack --exclusively --app "$RETIRE_DIR/cluster-removed-assembly"
+   # root가 diff·Assembly 해시·실제 baseline을 검토한 뒤 같은 Assembly로만 배포한다.
+   npx cdk deploy DevEksStack --exclusively --app "$RETIRE_DIR/cluster-removed-assembly"
    ```
 2. AWS MSK 삭제 완료와 세 MSK subnet/SG를 사용하는 ENI가 **0개**인지 `ec2 describe-network-interfaces`로 확인해 기록한다.
    MSK 상태가 DELETING이거나 ENI가 남으면 기다리고 Network 제거를 진행하지 않는다.
-3. `devMskRetirementStage=network-removed`: `DevNetworkStack`만 diff/deploy `--exclusively`한다.
+3. private profile의 stage만 `network-removed`로 바꾸고 새 Assembly를 고정한다. `DevNetworkStack`만 diff/deploy `--exclusively`한다.
    MSK 전용 subnet/route table/SG만 제거하고 기존 EKS public subnet·Kafka SG·Data SG를 유지한다.
    ```bash
-   npx cdk diff DevNetworkStack --exclusively -c env=dev -c devDeploymentProfile=config/dev/deployment.json
-   npx cdk deploy DevNetworkStack --exclusively -c env=dev -c devDeploymentProfile=config/dev/deployment.json
+   npx cdk synth --all -c env=dev -c devDeploymentProfile="$RETIRE_DIR/deployment.json" --output "$RETIRE_DIR/network-removed-assembly"
+   npx cdk diff DevNetworkStack --exclusively --app "$RETIRE_DIR/network-removed-assembly"
+   # 실제 MSK/ENI 부재와 새 Assembly 해시를 확인한 뒤 Network만 배포한다.
+   npx cdk deploy DevNetworkStack --exclusively --app "$RETIRE_DIR/network-removed-assembly"
    ```
 4. Kafka 재접속·lag·ISR·앱 E2E를 다시 확인하고 비용/리소스 잔존을 기록한다. MSK 삭제 후 재생성은 복구 절차가 아니다.
+5. 두 수동 삭제가 끝난 뒤에만 추적 profile을 `network-removed`로 갱신하는 별도 PR을 만든다.
+   CI가 실제 안정 AWS baseline의 MSK cluster/configuration·전용 SG/subnet 부재를 확인해야 한다.
 
 수동 철거 완료 후 `network-removed` profile의 다음 자동 plan은 실제 AWS baseline에서 MSK 부재를 검사한다.
 verify는 무결성 검증된 baseline artifact를 검사하고 deploy는 실제 AWS baseline을 다시 읽어 승인 당시와 비교한다.

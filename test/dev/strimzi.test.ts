@@ -151,7 +151,17 @@ describe('dev Strimzi 병렬 설치와 MSK 단계별 제거', () => {
       }
     }
     expect(asJson(current.data)).toEqual(asJson(baseline.data));
-    expect(asJson(current.edge)).toEqual(asJson(baseline.edge));
+    const expectedEdge = structuredClone(asJson(baseline.edge));
+    if (provider === 'strimzi' && prefix === 'eks') {
+      // main 준비의 OTLP action만 달라진다. 철거 stage는 다른 Edge 리소스를 바꾸지 않는다.
+      expectedEdge.Resources.EksValidationAlbHttpOtlpRule810EC07C.Properties.Actions = [{
+        Type: 'forward', ForwardConfig: { TargetGroups: [
+          { TargetGroupArn: { Ref: 'EksValidationIngestTg57D75D2A' }, Weight: 100 },
+          { TargetGroupArn: { Ref: 'EksValidationGatewayTg502E534F' }, Weight: 0 },
+        ] },
+      }];
+    }
+    expect(asJson(current.edge)).toEqual(expectedEdge);
   });
 
   test.each([
