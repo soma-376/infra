@@ -161,6 +161,12 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 - 스킬이 보이지 않으면 형제 `../agent-skills` 클론 여부를 확인하고, 없으면 사용자에게 클론을 안내한다.
 - **사용자의 명시 요청 없이 `git push` 하지 않는다.**
 
+생성된 dev values는 비공개 `soma-376/infra-generated-values`의 `dev/generated/`에 동기화 사본만 둔다.
+입력·생성기·chart·배포는 infra가 소유하며 사본 직접 편집·역방향 동기화는 하지 않는다.
+[공급 계약(변경 중)](https://github.com/soma-376/docs/blob/ee37f887dbbe2a2ffd9ab06fd184ab9976d65f64/contracts/generated-values-sync.md)과
+[수동 배포 런북](docs/runbooks/dev-eks-manual-deployment.md#2-2-1-generated-values의-private-사본-동기화)을 따른다.
+사본은 `dev/infra-commit.txt`의 infra revision과 함께 사용한다. 사본 게시를 Argo CD 연결·배포 완료로 해석하지 않는다.
+
 **이 장은 1장 이하의 규칙을 대체하지 않는다.** 코드를 만지기 전에 3장(불변 규칙)과 5장(남은 작업)을 읽는 것은 그대로다.
 
 **ADR 우선 원칙은 이 레포의 기존 규칙과 같다** — 1장의 "코드와 ADR이 어긋나면 ADR이 기준이다"가
