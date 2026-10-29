@@ -20,16 +20,16 @@ const weighted = (edge: any) => [{ Type: 'forward', ForwardConfig: { TargetGroup
 ] } }];
 
 /** ADR-0049: listener 연결 준비 → 실제 healthy → 별도 공개 전환 → 별도 HTTP 종료 순서다. */
-describe('Strimzi main Gateway health check 준비', () => {
-  const prepared = buildDevApp(context);
+describe('Strimzi main Gateway 준비와 공개 전환', () => {
+  const prepared = buildDevApp({ ...context, devEksOtlpTarget: 'ingest' });
   const preparedEdge = asJson(prepared.edge);
   const gateway = buildDevApp({ ...context, devEksOtlpTarget: 'gateway' });
   const gatewayEdge = asJson(gateway.edge);
 
-  test('main/Strimzi/retain·ALB ingest·JWT 발급·dual을 유지한다', () => {
+  test('main/Strimzi/retain·ALB Gateway·JWT 발급·dual을 유지한다', () => {
     expect(profile.context).toMatchObject({
       devEksArchivePrefix: 'eks', devKafkaProvider: 'strimzi',
-      devMskRetirementStage: 'retain', devEksOtlpTarget: 'ingest',
+      devMskRetirementStage: 'retain', devEksOtlpTarget: 'gateway',
     });
     const runtime = load(readFileSync(profile.runtimeValuesPath, 'utf8')) as any;
     expect(runtime.ingestMode).toBe('dual');
@@ -38,7 +38,7 @@ describe('Strimzi main Gateway health check 준비', () => {
 
   test('준비는 HTTPS OTLP Actions만 ingest100/Gateway0으로 바꾸고 전체 나머지 Edge와 output을 보존한다', () => {
     // Edge는 MSK 리소스를 소유하지 않는다. 같은 입력의 MSK Edge가 준비 전 단일 ingest 형태다.
-    const before = asJson(buildDevApp({ ...context, devKafkaProvider: 'msk' }).edge);
+    const before = asJson(buildDevApp({ ...context, devKafkaProvider: 'msk', devEksOtlpTarget: 'ingest' }).edge);
     expect(rule(before).Actions).toEqual(single(before, 'ingest'));
     expect(rule(preparedEdge).Actions).toEqual(weighted(preparedEdge));
     expect(preparedEdge.Outputs.ValidationOtlpTarget).toEqual({ Value: 'ingest' });

@@ -16,7 +16,7 @@
     "devAllowedCidr": "0.0.0.0/0",
     "devHttpRedirectEnabled": true,
     "devEksArchivePrefix": "eks",
-    "devEksOtlpTarget": "ingest",
+    "devEksOtlpTarget": "gateway",
     "devKafkaProvider": "strimzi",
     "devMskRetirementStage": "retain"
   }
