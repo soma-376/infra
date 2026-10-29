@@ -51,3 +51,15 @@ Accepted — 사용자 요청에 따른 IaC 구현. 수신 기반 배포 후 dev
 
 - dev OTLP 및 OS 수집 연결, prod 사설 네트워크 연결, 앱 대시보드는 별도 단계로 검증한다.
 - 배포 후 실제 보존량·재부팅·볼륨 재연결·접근 차단을 검증한다.
+
+
+## 2026-10-30 dev 호스트 수집기 자동 설치 보완
+
+수동 설치 파일만으로는 머지 후 dev OS 계측이 시작되지 않는 누락을 보완한다.
+기존 EC2와 Terraform으로 교체된 EC2에 같은 SSM Association을 적용한다.
+user data를 변경하거나 EC2 교체를 유발하지 않으며 대상은 dev application의 인스턴스 ID 하나다.
+설치 코드는 dev state의 전용 SSM 문서로 관리하고 Association이 명시적 문서 버전을 참조한다.
+bootstrap에는 dev 역할의 해당 문서/Association 관리 권한만 추가한다. 임의 Run Command 실행 권한과 prod 권한은 추가하지 않는다.
+SG 이후 설치, Docker 기동 대기, IMDSv2 인스턴스 라벨, 설치 실패 전파와 900초 성공 대기를 적용한다.
+주기적 재설치는 하지 않으며 재부팅은 Docker 정책으로 복구한다. 비활성화 시 컨테이너 자동 제거는 하지 않는다.
+설치 성공과 Grafana 데이터 수신은 별도로 검증한다. 실제 apply는 관리자 bootstrap 이후 리뷰·머지된 dev CI에서 수행한다.

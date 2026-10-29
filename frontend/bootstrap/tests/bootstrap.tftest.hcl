@@ -139,3 +139,15 @@ run "dashboard_deploy_boundary" {
     error_message = "대시보드 payload를 shell 문자열로 보간하지 않아야 합니다."
   }
 }
+
+run "host_agent_dev_only_permissions" {
+  command = plan
+  assert {
+    condition     = toset(keys(aws_iam_role_policy.host_agent_read)) == toset(["dev-plan", "dev-apply"]) && aws_iam_role_policy_attachment.host_agent_write.role == aws_iam_role.terraform["dev-apply"].name
+    error_message = "호스트 수집기 권한은 dev 역할로 한정해야 합니다."
+  }
+  assert {
+    condition     = !strcontains(aws_iam_policy.host_agent_write.policy, "SendCommand") && !strcontains(aws_iam_policy.host_agent_write.policy, "AWS-RunShellScript") && jsondecode(aws_iam_policy.host_agent_write.policy).Statement[0].Resource == "arn:aws:ssm:ap-northeast-2:111111111111:document/soma-376-frontend-dev-host-agent"
+    error_message = "호스트 설치 문서만 관리하며 임의 Run Command를 허용하지 않습니다."
+  }
+}
