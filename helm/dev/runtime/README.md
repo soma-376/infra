@@ -80,7 +80,7 @@ Fluent Bit의 Loki 병행 출력은 정적 values 다음에 `fluent-bit-loki-val
 사본만 보관한다. 입력·생성기·chart·배포 절차의 원본은 infra에 있으며, 변경은 원본 수정 → 재생성 →
 검증 → 단방향 복사로 반영한다. 사본 직접 편집이나 infra로의 역방향 동기화는 하지 않는다.
 
-[공급 계약(변경 중)](https://github.com/soma-376/docs/blob/ee37f887dbbe2a2ffd9ab06fd184ab9976d65f64/contracts/generated-values-sync.md)이
+[공급 계약(변경 중)](https://github.com/soma-376/docs/blob/399b652ee28d9541e428fee3a74fb59d0505c44f/contracts/generated-values-sync.md)이
 허용 파일과 소유권을 정하고, [EKS 런북의 동기화 절차](../../../docs/runbooks/dev-eks-manual-deployment.md#2-2-1-generated-values의-private-사본-동기화)가
 실행 방법을 제공한다. 한 번 생성한 YAML 12개를 `dev/generated/`에, 대응하는 infra 전체 commit SHA를
 `dev/infra-commit.txt`에 함께 저장한다. `$RUN_DIR` 전체, Secret 원문, kubeconfig, AWS 조회 원본과
