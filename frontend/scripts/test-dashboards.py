@@ -5,11 +5,13 @@ import copy
 import gzip
 import importlib.util
 import io
+import http.client
+import urllib.error
 import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 spec = importlib.util.spec_from_file_location('release', Path(__file__).with_name('dashboard-release.py'))
 release = importlib.util.module_from_spec(spec)
@@ -30,6 +32,26 @@ class ReleaseTests(unittest.TestCase):
                 release.validate(invalid)
         with self.assertRaises(ValueError):
             release.decode(base64.b64encode(gzip.compress(b'x' * (1024 * 1024 + 1))).decode())
+
+    def test_restart_connection_errors_are_retried(self):
+        check = Mock(side_effect=[ConnectionResetError(104, 'reset'),
+            http.client.RemoteDisconnected('closed'),
+            urllib.error.HTTPError('http://localhost', 503, 'starting', {}, None), None])
+        with patch.object(release.time, 'sleep'):
+            release.wait_for_grafana(check)
+        self.assertEqual(check.call_count, 4)
+
+    def test_auth_failure_is_not_retried(self):
+        check = Mock(side_effect=urllib.error.HTTPError('http://localhost', 401, 'unauthorized', {}, None))
+        with self.assertRaises(urllib.error.HTTPError):
+            release.wait_for_grafana(check)
+        self.assertEqual(check.call_count, 1)
+
+    def test_startup_wait_is_bounded(self):
+        check = Mock(side_effect=ConnectionResetError())
+        with patch.object(release.time, 'monotonic', side_effect=[0, 0, 121]), patch.object(release.time, 'sleep'):
+            with self.assertRaisesRegex(RuntimeError, '시간 초과'):
+                release.wait_for_grafana(check)
 
     def simulate(self, fail=False, migrate=True):
         with tempfile.TemporaryDirectory() as temp:
