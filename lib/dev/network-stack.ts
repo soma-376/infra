@@ -183,6 +183,9 @@ export class DevNetworkStack extends Stack {
       // node SG는 Kafka 프로세스뿐 아니라 DNS·운영 agent 통신도 포함한다. Pod 경계는 NetworkPolicy로 제한한다.
       kafkaNodes.addIngressRule(kafkaNodes, Port.allTraffic(), 'Same Kafka node pool communication');
       for (const port of [9091, 9093]) kafkaNodes.addIngressRule(apps, Port.tcp(port), 'Kafka clients and Strimzi operators');
+      // Operator는 controller quorum과 KafkaAgent 복구 상태를 확인한 뒤 순차 재시작한다. (ADR-0049)
+      kafkaNodes.addIngressRule(apps, Port.tcp(9090), 'Strimzi controller quorum from EKS applications');
+      kafkaNodes.addIngressRule(apps, Port.tcp(8443), 'Strimzi KafkaAgent from EKS applications');
       for (const port of [9404, 10250, 2020, 9100]) kafkaNodes.addIngressRule(obs, Port.tcp(port), 'Kafka and node metrics from observability');
       for (const port of [8080, 8081]) apps.addIngressRule(obs, Port.tcp(port), 'Strimzi operator metrics from observability');
       apps.addIngressRule(kafkaNodes, Port.udp(53), 'Cluster DNS from Kafka nodes');
