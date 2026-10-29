@@ -292,6 +292,7 @@ describe('배포 output→values 변환', () => {
     const temp = mkdtempSync(join(tmpdir(), 'msk-profile-')); temps.push(temp);
     const profile = JSON.parse(readFileSync(join(root, 'config/dev/deployment.json'), 'utf8'));
     profile.context.devKafkaProvider = 'msk';
+    profile.context.devMskRetirementStage = 'retain';
     const file = join(temp, 'deployment.json');
     writeFileSync(file, JSON.stringify(profile));
     const runtime = readFileSync(join(root, 'config/dev/runtime.yaml'), 'utf8');

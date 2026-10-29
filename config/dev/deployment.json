@@ -18,6 +18,6 @@
     "devEksArchivePrefix": "eks",
     "devEksOtlpTarget": "gateway",
     "devKafkaProvider": "strimzi",
-    "devMskRetirementStage": "retain"
+    "devMskRetirementStage": "network-removed"
   }
 }

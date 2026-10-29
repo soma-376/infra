@@ -30,16 +30,17 @@ BFF 단일 프로세스에 맞춰 서비스 desired=1/min=0/max=100이다. 앱 �
 [허브 Kafka 계약](https://github.com/soma-376/docs/blob/main/contracts/telemetry-kafka.md)을 따른다.
 Strimzi 1.3.0/Kafka 4.2.2는 ClickHouse와 같은 AZ의 전용 ARM64 노드 3대에서 실행한다.
 Kafka 인증서에 한해 Strimzi 소유 Kubernetes Secret을 읽기 전용 mount한다. 기존 AWS Secret의 CSI 원칙은 유지한다.
-현재 추적 MSK 제거 단계는 `retain`이며 실제 전환·30분 안정화·MSK 제거 완료를 뜻하지 않는다.
-현재 main Kafka 전용 profile은 `archivePrefix=eks`·ALB Gateway·ingest kafka·retain을 유지한다. 공개 ALB의
+최종 추적 MSK 제거 단계는 `network-removed`다. 이 profile은 두 수동 삭제·MSK/ENI 부재·수집 보존을 실제로
+확인한 뒤에만 머지·사용하며, 파일의 단계 값만으로 실제 제거 완료를 판정하지 않는다.
+main Kafka 전용 profile은 `archivePrefix=eks`·ALB Gateway·ingest kafka를 유지한다. 공개 ALB의
 main ACK/consume/commit·S3/ClickHouse 성공을 확인한 뒤 적용한다. HTTP 복구는 현재 main 입력으로 만든 dual
 수신기/TGB의 직접 서비스·NodePort·Ready·등록을 먼저 확인하고 ALB ingest 연결 뒤 실제 healthy를 확인한다.
-코드의 profile은 실제 배포·검증 완료 증거가 아니다. `strimzi/eks/retain` 조합에만 ingest의
-S3 PutObject를 `eks/*`와 `eks_validation/*`에 허용해 CDK 선행 적용 중 기존 HTTP 쓰기를 보존한다.
-`cluster-removed`부터 validation 권한을 회수하며 기존 validation writer가 없어야 한다.
+코드의 profile은 실제 배포·검증 완료 증거가 아니다. 병렬 준비의 `strimzi/eks/retain` 조합만 ingest의
+S3 PutObject를 `eks/*`와 `eks_validation/*`에 허용한다. `cluster-removed`부터 validation 권한을 회수하며
+최종 단계는 main `eks/*`와 TLS 조건만 남긴다. 회수 전에 validation writer가 없어야 한다.
 ingest와 offset-admin의 Kafka Group Read는 commit/reset을 함께 허용한다. 별도 Secret·수동 Job은 운영 절차 분리다.
-`devMskRetirementStage`의 `cluster-removed`는 EKS 단독 배포, `network-removed`는 MSK ENI 해제 확인 뒤 Network 단독 배포다.
-삭제에 최초 전체 스택 배포를 사용하지 않는다. main dual/TGB를 먼저 복원하는 HTTP 복구 절차를 유지한다.
+최초 철거는 고정 private profile의 `cluster-removed`로 EKS 단독 배포, MSK ENI 해제 확인 뒤 `network-removed`로 Network 단독 배포다.
+추적 profile 갱신은 두 단계가 끝난 실제 baseline과 정합을 맞추는 후속 작업이며 최초 삭제에 쓰지 않는다. main dual/TGB를 먼저 복원하는 HTTP 복구 절차를 유지한다.
 
 ## PROJ-259 dev CloudFormation CI/CD
 
