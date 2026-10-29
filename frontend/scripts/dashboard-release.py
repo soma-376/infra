@@ -4,6 +4,7 @@ import base64
 import fcntl
 import gzip
 import io
+import http.client
 import json
 import os
 from pathlib import Path
@@ -53,6 +54,22 @@ def decode(payload):
     return validate(json.loads(raw))
 
 
+def wait_for_grafana(check, timeout=120):
+    """재시작 중의 연결 종료/초기화 응답만 재시도한다. 인증 오류는 즉시 실패한다."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            check()
+            return
+        except urllib.error.HTTPError as error:
+            if error.code not in (502, 503, 504):
+                raise
+        except (urllib.error.URLError, ConnectionError, TimeoutError, http.client.HTTPException):
+            pass
+        time.sleep(2)
+    raise RuntimeError('Grafana 기동 시간 초과')
+
+
 def deploy(bundle):
     root = Path('/opt/pulsemetry-observability')
     data = Path('/srv/pulsemetry-observability')
@@ -96,13 +113,7 @@ def deploy(bundle):
 
     def recreate():
         subprocess.run(['docker', 'compose', 'up', '-d', '--no-deps', '--force-recreate', 'grafana'], cwd=root, check=True)
-        for _ in range(60):
-            try:
-                api('/api/org')
-                return
-            except (urllib.error.URLError, TimeoutError):
-                time.sleep(2)
-        raise RuntimeError('Grafana 기동 시간 초과')
+        wait_for_grafana(lambda: api('/api/org'))
 
     try:
         for name, dashboard in bundle.items():
