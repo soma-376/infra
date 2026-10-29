@@ -151,14 +151,19 @@ resource "aws_ecs_task_definition" "frontend" {
     memory             = 1024
     portMappings       = [{ containerPort = 3000, hostPort = 3000, protocol = "tcp" }]
     stopTimeout        = 30
-    environment = [
+    environment = concat([
       { name = "NODE_ENV", value = "production" },
       { name = "PORT", value = "3000" },
       { name = "HOSTNAME", value = "0.0.0.0" },
       { name = "BFF_ORIGIN", value = "https://${var.runtime.domain_name}" },
       { name = "ENROLLMENT_API_URL", value = var.runtime.enrollment_api_url },
       { name = "DASHBOARD_API_URL", value = var.runtime.dashboard_api_url }
-    ]
+      ], var.telemetry == null ? [] : [
+      { name = "OTEL_SDK_DISABLED", value = "false" },
+      { name = "OTEL_DEPLOYMENT_ENVIRONMENT", value = var.environment },
+      { name = "OTEL_SERVICE_NAME", value = "pulsemetry-frontend" },
+      { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = var.telemetry.endpoint }
+    ])
     secrets = [{ name = "BFF_SESSION_KEYS", valueFrom = data.aws_secretsmanager_secret.bff.arn }]
     logConfiguration = {
       logDriver = "awslogs"

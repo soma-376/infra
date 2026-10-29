@@ -169,3 +169,32 @@ run "automatic_image_delivery" {
     error_message = "이미지 pull 실패를 캐시 이미지로 숨기면 안 됩니다."
   }
 }
+
+run "dev_telemetry_environment" {
+  command = plan
+  variables { telemetry = { endpoint = "http://10.2.0.142:4318" } }
+  assert {
+    condition = alltrue([for name, value in {
+      OTEL_SDK_DISABLED           = "false"
+      OTEL_DEPLOYMENT_ENVIRONMENT = "dev"
+      OTEL_SERVICE_NAME           = "pulsemetry-frontend"
+      OTEL_EXPORTER_OTLP_ENDPOINT = "http://10.2.0.142:4318"
+    } : contains(jsondecode(aws_ecs_task_definition.frontend.container_definitions)[0].environment, { name = name, value = value })])
+    error_message = "dev 태스크에는 SDK 활성화와 정확한 환경·서비스·OTLP 주소가 전달되어야 합니다."
+  }
+}
+run "telemetry_disabled_by_default" {
+  command = plan
+  assert {
+    condition     = alltrue([for item in jsondecode(aws_ecs_task_definition.frontend.container_definitions)[0].environment : !startswith(item.name, "OTEL_")])
+    error_message = "명시적으로 활성화하지 않은 환경의 기존 OTel 설정을 변경하지 않습니다."
+  }
+}
+run "reject_prod_dev_telemetry" {
+  command = plan
+  variables {
+    environment = "prod"
+    telemetry   = { endpoint = "http://10.2.0.142:4318" }
+  }
+  expect_failures = [var.telemetry]
+}

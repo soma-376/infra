@@ -20,6 +20,7 @@ module "application" {
   public_subnet_ids  = values(module.network.public_subnet_ids)
   private_subnet_ids = values(module.network.private_subnet_ids)
   runtime            = var.runtime
+  telemetry          = var.frontend_telemetry_enabled ? { endpoint = module.observability[0].otlp_endpoint } : null
   depends_on         = [module.network]
 }
 output "application" { value = try(module.application[0], null) }

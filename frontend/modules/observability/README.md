@@ -16,7 +16,7 @@
    Environment의 승인/정책을 거쳐 dev 환경 전체의 최종 plan/apply를 수행한다.
    `observability.auto.tfvars.json`이 모듈을 활성화한다. `main`의 prod 환경에는 이 모듈이 없다.
 3. bootstrap이 준비되지 않았다면 instance profile data 조회에서 계획이 실패한다. **머지만 하면 무조건 생성되는 것은 아니다.**
-4. Terraform은 EC2·EBS 연결까지 관리한다. 첫 부팅의 cloud-init이 Docker·Compose와 설정을 설치하고
+4. Terraform은 EC2·EBS 연결까지 관리한다. 첫 부팅의 cloud-init이 Docker·Compose와 초기 설정을 설치하고
    systemd 서비스를 시작한다. Terraform apply 성공만으로 cloud-init/컨테이너 정상 실행을 보장하지 않는다.
    아래 운영 검증을 별도로 수행한다.
 
@@ -51,8 +51,8 @@ VPC peering·NAT·ALB·공개 도메인·인증서를 추가하지 않는다. pr
 | init-data | 첫 시작 시 데이터 디렉터리 UID 10001 소유권 설정 후 종료 | 일회성 |
 
 이미지는 digest로 고정한다. Compose v2.39.4 ARM64 바이너리는 고정 SHA-256으로 검증한다.
-Docker 패키지는 AL2023 패키지 저장소를 사용한다. 설정과 대시보드는 압축 user data로 공급한다.
-`files/hosts.json`은 **EC2 OS** 대시보드이며 Node RSS/힙 지표와 다르다. 앱용 대시보드는 후속 단계다.
+Docker 패키지는 AL2023 패키지 저장소를 사용한다. 초기 스택 설정은 압축 user data로 공급한다. 대시보드 JSON은 별도 SSM 배포로 공급한다.
+대시보드 원본·최초 전환 절차는 [독립 배포 안내](../../observability/dashboards/README.md)를 따른다.
 로컬의 Mimir나 기존 백엔드 EKS에는 접근하지 않는다.
 
 ## 영속성·복구
@@ -62,7 +62,7 @@ Docker 패키지는 AL2023 패키지 저장소를 사용한다. 설정과 대시
 - EBS volume ID로 NVMe 장치를 선택한다. 파일시스템이 없는 빈 디스크만 XFS로 초기화하고,
   알 수 없는 기존 파일시스템은 실패 처리한다. 강제 포맷은 하지 않는다.
 - Docker와 스택 systemd 서비스 모두 데이터 mount 이후에만 시작한다. 루트 디스크에 데이터를 잘못 쓰지 않는다.
-- 설정 또는 AMI 변경은 EC2 교체다. 기존 인스턴스를 중지한 뒤 EBS를 detach하고 새 EC2에 연결한다.
+- user data는 최초 부팅 전용이며 기존 EC2에서 변경을 무시한다. 초기 설정 수정은 별도 업데이트/교체 계획이 필요하다. AMI 변경이나 명시적 교체 시 기존 인스턴스를 중지한 뒤 EBS를 detach하고 새 EC2에 연결한다.
   한 개 EC2라 이 동안 관측 중단이 있다. 강제 detach는 하지 않는다.
 - 최초 비밀번호는 `openssl rand`로 생성해 UID 10001/0400으로 보관한다. Git·Terraform state·user data에 값이 없다.
   Grafana UI에서 비밀번호를 변경하면 초기 파일의 비밀번호는 더 이상 로그인 값이 아니다.

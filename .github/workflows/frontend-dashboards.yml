@@ -1,0 +1,59 @@
+name: Frontend Dashboards
+on:
+  pull_request:
+    paths:
+      - 'frontend/observability/dashboards/**'
+      - 'frontend/scripts/*dashboards*.py'
+      - 'frontend/scripts/dashboard-release.py'
+      - '.github/workflows/frontend-dashboards.yml'
+  push:
+    branches: [develop]
+    paths:
+      - 'frontend/observability/dashboards/**'
+      - 'frontend/scripts/*dashboards*.py'
+      - 'frontend/scripts/dashboard-release.py'
+      - '.github/workflows/frontend-dashboards.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+# Terraform dev apply와 동일 그룹으로 직렬화한다. 실행 순서는 보장하지 않으므로
+# 신규 EC2 최초 생성 후에는 수동 재실행한다. 정상 JSON 변경에는 Terraform apply가 없다.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('frontend-dashboards-pr-{0}', github.event.pull_request.number) || 'frontend-apply-develop' }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: python3 frontend/scripts/deploy-dashboards.py
+      - run: python3 frontend/scripts/test-dashboards.py
+  deploy:
+    needs: validate
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: frontend-dashboards
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: 배포 설정과 최신 develop 확인
+        env:
+          ROLE_ARN: ${{ vars.DASHBOARD_DEPLOY_ROLE_ARN }}
+          ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+        run: |
+          test -n "$ROLE_ARN"
+          test -n "$ACCOUNT_ID"
+          test "$(git ls-remote origin refs/heads/develop | cut -f1)" = "$GITHUB_SHA"
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c
+        with:
+          role-to-assume: ${{ vars.DASHBOARD_DEPLOY_ROLE_ARN }}
+          aws-region: ap-northeast-2
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+      - run: python3 frontend/scripts/deploy-dashboards.py --deploy

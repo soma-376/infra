@@ -41,3 +41,13 @@ variable "runtime" {
     error_message = "개발 환경에는 서울 리전 ECS optimized AL2023 ARM64 AMI ID를 고정하세요."
   }
 }
+
+variable "telemetry" {
+  description = "null이면 기존 환경 변수를 유지한다. dev 사설 관측 endpoint만 허용한다."
+  type        = object({ endpoint = string })
+  default     = null
+  validation {
+    condition     = var.telemetry == null ? true : (var.environment == "dev" && can(regex("^http://10\\.2\\.[0-9]+\\.[0-9]+:4318$", var.telemetry.endpoint)))
+    error_message = "관측 연결은 dev VPC의 사설 OTLP HTTP 4318 endpoint만 허용합니다."
+  }
+}

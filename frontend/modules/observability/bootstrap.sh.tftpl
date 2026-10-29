@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 # 비밀 값은 출력하지 않는다. cloud-init 실패 시 스택도 실행하지 않는다.
-dnf install -y docker openssl xfsprogs util-linux
+dnf install -y docker openssl xfsprogs util-linux python3
 systemctl enable --now docker
 install -d -m 0755 /usr/local/lib/docker/cli-plugins /opt/pulsemetry-observability
 curl --fail --location --retry 5 https://github.com/docker/compose/releases/download/v2.39.4/docker-compose-linux-aarch64 -o /usr/local/lib/docker/cli-plugins/docker-compose
@@ -33,7 +33,7 @@ if ! grep -q "UUID=$uuid " /etc/fstab; then
 fi
 mount /srv/pulsemetry-observability
 mountpoint -q /srv/pulsemetry-observability
-install -d /srv/pulsemetry-observability/{alloy,alloy-host,prometheus,loki,tempo,grafana,secrets}
+install -d /srv/pulsemetry-observability/{alloy,alloy-host,prometheus,loki,tempo,grafana,secrets,dashboards}
 password=/srv/pulsemetry-observability/secrets/grafana-admin-password
 if ! test -s "$password"; then
   umask 077
