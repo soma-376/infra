@@ -163,7 +163,7 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 
 생성된 dev values는 비공개 `soma-376/infra-generated-values`의 `dev/generated/`에 동기화 사본만 둔다.
 입력·생성기·chart·배포는 infra가 소유하며 사본 직접 편집·역방향 동기화는 하지 않는다.
-[공급 계약(변경 중)](https://github.com/soma-376/docs/blob/ee37f887dbbe2a2ffd9ab06fd184ab9976d65f64/contracts/generated-values-sync.md)과
+[공급 계약(변경 중)](https://github.com/soma-376/docs/blob/399b652ee28d9541e428fee3a74fb59d0505c44f/contracts/generated-values-sync.md)과
 [수동 배포 런북](docs/runbooks/dev-eks-manual-deployment.md#2-2-1-generated-values의-private-사본-동기화)을 따른다.
 사본은 `dev/infra-commit.txt`의 infra revision과 함께 사용한다. 사본 게시를 Argo CD 연결·배포 완료로 해석하지 않는다.
 

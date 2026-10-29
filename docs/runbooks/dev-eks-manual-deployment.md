@@ -256,7 +256,7 @@ SSM Agent 기동, public IPv4·Internet Gateway 경로, 443 아웃바운드를 �
 
 ### 2-2-1. generated values의 private 사본 동기화
 
-[공급 계약(변경 중)](https://github.com/soma-376/docs/blob/ee37f887dbbe2a2ffd9ab06fd184ab9976d65f64/contracts/generated-values-sync.md)에 따라
+[공급 계약(변경 중)](https://github.com/soma-376/docs/blob/399b652ee28d9541e428fee3a74fb59d0505c44f/contracts/generated-values-sync.md)에 따라
 [infra-generated-values](https://github.com/soma-376/infra-generated-values)의 `dev/generated/`에는 생성된
 values 사본만 둔다. 입력·생성기·chart·배포는 infra가 소유한다. 값을 바꾸려면 infra 원본을 수정하고
 같은 입력 묶음으로 재생성한다. 사본 직접 편집·역방향 동기화는 하지 않는다.
@@ -347,7 +347,7 @@ git -C "$VALUES_REPO" diff --cached --stat
 운영자는 private checkout의 staged diff에서 YAML 12개와 `dev/infra-commit.txt` 이외의 변경이 없고
 Secret 원문이 없는지 검토한다. AWS 조회 JSON·kubeconfig·로그·이미지 조회 산출물·검증 증거는 private 레포에도
 올리지 않는다. `git add .`나 `$RUN_DIR` 전체 복사는 사용하지 않는다. 검토된 전체 묶음은 해당 운영 티켓의
-커밋 한 개로 게시한다. private 레포의 기본 브랜치는 `develop`이며 commit·push는 운영자가 명시적으로 수행한다.
+커밋 한 개로 게시한다. private 레포의 기본 브랜치는 `main`이며 commit·push는 운영자가 명시적으로 수행한다.
 실제 values 최초 게시와 Argo CD 인증·연결·Application·자동 sync 설정은 이 문서 변경의 완료 범위가 아니다.
 
 ### 2-2-2. private 사본을 기존 수동 배포에 사용
