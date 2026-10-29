@@ -72,6 +72,22 @@ suite('Strimzi 고정 버전·CRD·노드·권한 계약', () => {
     expect(pool.spec.limits.cpu).toBe('8');
     expect(pool.spec.template.spec.requirements).toEqual(expect.arrayContaining([{ key: 'node.kubernetes.io/instance-type', operator: 'In', values: ['m7g.large'] }, { key: 'karpenter.sh/capacity-type', operator: 'In', values: ['on-demand'] }]));
     expect(docs.find((x: any) => x.kind === 'StorageClass' && x.metadata.name === 'pulsemetry-kafka-gp3')).toMatchObject({ provisioner: 'ebs.csi.eks.amazonaws.com', parameters: { encrypted: 'true', type: 'gp3' }, reclaimPolicy: 'Retain', volumeBindingMode: 'WaitForFirstConsumer', allowVolumeExpansion: true });
+    // 전용 풀을 추가해도 노드 로그·지표 수집기가 taint 때문에 빠지지 않아야 한다.
+    const collectors = {
+      'fluent-bit': load(readFileSync(join(root, 'helm/dev/runtime/fluent-bit-values.yaml'), 'utf8')),
+      'node-exporter': load(readFileSync(join(root, 'helm/observability/pulsemetry-observability/values.yaml'), 'utf8'))['monitoring']['prometheus-node-exporter'],
+    };
+    for (const [name, collector] of Object.entries(collectors)) {
+      expect(collector.nodeSelector).toEqual({ 'kubernetes.io/os': 'linux', 'kubernetes.io/arch': 'arm64' });
+      for (const nodePool of docs.filter((doc: any) => doc.kind === 'NodePool')) {
+        for (const taint of nodePool.spec.template.spec.taints ?? []) {
+          const tolerated = collector.tolerations.some((t: any) =>
+            (!t.effect || t.effect === taint.effect) &&
+            (t.operator === 'Exists' ? !t.key || t.key === taint.key : t.key === taint.key && t.value === taint.value));
+          expect({ collector: name, nodePool: nodePool.metadata.name, tolerated }).toEqual({ collector: name, nodePool: nodePool.metadata.name, tolerated: true });
+        }
+      }
+    }
   });
   (process.env.KUBECONFORM_BIN ? test : test.skip)('공식 1.3.0 CRD schema로 Kafka·NodePool·Topic·User를 검증한다', () => {
     const extracted = spawnSync('tar', ['-xzf', join(root, vendor), '-C', temp], { encoding: 'utf8' });
