@@ -69,19 +69,20 @@ function stage(prefix: string) {
 }
 
 function strimziOutputs(result: any = outputs()) {
+  const currentStage = stage(result.DevEksStack.ArchivePrefix);
   for (const key of Object.keys(result.DevEksStack)) if (key.startsWith('Msk')) delete result.DevEksStack[key];
   Object.assign(result.DevEksStack, {
-    KafkaProvider: 'strimzi', KafkaStage: 'validation',
-    KafkaTopicName: 'pulsemetry-dev-telemetry-ingress-validation', KafkaConsumerGroupName: 'pulsemetry-dev-telemetry-ingest-validation',
+    KafkaProvider: 'strimzi', KafkaStage: currentStage,
+    KafkaTopicName: `pulsemetry-dev-telemetry-ingress-${currentStage}`, KafkaConsumerGroupName: `pulsemetry-dev-telemetry-ingest-${currentStage}`,
     EksKafkaNodeSecurityGroupId: 'sg-0123456789abcdef3', EksKafkaAvailabilityZone: 'ap-northeast-2a',
   });
   return result;
 }
-const strimziMetadata = () => ({ items: ['soma-376-dev-telemetry-cluster-ca-cert', ...['gateway', 'ingest', 'topic-admin', 'offset-admin'].map(role => `pulsemetry-${role}-validation`)].map((name, i) => ({ metadata: { name, namespace: 'pulsemetry-dev', uid: `fixture-${i}`, resourceVersion: '123' } })) });
+const strimziMetadata = (currentStage = 'validation') => ({ items: ['soma-376-dev-telemetry-cluster-ca-cert', ...['gateway', 'ingest', 'topic-admin', 'offset-admin'].map(role => `pulsemetry-${role}-${currentStage}`)].map((name, i) => ({ metadata: { name, namespace: 'pulsemetry-dev', uid: `fixture-${i}`, resourceVersion: '123' } })) });
 
 const oidcArn = (key: string) => secret(`soma-376/dev/oidc/clients/${key}`);
-function oidcOutputs() {
-  const source = outputs();
+function oidcOutputs(prefix = 'eks_validation') {
+  const source = outputs(prefix);
   return { ...source, DevDataStack: { ...source.DevDataStack, OidcClientSecretArns: JSON.stringify(Object.fromEntries(
     ['cognito-a', 'cognito-b', 'unused'].map(key => [key, oidcArn(key)]),
   )) } };
@@ -163,11 +164,11 @@ describe('배포 output→values 변환', () => {
   });
 
   test('공식 배포 프로필은 다른 cwd에서도 상대 runtime을 읽고 현행 키·issuer·TLS·tracing을 보존한다', () => {
-    const source = strimziOutputs(oidcOutputs());
+    const source = strimziOutputs(oidcOutputs('eks'));
     source.DevEdgeStack.ValidationPublicBaseUrl = 'https://api-dev.pulsemetry.co.kr';
     const runtime = load(readFileSync(join(root, 'config/dev/runtime.yaml'), 'utf8'));
     const output = run(source, undefined, undefined, undefined, {
-      profile: join(root, 'config/dev/deployment.json'), omitRuntime: true, cwd: tmpdir(), strimziSecrets: JSON.stringify(strimziMetadata()),
+      profile: join(root, 'config/dev/deployment.json'), omitRuntime: true, cwd: tmpdir(), strimziSecrets: JSON.stringify(strimziMetadata('main')),
     });
     expect({ status: output.result.status, stderr: output.result.stderr }).toEqual({ status: 0, stderr: '' });
     const enrollment = output.read('enrollment-api.yaml');
@@ -196,22 +197,25 @@ describe('배포 output→values 변환', () => {
     expect(dashboard.env.PULSEMETRY_DASHBOARD_RDS_SOURCE_URL).toBe('jdbc:postgresql://database.example.test:5432/controlplane');
     expect(dashboard.env.PULSEMETRY_DASHBOARD_RDS_CACHE_URL).toBe('jdbc:postgresql://database.example.test:5432/controlplane');
     expect(ingest.ingestMode).toBe(runtime.ingestMode);
+    expect(ingest.kafka.topic).toBe('pulsemetry-dev-telemetry-ingress-main');
+    expect(gateway.kafka.topic).toBe('pulsemetry-dev-telemetry-ingress-main');
+    expect(ingest.kafka.consumerGroup).toBe('pulsemetry-dev-telemetry-ingest-main');
     for (const app of [ingest, gateway]) {
       expect(app.tracing.enabled).toBe(runtime.platformTracing.enabled);
       expect(app.tracing.sampleProbability).toBe(String(runtime.platformTracing.sampleProbability));
     }
     // 같은 완전한 runtime을 명시한 기존 CLI와 출력 전체가 같아야 한다.
-    const explicit = run(source, undefined, undefined, dump(runtime), { strimziSecrets: JSON.stringify(strimziMetadata()) });
+    const explicit = run(source, undefined, undefined, dump(runtime), { strimziSecrets: JSON.stringify(strimziMetadata('main')) });
     expect(explicit.result.status).toBe(0);
     for (const file of readdirSync(output.dir)) expect(output.read(file)).toEqual(explicit.read(file));
   });
 
   test('프로필과 도메인이 일치하는 명시적 runtime 입력을 우선한다', () => {
-    const source = strimziOutputs(oidcOutputs());
+    const source = strimziOutputs(oidcOutputs('eks'));
     source.DevEdgeStack.ValidationPublicBaseUrl = 'https://api-dev.pulsemetry.co.kr';
     const runtime = load(readFileSync(join(root, 'config/dev/runtime.yaml'), 'utf8'));
     runtime.userAuth.audience = 'explicit-runtime-audience';
-    const output = run(source, undefined, undefined, dump(runtime), { profile: join(root, 'config/dev/deployment.json'), strimziSecrets: JSON.stringify(strimziMetadata()) });
+    const output = run(source, undefined, undefined, dump(runtime), { profile: join(root, 'config/dev/deployment.json'), strimziSecrets: JSON.stringify(strimziMetadata('main')) });
     expect({ status: output.result.status, stderr: output.result.stderr }).toEqual({ status: 0, stderr: '' });
     expect(output.read('enrollment-api.yaml').userAuth.audience).toBe('explicit-runtime-audience');
   });
@@ -260,7 +264,7 @@ describe('배포 output→values 변환', () => {
     const file = join(temp, 'deployment.json');
     writeFileSync(file, JSON.stringify(profile));
     const runtime = readFileSync(join(root, 'config/dev/runtime.yaml'), 'utf8');
-    const source = oidcOutputs(); source.DevEdgeStack.ValidationPublicBaseUrl = profile.publicBaseUrl;
+    const source = oidcOutputs('eks'); source.DevEdgeStack.ValidationPublicBaseUrl = profile.publicBaseUrl;
     const accepted = run(source, undefined, undefined, runtime, { profile: file });
     expect({ status: accepted.result.status, stderr: accepted.result.stderr }).toEqual({ status: 0, stderr: '' });
     const rejected = run(strimziOutputs(source), undefined, undefined, runtime, { profile: file, strimziSecrets: JSON.stringify(strimziMetadata()) });
@@ -271,6 +275,21 @@ describe('배포 output→values 변환', () => {
     expect(prepare.status).not.toBe(0);
     expect(prepare.stderr).toContain('devKafkaProvider와 KafkaProvider');
     expect(existsSync(join(temp, 'prepare'))).toBe(false);
+  });
+
+  test('main 프로필은 이전 validation output을 앱·Kafka 준비 경로 모두에서 거부한다', () => {
+    const source = strimziOutputs(oidcOutputs());
+    source.DevEdgeStack.ValidationPublicBaseUrl = 'https://api-dev.pulsemetry.co.kr';
+    const profile = join(root, 'config/dev/deployment.json');
+    const out = run(source, undefined, undefined, undefined, { profile, omitRuntime: true, strimziSecrets: JSON.stringify(strimziMetadata()) });
+    expect(out.result.status).not.toBe(0);
+    expect(out.result.stderr).toContain('devEksArchivePrefix와 ArchivePrefix');
+    expect(existsSync(out.dir)).toBe(false);
+    const target = join(out.temp, 'prepare-main');
+    const prepare = spawnSync(process.execPath, [join(root, 'scripts/eks-values.mjs'), '--outputs', join(out.temp, 'outputs.json'), '--output-dir', target, '--prepare-kafka', 'true', '--deployment-profile', profile], { cwd: root, encoding: 'utf8' });
+    expect(prepare.status).not.toBe(0);
+    expect(prepare.stderr).toContain('devEksArchivePrefix와 ArchivePrefix');
+    expect(existsSync(target)).toBe(false);
   });
 
   test.each([

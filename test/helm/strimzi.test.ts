@@ -52,7 +52,7 @@ suite('Strimzi 고정 버전·CRD·노드·권한 계약', () => {
         gateway: { topic: ['Describe', 'Write'], cluster: ['IdempotentWrite'] },
         ingest: { topic: ['Describe', 'Read'], group: ['Describe', 'Read'] },
         'topic-admin': { topic: ['Describe', 'DescribeConfigs'] },
-        'offset-admin': { topic: ['Describe', 'Read'], group: ['Describe', 'Read', 'Alter'] },
+        'offset-admin': { topic: ['Describe', 'Read'], group: ['Describe', 'Read'] },
       };
       expect(operations[role]).toBeDefined();
       expect(user.spec.authorization.acls.map((acl: any) => acl.resource.type)).toEqual(Object.keys(operations[role]));

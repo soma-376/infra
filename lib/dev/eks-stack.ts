@@ -128,6 +128,10 @@ export class DevEksStack extends Stack {
       userJwtPublicKeysSecret: props.userJwtPublicKeysSecret,
       oidcClientSecrets: props.oidcClientSecrets,
       rawSignalBucket: props.rawSignalBucket, archivePrefix: props.config.archivePrefix,
+      // CDK가 먼저 main으로 바뀌어도 아직 validation인 HTTP ingest의 쓰기는 유지한다.
+      // cluster-removed부터 이 권한을 회수한다. 임의 prefix나 별도 사용자 입력은 받지 않는다.
+      retainValidationArchiveWrite: props.config.kafkaProvider === 'strimzi'
+        && props.config.archivePrefix === 'eks' && props.config.mskRetirementStage === 'retain',
       telemetryJwtPrivateKeySecret: props.telemetryJwtPrivateKeySecret,
       telemetryJwtPublicKeysSecret: props.telemetryJwtPublicKeysSecret,
       msk: this.msk ? { clusterArn: this.msk.cluster.attrArn, topicArn: this.msk.topicArn, consumerGroupArn: this.msk.consumerGroupArn } : undefined,

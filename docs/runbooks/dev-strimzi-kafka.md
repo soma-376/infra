@@ -33,8 +33,10 @@ CRD `kafkas.kafka.strimzi.io`가 이미 있으면 운영자 중복 설치 대신
 
 ## 2. 병렬 준비: 기존 MSK retain
 
-추적 profile은 `devKafkaProvider=strimzi`, `devMskRetirementStage=retain`, `devEksOtlpTarget=ingest`,
+병렬 준비 profile은 `devKafkaProvider=strimzi`, `devMskRetirementStage=retain`, `devEksOtlpTarget=ingest`,
 `devEksArchivePrefix=eks_validation`으로 시작한다. diff에서 새 Kafka SG만 추가되고 기존 MSK·PVC·Data 리소스는 삭제/교체되지 않는지 확인한다.
+현재 추적 profile은 §4의 main 준비 단계(`eks`, `retain`, ALB ingest)다. validation 준비를 재현할 때는
+그 단계의 profile과 일치하는 output·metadata를 사용하며 main profile에 validation output을 섞지 않는다.
 기존 절차로 CDK를 적용해 output을 모은 후:
 
 ```bash
@@ -76,6 +78,8 @@ node scripts/eks-values.mjs --deployment-profile config/dev/deployment.json \
 ```
 
 Strimzi 모드는 MSK ARN/bootstrap/list-nodes 입력이 필요 없다. MSK 조회 옵션을 함께 주면 거부한다.
+profile의 공급자 또는 archive prefix가 배포 output과 다르면 일반 생성과 `--prepare-kafka` 모두 실패한다.
+main profile에는 CDK main 배포 이후 다시 수집한 output을 사용한다.
 `config/dev/runtime.yaml`의 기존 JWT·OIDC·DB TLS·tracing 값을 보존하고 검증 시 `ingestMode=dual`을 사용한다.
 생성기 실행 전에 이 모드를 배포 원본에 반영한다. validation prefix와 main prefix는 CDK output·앱 topic/group·S3가 일치해야 한다.
 
@@ -117,10 +121,22 @@ broker 로그가 `/eks/dev/application` 및 사용 중인 Loki에 도착해야 �
 - Prometheus에서 broker/exporter/operator targets가 UP이며 ISR<2·under-replicated·offline partition·lag·Pod/PVC·CA 만료 경보가 평가되는지 확인한다.
   인증서 갱신 검증은 다음 절을 따른다.
 
-validation E2E와 validation backlog drain을 확인한 뒤 기존 HTTP ALB 경로를 유지한 채 main으로 전환한다.
-`devEksArchivePrefix=eks`·`KafkaStage=main` output과 main Secret metadata로 앱 값을 재생성하고
-ingest를 main `dual`로 재배포한다. HTTP 수집을 계속하며 Gateway main을 내부 검증한 다음
-`devEksOtlpTarget=gateway` ALB 전환을 적용하고 ingest를 `kafka`로 바꾼다. 전체 입력 중지를 요구하지 않는다.
+validation E2E를 확인한 뒤 기존 HTTP ALB 경로를 유지한 채 아래 순서로 main으로 전환한다.
+
+1. 추적 profile을 `strimzi`, `devEksArchivePrefix=eks`, `retain`, `devEksOtlpTarget=ingest`로 변경한다.
+   `runtime.yaml`의 `ingestMode=dual`·telemetry JWT 발급 활성화·기존 키 버전·이미지 digest는 유지한다.
+   CDK diff에서 ingest S3 정책만 정확한 `eks/*` + `eks_validation/*` PutObject/TLS 조건으로 확장되는지 확인하고
+   이를 먼저 배포한다. 아직 실행 중인 validation HTTP ingest는 `eks_validation/*`에 계속 쓸 수 있어야 한다.
+2. validation Gateway의 합성 입력을 중지하고 validation backlog가 모두 처리·commit됐는지 확인한다.
+   외부 HTTP 수집은 계속 유지한다. Kafka 데이터나 offset을 main으로 복사하지 않는다.
+3. 새 `KafkaStage=main` output과 main Secret metadata로 앱 값을 다시 만들고 main `dual` ingest와 Gateway를 배포한다.
+   실제 Pod의 prefix·topic·group·인증서와 HTTP 및 내부 main ACK/consume/commit/S3/ClickHouse를 확인한다.
+4. 내부 main 검증 뒤 `devEksOtlpTarget=gateway` ALB 전환을 적용하고 ingest를 `kafka`로 바꾼다.
+
+두 prefix 권한은 세 조건이 모두 일치할 때만 존재한다. `cluster-removed` 배포에서 validation 권한을 회수하며
+`network-removed`도 main 권한만 유지한다. MSK 공급자·validation prefix·prod에는 추가 경로를 주지 않는다.
+validation writer가 남아 있으면 제거 단계로 진행하지 않는다. 복구에 validation prefix가 필요하면 권한을 먼저 복구한다.
+전체 입력 중지를 요구하지 않는다.
 다만 replica1/Recreate 앱을 교체하는 동안 짧은 중단은 발생할 수 있으므로 client retry를 확인한다.
 변경은 추적 profile/runtime에 남긴다. main 전환 뒤 30분 동안 오류·lag·ISR·ClickHouse 저장을 확인한 후에만 MSK를 제거한다.
 
@@ -162,6 +178,10 @@ PKCS12에는 인증서 chain도 포함되므로 여러 fingerprint가 출력될 
 오래된 인증서를 되돌리는 대신 유효한 Secret과 새 앱으로 재배포하며 복구 중에는 HTTP 경로를 사용한다.
 
 offset 변경은 Strimzi `KafkaTopic`과 별개인 수동 Job이다. 모든 consumer를 먼저 중지하고 group이 Empty/Dead인지 확인한다.
+ingest·offset-admin 모두 지정 topic과 group의 `Read, Describe`만 갖는다. Kafka의 offset 변경 API도 정상 commit과
+같은 Group Read + Topic Read를 요구하므로 별도 사용자만 reset할 수 있다는 ACL 보장은 없다.
+Group `Alter`는 지원 권한이 아니며 `AlterConfigs`는 group 설정 변경 권한으로 대체해서도 안 된다.
+수동 Job의 별도 Secret·활성 group 거부·계획 검토로 운영 절차를 분리한다([공식 ACL 표](https://kafka.apache.org/42/security/authorization-and-acls/)).
 다음은 partition0 offset100의 **계획만** 생성한다. 실행은 결과 CSV 확인 후 `offsets.mode=execute`로 별도 Job을 만든다.
 
 ```bash
@@ -188,7 +208,9 @@ MSK cluster/configuration·전용 SG/subnet 제거가 모두 끝났을 때만 �
 각 단계는 추적 profile을 수정하고 동일 profile로 synth/diff한다. profile과 상충하는 CLI context는 거부된다.
 
 1. `devMskRetirementStage=cluster-removed`: `DevEksStack`만 diff/deploy `--exclusively`한다.
-   MSK cluster/configuration/log·IAM·PodIdentity 제거만 확인하고 Kafka/EKS/기존 Data 변경은 없어야 한다.
+   MSK cluster/configuration/log·전용 IAM·PodIdentity 제거와 ingest의 임시 `eks_validation/*` PutObject 회수만 확인한다.
+   기존 앱 Pod Identity·Secret 권한·`eks/*` PutObject/TLS 조건 및 Kafka/EKS/기존 Data는 보존한다.
+   이 전에 모든 ingest가 main prefix를 쓰며 validation writer·backlog가 없는지 확인한다.
    ```bash
    npx cdk diff DevEksStack --exclusively -c env=dev -c devDeploymentProfile=config/dev/deployment.json
    npx cdk deploy DevEksStack --exclusively -c env=dev -c devDeploymentProfile=config/dev/deployment.json

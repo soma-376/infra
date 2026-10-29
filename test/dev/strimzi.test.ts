@@ -90,6 +90,48 @@ describe('dev Strimzi 병렬 설치와 MSK 단계별 제거', () => {
   });
 
   test.each([
+    ['strimzi', 'eks_validation', 'retain', ['eks_validation/*']],
+    ['strimzi', 'eks', 'retain', ['eks/*', 'eks_validation/*']],
+    ['strimzi', 'eks', 'cluster-removed', ['eks/*']],
+    ['strimzi', 'eks', 'network-removed', ['eks/*']],
+    ['msk', 'eks', 'retain', ['eks/*']],
+  ] as const)('%s/%s/%s의 archive 권한과 기존 앱 자격을 보존한다', (provider, prefix, retirement, suffixes) => {
+    const current = buildDevApp({ devKafkaProvider: provider, devEksArchivePrefix: prefix, devMskRetirementStage: retirement });
+    const before = asJson(baseline.eks), after = asJson(current.eks);
+    const policies = Object.entries<any>(after.Resources)
+      .filter(([id, resource]) => id.startsWith('Runtime') && resource.Type === 'AWS::IAM::Policy');
+    const s3Statements = policies.flatMap(([id, resource]) => resource.Properties.PolicyDocument.Statement
+      .filter((statement: any) => JSON.stringify(statement.Action).includes('s3:'))
+      .map((statement: any) => ({ id, statement })));
+    expect(s3Statements).toHaveLength(1);
+    expect(s3Statements[0].id).toContain('RuntimeTelemetryIngest');
+    const statement = s3Statements[0].statement;
+    const original = Object.values<any>(before.Resources)
+      .filter(resource => resource.Type === 'AWS::IAM::Policy')
+      .flatMap(resource => resource.Properties.PolicyDocument.Statement)
+      .find((entry: any) => entry.Action === 's3:PutObject');
+    const expectedResources = suffixes.map(suffix => JSON.parse(JSON.stringify(original.Resource).replace('eks_validation/*', suffix)));
+    expect(statement).toEqual({
+      Effect: 'Allow', Action: 's3:PutObject',
+      Resource: expectedResources.length === 1 ? expectedResources[0] : expectedResources,
+      Condition: { Bool: { 'aws:SecureTransport': 'true' } },
+    });
+    for (const [id, resource] of Object.entries<any>(before.Resources)) {
+      if ((resource.Type === 'AWS::IAM::Role' || resource.Type === 'AWS::EKS::PodIdentityAssociation')
+        && /^Runtime(Enrollment|TelemetryIngest|TelemetryGateway|Dashboard)/.test(id)) {
+        expect(after.Resources[id]).toEqual(resource);
+      }
+      if (resource.Type === 'AWS::IAM::Policy') {
+        const secretStatements = resource.Properties.PolicyDocument.Statement
+          .filter((entry: any) => JSON.stringify(entry.Action).includes('secretsmanager:'));
+        if (secretStatements.length) expect(after.Resources[id].Properties.PolicyDocument.Statement).toEqual(expect.arrayContaining(secretStatements));
+      }
+    }
+    expect(asJson(current.data)).toEqual(asJson(baseline.data));
+    expect(asJson(current.edge)).toEqual(asJson(baseline.edge));
+  });
+
+  test.each([
     { devKafkaProvider: 'other' },
     { devKafkaProvider: 'strimzi', devMskRetirementStage: 'delete-all' },
     { devMskRetirementStage: 'cluster-removed' },
