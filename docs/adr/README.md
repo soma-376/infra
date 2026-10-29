@@ -60,7 +60,7 @@
 | 0046 | [dev SES 수신 identity 권한은 승인 태그와 고정 발신 주소로 제한한다](0046-dev-ses-tagged-recipient-authorization.md) | Superseded by [ADR 0047](0047-dev-ses-fixed-sender-identity-authorization.md) |
 | 0047 | [dev SES identity 권한은 실행 계정·리전과 고정 발신 주소로 제한한다](0047-dev-ses-fixed-sender-identity-authorization.md) | Accepted (ADR 0046 대체; 실제 정상 초대 수신·설치 검증 별도) |
 | 0048 | [dev CloudFormation은 고정한 합성 결과를 승인한 뒤 GitHub Actions로 배포한다](0048-dev-cloudformation-cicd.md) | Accepted (PROJ-259·270·271·272; develop 수동 재계획 포함; 로컬 구현·검증, 관리자 설정·실제 배포 별도) |
-| 0049 | [dev Kafka는 Strimzi로 관리하고 MSK는 검증 후 단계적으로 제거한다](0049-dev-strimzi-kafka-and-staged-msk-retirement.md) | Accepted (Operator controller·KafkaAgent 통신 포함; 배포 검증 별도) |
+| 0049 | [dev Kafka는 Strimzi로 관리하고 MSK는 검증 후 단계적으로 제거한다](0049-dev-strimzi-kafka-and-staged-msk-retirement.md) | Accepted (Operator 통신·main 전환 S3 임시 중첩·Group ACL 의미 포함; 배포 검증 별도) |
 
 병행 작업에서 사용한 `0035`·`0036`은 각각 파일명·제목·링크를 보존한다. 번호만으로 대상을 식별하지 않는다.
 

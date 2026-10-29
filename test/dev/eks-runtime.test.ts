@@ -14,7 +14,7 @@ const MSK = {
   consumerGroupArn: `${MSK_PREFIX}:group/runtime-msk/uuid-1/pulsemetry-dev-telemetry-ingest-validation`,
 };
 
-function synth(prefix: 'eks_validation' | 'eks' = 'eks_validation') {
+function synth(prefix: 'eks_validation' | 'eks' = 'eks_validation', retainValidationArchiveWrite?: boolean) {
   const context = JSON.parse(readFileSync(join(__dirname, '../../cdk.json'), 'utf8')).context;
   const stack = new Stack(new App({ context }), 'RuntimeTest', { env: TEST_ENV });
   const secret = (name: string) => Secret.fromSecretCompleteArn(stack, name, stack.formatArn({
@@ -34,6 +34,7 @@ function synth(prefix: 'eks_validation' | 'eks' = 'eks_validation') {
     userJwtPublicKeysSecret: secret('userJwtPublicKeysSecret'),
     rawSignalBucket: Bucket.fromBucketName(stack, 'RawBucket', 'runtime-test-raw'),
     archivePrefix: prefix,
+    retainValidationArchiveWrite,
     telemetryJwtPrivateKeySecret: secret('telemetryJwtPrivateKeySecret'),
     telemetryJwtPublicKeysSecret: secret('telemetryJwtPublicKeysSecret'),
     msk: MSK,
@@ -136,6 +137,11 @@ describe('EKS runtime 소비자 경계', () => {
   test('다른 prefix는 조립 시 거절한다', () => {
     expect(() => synth('' as 'eks')).toThrow('archivePrefix');
     expect(() => synth('../' as 'eks')).toThrow('archivePrefix');
+  });
+
+  test('임시 validation 권한 입력은 main의 boolean만 허용한다', () => {
+    expect(() => synth('eks_validation', true)).toThrow('main archivePrefix');
+    expect(() => synth('eks', 'true' as any)).toThrow('boolean');
   });
 
   test('Fluent Bit은 CDK 로그 그룹에만 전달하며 그룹 생성 권한이 없다', () => {
