@@ -31,7 +31,8 @@ BFF 단일 프로세스에 맞춰 서비스 desired=1/min=0/max=100이다. 앱 �
 Strimzi 1.3.0/Kafka 4.2.2는 ClickHouse와 같은 AZ의 전용 ARM64 노드 3대에서 실행한다.
 Kafka 인증서에 한해 Strimzi 소유 Kubernetes Secret을 읽기 전용 mount한다. 기존 AWS Secret의 CSI 원칙은 유지한다.
 현재 추적 profile은 Strimzi 병렬 준비(`retain`)이며 실제 전환·30분 안정화·MSK 제거 완료를 뜻하지 않는다.
-main 준비 profile은 `archivePrefix=eks`·ALB ingest·dual을 유지한다. `strimzi/eks/retain` 조합에만 ingest의
+main ALB 전환 profile은 `archivePrefix=eks`·ALB gateway·dual을 유지한다. 공개 경로 성공 뒤 별도 runtime 변경으로
+ingest를 kafka로 바꾼다. 코드의 전환 profile은 실제 배포·검증 완료 증거가 아니다. `strimzi/eks/retain` 조합에만 ingest의
 S3 PutObject를 `eks/*`와 `eks_validation/*`에 허용해 CDK 선행 적용 중 기존 HTTP 쓰기를 보존한다.
 `cluster-removed`부터 validation 권한을 회수하며 기존 validation writer가 없어야 한다.
 ingest와 offset-admin의 Kafka Group Read는 commit/reset을 함께 허용한다. 별도 Secret·수동 Job은 운영 절차 분리다.

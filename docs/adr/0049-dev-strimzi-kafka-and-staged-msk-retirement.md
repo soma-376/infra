@@ -53,6 +53,10 @@ ADR-0037의 MSK 관측 부분을 대체한다. 기존 HTTP 복구·JWT·Data·pr
   두 경로 허용을 먼저 배포·확인한 뒤 validation 입력 중지 및 backlog drain, main dual ingest/Gateway 배포,
   내부 main 검증, ALB 전환을 순서대로 수행한다. `cluster-removed`부터 임시 validation 권한을 회수하며
   `network-removed`에서도 `eks/*`만 남긴다. 제거 전 validation writer가 없는지 확인한다.
+- 내부 main E2E가 끝나면 별도 profile 변경으로 `devEksOtlpTarget=ingest`를 `gateway`로 전환한다.
+  이 배포는 기존 OTLP priority 1 규칙의 forward 대상과 `ValidationOtlpTarget` output만 바꾸며,
+  main prefix·Strimzi·retain·JWT 발급·`ingestMode=dual`을 유지한다. 공개 ALB의 실제 Kafka ACK/consume/commit·
+  S3/ClickHouse 검증 후 별도 runtime 변경으로만 ingest를 `kafka`로 바꾼다. 그 전에는 ingest TG와 HTTP 복구 경로를 유지한다.
 
 ## Alternatives Considered
 
