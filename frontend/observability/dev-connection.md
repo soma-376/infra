@@ -9,7 +9,8 @@ infra가 태스크 환경 변수와 네트워크를 소유하며 브라우저 �
 2. 인프라 적용 전에 프론트 dev Environment의 `ECS_DEPLOY_ENABLED`를 잠시 false로 변경하고 진행 중 앱 CD가 없는지 확인한다. 두 레포의 배포가 겹치면 안 된다(허브 ADR 0022).
 3. 인프라 PR plan을 검토한다. SG 규칙 2개 생성, ECS 태스크 정의 revision 교체 및 서비스 갱신만 예상한다. `skip_destroy=true`이므로 이전 task definition은 등록 해제하지 않는다. 단일 태스크 교체 중 짧은 중단이 발생할 수 있다.
 4. 리뷰·머지 후 dev 자동 apply와 ECS steady state를 확인하고, 이전과 동일한 앱 digest인지 대조한다. 프론트 CD 설정을 원래 값으로 복원한다.
-5. `https://dev.pulsemetry.co.kr/login` 요청을 생성하고 관측 EC2에서 아래 조회로 실제 수집을 검증한다.
+5. dev EC2에 `host-agent/config.alloy`와 `host-agent/install-dev.sh`를 배치하고 실제 관측 사설 endpoint·dev instance ID로 설치한다. OS 수집기는 동일한 4318 규칙을 사용하므로 9090 포트는 열지 않는다. Docker restart 정책은 재부팅을 처리하지만 EC2 교체 후 재설치는 별도로 필요하다.
+6. `https://dev.pulsemetry.co.kr/login` 요청을 생성하고 관측 EC2에서 아래 조회로 실제 수집을 검증한다.
 
 ## 설정과 경계
 
@@ -21,6 +22,8 @@ infra가 태스크 환경 변수와 네트워크를 소유하며 브라우저 �
 - EC2의 volume_tags 갱신은 무시한다. 별도 EBS 리소스가 데이터 볼륨 태그를 관리하며 EC2 refresh가 합쳐 반환한 Name을 제거하지 않는다. 신규 볼륨 생성 시 태그는 계속 부여한다.
 
 ## 수신 검증
+
+OS는 `up{job="frontend-host",host_role="frontend-dev",environment="dev"}`와 `node_memory_MemTotal_bytes`를 확인하고 EC2 instance 라벨 및 전체 RAM을 실제 호스트와 대조한다.
 
 Prometheus에서 `frontend_node_memory_bytes{deployment_environment_name="dev",service_name="pulsemetry-frontend"}`와 요청 메트릭을 확인한다. 실제 저장된 metric 이름은 API로 조회한다.
 Tempo에서 `{ resource.service.name = "pulsemetry-frontend" && resource.deployment.environment.name = "dev" }`를 검색한다.

@@ -68,6 +68,12 @@ with tempfile.TemporaryDirectory(prefix='proj260-observability-') as directory:
                     data['volumes'][suffix] = {}
         for port in service.get('ports', []):
             port['published'] = str(grafana_port if name == 'grafana' else otlp_port)
+    # dev 호스트는 Prometheus 직접 접근 없이 앱과 같은 OTLP 경로를 사용한다.
+    host = json.loads(run('docker', 'compose', '-f', str(ROOT / 'observability/host-agent/compose.yaml'),
+                         'config', '--format', 'json', env=dict(env, HOST_INSTANCE_ID='validation-dev',
+                         HOST_ENVIRONMENT='dev', HOST_ROLE='frontend-dev',
+                         OTEL_EXPORTER_OTLP_ENDPOINT='http://alloy:4318'), capture_output=True).stdout)
+    data['services']['dev-host'] = host['services']['alloy-host']
     config = temp / 'compose.json'
     config.write_text(json.dumps(data))
     compose = ['docker', 'compose', '-f', str(config)]
@@ -112,6 +118,8 @@ with tempfile.TemporaryDirectory(prefix='proj260-observability-') as directory:
         post('traces', {'resourceSpans': [{'resource': {'attributes': attrs}, 'scopeSpans': [{'spans': [{'traceId': '12345678901234567890123456789012', 'spanId': '1234567890123456', 'name': 'proj260-stack-validation', 'kind': 2, 'startTimeUnixNano': str(now - 1000000), 'endTimeUnixNano': str(now), 'status': {'code': 1}}]}]}]})
         eventually(lambda: metric('proj260_validation{deployment_environment_name="dev"}'))
         eventually(lambda: metric('up{job="frontend-host",host_role="observability"}')[0]['value'][1] == '1')
+        eventually(lambda: metric('up{job="frontend-host",host_role="frontend-dev",environment="dev",instance="validation-dev"}')[0]['value'][1] == '1')
+        eventually(lambda: metric('node_memory_MemTotal_bytes{job="frontend-host",host_role="frontend-dev",environment="dev",instance="validation-dev"}'))
         eventually(logs)
         eventually(trace)
         print('PASS: 인증, 데이터 소스, OS 대시보드, metrics/logs/traces와 dev 라벨', flush=True)
