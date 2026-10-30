@@ -13,7 +13,7 @@
 
 `frontend/`는 기존 CDK와 독립된 프론트엔드 인프라다. 부트스트랩·개발/운영 네트워크와 ALB·기존 ACM 인증서 연결,
 개발 EC2(ECS bridge)·운영 Fargate를 구현한다. runtime 입력이 없으면 네트워크만 생성한다. [운영 안내](frontend/README.md)와 [ADR 0030](docs/adr/0030-isolate-frontend-terraform-network.md), [ADR 0028](docs/adr/0028-frontend-alb-and-container-runtime.md), [ADR 0029](docs/adr/0029-use-external-dns-and-existing-frontend-certificate.md)을 따른다. DNS와 인증서 발급은 외부에서 관리한다.
-BFF 단일 프로세스에 맞춰 서비스 desired=1/min=0/max=100이다. 앱 이미지 게시·자동 배포는 [허브 ADR 0022](https://github.com/soma-376/docs/blob/main/adr/0022-frontend-ecs-image-delivery.md)를 따른다. 자동 배포 활성 환경은 deploy 태그를 사용하며 task definition은 계속 Terraform이 소유한다.
+prod는 BFF 단일 프로세스 desired=1/min=0/max=100을 유지한다. dev는 ADR-0053에 따라 인증 동시성 검증 전 선행 배치로 desired=2/min=50/max=100, distinctInstance/AZ spread를 사용한다. 앱 이미지 게시·자동 배포는 [허브 ADR 0022](https://github.com/soma-376/docs/blob/main/adr/0022-frontend-ecs-image-delivery.md)를 따른다. 자동 배포 활성 환경은 deploy 태그를 사용하며 task definition은 계속 Terraform이 소유한다.
 기존 CDK 전용 테스트 규칙은 그대로 유지하고, 새 Terraform은 fmt·validate·mock test로 검증한다.
 기존 CDK 리소스를 Terraform에 import하거나 같은 리소스를 두 도구가 수정하지 않는다.
 실제 apply는 리뷰·머지 후 보호된 CI에서 수행한다. 최초 bootstrap CI 역할 준비는 관리자 작업이다. 이후 bootstrap 변경은 ADR-0050에 따라 develop에서 전용 plan/apply 역할과 Environment 승인을 거친다.

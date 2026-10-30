@@ -259,8 +259,8 @@ resource "aws_ecs_service" "frontend" {
   task_definition                    = aws_ecs_task_definition.frontend.arn
   launch_type                        = local.is_dev ? "EC2" : "FARGATE"
   platform_version                   = local.is_dev ? null : "1.4.0"
-  desired_count                      = 1
-  deployment_minimum_healthy_percent = 0
+  desired_count                      = local.is_dev ? 2 : 1
+  deployment_minimum_healthy_percent = local.is_dev ? 50 : 0
   deployment_maximum_percent         = 100
   health_check_grace_period_seconds  = 120
   wait_for_steady_state              = true
@@ -268,12 +268,18 @@ resource "aws_ecs_service" "frontend" {
     enable   = true
     rollback = true
   }
-  # 다중 BFF의 인증 안전성 검증 전에는 앱을 2a 한 개로 유지한다.
+  # dev 선행 검증: 두 EC2에 한 개씩 배치한다. 인증 동시성은 후속 검증 대상이다.
   dynamic "placement_constraints" {
     for_each = local.is_dev ? [true] : []
     content {
-      type       = "memberOf"
-      expression = "attribute:ecs.availability-zone == ap-northeast-2a"
+      type = "distinctInstance"
+    }
+  }
+  dynamic "ordered_placement_strategy" {
+    for_each = local.is_dev ? [true] : []
+    content {
+      type  = "spread"
+      field = "attribute:ecs.availability-zone"
     }
   }
   dynamic "network_configuration" {
