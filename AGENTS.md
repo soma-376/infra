@@ -97,31 +97,43 @@ TGB를 Helm에서 먼저 제거하고 삭제/finalizer 완료 후 Edge TG를 제
 ## PROJ-256 Loki·Tempo·플랫폼 trace (Proposed)
 
 [ADR-0039](docs/adr/0039-dev-loki-tempo-and-platform-trace-collector.md)는 관측 namespace에 `loki`·`tempo`·`otel-platform`
-독립 release를 더하고 Fluent Bit이 CloudWatch와 Loki에 함께 보내는 구성을 제안한다. 채택 전까지 ADR-0037이 기준이다.
+독립 release와 Fluent Bit의 CloudWatch·Loki 병행 배송을 기술한다. ADR의 `Proposed` 상태는 유지하며,
+실제 dev 적용·검증 기록과 ADR 채택 여부를 구분한다.
 세 chart는 `helm/observability/{loki,tempo,otel-platform}` wrapper가 upstream chart를 감싸고, chart checksum·이미지 digest를 lock에 고정한다.
 apps·ClickHouse SG → 관측 SG 3100, apps SG → 관측 SG 4318 두 규칙만 더한다. Gateway·ingest의 trace 설정은 backend ADR 0069 계약을 생성기가 공급한다.
 SG는 노드 단위라 세 release가 수신 NetworkPolicy를 두고, platform chart가 `kube-system/amazon-vpc-cni` ConfigMap으로 controller를 켠다. NodeClass는 바꾸지 않는다(노드 교체).
-AWS 배포·실제 로그/trace 수집은 아직 수행하지 않았다.
+2026-10-26의 HTTP trace·로그 왕복과 장애 격리 검증은 [PROJ-256](https://team376.atlassian.net/browse/PROJ-256)에,
+2026-10-29의 Strimzi main Gateway→Kafka→ingest→ClickHouse trace·로그 연결은
+[PROJ-285](https://team376.atlassian.net/browse/PROJ-285)에 기록됐다. 이 증거만으로 Loki 72h·Tempo 48h 보존 만료 삭제,
+최신 N5와 Grafana UI 왕복까지 모두 완료됐다고 판정하지 않는다. 남은 수락 항목은 [관측 런북](docs/runbooks/dev-observability.md)에서 추적한다.
 
-## PROJ-191 관측 로컬 구현 보충
+## PROJ-191 관측 현행과 완료 검증
 
 [ADR-0037](docs/adr/0037-dev-observability-and-system-diagnostics.md)은 전용 관측 NodePool·SG,
-Prometheus/Grafana, MSK Open Monitoring, 내부 9404·9363 metrics, CloudWatch 시스템 로그를 정의한다.
-`scripts/eks-values.mjs`는 기존 입력에 전체 `list-nodes` JSON인 `--msk-nodes`를 추가로 필수로 받는다.
-bootstrap 목록으로 전체 broker를 추정하지 않는다. EKS 하위 Grafana Secret은 서버 측 생성·Retain이며
+Prometheus/Grafana, 내부 9404·9363 metrics, CloudWatch 시스템 로그를 정의한다. dev Kafka 관측은
+[ADR-0049](docs/adr/0049-dev-strimzi-kafka-and-staged-msk-retirement.md)에 따라 Strimzi JMX·Kafka exporter·Operator·Pod/PVC로 전환했다.
+`scripts/eks-values.mjs`는 배포 profile/output의 `kafkaProvider=strimzi`와 Secret metadata 입력으로 values를 생성한다.
+MSK ARN/bootstrap/`--msk-nodes`는 현행 dev 입력이 아니다. 전체 `list-nodes` 검증은 호환용 MSK 경로에만 남는다.
+EKS 하위 Grafana Secret은 서버 측 생성·Retain이며
 전용 Pod Identity·CSI 파일로 공급한다. 기존 데이터 Secret을 관측 스택에 공유하지 않는다.
 Fluent Bit은 Kubernetes metadata(label 포함, annotation 제외)·원문과 node-local DB/buffer를 보존한다. 실패 event
 metric filter는 실제 Fluent Bit envelope 샘플로 대조하며 배포 전 `observability-metric-filter-check.mjs --aws`가 관문이다.
-단일 Events collector는 PVC를, 노드 진단은 private S3의 NodeDiagnostic bundle을 사용한다. 계측은 요청 tracing을 추가하지 않는다(PROJ-256의 ADR-0039가 Proposed로 개정을 제안한다).
+단일 Events collector는 PVC를, 노드 진단은 private S3의 NodeDiagnostic bundle을 사용한다.
+업무 지표 계측과 PROJ-256의 플랫폼 tracing은 별도 설정이며, tracing의 ADR-0039 상태는 `Proposed`로 유지한다.
 생성기는 관측을 항상 켠다(opt-in 없음, 근거는 런북). runtime-values의 `jvmGcSafepointLog`만 Gateway·ingest의
 GC/safepoint stderr를 켠다. 관측 이미지 8개와 Fluent Bit DaemonSet은 검증한 multi-arch digest로 고정한다.
 [관측 런북](docs/runbooks/dev-observability.md)과 [차트 안내](helm/observability/README.md)를 따른다.
-AWS 배포·실제 로그 배송·MSK exporter·장애/부하 검증은 아직 수행하지 않았다.
+2026-10-29 [PROJ-285](https://team376.atlassian.net/browse/PROJ-285)는 Strimzi target 7개, main ACK→consume→commit→ClickHouse,
+sampled trace·로그, 30분 안정화와 TLS 실패 경보 발생·해제를 기록한다. MSK active scrape·전용 경보 제거와 최종 profile은
+[infra #85](https://github.com/soma-376/infra/pull/85)에 연결된다. 저부하·해당 시점의 증거를 최대 처리량이나
+PROJ-255·256 전체 완료로 확대하지 않는다. 현재 수집 상태와 미완료 항목을 재확인한 뒤 하위 티켓부터 완료한다.
 
 
 ---
 
-## PROJ-246 telemetry Gateway·MSK 로컬 구현 보충
+## PROJ-246 telemetry Gateway·MSK 로컬 구현 이력
+
+아래는 Strimzi 전환 전의 기록이다. 현재 dev Kafka 연결·관측·철거 상태는 위 PROJ-282·191 절과 ADR-0049를 따른다.
 
 [ADR-0035](docs/adr/0035-dev-msk-isolated-subnets-under-eks-stack.md)와 [ADR-0036](docs/adr/0036-dev-telemetry-gateway-workload-and-msk-iam.md)을 따른다.
 Network가 MSK 전용 isolated subnet 3개(`10.1.32~34.0/24`, 2a·2b·2c)와 `DevMskSg`를 만든다. VPC construct·`maxAzs: 2`·NAT 0은 그대로다.
@@ -633,7 +645,7 @@ AWS_REGION=ap-northeast-2 npm run synth:dev
 실제 신규 설치·후속 배포는 [EKS 런북](docs/runbooks/dev-eks-manual-deployment.md)을 따른다.
 이미 ECS가 존재하는 환경에서는 먼저 [수동 철거](docs/runbooks/dev-ecs-retirement.md)를 완료한다.
 Gateway를 포함한 네 앱 ARM64 이미지 공급·공유 DB/키 준비와 실제 기능 확인을 합성 성공으로 대신하지 않는다.
-EKS Helm 배포 순서는 기반 구성 → ClickHouse → enrollment → Gateway → ingest → dashboard → 관측이다. Gateway·MSK 전환은 [telemetry 런북](docs/runbooks/dev-telemetry-kafka.md), 관측은 [관측 런북](docs/runbooks/dev-observability.md)을 함께 따른다.
+EKS Helm 배포 순서는 기반 구성 → ClickHouse → enrollment → Gateway → ingest → dashboard → 관측이다. 현재 dev Gateway·Kafka 연결은 [Strimzi 런북](docs/runbooks/dev-strimzi-kafka.md), 관측은 [관측 런북](docs/runbooks/dev-observability.md)을 함께 따른다. 기존 MSK 전환 절차는 [telemetry 런북](docs/runbooks/dev-telemetry-kafka.md)의 역사적·호환 경로다.
 
 ### 운영자 접속 (ADR-0016)
 

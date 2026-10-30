@@ -460,8 +460,8 @@
     {
       "id": 6,
       "type": "timeseries",
-      "title": "Commit 기준 consumer lag",
-      "description": "commit 기준 record lag다. group 미생성·commit 전·scrape 실패는 빈 값이다. http 모드에서는 해당 없다.",
+      "title": "확인된 commit 기준 lag",
+      "description": "미커밋 partition을 제외한 commit 기준 offset lag(record 수)다. 옆 미커밋 수가 0이 아니면 전체 backlog를 뜻하지 않는다. 모두 미커밋·group 미생성·수집 실패는 빈 값이며 0으로 바꾸지 않는다. http 모드에서는 해당 없다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -469,12 +469,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by(consumergroup,topic)(kafka_consumergroup_lag{job=\"strimzi-exporter\",topic=\"$topic\",consumergroup=\"$consumer_group\",cluster=\"$cluster\",kafka_cluster=\"$kafka_cluster\"})",
+          "expr": "pulsemetry:kafka_committed_lag:sum{topic=\"$topic\",consumergroup=\"$consumer_group\",cluster=\"$cluster\",kafka_cluster=\"$kafka_cluster\"}",
           "datasource": {
             "type": "prometheus",
             "uid": "pulsemetry-prometheus"
           },
-          "legendFormat": "{{pod}} {{instance}} {{type}} {{consumergroup}}"
+          "legendFormat": "{{consumergroup}} {{topic}}"
         }
       ],
       "fieldConfig": {
@@ -499,7 +499,7 @@
       "gridPos": {
         "x": 12,
         "y": 16,
-        "w": 12,
+        "w": 8,
         "h": 8
       },
       "links": [
@@ -933,6 +933,58 @@
           "targetBlank": false
         }
       ]
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "미커밋 partition 수",
+      "description": "commit offset이 없는 partition 수다. 빈 partition도 포함하므로 backlog 건수가 아니다. 관측된 모든 partition이 커밋됐을 때만 0이며 group 미생성·수집 실패는 미수집이다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 16,
+        "w": 4,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "pulsemetry-prometheus"
+          },
+          "expr": "pulsemetry:kafka_uncommitted_partitions:count{topic=\"$topic\",consumergroup=\"$consumer_group\",cluster=\"$cluster\",kafka_cluster=\"$kafka_cluster\"}",
+          "instant": true,
+          "legendFormat": "uncommitted partitions"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "미수집",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
     }
   ]
 }
