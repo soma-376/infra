@@ -1,0 +1,9 @@
+{
+  "source": "EKS 1.36 API: CustomResourceDefinition/nodepools.karpenter.sh spec.versions[name=v1].schema.openAPIV3Schema",
+  "observed_at": "2026-10-30",
+  "original_schema_canonical_sha256": "1bbba247b6c969171a2d25912a7199a57f926e99bbb84ab760d80b4da8ca0197",
+  "file": "nodepool_karpenter.sh_v1.json",
+  "sha256": "6798919dbf8c8a8df35596490fe71dc95e0efe5d2de0f5911cca8e8740a0ef1a",
+  "transformation": "description 주석만 제거. validation/default/CEL extension은 보존. 클러스터·계정 metadata 제외.",
+  "scope": "구조 schema 회귀 검사. kubeconform은 x-kubernetes-validations CEL을 실행하지 않으므로 server dry-run이 별도 필요하다."
+}

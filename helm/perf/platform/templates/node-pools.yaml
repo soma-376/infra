@@ -69,6 +69,8 @@ spec:
   limits:
     nodes: {{ add $pool.nodes 1 }}
   disruption:
+    # replicas가 있으면 consolidation은 실행되지 않지만 API schema의 필수 필드는 명시한다.
+    consolidateAfter: Never
     budgets:
       - nodes: {{ $.Values.disruptionBudgetNodes | quote }}
 {{- end }}

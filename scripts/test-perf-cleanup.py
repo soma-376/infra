@@ -5,6 +5,7 @@ import json
 import io
 from pathlib import Path
 import unittest
+import urllib.parse
 from unittest.mock import MagicMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,6 +14,9 @@ driver = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(driver)
 ENV = 'perf-unit-cleanup'
 ACCOUNT = '111111111111'
+NODE_ROLE = 'PerfEksStack-NodeRoleB5643E21-unit'
+NODE_ROLE_OUTPUTS = [{'OutputKey': 'EksNodeRoleName', 'OutputValue': NODE_ROLE},
+                     {'OutputKey': 'EksNodeRoleArn', 'OutputValue': 'arn:aws:iam::' + ACCOUNT + ':role/' + NODE_ROLE}]
 BASE = dt.datetime(2026, 11, 1, tzinfo=dt.timezone.utc)
 CONFIG = {'environment_id': ENV, 'account': ACCOUNT, 'region': 'ap-northeast-2', 'state_parameter': '/soma-376/perf/' + ENV + '/cleanup-state', 'document_name': 'soma-376-perf-cleanup'}
 
@@ -34,7 +38,7 @@ class CleanupTests(unittest.TestCase):
         self.addCleanup(silent.stop)
 
     def setup_cleaner(self, hours=1, stacks=None, state=None):
-        clients = {name: MagicMock(name=name) for name in ['cloudformation', 'ssm', 'ecr', 'ec2', 'eks', 's3']}
+        clients = {name: MagicMock(name=name) for name in ['cloudformation', 'ssm', 'ecr', 'ec2', 'eks', 's3', 'iam']}
         existing = {'PerfGuardrailStack': stack('PerfGuardrailStack'), **(stacks or {})}
         def describe(StackName):
             if StackName not in existing:
@@ -47,7 +51,8 @@ class CleanupTests(unittest.TestCase):
         else:
             clients['ssm'].get_parameter.side_effect = AwsError('ParameterNotFound')
         clients['ecr'].describe_repositories.side_effect = AwsError('RepositoryNotFoundException')
-        clients['ec2'].get_paginator.return_value.paginate.return_value = [{'Reservations': [], 'Volumes': []}]
+        clients['ec2'].get_paginator.return_value.paginate.return_value = [{'Reservations': [], 'Volumes': [], 'LaunchTemplates': []}]
+        clients['iam'].get_paginator.return_value.paginate.return_value = [{'InstanceProfiles': []}]
         clients['s3'].get_bucket_tagging.return_value = {'TagSet': [{'Key': driver.OWNER, 'Value': ENV}]}
         clients['s3'].list_multipart_uploads.return_value = {}
         clients['s3'].list_object_versions.return_value = {}
@@ -120,12 +125,12 @@ class CleanupTests(unittest.TestCase):
         a['cloudformation'].delete_stack.assert_not_called()
 
     def test_ssm_retry_waits_for_success_and_complete_before_cfn(self):
-        eks = stack('PerfEksStack', Outputs=[{'OutputKey': 'EksRelayInstanceId', 'OutputValue': 'i-owned'}])
+        eks = stack('PerfEksStack', Outputs=NODE_ROLE_OUTPUTS + [{'OutputKey': 'EksRelayInstanceId', 'OutputValue': 'i-owned'}])
         state = {'version': 1, 'environment_id': ENV, 'command_id': 'old'}
         for status in ['InProgress', 'Success', 'Failed']:
             c, a = self.setup_cleaner(hours=22, stacks={'PerfEksStack': eks}, state=state)
             a['ec2'].describe_instances.return_value = {'Reservations': [{'Instances': [{'InstanceId': 'i-owned', 'State': {'Name': 'running'}, 'Tags': [{'Key': driver.OWNER, 'Value': ENV}]}]}]}
-            a['ssm'].get_command_invocation.return_value = {'Status': status, 'StandardOutputContent': json.dumps({'environment_id': ENV, 'complete': True})}
+            a['ssm'].get_command_invocation.return_value = {'Status': status, 'StandardOutputContent': json.dumps({'environment_id': ENV, 'complete': True, 'cleanup_contract': 2, 'node_role_name': NODE_ROLE})}
             result = c.tick()
             self.assertEqual(a['cloudformation'].delete_stack.called, status == 'Success')
             if status == 'Failed':
@@ -217,10 +222,162 @@ class CleanupTests(unittest.TestCase):
             return io.BytesIO(json.dumps(result).encode())
         responses = [{'cluster': {'tags': {driver.OWNER: ENV}, 'certificateAuthority': {'data': 'Y2E='}, 'endpoint': 'https://private.example'}}, {'status': {'token': 'not-printed'}}]
         with patch.object(helper, 'aws', side_effect=responses), patch.object(helper.ssl, 'create_default_context'), patch.object(helper.urllib.request, 'urlopen', side_effect=http):
-            self.assertFalse(helper.cleanup(ENV))
+            self.assertFalse(helper.cleanup(ENV, NODE_ROLE))
         self.assertIn(('DELETE', 'https://private.example/apis/policy/v1/namespaces/kube-system/poddisruptionbudgets/coredns'), calls)
         self.assertTrue(any('persistentvolumes' in url for _, url in calls))
         self.assertFalse(any('/nodepools' in url for _, url in calls))
+
+    def test_auto_mode_residual_pages_block_stack_delete_until_both_empty(self):
+        for profiles, templates in [(1, 0), (0, 1), (0, 0)]:
+            with self.subTest(profiles=profiles, templates=templates):
+                c, a = self.setup_cleaner(hours=22, stacks={'PerfEksStack': stack('PerfEksStack', Outputs=NODE_ROLE_OUTPUTS)},
+                                         state={'version': 1, 'environment_id': ENV, 'kubernetes_complete': True, 'kubernetes_cleanup_contract': 2})
+                a['iam'].get_paginator.return_value.paginate.return_value = [{'InstanceProfiles': []}, {'InstanceProfiles': [{}] * profiles}]
+                template = {'LaunchTemplateId': 'lt-owned', 'Tags': [{'Key': driver.OWNER, 'Value': ENV}, {'Key': 'eks:eks-cluster-name', 'Value': driver.CLUSTER}]}
+                a['ec2'].get_paginator.return_value.paginate.return_value = [{'LaunchTemplates': []}, {'LaunchTemplates': [template] * templates}]
+                result = c.tick()
+                self.assertEqual(result['auto_mode_residual_counts'], {'instance_profiles': profiles, 'launch_templates': templates})
+                self.assertEqual(a['cloudformation'].delete_stack.called, profiles == templates == 0)
+                a['iam'].get_paginator.assert_called_once_with('list_instance_profiles_for_role')
+                a['iam'].get_paginator.return_value.paginate.assert_called_once_with(RoleName=NODE_ROLE)
+                a['ec2'].get_paginator.return_value.paginate.assert_called_once_with(Filters=[
+                    {'Name': 'tag:' + driver.OWNER, 'Values': [ENV]},
+                    {'Name': 'tag:eks:eks-cluster-name', 'Values': [driver.CLUSTER]}])
+                a['iam'].delete_instance_profile.assert_not_called()
+                a['iam'].remove_role_from_instance_profile.assert_not_called()
+                a['ec2'].delete_launch_template.assert_not_called()
+
+    def test_auto_mode_identity_and_query_errors_fail_closed(self):
+        for fault in ['role', 'owner', 'cluster', 'query']:
+            with self.subTest(fault=fault):
+                outputs = NODE_ROLE_OUTPUTS if fault != 'role' else [{'OutputKey': 'EksNodeRoleName', 'OutputValue': 'DevEksStack-NodeRole-unit'}]
+                c, a = self.setup_cleaner(hours=22, stacks={'PerfEksStack': stack('PerfEksStack', Outputs=outputs)},
+                                         state={'version': 1, 'environment_id': ENV, 'kubernetes_complete': True, 'kubernetes_cleanup_contract': 2})
+                if fault == 'query':
+                    a['iam'].get_paginator.return_value.paginate.side_effect = AwsError('AccessDenied', 'private AWS detail')
+                elif fault in ['owner', 'cluster']:
+                    a['ec2'].get_paginator.return_value.paginate.return_value = [{'LaunchTemplates': [{'Tags': [
+                        {'Key': driver.OWNER, 'Value': 'dev' if fault == 'owner' else ENV},
+                        {'Key': 'eks:eks-cluster-name', 'Value': 'dev' if fault == 'cluster' else driver.CLUSTER}]}]}]
+                result = c.tick()
+                self.assertEqual(result['phase'], 'ERROR')
+                self.assertNotIn('private AWS detail', result['error'])
+                a['cloudformation'].delete_stack.assert_not_called()
+
+    def test_old_kubernetes_completion_is_not_reused_and_role_parameter_is_exact(self):
+        eks = stack('PerfEksStack', Outputs=NODE_ROLE_OUTPUTS + [{'OutputKey': 'EksRelayInstanceId', 'OutputValue': 'i-owned'}])
+        c, a = self.setup_cleaner(hours=22, stacks={'PerfEksStack': eks},
+                                 state={'version': 1, 'environment_id': ENV, 'kubernetes_complete': True})
+        a['ec2'].describe_instances.return_value = {'Reservations': [{'Instances': [{'State': {'Name': 'running'}, 'Tags': [{'Key': driver.OWNER, 'Value': ENV}]}]}]}
+        a['ssm'].send_command.return_value = {'Command': {'CommandId': 'new'}}
+        self.assertEqual(c.tick()['phase'], 'KUBERNETES')
+        a['ssm'].send_command.assert_called_once_with(InstanceIds=['i-owned'], DocumentName=CONFIG['document_name'],
+                                                    Parameters={'nodeRoleName': [NODE_ROLE]}, TimeoutSeconds=120)
+        a['cloudformation'].delete_stack.assert_not_called()
+
+    def test_old_or_wrong_role_helper_response_does_not_authorize_cfn_delete(self):
+        eks = stack('PerfEksStack', Outputs=NODE_ROLE_OUTPUTS + [{'OutputKey': 'EksRelayInstanceId', 'OutputValue': 'i-owned'}])
+        for additional in [{}, {'cleanup_contract': 2, 'node_role_name': 'wrong'}]:
+            c, a = self.setup_cleaner(hours=22, stacks={'PerfEksStack': eks}, state={'version': 1, 'environment_id': ENV, 'command_id': 'old'})
+            a['ec2'].describe_instances.return_value = {'Reservations': [{'Instances': [{'State': {'Name': 'running'}, 'Tags': [{'Key': driver.OWNER, 'Value': ENV}]}]}]}
+            a['ssm'].get_command_invocation.return_value = {'Status': 'Success', 'StandardOutputContent': json.dumps({'environment_id': ENV, 'complete': True, **additional})}
+            self.assertEqual(c.tick()['error'], 'kubernetes_cleanup_contract_mismatch')
+            a['cloudformation'].delete_stack.assert_not_called()
+
+    def test_partial_stack_role_comes_only_from_its_cfn_resource_inventory(self):
+        eks = stack('PerfEksStack', StackStatus='CREATE_FAILED')
+        c, a = self.setup_cleaner(stacks={'PerfEksStack': eks})
+        a['cloudformation'].get_paginator.return_value.paginate.return_value = [
+            {'StackResourceSummaries': []}, {'StackResourceSummaries': [
+                {'ResourceType': 'AWS::IAM::Role', 'LogicalResourceId': 'NodeRoleB5643E21', 'PhysicalResourceId': NODE_ROLE}]}]
+        self.assertEqual(c.node_role(eks), NODE_ROLE)
+        a['cloudformation'].get_paginator.return_value.paginate.assert_called_once_with(StackName=eks['StackId'])
+
+    def test_partial_stack_without_role_or_cluster_does_not_invent_profile_count(self):
+        eks = stack('PerfEksStack', StackStatus='CREATE_FAILED')
+        c, a = self.setup_cleaner(hours=22, stacks={'PerfEksStack': eks})
+        a['eks'].describe_cluster.side_effect = AwsError('ResourceNotFoundException')
+        result = c.tick()
+        self.assertEqual(result['auto_mode_node_role'], 'NOT_CREATED')
+        self.assertIsNone(result['auto_mode_residual_counts']['instance_profiles'])
+        a['iam'].get_paginator.assert_not_called()
+        a['cloudformation'].delete_stack.assert_called_once_with(StackName=eks['StackId'])
+
+    def test_deleted_cfn_role_is_absent_but_access_denied_is_not(self):
+        c, a = self.setup_cleaner()
+        a['iam'].get_paginator.return_value.paginate.side_effect = AwsError('NoSuchEntity')
+        self.assertTrue(c.auto_mode_finalized(stack('PerfEksStack', Outputs=NODE_ROLE_OUTPUTS)))
+        self.assertEqual(c.state['auto_mode_residual_counts']['instance_profiles'], 0)
+
+    def test_role_missing_while_cluster_exists_is_not_assumed_uncreated(self):
+        c, a = self.setup_cleaner()
+        with self.assertRaisesRegex(ValueError, 'cleanup_node_role_identity_mismatch'):
+            c.auto_mode_finalized(stack('PerfEksStack'))
+        a['iam'].get_paginator.assert_not_called()
+
+
+class KubernetesCleanupTests(unittest.TestCase):
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location('perf_cleanup_kubernetes_nodes', ROOT / 'lib/perf/cleanup/kubernetes.py')
+        self.helper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.helper)
+        self.calls = []
+
+    def run_helper(self, inventories, role=NODE_ROLE):
+        responses = [{'cluster': {'tags': {driver.OWNER: ENV}, 'certificateAuthority': {'data': 'Y2E=',}, 'endpoint': 'https://private.example'}}, {'status': {'token': 'not-printed'}}]
+        def http(req, **kwargs):
+            parsed = urllib.parse.urlparse(req.full_url)
+            cursor = urllib.parse.parse_qs(parsed.query).get('continue', [''])[0]
+            self.calls.append((req.method, parsed.path, json.loads(req.data) if req.data else None))
+            value = inventories.get((parsed.path, cursor), inventories.get(parsed.path, {'items': []})) if req.method == 'GET' else {}
+            return io.BytesIO(json.dumps(value).encode())
+        with patch.object(self.helper, 'aws', side_effect=responses), patch.object(self.helper.ssl, 'create_default_context'), patch.object(self.helper.urllib.request, 'urlopen', side_effect=http):
+            return self.helper.cleanup(ENV, role)
+
+    def test_pool_nodes_claims_classes_and_finalizers_are_ordered(self):
+        pool_path, class_path = '/apis/karpenter.sh/v1/nodepools', '/apis/eks.amazonaws.com/v1/nodeclasses'
+        pool = {'metadata': {'name': 'perf-system', 'uid': 'pool-uid'}, 'spec': {'template': {'spec': {'nodeClassRef': {'group': 'eks.amazonaws.com', 'kind': 'NodeClass', 'name': 'perf-system'}}}}}
+        klass = {'metadata': {'name': 'perf-system', 'uid': 'class-uid', 'finalizers': ['eks.amazonaws.com/termination']},
+                 'spec': {'role': NODE_ROLE, 'tags': {driver.OWNER: ENV}}}
+        cases = [({pool_path: {'items': [pool]}}, pool_path + '/perf-system'),
+                 ({'/api/v1/nodes': {'items': [{}]}}, None),
+                 ({'/apis/karpenter.sh/v1/nodeclaims': {'items': [{}]}}, None),
+                 ({class_path: {'items': [klass]}}, class_path + '/perf-system')]
+        for inventory, deleted in cases:
+            with self.subTest(inventory=inventory):
+                self.calls = []
+                self.assertFalse(self.run_helper(inventory))
+                deletes = [entry for entry in self.calls if entry[0] == 'DELETE']
+                self.assertEqual([entry[1] for entry in deletes], [deleted] if deleted else [])
+                for _, _, body in deletes:
+                    self.assertEqual(body['propagationPolicy'], 'Foreground')
+                    self.assertIn(body['preconditions']['uid'], ['pool-uid', 'class-uid'])
+                    self.assertNotIn('finalizers', json.dumps(body))
+        self.calls = []
+        self.assertTrue(self.run_helper({}))
+        self.assertTrue(any(path == class_path for _, path, _ in self.calls))
+
+    def test_foreign_nodeclass_on_later_page_blocks_all_class_deletes(self):
+        path = '/apis/eks.amazonaws.com/v1/nodeclasses'
+        owned = {'metadata': {'name': 'perf-system', 'uid': 'class-uid'}, 'spec': {'role': NODE_ROLE, 'tags': {driver.OWNER: ENV}}}
+        for foreign in [dict(owned, spec={'role': NODE_ROLE, 'tags': {driver.OWNER: 'dev'}}),
+                        dict(owned, spec={'role': 'DevRole', 'tags': {driver.OWNER: ENV}}),
+                        dict(owned, metadata={'name': 'perf-other', 'uid': 'foreign-uid'})]:
+            with self.subTest(foreign=foreign):
+                self.calls = []
+                with self.assertRaisesRegex(ValueError, 'nodeclass_identity_mismatch'):
+                    self.run_helper({(path, ''): {'items': [owned], 'metadata': {'continue': 'next'}}, (path, 'next'): {'items': [foreign]}})
+                self.assertFalse(any(method == 'DELETE' for method, _, _ in self.calls))
+
+    def test_claim_on_later_page_keeps_nodeclass_controller_alive(self):
+        path = '/apis/karpenter.sh/v1/nodeclaims'
+        self.assertFalse(self.run_helper({(path, ''): {'items': [], 'metadata': {'continue': 'next'}}, (path, 'next'): {'items': [{}]}}))
+        self.assertFalse(any('nodeclasses' in path for _, path, _ in self.calls))
+
+    def test_untrusted_role_is_rejected_before_kubernetes_http(self):
+        with self.assertRaisesRegex(ValueError, 'invalid_cleanup_node_role'):
+            self.run_helper({}, role='DevEksStack-NodeRole-test')
+        self.assertEqual(self.calls, [])
 
 
 if __name__ == '__main__':

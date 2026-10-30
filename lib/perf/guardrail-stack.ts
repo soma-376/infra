@@ -25,8 +25,10 @@ export class PerfGuardrailStack extends Stack {
       stringValue: JSON.stringify({ version: 1, environment_id: owner, phase: 'WAITING', buckets: [], attempts: 0 }) });
     const document = new CfnDocument(this, 'KubernetesCleanup', { name: PERF_CLEANUP_DOCUMENT, documentType: 'Command', documentFormat: 'JSON', updateMethod: 'NewVersion',
       content: { schemaVersion: '2.2', description: 'Owned perf cluster cleanup only; no arbitrary command inputs',
+        parameters: { nodeRoleName: { type: 'String', description: 'Actual owned PerfEksStack NodeRole output', allowedPattern: '^PerfEksStack-NodeRole[A-Za-z0-9-]+$' } },
         mainSteps: [{ action: 'aws:runShellScript', name: 'cleanup', inputs: { timeoutSeconds: '90', runCommand: [
           `export PERF_CLEANUP_ENVIRONMENT_ID='${owner}'`,
+          "export PERF_CLEANUP_NODE_ROLE='{{ nodeRoleName }}'",
           `python3 - <<'PERF_CLEANUP_PY'\n${readFileSync(join(__dirname, 'cleanup/kubernetes.py'), 'utf8')}\nPERF_CLEANUP_PY`,
         ] } }] } });
     const logs = new LogGroup(this, 'Logs', { logGroupName: `/aws/lambda/${PERF_CLEANUP_FUNCTION}`, retention: RetentionDays.ONE_DAY, removalPolicy: RemovalPolicy.DESTROY });
@@ -44,8 +46,10 @@ export class PerfGuardrailStack extends Stack {
     const repos = PERF_ECR_REPOSITORIES.map(name => arn('ecr', `repository/${name}`));
     add(['ecr:DescribeRepositories', 'ecr:ListTagsForResource'], repos);
     add(['ecr:DeleteRepository'], repos, { StringEquals: { [`aws:ResourceTag/${PERF_ENVIRONMENT_TAG}`]: owner } });
-    add(['ec2:DescribeInstances', 'ec2:DescribeVolumes'], ['*'], { StringEquals: { 'aws:RequestedRegion': this.region } });
+    add(['ec2:DescribeInstances', 'ec2:DescribeVolumes', 'ec2:DescribeLaunchTemplates'], ['*'], { StringEquals: { 'aws:RequestedRegion': this.region } });
     add(['ec2:TerminateInstances', 'ec2:DeleteVolume'], [arn('ec2', 'instance/*'), arn('ec2', 'volume/*')], { StringEquals: { [`ec2:ResourceTag/${PERF_ENVIRONMENT_TAG}`]: owner } });
+    // IAM은 global service다. EKS 참조 없이 실제 output의 고정 역할 prefix로 제한한다.
+    add(['iam:ListInstanceProfilesForRole'], [`arn:${this.partition}:iam::${this.account}:role/PerfEksStack-NodeRole*`]);
     add(['eks:DescribeCluster'], [arn('eks', `cluster/${PERF_EKS_CLUSTER_NAME}`)]);
     add(['ssm:SendCommand'], [arn('ssm', `document/${PERF_CLEANUP_DOCUMENT}`)]);
     add(['ssm:SendCommand'], [arn('ec2', 'instance/*')], { StringEquals: { [`ssm:resourceTag/${PERF_ENVIRONMENT_TAG}`]: owner } });
