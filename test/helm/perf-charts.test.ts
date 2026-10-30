@@ -96,14 +96,18 @@ suite('perf Helm chart', () => {
     infra.kafka = { provider: 'strimzi', clusterName: 'soma-376-perf-telemetry', namespace: 'pulsemetry-perf', topic: 'pulsemetry-perf-telemetry-ingress', consumerGroup: 'pulsemetry-perf-telemetry-ingest', partitions: 6 };
     const file = join(directory, 'strimzi-infra.yaml');
     writeFileSync(file, dump({ infra }));
-    const values = jobValues({ contractVersion: 3, kafka: infra.kafka, tools: { clockSkewBoundMs: 1000, archiveSample: 20, kafkaLagQuery: 'sum(kafka_consumergroup_lag)' } });
+    const values = jobValues({ contractVersion: 3, kafka: infra.kafka, tools: { clockSkewBoundMs: 1000, archiveSample: 20 } });
     const job = render('verify', 'helm/perf/jobs', 'pulsemetry-perf-runner', [file, values], ['job=verify'])[0];
     const env = Object.fromEntries(job.spec.template.spec.containers[0].env.map((e: any) => [e.name, e.value]));
     expect(env.KAFKA_PROVIDER).toBe('strimzi');
     expect(env.MSK_CLUSTER_NAME).toBeUndefined();
+    expect(env.KAFKA_LAG_QUERY).toBeUndefined();
+    expect(env).toMatchObject({ KAFKA_METRICS_ENVIRONMENT: 'perf', KAFKA_CLUSTER_NAME: infra.kafka.clusterName,
+      KAFKA_NAMESPACE: infra.kafka.namespace, KAFKA_PARTITIONS: '6', KAFKA_TOPIC: infra.kafka.topic,
+      KAFKA_CONSUMER_GROUP: infra.kafka.consumerGroup, CLOCK_SKEW_BOUND_MS: '1000' });
     rejects('helm/perf/jobs', 'pulsemetry-perf-runner', [file, jobValues()], ['job=verify']);
     rejects('helm/perf/jobs', 'pulsemetry-perf-runner', [file, values], ['job=verify', 'kafka.partitions=7']);
-    rejects('helm/perf/jobs', 'pulsemetry-perf-runner', [file, jobValues({ contractVersion: 3, kafka: infra.kafka })], ['job=verify']);
+    rejects('helm/perf/jobs', 'pulsemetry-perf-runner', [file, values], ['job=verify', 'tools.kafkaLagQuery=sum(kafka_consumergroup_lag)']);
   });
 
   test('ingressPath는 선택한 배포 origin만 runner에 전달하고 내부 fallback을 하지 않는다', () => {

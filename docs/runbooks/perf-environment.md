@@ -108,7 +108,8 @@ HELM_BIN=/path/to/helm-3.22.0 KUBECONFORM_BIN=/path/to/kubeconform \
 
 Helm binary가 없으면 일부 suite는 skip되므로 결과를 전체 통과로 기록하지 않는다. v2/v3 공유 fixture, MSK/Strimzi 합성, provider 혼합 거부, mTLS/ACL/PVC 음성 사례, dev 기본 렌더 회귀를 확인한다. kubeconform의 원격 schema 취득 실패는 테스트 성공으로 바꾸지 않는다.
 
-Strimzi verify Job은 MSK 환경변수를 주입하지 않는다. 현재 generic Prometheus scalar probe 입력은 명시적으로 요구하며 freshness/partition coverage/미커밋 partition의 빈 로그 증명은 PROJ-297 범위다. 해당 작업 전에는 scalar 0을 drain 완료로 해석하지 않는다.
+Strimzi verify Job은 MSK 환경변수와 generic scalar query를 받지 않는다. 배포한 Kafka 이름·namespace·topic·group·partition 수와 `KAFKA_METRICS_ENVIRONMENT=perf`를 전달한다. 고유 `ENVIRONMENT_ID`는 서버 표본의 범주형 environment 태그와 별개다.
+[load-tests #4](https://github.com/soma-376/telemetry-load-tests/pull/4)의 도구 이미지를 사용해야 한다. 해당 구현은 exporter UP과 모든 partition의 begin/end/commit 원천 표본 시각·freshness·coverage를 검사하고, 미커밋은 begin=end일 때만 허용한다. 서로 다른 정상 scrape 세 개와 CH 행 수 안정이 있어야 drain을 통과하며, 저장 PASS라도 drain 미확인이면 전체 INCONCLUSIVE다. freshness 기본 30초는 현재 scrape 10초와 함께 기록한다.
 
 관련 결정: [ADR 0050](../adr/0050-perf-strimzi-provider-and-isolated-capacity.md).
 
