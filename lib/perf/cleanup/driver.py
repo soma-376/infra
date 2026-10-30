@@ -12,6 +12,16 @@ REPOSITORIES = ['soma-376/perf-k6-runner', 'soma-376/perf-tools']
 ACTIVE = ['pending', 'running', 'stopping', 'stopped', 'shutting-down']
 CLUSTER = 'soma-376-perf-eks'
 CLEANUP_CONTRACT = 2
+MANAGED_READS = ('DescribeInstances', 'DescribeVolumes', 'DescribeLaunchTemplates')
+
+
+def managed_visibility_capabilities(ec2):
+    # 2026-04 이후 관리형 자원은 기본 목록에서 숨겨질 수 있다. 미지원 SDK로 조용히 재시도하지 않는다.
+    supported = {}
+    for operation in MANAGED_READS:
+        member = ec2.meta.service_model.operation_model(operation).input_shape.members.get('IncludeManagedResources')
+        supported[operation] = member is not None and member.type_name == 'boolean'
+    return supported
 
 
 def code(error):
@@ -196,7 +206,7 @@ class Cleaner:
                 raise
             raise ValueError('eks_exists_without_cleanup_relay')
         node_role = self.node_role(stack)
-        instances = self.aws['ec2'].describe_instances(InstanceIds=[relay])['Reservations']
+        instances = self.aws['ec2'].describe_instances(InstanceIds=[relay], IncludeManagedResources=True)['Reservations']
         instance = instances[0]['Instances'][0]
         self.owned(instance.get('Tags', []), relay)
         if instance['State']['Name'] != 'running':
@@ -247,7 +257,7 @@ class Cleaner:
         templates = 0
         filters = [{'Name': 'tag:' + OWNER, 'Values': [self.env]},
                    {'Name': 'tag:eks:eks-cluster-name', 'Values': [CLUSTER]}]
-        for page in self.aws['ec2'].get_paginator('describe_launch_templates').paginate(Filters=filters):
+        for page in self.aws['ec2'].get_paginator('describe_launch_templates').paginate(Filters=filters, IncludeManagedResources=True):
             self.check_time()
             for item in page['LaunchTemplates']:
                 self.owned(item.get('Tags', []), 'launch_template')
@@ -261,14 +271,14 @@ class Cleaner:
     def volumes_and_instances(self):
         ec2 = self.aws['ec2']
         remaining = []
-        for page in ec2.get_paginator('describe_instances').paginate(Filters=[{'Name': 'tag:' + OWNER, 'Values': [self.env]}, {'Name': 'instance-state-name', 'Values': ACTIVE}]):
+        for page in ec2.get_paginator('describe_instances').paginate(Filters=[{'Name': 'tag:' + OWNER, 'Values': [self.env]}, {'Name': 'instance-state-name', 'Values': ACTIVE}], IncludeManagedResources=True):
             for reservation in page['Reservations']:
                 for item in reservation['Instances']:
                     self.owned(item.get('Tags', []), item['InstanceId'])
                     remaining.append(item['InstanceId'])
                     if item['State']['Name'] != 'shutting-down':
                         ec2.terminate_instances(InstanceIds=[item['InstanceId']])
-        for page in ec2.get_paginator('describe_volumes').paginate(Filters=[{'Name': 'tag:' + OWNER, 'Values': [self.env]}]):
+        for page in ec2.get_paginator('describe_volumes').paginate(Filters=[{'Name': 'tag:' + OWNER, 'Values': [self.env]}], IncludeManagedResources=True):
             for volume in page['Volumes']:
                 self.owned(volume.get('Tags', []), volume['VolumeId'])
                 remaining.append(volume['VolumeId'])
@@ -279,6 +289,10 @@ class Cleaner:
     def tick(self, force=False):
         self.load()
         try:
+            capabilities = managed_visibility_capabilities(self.aws['ec2'])
+            self.state['managed_resource_visibility'] = capabilities
+            if not all(capabilities.values()):
+                raise ValueError('managed_resource_visibility_sdk_unsupported')
             guard = self.stack(GUARD)
             if not guard:
                 raise ValueError('guardrail_stack_missing')
@@ -339,10 +353,15 @@ class Cleaner:
 
 def handler(event, context):
     import boto3
+    import botocore
     from botocore.config import Config
     config = json.loads(os.environ['CLEANUP_CONFIG'])
     sdk = Config(connect_timeout=3, read_timeout=5, retries={'total_max_attempts': 1, 'mode': 'standard'})
     clients = {name: boto3.client(name, region_name=config['region'], config=sdk) for name in ['cloudformation', 'ssm', 'ecr', 'ec2', 'eks', 's3', 'iam']}
+    # 실제 Lambda SDK 기능만 조회한다. 정리·SSM 상태 기록·자원 API는 호출하지 않는다.
+    if event == {'action': 'sdk_capabilities', 'environment_id': config['environment_id']}:
+        return {'environment_id': config['environment_id'], 'boto3': boto3.__version__, 'botocore': botocore.__version__,
+                'managed_resource_visibility': managed_visibility_capabilities(clients['ec2']), 'cloud_mutations': 0}
     # 수동 호출도 정확한 환경을 명시해야 하며 자원 허용목록/TTL을 변경할 수 없다.
     force = event == {'action': 'cleanup', 'environment_id': config['environment_id']}
     if event and not force and event.get('source') != 'aws.events':
