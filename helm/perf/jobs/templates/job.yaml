@@ -46,6 +46,22 @@
 {{- /* readiness smoke: golden 6종을 Gateway로 보내고 CH를 전수 대조한다(PLAN §4.3 6단계 auth·storage). */ -}}
 {{- $env = concat $env (list (dict "name" "GATEWAY_ENDPOINT" "value" $v.endpoints.gateway) (dict "name" "CLICKHOUSE_URL" "value" $v.endpoints.clickhouse) (dict "name" "CLOCK_SKEW_BOUND_MS" "value" $v.tools.clockSkewBoundMs)) -}}
 {{- $volumes = list $identities $bundle -}}
+{{- if eq (int $v.contractVersion) 3 -}}
+{{- if $v.bootstrapMode -}}
+{{- $env = concat $env (list
+  (dict "name" "BOOTSTRAP_EVIDENCE_URI" "value" $v.bootstrap.evidenceUri)
+  (dict "name" "BOOTSTRAP_REQUEST_SHA256" "value" $v.bootstrap.requestSha256)
+  (dict "name" "BOOTSTRAP_PROVISIONAL_SHA256" "value" $v.bootstrap.provisionalSha256)
+  (dict "name" "BOOTSTRAP_SMOKE_REQUEST_RESERVE" "value" $v.bootstrap.smokeRequestReserve)
+  (dict "name" "BOOTSTRAP_SMOKE_SLOT_START" "value" $v.bootstrap.smokeSlotStart)) -}}
+{{- else -}}
+{{- $env = concat $env (list
+  (dict "name" "PAIR_EVIDENCE_URI" "value" $v.pathPair.evidenceUri)
+  (dict "name" "PAIR_SHA256" "value" $v.pathPair.sha256)
+  (dict "name" "SMOKE_REQUEST_RESERVE" "value" $v.pathPair.smokeRequestReserve)
+  (dict "name" "SMOKE_SLOT_START" "value" $v.pathPair.smokeSlotStart)) -}}
+{{- end -}}
+{{- end -}}
 {{- else if eq $job "sentinel" -}}
 {{- /* 도구가 deadline 전에 sentinel.json을 올리도록 Job deadline보다 120초 먼저 끝낸다. 값이 따로 오면 그 값을 쓴다. */ -}}
 {{- $sentinel := $v.deadlines.sentinelDeadlineSeconds | default (sub (int $v.deadlines.sentinelActiveDeadlineSeconds) 120) -}}
@@ -60,6 +76,16 @@
 {{- $env = concat $env (list (dict "name" "GATEWAY_ENDPOINT" "value" $v.endpoints.gateway) (dict "name" "REMOTE_WRITE_URL" "value" $v.endpoints.remoteWrite) (dict "name" "TESTID" "value" $v.run.testid) (dict "name" "K6_REST_ADDRESS" "value" "127.0.0.1:6565")) -}}
 {{- $volumes = list $inputs $identities $bundle
   (dict "name" "out" "mountPath" "/out" "emptyDir" (dict "sizeLimit" $v.runner.outputSizeLimit)) -}}
+{{- if eq (int $v.contractVersion) 3 -}}
+{{- $env = concat $env (list
+  (dict "name" "ENVIRONMENT" "value" "perf")
+  (dict "name" "PROMETHEUS_URL" "value" $v.endpoints.prometheus)
+  (dict "name" "GENERATOR_POLICY" "value" "/generator-policy/generator-policy.json")
+  (dict "name" "POD_NAME" "fieldPath" "metadata.name")
+  (dict "name" "POD_NAMESPACE" "fieldPath" "metadata.namespace")
+  (dict "name" "NODE_NAME" "fieldPath" "spec.nodeName")) -}}
+{{- $volumes = append $volumes (dict "name" "generator-policy" "mountPath" "/generator-policy" "configMap" (dict "name" $v.objects.generatorPolicyConfigMap "items" (list (dict "key" "generator-policy.json" "path" "generator-policy.json")))) -}}
+{{- end -}}
 {{- else if eq $job "verify" -}}
 {{- /* 공급자별 drain 입력. Strimzi는 합계 scalar 대신 partition·원천 표본 시각을 검증한다. */ -}}
 {{- $env = concat $env (list

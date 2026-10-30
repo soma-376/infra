@@ -104,6 +104,9 @@
         },
         "bundleSecret": {
           "$ref": "#/definitions/name"
+        },
+        "generatorPolicyConfigMap": {
+          "$ref": "#/definitions/name"
         }
       }
     },
@@ -639,6 +642,84 @@
         "internal",
         "alb_https"
       ]
+    },
+    "bootstrapMode": {
+      "type": "boolean"
+    },
+    "pathPair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pairId",
+        "sha256",
+        "evidenceUri",
+        "smokeRequestReserve",
+        "smokeSlotStart"
+      ],
+      "properties": {
+        "pairId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "evidenceUri": {
+          "type": "string",
+          "pattern": "^s3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]/([A-Za-z0-9_.-]+/)+$"
+        },
+        "smokeRequestReserve": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "smokeSlotStart": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        }
+      }
+    },
+    "bootstrap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestSha256",
+        "provisionalSha256",
+        "metadataSha256",
+        "evidenceUri",
+        "smokeRequestReserve",
+        "smokeSlotStart"
+      ],
+      "properties": {
+        "requestSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "provisionalSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "metadataSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "evidenceUri": {
+          "type": "string",
+          "pattern": "^s3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]/([A-Za-z0-9_.-]+/)+$"
+        },
+        "smokeRequestReserve": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "smokeSlotStart": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        }
+      }
     }
   },
   "allOf": [
