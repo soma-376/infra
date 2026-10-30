@@ -74,7 +74,10 @@ export function synthPerf(app: App, props: SynthPerfProps): PerfStacks {
   });
   const edge = config.edge ? new PerfEdgeStack(app, PERF_STACK_IDS.edge, { env, vpc: network.vpc, securityGroup: network.albSecurityGroup!, certificateArn: config.edge.certificateArn, ownedCleanup: Boolean(config.budget), natPublicIps: network.natPublicIps }) : undefined;
   // 환경 소유 태그는 지울 스택에만 붙인다. cleanup inventory가 이 태그로 잔존 자원을 찾는다.
-  for (const stack of [network, data, eks, ...(edge ? [edge] : [])]) Tags.of(stack).add(PERF_ENVIRONMENT_TAG, config.environmentId);
+  for (const stack of [network, data, eks, ...(edge ? [edge] : [])]) {
+    Tags.of(stack).add(PERF_ENVIRONMENT_TAG, config.environmentId);
+    stack.addStackTag(PERF_ENVIRONMENT_TAG, config.environmentId);
+  }
   if (guardrail) {
     // S3/VPC custom provider의 자동 로그도 CFN이 소유한다. 기본 Lambda 로그를 별도 잔존시키지 않는다.
     for (const stack of [evidence, network, data, eks, ...(edge ? [edge] : [])]) {
@@ -92,7 +95,14 @@ export function synthPerf(app: App, props: SynthPerfProps): PerfStacks {
       }
     }
     for (const stack of [evidence, network, data, eks, ...(edge ? [edge] : [])]) stack.addDependency(guardrail);
-    for (const stack of [evidence, guardrail]) Tags.of(stack).add(PERF_ENVIRONMENT_TAG, config.environmentId);
+    for (const stack of [evidence, guardrail]) {
+      Tags.of(stack).add(PERF_ENVIRONMENT_TAG, config.environmentId);
+      stack.addStackTag(PERF_ENVIRONMENT_TAG, config.environmentId);
+    }
+  }
+  // explicitStackTags=true에서는 Tags.of()가 자원만 태깅한다. CFN 스택/IAM 조건에 쓸 태그도 assembly에 명시한다.
+  for (const stack of [evidence, network, data, eks, ...(edge ? [edge] : []), ...(guardrail ? [guardrail] : [])]) {
+    for (const [key, value] of Object.entries(PERF_COMMON_TAGS)) stack.addStackTag(key, value);
   }
   return { evidence, network, data, eks, edge, guardrail };
 }
