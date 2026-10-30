@@ -65,6 +65,11 @@ suite('Strimzi 관측 계약', () => {
       expect(dashboards).toHaveLength(9);
       expect(dashboards.map(x => x.uid)).toContain('pulsemetry-kafka');
       expect(dashboards.filter(x => x.tags.includes('pulsemetry'))).toHaveLength(8);
+      expect(JSON.stringify(dashboards.filter(x => x.tags.includes('pulsemetry')))).not.toMatch(/SumOffsetLag|STABLE|EMPTY|MSK/);
+      const modeGuidance = dashboards.find(x => x.uid === 'pulsemetry-pipeline').panels.find((p: any) => p.title === '모드별로 비는 패널').options.content;
+      expect(modeGuidance).toContain('commit offset이 확인된 partition의 lag 합계');
+      expect(modeGuidance).toContain('미커밋 partition 수를 함께 확인');
+      expect(modeGuidance).toContain('모두 미커밋이거나 수집 실패이면 lag는 빈 값');
       const history = dashboards.find(x => x.uid === 'pulsemetry-msk');
       expect(history.title).toContain('전환 전 이력');
       expect(history.tags).toContain('pulsemetry-history');
@@ -150,6 +155,7 @@ suite('Strimzi 관측 계약', () => {
     expect(msk.title).toBe('Pulsemetry · MSK');
     expect(msk.tags).toContain('pulsemetry');
     expect(msk.panels.some((p: any) => p.targets?.length)).toBe(true);
+    expect(dashboards.find(x => x.uid === 'pulsemetry-pipeline').panels.find((p: any) => p.title === '모드별로 비는 패널').options.content).toContain('CloudWatch SumOffsetLag');
     expect(JSON.stringify(dashboards)).not.toContain('and on (component, dashboard) pulsemetry:collection_state');
     expect(JSON.stringify(dashboards)).not.toMatch(/pulsemetry:kafka_committed_lag:sum|pulsemetry:kafka_uncommitted_partitions:count/);
     expect(resources.some(x => x.kind === 'PrometheusRule' && x.metadata.name === 'pulsemetry-strimzi')).toBe(false);
