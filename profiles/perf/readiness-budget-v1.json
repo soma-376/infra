@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "kind": "perf-budget-policy",
+  "profile_sha256": "d9b8eec57aa401689432e821a7c3f163a50f68b086a346e58a271f5d4c2cc576",
+  "currency": "KRW",
+  "budget_total": 100000,
+  "estimated_total": 97586,
+  "actual_billing_verified": false,
+  "estimate_note": "고정 자원 24h와 전송/로그/S3, 환율 1600, VAT10%, 여유15% 약96586원에 독립 정리 실행/로그 예비분 1000원을 포함한 가정. 실제 AWS 청구 확인 아님.",
+  "ttl_seconds": 86400,
+  "cleanup_start_seconds": 79200,
+  "max_total_requests": 10000,
+  "max_rps": 20,
+  "max_run_seconds": 600,
+  "max_added_storage_bytes": 1073741824,
+  "drain_timeout_seconds": 900,
+  "storage_verify_timeout_seconds": 900,
+  "observation_max_age_seconds": 60,
+  "disk_free_ratio": 0.2,
+  "data_disk_free_bytes": 21474836480,
+  "generator_disk_free_bytes": 10737418240,
+  "new_ecr_repositories": [
+    "soma-376/perf-k6-runner",
+    "soma-376/perf-tools"
+  ]
+}

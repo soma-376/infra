@@ -161,11 +161,11 @@
     "multi_az": false
   },
   "retention": {
-    "evidence_days": 90,
-    "raw_signal_days": 7,
-    "prometheus_days": 7,
+    "evidence_days": 1,
+    "raw_signal_days": 1,
+    "prometheus_days": 1,
     "prometheus_bytes": 20000000000,
-    "cloudwatch_log_days": 14
+    "cloudwatch_log_days": 1
   },
   "observability": {
     "scrape_interval_seconds": 10

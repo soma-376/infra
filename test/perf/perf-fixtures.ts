@@ -1,3 +1,4 @@
+import { loadPerfBudget } from '../../lib/perf/budget';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { buildPerfApp, PERF_TEST_ENVIRONMENT_ID } from '../helpers';
@@ -46,6 +47,8 @@ function fixtureValue(key: string, index: number): string {
     ApplicationLogGroupName: '/eks/perf/application', ObservabilityLogGroupName: '/eks/perf/observability',
     KubernetesEventsLogGroupName: '/eks/perf/events', EksRelaySessionDocumentName: 'soma-376-perf-eks-api-tunnel',
   };
+  if (key === 'PerfCleanupFunctionName') return 'soma-376-perf-cleanup';
+  if (key === 'PerfCleanupStateParameter') return `/soma-376/perf/${ENVIRONMENT_ID}/cleanup-state`;
   if (fixed[key]) return fixed[key];
   throw new Error(`fixture 값이 없는 output: ${key}`);
 }
@@ -93,7 +96,8 @@ export function perfRequest(overrides: (request: any) => void = () => undefined,
   request.capacity.workloads = Object.fromEntries(Object.entries(workloads).map(([id, workload]) => [id, { ...workload }]));
   if (loaded.profile.kafka_provider === 'strimzi') {
     request.schema_version = 3; request.kafka = { provider: 'strimzi' };
-    request.infra.parameters = { environmentId: ENVIRONMENT_ID, natGateways: 1, kafkaProvider: 'strimzi', kafkaVolumeGiB: 100, clickhouseVolumeGiB: 100 };
+    const budget = loadPerfBudget(ROOT, loaded, 1);
+    request.infra.parameters = { environmentId: ENVIRONMENT_ID, natGateways: 1, kafkaProvider: 'strimzi', kafkaVolumeGiB: 100, clickhouseVolumeGiB: 100, budgetPolicySha256: budget.sha256, budgetKrw: 100000, estimatedKrw: budget.policy.estimated_total, ttlSeconds: 86400, cleanupStartSeconds: 79200, maxTotalRequests: 10000, maxRps: 20, maxRunSeconds: 600, maxAddedStorageBytes: 1073741824, drainTimeoutSeconds: 900, storageVerifyTimeoutSeconds: 900 };
   }
   overrides(request);
   return Buffer.from(JSON.stringify(request, null, 2) + '\n');

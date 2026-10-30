@@ -31,12 +31,13 @@ export function contractEndpoints(outputs?: PerfOutputs): JsonObject {
 }
 
 /**
- * 정리 대상과 보존 자원. 스택은 CloudFormation이, 노드·PVC 볼륨은 소유 태그로 찾는다. evidence bucket만 보존한다.
+ * 정리 대상과 보존 자원. 스택은 CloudFormation이, 노드·PVC 볼륨은 소유 태그로 찾는다. 현행 Strimzi의 evidence/guard/new ECR도 제거하고 과거 MSK evidence만 보존한다.
  * `scripts/perf-inventory.ts`가 같은 목록으로 삭제 뒤 잔존을 확인한다.
  */
 export function cleanupInventory(outputs: PerfOutputs, environmentId: string, extra: JsonObject[] = []): JsonObject[] {
   const owner = `${PERF_ENVIRONMENT_TAG}=${environmentId}`;
-  const stacks = outputs.stacks.filter(stack => stack.name !== 'PerfEvidenceStack' && stack.arn !== null).map(stack => ({
+  const owned = outputs.values.PerfEvidenceCleanupMode === 'owned-24h';
+  const stacks = outputs.stacks.filter(stack => (owned || stack.name !== 'PerfEvidenceStack') && stack.arn !== null).map(stack => ({
     resource_type: 'AWS::CloudFormation::Stack', identifier: stack.arn!, owner_tag: owner, retain: false, reason: null,
   }));
   // CloudFormation 밖에서 Auto Mode·EBS CSI가 만든 자원. 태그가 같으면 이 환경의 것이다.
@@ -47,13 +48,14 @@ export function cleanupInventory(outputs: PerfOutputs, environmentId: string, ex
     resource_type: 'AWS::S3::Bucket', identifier: requiredOutput(outputs, 'EvidenceBucketArn'), owner_tag: `${PERF_EVIDENCE_TAG}=shared`,
     retain: true, reason: 'evidence 보존 기간(프로필 retention.evidence_days) 동안 남긴다. 환경 삭제와 수명을 분리한다',
   };
-  return [...stacks, ...controllers, ...extra, evidence];
+  const createdEcr = owned ? ['soma-376/perf-k6-runner', 'soma-376/perf-tools'].map(identifier => ({ resource_type: 'AWS::ECR::Repository', identifier, owner_tag: owner, retain: false, reason: null })) : [];
+  return [...stacks, ...controllers, ...extra, ...createdEcr, owned ? { ...evidence, owner_tag: owner, retain: false, reason: null } : evidence];
 }
 
-function stackSummary(outputs: PerfOutputs, httpsGateway = false): { stacks: JsonObject[]; errors: JsonObject[]; complete: number } {
+function stackSummary(outputs: PerfOutputs, httpsGateway = false, guarded = false): { stacks: JsonObject[]; errors: JsonObject[]; complete: number } {
   const errors: JsonObject[] = [];
   let complete = 0;
-  for (const name of ['PerfEvidenceStack', 'PerfNetworkStack', 'PerfDataStack', 'PerfEksStack', ...(httpsGateway ? ['PerfEdgeStack'] : [])]) {
+  for (const name of ['PerfEvidenceStack', 'PerfNetworkStack', 'PerfDataStack', 'PerfEksStack', ...(httpsGateway ? ['PerfEdgeStack'] : []), ...(guarded ? ['PerfGuardrailStack'] : [])]) {
     const stack = outputs.stacks.find(item => item.name === name);
     if (!stack || stack.arn === null || stack.status === null) {
       errors.push({ code: 'stack_missing', message: `${name}의 describe-stacks 결과(StackId·StackStatus)가 없다` });
@@ -88,7 +90,7 @@ export function buildProvisional(input: ProvisionalInput): JsonObject {
   if (!SLUG.test(input.deploymentId)) fail('deployment-id: slug가 필요하다');
   if (!UTC.test(input.createdAt)) fail('created-at: UTC ISO 8601(Z)이 필요하다');
   const environmentId = String(requestField(request, ['environment', 'environment_id']));
-  const summary = stackSummary(outputs, Boolean(requestField(request, ['infra', 'parameters', 'certificateArn'])));
+  const summary = stackSummary(outputs, Boolean(requestField(request, ['infra', 'parameters', 'certificateArn'])), Boolean(requestField(request, ['infra', 'parameters', 'budgetPolicySha256'])));
   const base: JsonObject = {
     schema_version: request.schema_version!, kind: 'environment-provisional',
     request_sha256: input.requestSha256, deployment_id: input.deploymentId, environment_id: environmentId,

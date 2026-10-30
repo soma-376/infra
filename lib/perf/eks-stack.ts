@@ -19,6 +19,7 @@ import { perfLogRetention } from './retention';
 export interface PerfEksStackProps extends StackProps {
   readonly profile: PerfProfile;
   readonly httpsGateway?: boolean;
+  readonly cleanupEnabled?: boolean;
   /** 결과 파일 생산자가 요청과 대조할 배포 입력. 값은 비밀이 아니다. */
   readonly provenance: { readonly environmentId: string; readonly profilePath: string; readonly profileSha256: string; readonly parameters: Readonly<Record<string, string | number>> };
   readonly vpc: IVpc;
@@ -125,8 +126,12 @@ export class PerfEksStack extends Stack {
     }));
     const relay = new PerfEksRelay(this, 'Relay', {
       vpc: props.vpc, subnet: props.nodeSubnets[0], securityGroup: props.relaySecurityGroup,
-      clusterEndpoint: this.cluster.attrEndpoint, operatorRole: this.operatorRole,
+      clusterEndpoint: this.cluster.attrEndpoint, operatorRole: this.operatorRole, cleanupEnabled: props.cleanupEnabled,
     });
+    if (props.cleanupEnabled) {
+      relay.role.addToPolicy(new PolicyStatement({ actions: ['eks:DescribeCluster'], resources: [this.cluster.attrArn] }));
+      new CfnAccessEntry(this, 'CleanupAccess', { clusterName: this.cluster.ref, principalArn: relay.role.roleArn, type: 'STANDARD', accessPolicies: [{ policyArn: `arn:${this.partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy`, accessScope: { type: 'cluster' } }] });
+    }
     if (props.httpsGateway) new PerfEksLbc(this, 'Lbc', { clusterName: this.cluster.ref });
     this.access = new PerfEksAccess(this, 'Access', {
       clusterName: this.cluster.ref, operatorRole: this.operatorRole, secrets: props.secrets,

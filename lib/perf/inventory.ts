@@ -18,7 +18,7 @@ export interface ResidualReport {
 
 const DELETED = new Set(['DELETE_COMPLETE']);
 
-export function residualReport(environmentId: string, tagged: JsonValue, stacks: readonly JsonValue[]): ResidualReport {
+export function residualReport(environmentId: string, tagged: JsonValue, stacks: readonly JsonValue[], ownedCleanup = false): ResidualReport {
   if (!isObject(tagged) || !Array.isArray(tagged.ResourceTagMappingList) || tagged.PaginationToken) {
     fail('tagged: pagination이 끝난 get-resources 결과가 필요하다');
   }
@@ -27,7 +27,7 @@ export function residualReport(environmentId: string, tagged: JsonValue, stacks:
   for (const item of tagged.ResourceTagMappingList) {
     if (!isObject(item) || typeof item.ResourceARN !== 'string' || !Array.isArray(item.Tags)) fail('tagged: ResourceARN·Tags가 필요하다');
     const tags = Object.fromEntries(item.Tags.filter(isObject).map(tag => [String(tag.Key), String(tag.Value)]));
-    if (tags[PERF_EVIDENCE_TAG] === 'shared') { retained.push(item.ResourceARN); continue; }
+    if (!ownedCleanup && tags[PERF_EVIDENCE_TAG] === 'shared') { retained.push(item.ResourceARN); continue; }
     if (tags[PERF_ENVIRONMENT_TAG] !== environmentId) fail(`tagged: 다른 환경의 자원이 섞였다: ${item.ResourceARN}`);
     residual.push({ arn: item.ResourceARN, reason: '소유 태그가 남아 있다' });
   }
@@ -37,7 +37,7 @@ export function residualReport(environmentId: string, tagged: JsonValue, stacks:
     for (const stack of document.Stacks) {
       if (!isObject(stack) || typeof stack.StackName !== 'string') fail('stacks: StackName이 필요하다');
       checkedStacks++;
-      if (stack.StackName === 'PerfEvidenceStack') continue;
+      if (!ownedCleanup && stack.StackName === 'PerfEvidenceStack') continue;
       if (!DELETED.has(String(stack.StackStatus))) residual.push({ arn: String(stack.StackId ?? stack.StackName), reason: `스택 상태 ${String(stack.StackStatus)}` });
     }
   }
