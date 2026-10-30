@@ -1065,14 +1065,11 @@
             ],
             "properties": {
               "stage": {
-                "enum": [
-                  "validation",
-                  "canary"
-                ]
+                "const": "perf"
               },
               "targetGroupARN": {
                 "type": "string",
-                "pattern": "^arn:aws:elasticloadbalancing:ap-northeast-2:[0-9]{12}:targetgroup/soma-376-dev-eks-[a-z0-9-]+/[a-f0-9]{16}$"
+                "pattern": "^arn:aws:elasticloadbalancing:ap-northeast-2:[0-9]{12}:targetgroup/soma-376-perf-eks-gateway/[a-f0-9]{16}$"
               },
               "confirmExclusiveOwnership": {
                 "const": true
@@ -1676,19 +1673,6 @@
                   "telemetry-gateway"
                 ]
               },
-              "service": {
-                "properties": {
-                  "type": {
-                    "const": "ClusterIP"
-                  }
-                }
-              },
-              "targetGroupBindings": {
-                "maxItems": 0
-              },
-              "vpcId": {
-                "const": ""
-              },
               "kafka": {
                 "properties": {
                   "topic": {
@@ -1710,11 +1694,6 @@
               {
                 "not": {
                   "anyOf": [
-                    {
-                      "required": [
-                        "nodePort"
-                      ]
-                    },
                     {
                       "required": [
                         "userAuth"
@@ -1813,6 +1792,61 @@
                           "const": null
                         }
                       }
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "service": {
+                      "properties": {
+                        "type": {
+                          "const": "NodePort"
+                        }
+                      }
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "nodePort"
+                  ],
+                  "properties": {
+                    "workload": {
+                      "const": "telemetry-gateway"
+                    },
+                    "nodePort": {
+                      "const": 30082
+                    },
+                    "targetGroupBindings": {
+                      "minItems": 1,
+                      "maxItems": 1
+                    },
+                    "vpcId": {
+                      "minLength": 1
+                    }
+                  }
+                },
+                "else": {
+                  "not": {
+                    "required": [
+                      "nodePort"
+                    ]
+                  },
+                  "properties": {
+                    "service": {
+                      "properties": {
+                        "type": {
+                          "const": "ClusterIP"
+                        }
+                      }
+                    },
+                    "targetGroupBindings": {
+                      "maxItems": 0
+                    },
+                    "vpcId": {
+                      "const": ""
                     }
                   }
                 }

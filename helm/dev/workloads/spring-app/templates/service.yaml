@@ -9,7 +9,7 @@ spec:
   {{- /* ClusterIP는 kafka 모드 ingest의 내부 health 전용이다. 외부 OTLP 노출·TGB가 없다. (ADR-0036) */}}
   type: {{ .Values.service.type }}
   {{- if eq .Values.service.type "NodePort" }}
-  externalTrafficPolicy: Cluster
+  externalTrafficPolicy: {{ if eq (.Values.environment | default "dev") "perf" }}Local{{ else }}Cluster{{ end }}
   {{- end }}
   selector:
     {{- include "pulsemetry.app.selector" . | nindent 4 }}

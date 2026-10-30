@@ -10,6 +10,7 @@ import { Construct } from 'constructs';
 import {
   PERF_EKS_CLUSTER_NAME, PERF_EKS_CONTROL_PLANE_LOG_GROUP, PERF_EKS_OPERATOR_ROLE_NAME, PERF_NAMESPACES,
 } from './config';
+import { PerfEksLbc } from './eks-lbc';
 import { PerfEksAccess } from './eks-access';
 import { PerfEksRelay } from './eks-relay';
 import { perfPoolIds, PerfPoolId, PerfProfile } from './profile';
@@ -17,6 +18,7 @@ import { perfLogRetention } from './retention';
 
 export interface PerfEksStackProps extends StackProps {
   readonly profile: PerfProfile;
+  readonly httpsGateway?: boolean;
   /** 결과 파일 생산자가 요청과 대조할 배포 입력. 값은 비밀이 아니다. */
   readonly provenance: { readonly environmentId: string; readonly profilePath: string; readonly profileSha256: string; readonly parameters: Readonly<Record<string, string | number>> };
   readonly vpc: IVpc;
@@ -125,6 +127,7 @@ export class PerfEksStack extends Stack {
       vpc: props.vpc, subnet: props.nodeSubnets[0], securityGroup: props.relaySecurityGroup,
       clusterEndpoint: this.cluster.attrEndpoint, operatorRole: this.operatorRole,
     });
+    if (props.httpsGateway) new PerfEksLbc(this, 'Lbc', { clusterName: this.cluster.ref });
     this.access = new PerfEksAccess(this, 'Access', {
       clusterName: this.cluster.ref, operatorRole: this.operatorRole, secrets: props.secrets,
       rawSignalBucket: props.rawSignalBucket, evidenceBucket: props.evidenceBucket,

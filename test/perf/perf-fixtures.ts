@@ -27,6 +27,12 @@ function fixtureValue(key: string, index: number): string {
   if (key.endsWith('RoleName')) return `PerfEksStack-${key}-fixture`;
   if (key.endsWith('SecurityGroupId')) return `sg-0123456789abcd${index.toString(16).padStart(3, '0')}`;
   const fixed: Record<string, string> = {
+    PerfAlbArn: `arn:aws:elasticloadbalancing:ap-northeast-2:${ACCOUNT}:loadbalancer/app/perf-fixture/0123456789abcdef`,
+    PerfAlbDnsName: 'perf-fixture.ap-northeast-2.elb.amazonaws.com',
+    PerfGatewayTargetGroupArn: `arn:aws:elasticloadbalancing:ap-northeast-2:${ACCOUNT}:targetgroup/soma-376-perf-eks-gateway/0123456789abcdef`,
+    PerfWafArn: `arn:aws:wafv2:ap-northeast-2:${ACCOUNT}:regional/webacl/soma-376-perf/01234567-0123-0123-0123-0123456789ab`,
+    PerfWafLogGroupName: 'aws-waf-logs-soma-376-perf',
+    PerfAlbAccessLogBucket: 'perf-edge-accesslogs-fixture', PerfNatPublicIps: '198.51.100.42',
     DbEndpoint: 'perfpostgres.abcdefghijkl.ap-northeast-2.rds.amazonaws.com',
     DbInstanceArn: `arn:aws:rds:ap-northeast-2:${ACCOUNT}:db:perfpostgres-fixture`,
     MskClusterArn: `arn:aws:kafka:ap-northeast-2:${ACCOUNT}:cluster/soma-376-perf-telemetry/0d5e7a10-1b2c-4d3e-8f90-a1b2c3d4e5f6-2`,

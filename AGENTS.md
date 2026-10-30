@@ -794,3 +794,5 @@ Template.fromStack(edge).hasResourceProperties('AWS::ElasticLoadBalancingV2::Lis
 - 공유 dev workload/Kafka chart 기본 렌더는 유지한다. perf에만 namespace·고정 전용 pool·topic/group을 바꾼다. 스택 테스트는 `buildPerfApp()` 팩토리를 사용한다.
 - 승인 상한은 100,000원·24시간 내 생성/seed/시험/삭제, 총 10,000요청·20RPS·실행당 600초·추가 저장 1GiB다. PROJ-294의 budget/cleanup gate 전 배포 금지; Retain은 정리 완료가 아니다.
 - 후속 별도 PR: PROJ-293 공개 HTTPS/WAF, PROJ-294 실행 예산/24시간 정리, PROJ-295 합성 데이터, PROJ-296 발생기 관측, PROJ-297 Strimzi drain 증거, PROJ-298 외부 API/DB 기준선.
+
+- PROJ-293 공개 경로는 [ADR 0051](docs/adr/0051-perf-https-edge-to-shared-gateway.md)을 따른다. runtime `perfCertificateArn`이 있을 때만 Edge/LBC를 만들고 공유 ACM은 참조만 한다. public host는 perf-api.pulsemetry.co.kr, 같은 Gateway NodePort/Pod를 사용하며 자체 NAT EIP만 받는다. WAF source Allow shortcut 금지; dev OTLP managed/rate/query 의미와 동등성 테스트를 유지한다. DNS 등록·실제 HTTPS/target health는 별도 증거가 필요하다.

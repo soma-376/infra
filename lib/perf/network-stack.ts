@@ -1,8 +1,9 @@
 import { Stack, StackProps } from 'aws-cdk-lib/core';
 import {
-  GatewayVpcEndpointAwsService, IpAddresses, ISubnet, Peer, Port, SecurityGroup, SubnetType, Vpc,
+  CfnEIP, GatewayVpcEndpointAwsService, IpAddresses, ISubnet, Peer, Port, SecurityGroup, SubnetType, Vpc,
 } from 'aws-cdk-lib/aws-ec2';
 import { Construct } from 'constructs';
+import { PERF_GATEWAY_NODE_PORT } from './edge-config';
 import { PERF_MSK_IAM_PORT, PERF_PORTS } from './config';
 import { PERF_POOL_IDS, PerfPoolId } from './profile';
 
@@ -12,6 +13,7 @@ export interface PerfNetworkStackProps extends StackProps {
   readonly nodeAvailabilityZone: string;
   readonly natGateways: number;
   readonly kafkaProvider?: 'strimzi';
+  readonly httpsGateway?: boolean;
 }
 
 /** subnet 그룹 이름. CloudFormation logical ID와 subnet 선택이 이 이름을 쓴다. */
@@ -22,7 +24,7 @@ export const PERF_AVAILABILITY_ZONES = ['ap-northeast-2a', 'ap-northeast-2b', 'a
  * PerfNetworkStack: perf 전용 VPC와 모든 SG·cross-SG 규칙.
  *
  * **SG와 cross-SG 규칙은 이 스택에만 둔다.** prod·dev NetworkStack과 같은 불변 규칙이다(AGENTS.md 3장, ADR-0022 2번).
- * 노드·도구는 private subnet에 두고 NAT와 S3 gateway endpoint로만 나간다. 공개 listener·public IP 노드는 없다.
+ * 노드·도구는 private subnet에 두고 NAT와 S3 gateway endpoint로 나간다. 노드는 public IP가 없고 선택적 공개 listener는 Edge가 소유한다.
  *
  * 노드 SG는 공통 SG 하나와 pool별 SG 하나를 함께 붙인다. 공통 SG는 control plane·DNS·노드 수준 scrape만 받고,
  * 업무 포트는 pool SG가 출발 pool을 지정해 받는다. Pod는 노드 SG를 쓰므로 이 규칙이 Pod 사이 경계다.
@@ -38,6 +40,8 @@ export class PerfNetworkStack extends Stack {
   public readonly nodeSecurityGroup: SecurityGroup;
   public readonly poolSecurityGroups: Readonly<Record<PerfPoolId, SecurityGroup>>;
   public readonly rdsSecurityGroup: SecurityGroup;
+  public readonly albSecurityGroup?: SecurityGroup;
+  public readonly natPublicIps: readonly string[];
   public readonly mskSecurityGroup?: SecurityGroup;
   private readonly poolIds: readonly PerfPoolId[];
 
@@ -63,6 +67,8 @@ export class PerfNetworkStack extends Stack {
         ...(props.kafkaProvider === 'strimzi' ? [] : [{ name: PERF_SUBNET_GROUPS.msk, subnetType: SubnetType.PRIVATE_ISOLATED, cidrMask: 24 }]),
       ],
     });
+    this.natPublicIps = this.vpc.node.findAll().filter((node): node is CfnEIP => node instanceof CfnEIP).map(ip => ip.attrPublicIp);
+    if (this.natPublicIps.length !== props.natGateways) throw new Error('perf NAT EIP 수가 설정과 다르다');
     this.vpc.addGatewayEndpoint('S3Endpoint', {
       service: GatewayVpcEndpointAwsService.S3,
       subnets: [{ subnetGroupName: PERF_SUBNET_GROUPS.private }],
@@ -85,6 +91,13 @@ export class PerfNetworkStack extends Stack {
     ])) as Record<PerfPoolId, SecurityGroup>;
     this.rdsSecurityGroup = sg('PerfRdsSg', 'perf RDS PostgreSQL', false);
     if (props.kafkaProvider !== 'strimzi') this.mskSecurityGroup = sg('PerfMskSg', 'perf MSK brokers', false);
+    if (props.httpsGateway) {
+      this.albSecurityGroup = sg('PerfAlbSg', 'perf HTTPS ALB from generator NAT only', false);
+      for (const ip of this.natPublicIps) this.albSecurityGroup.addIngressRule(Peer.ipv4(`${ip}/32`), Port.tcp(443), 'HTTPS from perf NAT');
+      this.albSecurityGroup.addEgressRule(this.poolSecurityGroups.gateway, Port.tcp(PERF_GATEWAY_NODE_PORT), 'Gateway target and health checks');
+      this.poolSecurityGroups.gateway.addIngressRule(this.albSecurityGroup, Port.tcp(PERF_GATEWAY_NODE_PORT), 'HTTPS ALB to Gateway NodePort');
+      this.poolSecurityGroups.system.addIngressRule(this.controlPlaneSecurityGroup, Port.tcp(9443), 'LBC admission webhook');
+    }
     this.wire();
   }
 

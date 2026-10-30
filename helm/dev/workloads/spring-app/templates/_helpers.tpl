@@ -30,11 +30,15 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- fail (printf "namespace는 %s여야 한다" $namespace) -}}
 {{- end -}}
 {{- if $perf -}}
-{{- /* perf에는 ALB·TGB·dashboard·사용자 JWT·OIDC를 설치하지 않는다(PLAN §4.2). 배치는 프로필의 NodePool이 정한다. */ -}}
+{{- /* perf 공개 경로는 Gateway에만 열고 배치는 프로필의 NodePool이 정한다(ADR-0051). */ -}}
 {{- if eq .Values.workload "dashboard-api" -}}{{- fail "perf에는 dashboard-api를 설치하지 않는다" -}}{{- end -}}
-{{- if or .Values.targetGroupBindings .Values.nodePort -}}{{- fail "perf에는 TGB·NodePort가 없다" -}}{{- end -}}
+{{- if eq .Values.service.type "NodePort" -}}
+{{- if or (ne .Values.workload "telemetry-gateway") (ne (int .Values.nodePort) 30082) (ne (len .Values.targetGroupBindings) 1) -}}{{- fail "perf NodePort는 Gateway 30082와 TGB 하나만 허용한다" -}}{{- end -}}
+{{- else -}}
+{{- if or .Values.targetGroupBindings .Values.nodePort -}}{{- fail "perf 내부 Service에는 TGB·NodePort가 없다" -}}{{- end -}}
+{{- end -}}
 {{- if or .Values.jwt.enabled .Values.userAuth (hasKey .Values "oidc") -}}{{- fail "perf에는 사용자 JWT·OIDC 설정을 공급하지 않는다" -}}{{- end -}}
-{{- if ne .Values.service.type "ClusterIP" -}}{{- fail "perf Service는 ClusterIP다" -}}{{- end -}}
+{{- if not (has .Values.service.type (list "ClusterIP" "NodePort")) -}}{{- fail "perf Service는 ClusterIP 또는 Gateway NodePort다" -}}{{- end -}}
 {{- $_ := required "perf에는 placement.nodePool이 필요하다" (.Values.placement | default dict).nodePool -}}
 {{- if and (ne .Values.workload "enrollment-api") (ne (int .Values.replicaCount) 1) -}}{{- fail "perf에서 replica 0은 enrollment-api만 쓴다" -}}{{- end -}}
 {{- else if .Values.placement -}}

@@ -1,5 +1,6 @@
 import { checkBundle, hasSecretLiteral } from './contract/bundle';
 import { JsonValue, Schemas, environmentSchemas } from './contract/schema-subset';
+import { PERF_GATEWAY_HTTPS } from './edge-config';
 import { CONTROL_DB_NAME } from '../common/config';
 import { PerfStrimziMetadata, strimziState } from './strimzi';
 import {
@@ -20,8 +21,10 @@ const COMPLETE = new Set(['CREATE_COMPLETE', 'UPDATE_COMPLETE', 'IMPORT_COMPLETE
 const UTC = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?Z$/;
 const SLUG = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
 
-export function contractEndpoints(): JsonObject {
+export function contractEndpoints(outputs?: PerfOutputs): JsonObject {
+  if (outputs?.values.GatewayHttpsUrl && outputs.values.GatewayHttpsUrl !== PERF_GATEWAY_HTTPS) fail('GatewayHttpsUrl이 고정 perf HTTPS origin과 다르다');
   return {
+    ...(outputs?.values.GatewayHttpsUrl ? { gateway_https: PERF_GATEWAY_HTTPS } : {}),
     gateway: PERF_ENDPOINTS.gateway, enrollment: PERF_ENDPOINTS.enrollment,
     clickhouse_http: PERF_ENDPOINTS.clickhouse, prometheus_remote_write: PERF_ENDPOINTS.remoteWrite,
   };
@@ -47,10 +50,10 @@ export function cleanupInventory(outputs: PerfOutputs, environmentId: string, ex
   return [...stacks, ...controllers, ...extra, evidence];
 }
 
-function stackSummary(outputs: PerfOutputs): { stacks: JsonObject[]; errors: JsonObject[]; complete: number } {
+function stackSummary(outputs: PerfOutputs, httpsGateway = false): { stacks: JsonObject[]; errors: JsonObject[]; complete: number } {
   const errors: JsonObject[] = [];
   let complete = 0;
-  for (const name of ['PerfEvidenceStack', 'PerfNetworkStack', 'PerfDataStack', 'PerfEksStack']) {
+  for (const name of ['PerfEvidenceStack', 'PerfNetworkStack', 'PerfDataStack', 'PerfEksStack', ...(httpsGateway ? ['PerfEdgeStack'] : [])]) {
     const stack = outputs.stacks.find(item => item.name === name);
     if (!stack || stack.arn === null || stack.status === null) {
       errors.push({ code: 'stack_missing', message: `${name}의 describe-stacks 결과(StackId·StackStatus)가 없다` });
@@ -85,7 +88,7 @@ export function buildProvisional(input: ProvisionalInput): JsonObject {
   if (!SLUG.test(input.deploymentId)) fail('deployment-id: slug가 필요하다');
   if (!UTC.test(input.createdAt)) fail('created-at: UTC ISO 8601(Z)이 필요하다');
   const environmentId = String(requestField(request, ['environment', 'environment_id']));
-  const summary = stackSummary(outputs);
+  const summary = stackSummary(outputs, Boolean(requestField(request, ['infra', 'parameters', 'certificateArn'])));
   const base: JsonObject = {
     schema_version: request.schema_version!, kind: 'environment-provisional',
     request_sha256: input.requestSha256, deployment_id: input.deploymentId, environment_id: environmentId,
@@ -106,7 +109,7 @@ export function buildProvisional(input: ProvisionalInput): JsonObject {
       cluster_arn: requiredOutput(outputs, 'EksClusterArn'), cluster_name: deployment.clusterName,
       namespaces: { app: PERF_NAMESPACES.app, observability: PERF_NAMESPACES.observability, runner: PERF_NAMESPACES.runner },
     },
-    endpoints: contractEndpoints(),
+    endpoints: contractEndpoints(outputs),
     lock: { ...PERF_LOCK },
     cleanup_inventory: cleanupInventory(outputs, environmentId),
     errors: [],
@@ -379,7 +382,7 @@ export function buildResolved(input: ResolvedInput): JsonObject {
       raw_signal_bucket: { arn: requiredOutput(outputs, 'RawSignalBucketArn'), prefix: `${PERF_ARCHIVE_PREFIX}/`, retention_days: profile.profile.retention.raw_signal_days },
       evidence_bucket: { arn: requiredOutput(outputs, 'EvidenceBucketArn'), prefix: PERF_EVIDENCE_PREFIX, retention_days: profile.profile.retention.evidence_days },
     },
-    endpoints: contractEndpoints(),
+    endpoints: contractEndpoints(outputs),
     access: {
       operator_role_ref: requiredOutput(outputs, 'EksOperatorRoleName'), verifier_role_ref: requiredOutput(outputs, 'VerifierRoleName'),
       runner_service_account: PERF_SERVICE_ACCOUNTS.runner,
