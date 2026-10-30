@@ -16,7 +16,7 @@
 1. 프론트 Faro SDK PR을 먼저 배포한다. 환경변수가 없으므로 비활성이다.
 2. infra PR의 bootstrap plan/승인/apply를 진행한다. 추가 IAM 권한과 대시보드 SSM 스크립트가 준비된다.
 3. dev Terraform plan/승인/apply로 수신기·SG·앱 환경변수를 반영한다. 준비 중에는 RUM 수집 실패가 있을 수 있으나 앱 기능을 차단하지 않는다.
-4. Frontend Dashboards 워크플로에서 `rum.json` 배포를 확인한다. bootstrap보다 먼저 실행되면 기존 허용목록 검증에 실패하므로 bootstrap 완료 후 재실행한다.
+4. Terraform apply 성공 후 재사용 호출되는 Frontend Dashboards에서 `rum.json` 배포를 확인한다. bootstrap/runtime 동반 변경은 독립 push 배포를 건너뛰며, JSON만 변경하면 독립 배포한다. 실패 복구 시 Terraform 완료를 확인한 뒤 Frontend Dashboards를 수동 실행한다.
 5. Chrome에서 페이지 진입·클릭 후 탭을 숨기고 `Pulsemetry · Browser RUM`의 dev 수신을 확인한다.
 
 prod 설정은 바뀌지 않는다. runtime apply·실제 dev 수신은 PR 머지 이후 별도 검증 사항이다.

@@ -97,3 +97,13 @@ jobs:
       - name: 로컬 계획 제거
         if: always()
         run: rm -f frontend.tfplan
+
+  dashboards:
+    needs: apply
+    if: github.ref == 'refs/heads/develop'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/frontend-dashboards.yml
+    with:
+      after_apply: true

@@ -5,6 +5,7 @@ on:
       - 'frontend/observability/dashboards/**'
       - 'frontend/scripts/*dashboards*.py'
       - 'frontend/scripts/dashboard-release.py'
+      - 'frontend/scripts/*dashboard-deploy-route.py'
       - '.github/workflows/frontend-dashboards.yml'
   push:
     branches: [develop]
@@ -12,27 +13,45 @@ on:
       - 'frontend/observability/dashboards/**'
       - 'frontend/scripts/*dashboards*.py'
       - 'frontend/scripts/dashboard-release.py'
+      - 'frontend/scripts/*dashboard-deploy-route.py'
       - '.github/workflows/frontend-dashboards.yml'
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      after_apply:
+        type: boolean
+        default: false
 permissions:
   contents: read
-# Terraform dev apply와 동일 그룹으로 직렬화한다. 실행 순서는 보장하지 않으므로
-# 신규 EC2 최초 생성 후에는 수동 재실행한다. 정상 JSON 변경에는 Terraform apply가 없다.
+# Terraform과 함께 바뀌면 push 배포를 건너뛰고 apply 성공 후 재사용 호출한다.
+# 독립 배포는 Terraform 잠금을 공유한다. 부모가 잠금을 가진 재사용 호출만 별도 그룹으로 자기 대기를 피한다.
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('frontend-dashboards-pr-{0}', github.event.pull_request.number) || 'frontend-apply-develop' }}
+  group: ${{ github.event_name == 'pull_request' && format('frontend-dashboards-pr-{0}', github.event.pull_request.number) || (inputs.after_apply && 'frontend-dashboards-after-apply' || 'frontend-apply-develop') }}
   cancel-in-progress: false
 jobs:
   validate:
+    outputs:
+      deploy: ${{ steps.route.outputs.deploy }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: 배포 경로 결정
+        id: route
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          AFTER_APPLY: ${{ inputs.after_apply }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: python3 frontend/scripts/dashboard-deploy-route.py
+      - run: python3 frontend/scripts/test-dashboard-deploy-route.py
       - run: python3 frontend/scripts/deploy-dashboards.py
       - run: python3 frontend/scripts/test-dashboards.py
   deploy:
     needs: validate
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/develop'
+    if: needs.validate.outputs.deploy == 'true' && github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: frontend-dashboards
