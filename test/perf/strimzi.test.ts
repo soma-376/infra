@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { resolve, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { load, loadAll, dump } from 'js-yaml';
 import { Template } from 'aws-cdk-lib/assertions';
 import { buildPerfApp } from '../helpers';
@@ -8,7 +9,8 @@ import { collectPerfOutputs, parsePerfRuntimeInput, parseInputYaml, sha256 } fro
 import { loadPerfProfile, parsePerfProfile } from '../../lib/perf/profile';
 import { PERF_STRIMZI, STRIMZI_CLIENT_ROLES, parsePerfStrimziMetadata, strimziUser, strimziState } from '../../lib/perf/strimzi';
 import { buildProvisional, buildResolved, kubeItems, checkResolved } from '../../lib/perf/results';
-import { generatePerfValues } from '../../lib/perf/values';
+import { generatePerfFoundationValues, generatePerfValues } from '../../lib/perf/values';
+import { main as valuesCli } from '../../scripts/perf-values';
 import { environmentSchemas } from '../../lib/perf/contract/schema-subset';
 import { describeStacks, perfRequest, kubernetesState, RUNTIME_VALUES, ENVIRONMENT_ID } from './perf-fixtures';
 
@@ -63,6 +65,32 @@ test('v3 values에는 mTLS 참조와 provider가 있고 MSK 입력을 섞지 않
   expect(values['telemetry-gateway.yaml'].kafka).toMatchObject({ security: 'mtls', ...metadata().clients.gateway });
   expect(values['platform.yaml'].pools.kafka.nodes).toBe(3);
   expect(() => generatePerfValues({ request, outputs, profile, runtime: parsePerfRuntimeInput(parseInputYaml(RUNTIME_VALUES, 'runtime')), strimziMetadata: metadata(), bootstrapServers: 'b-1:9098' })).toThrow();
+});
+
+test('최초 foundation은 실제 Secret metadata 없이 platform·Kafka만 만들고 full 결과와 같다', () => {
+  const initial = generatePerfFoundationValues({ request, outputs, profile });
+  expect(Object.keys(initial).sort()).toEqual(['kafka-strimzi.yaml', 'platform.yaml']);
+  const full = generated();
+  for (const name of Object.keys(initial)) expect(initial[name]).toEqual(full[name]);
+  expect(() => generatePerfValues({ request, outputs, profile, runtime: parsePerfRuntimeInput(parseInputYaml(RUNTIME_VALUES, 'runtime')) })).toThrow(/metadata/);
+  const changed = structuredClone(request); changed.environment.environment_id = 'perf-other';
+  expect(() => generatePerfFoundationValues({ request: changed, outputs, profile })).toThrow(/environment_id/);
+});
+
+test('foundation CLI는 runtime 혼합·알 수 없는 단계·MSK·이전 출력 폴더를 거부한다', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'perf-foundation-'));
+  const write = (name: string, value: string) => { const file = join(directory, name); writeFileSync(file, value); return file; };
+  const args = ['--request', write('request.json', requestBytes.toString()), '--outputs', write('stacks.json', JSON.stringify(describeStacks({}, { perfProfile: profilePath }))), '--output-dir', join(directory, 'foundation')];
+  const quiet = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+  try {
+    expect(() => valuesCli([...args, '--phase', 'other'])).toThrow(/--phase/);
+    expect(() => valuesCli([...args, '--phase', 'foundation', '--strimzi-secrets', 'unused.json'])).toThrow(/foundation/);
+    expect(valuesCli([...args, '--phase', 'foundation']).sort()).toEqual(['kafka-strimzi.yaml', 'platform.yaml']);
+    expect(readdirSync(join(directory, 'foundation')).sort()).toEqual(['kafka-strimzi.yaml', 'platform.yaml']);
+    expect(() => valuesCli([...args, '--phase', 'foundation'])).toThrow(/빈 디렉터리/);
+    write('request.json', perfRequest().toString()); write('stacks.json', JSON.stringify(describeStacks()));
+    expect(() => valuesCli([...args, '--phase', 'foundation'])).toThrow(/Strimzi/);
+  } finally { quiet.mockRestore(); rmSync(directory, { recursive: true, force: true }); }
 });
 
 const helm = process.env.HELM_BIN;

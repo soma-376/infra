@@ -118,6 +118,41 @@ export interface PerfValuesInput {
   readonly strimziMetadata?: PerfStrimziMetadata;
 }
 
+/** 최초 Strimzi Secret 생성 전에도 필요한 platform·Kafka 선언. 앱/runtime은 포함하지 않는다. */
+function foundationValues(outputs: PerfOutputs, profile: LoadedPerfProfile, deployment: PerfDeployment): Record<string, Record<string, unknown>> {
+  const p = profile.profile;
+  const strimzi = p.kafka_provider === 'strimzi';
+  const out = (key: string, pattern?: RegExp) => requiredOutput(outputs, key, pattern);
+  const sg = /^sg-[a-f0-9]{8,17}$/;
+  const pools = Object.fromEntries(perfPoolIds(p).map(id => {
+    const pool = p.node_pools[id];
+    const key = `${id.charAt(0).toUpperCase()}${id.slice(1)}PoolSecurityGroupId`;
+    return [id, { securityGroupId: out(key, sg), instanceType: pool.instance_type, nodes: pool.nodes, dedicated: pool.dedicated, ephemeralStorageGiB: pool.ephemeral_storage_gib }];
+  }));
+  const subnetIds = out('EksNodeSubnetIds').split(',');
+  if (subnetIds.length !== 1 || !/^subnet-[a-f0-9]{8,17}$/.test(subnetIds[0])) fail('EksNodeSubnetIds는 노드 AZ의 subnet 하나다');
+  if (out('EksNodeAvailabilityZone') !== p.availability_zone) fail('EksNodeAvailabilityZone이 프로필 AZ와 다르다');
+  return {
+    ...(strimzi ? { 'kafka-strimzi.yaml': { environment: 'perf', clusterName: PERF_STRIMZI.cluster, stage: 'perf', availabilityZone: p.availability_zone, volumeGiB: p.strimzi!.volume_gib } } : {}),
+    'platform.yaml': {
+      environmentId: deployment.environmentId, nodeRoleName: out('EksNodeRoleName', /^[A-Za-z0-9_+=,.@-]{1,64}$/),
+      availabilityZone: p.availability_zone, subnetIds, nodeSecurityGroupId: out('EksNodeSecurityGroupId', sg), pools,
+      clickhouseStorage: { iops: p.clickhouse.iops, throughputMiBps: p.clickhouse.throughput_mibps }, disruptionBudgetNodes: '0',
+    },
+  };
+}
+
+export function generatePerfFoundationValues(input: Pick<PerfValuesInput, 'outputs' | 'profile' | 'request'>): Record<string, Record<string, unknown>> {
+  const { outputs, profile, request } = input;
+  const deployment = checkDeployment(outputs, profile, request);
+  if (profile.profile.kafka_provider !== 'strimzi') fail('foundation 단계는 v3 Strimzi 환경 전용이다');
+  if (requiredOutput(outputs, 'KafkaProvider') !== 'strimzi' || requiredOutput(outputs, 'KafkaClusterName') !== PERF_STRIMZI.cluster
+    || requiredOutput(outputs, 'KafkaTopicName') !== PERF_MSK.topic || requiredOutput(outputs, 'KafkaConsumerGroupName') !== PERF_MSK.consumerGroup) {
+    fail('Strimzi 배포 이름이 perf 계약과 다르다');
+  }
+  return foundationValues(outputs, profile, deployment);
+}
+
 /** 파일 이름 → values. 입력 순서는 helm/perf/README.md의 설치 순서와 같다. */
 export function generatePerfValues(input: PerfValuesInput): Record<string, Record<string, unknown>> {
   const { outputs, profile, request, runtime } = input;
@@ -130,7 +165,6 @@ export function generatePerfValues(input: PerfValuesInput): Record<string, Recor
   if (!strimzi && (!input.bootstrapServers || !input.mskBrokers || input.strimziMetadata)) fail('MSK에는 bootstrap·nodes가 필요하며 Strimzi metadata는 금지한다');
   const bootstrapServers = strimzi ? PERF_STRIMZI.bootstrap : input.bootstrapServers!;
   const out = (key: string, pattern?: RegExp) => requiredOutput(outputs, key, pattern);
-  const sg = /^sg-[a-f0-9]{8,17}$/;
   const images = isObject(request.images) ? request.images : {};
   const appImages = Object.fromEntries(APP_IMAGES.map(key => [key, image(images[key], `request images.${key}`)]));
   const dbEndpoint = out('DbEndpoint', /^[a-z0-9.-]+\.rds\.amazonaws\.com$/);
@@ -161,14 +195,6 @@ export function generatePerfValues(input: PerfValuesInput): Record<string, Recor
   });
   const jvm = runtime.jvmGcSafepointLog ? { jvm: { gcSafepointLog: true } } : {};
   const commonFiles = ['PULSEMETRY_DB_USERNAME', 'PULSEMETRY_DB_PASSWORD', 'PULSEMETRY_TOKEN_HASH_SECRET'];
-  const pools = Object.fromEntries(perfPoolIds(p).map(id => {
-    const pool = p.node_pools[id];
-    const key = `${id.charAt(0).toUpperCase()}${id.slice(1)}PoolSecurityGroupId`;
-    return [id, { securityGroupId: out(key, sg), instanceType: pool.instance_type, nodes: pool.nodes, dedicated: pool.dedicated, ephemeralStorageGiB: pool.ephemeral_storage_gib }];
-  }));
-  const subnetIds = out('EksNodeSubnetIds').split(',');
-  if (subnetIds.length !== 1 || !/^subnet-[a-f0-9]{8,17}$/.test(subnetIds[0])) fail('EksNodeSubnetIds는 노드 AZ의 subnet 하나다');
-  if (out('EksNodeAvailabilityZone') !== p.availability_zone) fail('EksNodeAvailabilityZone이 프로필 AZ와 다르다');
   const jobs = Object.fromEntries(PERF_JOB_IDS.map((id: PerfJobId) => {
     const job = p.jobs[id];
     const pool: PerfPoolId = job.node_pool;
@@ -184,12 +210,7 @@ export function generatePerfValues(input: PerfValuesInput): Record<string, Recor
   const observabilityRelabel = [{ targetLabel: 'cluster', replacement: deployment.clusterName }, { targetLabel: 'environment', replacement: 'perf' }];
 
   return {
-    ...(strimzi ? { 'kafka-strimzi.yaml': { environment: 'perf', clusterName: PERF_STRIMZI.cluster, stage: 'perf', availabilityZone: p.availability_zone, volumeGiB: p.strimzi!.volume_gib } } : {}),
-    'platform.yaml': {
-      environmentId: deployment.environmentId, nodeRoleName: out('EksNodeRoleName', /^[A-Za-z0-9_+=,.@-]{1,64}$/),
-      availabilityZone: p.availability_zone, subnetIds, nodeSecurityGroupId: out('EksNodeSecurityGroupId', sg), pools,
-      clickhouseStorage: { iops: p.clickhouse.iops, throughputMiBps: p.clickhouse.throughput_mibps }, disruptionBudgetNodes: '0',
-    },
+    ...foundationValues(outputs, profile, deployment),
     'runtime.yaml': {
       region: 'ap-northeast-2',
       secrets: {
