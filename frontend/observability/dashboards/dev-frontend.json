@@ -395,14 +395,14 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(container_memory_usage_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"}) and on(service_instance_id) (frontend_container_collection_success{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"} == 1)",
-          "legendFormat": "사용량 · {{service_instance_id}}",
+          "expr": "(container_memory_usage_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\"}) and on(service_instance_id) (frontend_container_collection_success{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\"} == 1)",
+          "legendFormat": "사용량 · {{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
           "range": true
         },
         {
           "refId": "B",
-          "expr": "(container_memory_limit_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"}) and on(service_instance_id) (frontend_container_collection_success{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"} == 1)",
-          "legendFormat": "한도 · {{service_instance_id}}",
+          "expr": "(container_memory_limit_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\"}) and on(service_instance_id) (frontend_container_collection_success{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\"} == 1)",
+          "legendFormat": "한도 · {{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
           "range": true
         }
       ],
@@ -441,8 +441,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(100 * container_memory_usage_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"} / container_memory_limit_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"}) and on(service_instance_id) (frontend_container_collection_success{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"} == 1)",
-          "legendFormat": "사용률 · {{service_instance_id}}",
+          "expr": "(100 * container_memory_usage_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\"} / container_memory_limit_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\"}) and on(service_instance_id) (frontend_container_collection_success{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\"} == 1)",
+          "legendFormat": "사용률 · {{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
           "range": true
         }
       ],
@@ -471,7 +471,7 @@
       },
       "id": 18,
       "options": {
-        "content": "앱 배치는 ECS 태스크 목록에서 확인합니다. Node 지표에는 AZ·EC2 라벨이 없어 상단 OS 필터가 적용되지 않습니다. service_instance_id는 프로세스 시작마다 바뀌는 ID입니다. RSS는 프로세스 상주 메모리, 힙 사용 비율은 확보한 힙 대비 비율이며 컨테이너 한도 대비 비율이 아닙니다.",
+        "content": "Node·컨테이너 지표는 앱 AZ·ECS 태스크 필터로 선택합니다. 범례는 AZ · 태스크 ID · 프로세스 ID 순서입니다. EC2·OS 필터와 별개이며 요청·로그 패널에는 앱 필터가 적용되지 않습니다. 메타데이터 미수집·이전 데이터는 앱 필터 All에서 확인할 수 있습니다. service_instance_id는 Node 시작마다 바뀝니다. 힙 비율은 컨테이너 한도 대비 비율이 아닙니다.",
         "mode": "markdown"
       },
       "title": "dev Node.js · 프로세스별 자원",
@@ -508,9 +508,9 @@
       },
       "targets": [
         {
-          "expr": "rate(frontend_node_cpu_time_seconds_total{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"}[1m])",
+          "expr": "rate(frontend_node_cpu_time_seconds_total{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\"}[1m])",
           "instant": false,
-          "legendFormat": "{{service_instance_id}}",
+          "legendFormat": "{{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
           "range": true,
           "refId": "A"
         }
@@ -562,8 +562,8 @@
       },
       "targets": [
         {
-          "expr": "frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",kind=~\"rss\"}",
-          "legendFormat": "{{kind}} · {{service_instance_id}}",
+          "expr": "frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\",kind=~\"rss\"}",
+          "legendFormat": "{{kind}} · {{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
           "range": true,
           "refId": "A"
         }
@@ -602,8 +602,8 @@
       },
       "targets": [
         {
-          "expr": "frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",kind=~\"heapUsed|heapTotal\"}",
-          "legendFormat": "{{kind}} · {{service_instance_id}}",
+          "expr": "frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\",kind=~\"heapUsed|heapTotal\"}",
+          "legendFormat": "{{kind}} · {{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
           "range": true,
           "refId": "A"
         }
@@ -642,8 +642,8 @@
       },
       "targets": [
         {
-          "expr": "frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",kind=~\"external|arrayBuffers\"}",
-          "legendFormat": "{{kind}} · {{service_instance_id}}",
+          "expr": "frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\",kind=~\"external|arrayBuffers\"}",
+          "legendFormat": "{{kind}} · {{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
           "range": true,
           "refId": "A"
         }
@@ -695,8 +695,8 @@
       },
       "targets": [
         {
-          "expr": "1000 * nodejs_eventloop_lag_p95_seconds{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"}",
-          "legendFormat": "{{service_instance_id}}",
+          "expr": "1000 * nodejs_eventloop_lag_p95_seconds{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\"}",
+          "legendFormat": "{{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
           "refId": "A",
           "range": true
         }
@@ -735,8 +735,8 @@
       },
       "targets": [
         {
-          "expr": "1000 * nodejs_eventloop_lag_max_seconds{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"}",
-          "legendFormat": "{{service_instance_id}}",
+          "expr": "1000 * nodejs_eventloop_lag_max_seconds{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\"}",
+          "legendFormat": "{{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
           "refId": "A",
           "range": true
         }
@@ -775,8 +775,8 @@
       },
       "targets": [
         {
-          "expr": "nodejs_eventloop_utilization{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"}",
-          "legendFormat": "{{service_instance_id}}",
+          "expr": "nodejs_eventloop_utilization{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\"}",
+          "legendFormat": "{{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
           "refId": "A",
           "range": true
         }
@@ -821,8 +821,8 @@
           },
           "targets": [
             {
-              "expr": "frontend_node_heap_space_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",kind=\"used\"}",
-              "legendFormat": "{{space}} · {{service_instance_id}}",
+              "expr": "frontend_node_heap_space_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\",kind=\"used\"}",
+              "legendFormat": "{{space}} · {{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
               "refId": "A",
               "range": true
             }
@@ -861,8 +861,8 @@
           },
           "targets": [
             {
-              "expr": "frontend_node_heap_space_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",kind=\"total\"}",
-              "legendFormat": "{{space}} · {{service_instance_id}}",
+              "expr": "frontend_node_heap_space_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\",kind=\"total\"}",
+              "legendFormat": "{{space}} · {{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
               "refId": "A",
               "range": true
             }
@@ -901,8 +901,8 @@
           },
           "targets": [
             {
-              "expr": "frontend_node_heap_space_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",kind=\"available\"}",
-              "legendFormat": "{{space}} · {{service_instance_id}}",
+              "expr": "frontend_node_heap_space_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\",kind=\"available\"}",
+              "legendFormat": "{{space}} · {{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
               "refId": "A",
               "range": true
             }
@@ -931,8 +931,8 @@
           "id": 26,
           "targets": [
             {
-              "expr": "100 * frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",kind=\"heapUsed\"} / ignoring(kind) frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",kind=\"heapTotal\"}",
-              "legendFormat": "{{service_instance_id}}",
+              "expr": "100 * frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\",kind=\"heapUsed\"} / ignoring(kind) frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\",kind=\"heapTotal\"}",
+              "legendFormat": "{{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
               "refId": "A"
             }
           ],
@@ -1298,6 +1298,48 @@
         "multi": true,
         "includeAll": true,
         "allValue": ".+",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": []
+      },
+      {
+        "name": "app_az",
+        "label": "AZ · Node/컨테이너",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"}, cloud_availability_zone)",
+        "definition": "label_values(frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"}, cloud_availability_zone)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": []
+      },
+      {
+        "name": "task",
+        "label": "태스크 · Node/컨테이너",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\"}, aws_ecs_task_id)",
+        "definition": "label_values(frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\"}, aws_ecs_task_id)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
         "current": {
           "text": "All",
           "value": "$__all"
