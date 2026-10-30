@@ -48,3 +48,16 @@ Accepted — PROJ-294 로컬 구현 대상이다. 실제 비용·배포·강제 
 ## 2026-10-30 Auto Mode controller 소유 자원 정리 보완
 
 NodeClass 생성만으로도 전용 NodeRole에 연결된 instance profile이 만들어진다. NodePool·node·NodeClaim 소멸 후 동일 환경 태그와 실제 NodeRole을 확인한 NodeClass를 삭제하고 finalizer의 자연 완료를 기다린다. EKS/NodeRole 스택을 지우기 전 IAM ListInstanceProfilesForRole의 모든 페이지가 비고 소유 launch template도 없는지 확인한다. Guardrail은 이를 조회하는 최소 권한만 더하며 profile/launch template 직접 삭제나 finalizer 강제 제거 권한을 추가하지 않는다. CFN 밖 profile/LT도 최종 inventory와 서비스별 부재 증거에 포함한다.
+
+## 2026-10-31 관리형 자원 가시성 보완
+
+AWS는 2026-04-22부터 새 Auto Mode EC2/EBS/launch template/ENI를 기본 목록에서 숨긴다.
+실제 perf 노드 9개가 존재하는데 기본 소유 태그 EC2 조회는 relay 1개만 반환했다.
+정리 드라이버는 EC2 인스턴스·볼륨·launch template 조회에 `IncludeManagedResources=True`를 명시한다.
+계정 전체 가시성 설정은 바꾸지 않고 기존 소유 태그·계정·리전·고정 이름 검증을 유지한다.
+SDK의 세 operation 입력에 boolean 옵션이 없으면 정리 전에 오류를 기록하며, 옵션 없는 재시도는 금지한다.
+정확한 환경의 `sdk_capabilities` 진단 이벤트는 SDK 버전·지원 여부만 반환하고 상태나 자원을 쓰지 않는다.
+실제 Lambda SDK 지원·숨겨진 자원 포함 조회·최종 서비스별 부재는 배포 후 별도로 확인한다.
+
+- [EKS 관리형 자원 가시성](https://docs.aws.amazon.com/eks/latest/userguide/automode-learn-instances.html)
+- [Lambda Python SDK 버전](https://docs.aws.amazon.com/lambda/latest/dg/lambda-python.html#python-sdk-included)

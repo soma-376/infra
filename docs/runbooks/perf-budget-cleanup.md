@@ -30,6 +30,27 @@
 
 고정 권한은 CFN 허용목록+환경 태그, EC2 소유 태그, ECR 두 ARN, perf 스택의 S3 이름 범위다. S3 객체는 bucket 태그를 상속하지 않으므로 API 실행 전에 bucket 태그를 다시 확인한다. 공유 ACM, CDK bootstrap, 기존 dev/shared ECR는 정리 대상이 아니다. 새 AWS 유료 서비스/용량을 추가하면 예상액과 policy를 다시 확인한다.
 
+### 관리형 자원 조회와 실제 SDK 확인
+
+Auto Mode EC2/EBS/launch template/ENI는 기본 `describe` 목록에서 숨겨질 수 있다.
+운영자 inventory는 지원하는 네 API에 `--include-managed-resources`를 넣고, 실제 Node의
+`spec.providerID` 전부를 exact EC2 조회와 대조한다. 각 노드의 소유 태그·클러스터 태그 및 연결 EBS도
+보존한다. 계정 전체 가시성 설정 변경이나 태그 없는 자원의 임의 채택으로 우회하지 않는다.
+
+드라이버의 세 조회에는 `IncludeManagedResources=True`가 필수다. 배포 직후 다음 진단은 SDK 기능만
+반환하며 AWS 조회/상태 쓰기/정리를 실행하지 않는다. 응답의 세 operation이 모두 `true`인지 확인한다.
+
+```sh
+aws lambda invoke --region ap-northeast-2 --function-name soma-376-perf-cleanup \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{"action":"sdk_capabilities","environment_id":"<이번 환경 ID>"}' sdk-capabilities.json
+```
+
+최소 service model은 botocore 1.42.94다. Python 3.13이라는 이름만으로 실제 내장 SDK 버전을 추정하지 않는다.
+모델이 옵션을 지원하지 않으면 guard는 `managed_resource_visibility_sdk_unsupported`로 중단한다.
+이때 호환되는 boto3/botocore 의존성 전체를 고정·패키징한 후 재배포하고 실제 진단을 다시 통과해야 한다.
+옵션을 빼거나 미조회 자원을 0으로 바꾸지 않는다. SDK 지원 진단은 실제 삭제 성공 증거가 아니다.
+
 ## 실행 전/실행 중 관측
 
 `scripts/perf-execution-gate.ts --environment-id <id> --observation <json>`은 네트워크 호출 없이 승인 제한을 대조한다. JSON의 정확한 필드는 `lib/perf/budget.ts`의 `PerfExecutionObservation`이다. 환경 ID·policy SHA·조회 원본 SHA, 60초 이내 관측 시각, 실제 CFN/ECR 생성 시각 배열, 소비/예약/이번 계획 요청 수, RPS/초, seed 후 추가 저장량과 이번 예상 추가량, CH 1/Kafka 3/generator 1 디스크의 고유 identity·total/free bytes를 넣는다. 원본 SHA가 실제 조회를 인증해 주는 것은 아니므로 조회 파일/계정/리전/노드/PVC 매핑을 함께 보관한다.

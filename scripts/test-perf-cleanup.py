@@ -6,6 +6,7 @@ import io
 from pathlib import Path
 import unittest
 import urllib.parse
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -52,6 +53,8 @@ class CleanupTests(unittest.TestCase):
             clients['ssm'].get_parameter.side_effect = AwsError('ParameterNotFound')
         clients['ecr'].describe_repositories.side_effect = AwsError('RepositoryNotFoundException')
         clients['ec2'].get_paginator.return_value.paginate.return_value = [{'Reservations': [], 'Volumes': [], 'LaunchTemplates': []}]
+        clients['ec2'].meta.service_model.operation_model.return_value.input_shape.members = {
+            'IncludeManagedResources': type('BooleanShape', (), {'type_name': 'boolean'})()}
         clients['iam'].get_paginator.return_value.paginate.return_value = [{'InstanceProfiles': []}]
         clients['s3'].get_bucket_tagging.return_value = {'TagSet': [{'Key': driver.OWNER, 'Value': ENV}]}
         clients['s3'].list_multipart_uploads.return_value = {}
@@ -242,7 +245,7 @@ class CleanupTests(unittest.TestCase):
                 a['iam'].get_paginator.return_value.paginate.assert_called_once_with(RoleName=NODE_ROLE)
                 a['ec2'].get_paginator.return_value.paginate.assert_called_once_with(Filters=[
                     {'Name': 'tag:' + driver.OWNER, 'Values': [ENV]},
-                    {'Name': 'tag:eks:eks-cluster-name', 'Values': [driver.CLUSTER]}])
+                    {'Name': 'tag:eks:eks-cluster-name', 'Values': [driver.CLUSTER]}], IncludeManagedResources=True)
                 a['iam'].delete_instance_profile.assert_not_called()
                 a['iam'].remove_role_from_instance_profile.assert_not_called()
                 a['ec2'].delete_launch_template.assert_not_called()
@@ -263,6 +266,68 @@ class CleanupTests(unittest.TestCase):
                 self.assertEqual(result['phase'], 'ERROR')
                 self.assertNotIn('private AWS detail', result['error'])
                 a['cloudformation'].delete_stack.assert_not_called()
+
+    def test_hidden_managed_resources_prevent_false_completion(self):
+        c, a = self.setup_cleaner(hours=22)
+        def paginator(operation):
+            value = MagicMock()
+            def pages(**kwargs):
+                if not kwargs.get('IncludeManagedResources'):
+                    return [{'Reservations': [], 'Volumes': []}]
+                if operation == 'describe_instances':
+                    return [{'Reservations': [{'Instances': [{'InstanceId': 'i-managed', 'State': {'Name': 'shutting-down'},
+                        'Tags': [{'Key': driver.OWNER, 'Value': ENV}]}]}]}]
+                return [{'Volumes': [{'VolumeId': 'vol-managed', 'State': 'in-use', 'Attachments': [{}],
+                    'Tags': [{'Key': driver.OWNER, 'Value': ENV}]}]}]
+            value.paginate.side_effect = pages
+            return value
+        a['ec2'].get_paginator.side_effect = paginator
+        result = c.tick()
+        self.assertEqual(result['phase'], 'RESIDUALS')
+        self.assertEqual(result['residual_counts']['ec2'], 2)
+        a['cloudformation'].delete_stack.assert_not_called()
+        a['ec2'].terminate_instances.assert_not_called()
+        a['ec2'].delete_volume.assert_not_called()
+
+    def test_hidden_launch_template_blocks_eks_and_role_deletion(self):
+        c, a = self.setup_cleaner(hours=22, stacks={'PerfEksStack': stack('PerfEksStack', Outputs=NODE_ROLE_OUTPUTS)},
+                                 state={'version': 1, 'environment_id': ENV, 'kubernetes_complete': True, 'kubernetes_cleanup_contract': 2})
+        template = {'Tags': [{'Key': driver.OWNER, 'Value': ENV}, {'Key': 'eks:eks-cluster-name', 'Value': driver.CLUSTER}]}
+        a['ec2'].get_paginator.return_value.paginate.side_effect = lambda **kw: [
+            {'LaunchTemplates': [template] if kw.get('IncludeManagedResources') else []}]
+        self.assertEqual(c.tick()['phase'], 'AUTO_MODE_FINALIZATION')
+        a['cloudformation'].delete_stack.assert_not_called()
+        a['ec2'].delete_launch_template.assert_not_called()
+
+    def test_unsupported_sdk_fails_before_any_resource_mutation(self):
+        for shape in [{}, {'IncludeManagedResources': type('WrongShape', (), {'type_name': 'string'})()}]:
+            c, a = self.setup_cleaner(hours=22)
+            a['ec2'].meta.service_model.operation_model.return_value.input_shape.members = shape
+            result = c.tick()
+            self.assertEqual(result['error'], 'managed_resource_visibility_sdk_unsupported')
+            self.assertEqual(result['phase'], 'ERROR')
+            a['cloudformation'].describe_stacks.assert_not_called()
+            a['cloudformation'].delete_stack.assert_not_called()
+            a['ec2'].get_paginator.assert_not_called()
+            a['ssm'].put_parameter.assert_called_once()
+
+    def test_sdk_probe_is_exact_environment_and_does_not_start_cleanup(self):
+        _, clients = self.setup_cleaner()
+        modules = {'boto3': SimpleNamespace(__version__='test-boto3', client=lambda name, **kw: clients[name]),
+                   'botocore': SimpleNamespace(__version__='test-botocore'),
+                   'botocore.config': SimpleNamespace(Config=lambda **kw: object())}
+        with patch.dict('sys.modules', modules), patch.dict(driver.os.environ, {'CLEANUP_CONFIG': json.dumps(CONFIG)}), patch.object(driver, 'Cleaner') as cleaner:
+            result = driver.handler({'action': 'sdk_capabilities', 'environment_id': ENV}, None)
+            self.assertTrue(all(result['managed_resource_visibility'].values()))
+            self.assertEqual(result['cloud_mutations'], 0)
+            self.assertEqual(result['botocore'], 'test-botocore')
+            cleaner.assert_not_called()
+            with self.assertRaisesRegex(ValueError, 'unsupported_cleanup_event'):
+                driver.handler({'action': 'sdk_capabilities', 'environment_id': 'dev'}, None)
+            cleaner.assert_not_called()
+        clients['ssm'].get_parameter.assert_not_called()
+        clients['ssm'].put_parameter.assert_not_called()
+        clients['ec2'].get_paginator.assert_not_called()
 
     def test_old_kubernetes_completion_is_not_reused_and_role_parameter_is_exact(self):
         eks = stack('PerfEksStack', Outputs=NODE_ROLE_OUTPUTS + [{'OutputKey': 'EksRelayInstanceId', 'OutputValue': 'i-owned'}])
