@@ -45,6 +45,18 @@ MSK 호환 경로에서는 `--strimzi-secrets` 대신 `--msk-bootstrap`과 `--ms
 
 ## 설치 순서와 Strimzi 권한
 
+첫 설치에는 Kafka가 아직 Secret을 만들지 않았으므로 `--phase foundation`으로 platform/Kafka 두 파일만 먼저 생성한다.
+이 단계도 request의 환경·프로필 SHA·실제 CDK outputs·Kafka 이름을 대조한다. runtime/JWT/Strimzi metadata 입력을
+받지 않고 앱 values나 ready 판정을 만들지 않는다. 이전 출력물이 없는 새 디렉터리를 사용한다.
+
+```sh
+npx tsx scripts/perf-values.ts --phase foundation --request request.json --outputs stacks.json \
+  --output-dir /tmp/perf-foundation
+```
+
+platform·CSI/ASCP·operator·Kafka를 설치하고 실제 Secret metadata를 수집한 뒤 위의 기본 full 명령으로 별도
+디렉터리에 전체 values를 생성한다. full은 기존대로 실제 metadata 5개가 모두 있어야 한다. 임시 UID나 revision을 채우지 않는다.
+
 PROJ-293/294/295/296/297/298 검증 gate 후 설치 순서는 platform → CSI/ASCP → Strimzi operator → Kafka CR → Secret metadata 재수집 → runtime/관측 → CH → enrollment → ingest → gateway다. 공식 operator archive/digest는 `helm/dev/platform/strimzi/SOURCE.json`을 재사용하고 `helm/perf/addons/strimzi-values.yaml`과 `scripts/strimzi-operator-post-render.mjs perf`를 적용한다. operator는 perf namespace만 감시한다. Kafka chart는 `helm/dev/kafka`에 생성된 `kafka-strimzi.yaml`을 적용한다.
 
 KafkaNodePool은 `perf-kafka` 3개 노드에 pod anti-affinity로 분산한다. 100GiB encrypted gp3 PVC 3개와 `deleteClaim:false`를 사용한다. KafkaUser ACL은 gateway topic Write/Describe+cluster IdempotentWrite, ingest/offset-admin topic Read/Describe+group Read/Describe, topic-admin Describe/DescribeConfigs다. 앱/관리 도구에는 CA `ca.p12`/`ca.password`와 해당 user `user.p12`/`user.password`만 mount한다. runner에는 Kafka 인증 자료를 공급하지 않는다.
