@@ -220,6 +220,22 @@ Pipeline attempts, CH physical inserts를 서로 빼 유실률을 만들지 않�
 
 ## k6 연결과 로컬 검증
 
+`Pulsemetry · k6 준비도`는 `environment=perf`와 별도 `environment_id=<격리 환경 ID>`를 사용한다.
+실행 ID·발생기 ID를 고른 뒤 실제 runner Pod·노드·물리 NIC를 실행 증거와 대조해 선택한다.
+Pod와 testid는 자동 연결하지 않는다. Pod NIC를 물리 NIC로 해석하거나 EC2의 advertised/burst 대역폭을 지속 처리량으로 간주하지 않는다.
+기존 태그만 있는 과거 실행은 기존 수집 경로 화면에서 확인하며, 새 화면의 빈 environment_id를 정상으로 처리하지 않는다.
+
+새 화면의 custom `otlp_request_elapsed_ms`는 연결·TLS를 포함하고 `http_req_duration`은 제외하므로
+두 p95·p99를 분리한다. 요청 SLO 그래프는 `phase=hold`만 조회하며 최종 판정은 journal의 전체 유지 구간이다.
+실패율은 `otlp_requests_failed` Counter 합계 / 완료 Counter 합계로 요청 수를 가중한다. Counter 원천은
+[runner](https://github.com/soma-376/telemetry-load-tests)의 PROJ-296 계약이며, 해당 버전 배포 전에는 비어 있다.
+전송 bytes/s·VU·dropped·remote-write 표본 나이는 실행 전체를 조회한다. 발생기 Pod CPU/quota·RSS·throttling,
+노드 CPU·메모리·swap·실제 NIC·파일시스템·FD·TCP를 함께 본다. journal 완전성·프로세스 FD·시계 오차와
+계획 대비 시작률은 별도 readiness/journal 증거가 필요하다. 대시보드 존재만으로 준비 완료를 판정하지 않는다.
+
+검증 근거는 [허브 ADR 0029](https://github.com/soma-376/docs/blob/main/adr/0029-perf-strimzi-readiness-and-path-comparison.md)이며,
+새 PromQL의 구간 필터·요청 가중 실패율·CPU quota·미수집 보존은 `test/helm/k6-readiness-dashboard.test.ts`가 검사한다.
+
 k6 1.8.2의 `experimental-prometheus-rw`를 Prometheus 3.9.1 native histogram receiver에 연결한다.
 server URL은 내부 `http://pulsemetry-monitoring-prometheus.pulsemetry-observability.svc:9090/api/v1/write` 또는
 운영자의 localhost port-forward다. remote-write receiver는 별도 인증 없이 내부망에서 받으므로 public endpoint를 추가하지 않는다.

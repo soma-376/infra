@@ -62,9 +62,9 @@ suite('Strimzi 관측 계약', () => {
       writeFileSync(resolve(temp, 'rules.test.yaml'), dump(tests));
       command(promtool, ['test', 'rules', resolve(temp, 'rules.test.yaml')]);
       const dashboards: any[] = Object.values(find('ConfigMap', 'pulsemetry-dashboards').data).map(x => JSON.parse(x as string));
-      expect(dashboards).toHaveLength(9);
+      expect(dashboards).toHaveLength(10);
       expect(dashboards.map(x => x.uid)).toContain('pulsemetry-kafka');
-      expect(dashboards.filter(x => x.tags.includes('pulsemetry'))).toHaveLength(8);
+      expect(dashboards.filter(x => x.tags.includes('pulsemetry'))).toHaveLength(9);
       expect(JSON.stringify(dashboards.filter(x => x.tags.includes('pulsemetry')))).not.toMatch(/SumOffsetLag|STABLE|EMPTY|MSK/);
       const modeGuidance = dashboards.find(x => x.uid === 'pulsemetry-pipeline').panels.find((p: any) => p.title === '모드별로 비는 패널').options.content;
       expect(modeGuidance).toContain('commit offset이 확인된 partition의 lag 합계');
@@ -150,7 +150,7 @@ suite('Strimzi 관측 계약', () => {
     const dashboards = Object.values(resources.find(x => x.kind === 'ConfigMap' && x.metadata.name === 'pulsemetry-dashboards').data).map(x => JSON.parse(x as string));
     expect(dashboards.map(x => x.uid)).toContain('pulsemetry-msk');
     expect(dashboards.map(x => x.uid)).not.toContain('pulsemetry-kafka');
-    expect(dashboards).toHaveLength(8);
+    expect(dashboards).toHaveLength(9);
     const msk = dashboards.find(x => x.uid === 'pulsemetry-msk');
     expect(msk.title).toBe('Pulsemetry · MSK');
     expect(msk.tags).toContain('pulsemetry');
