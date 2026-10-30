@@ -33,6 +33,14 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             release.decode(base64.b64encode(gzip.compress(b'x' * (1024 * 1024 + 1))).decode())
 
+    def test_collapsed_rows_cannot_hide_duplicate_panel_ids(self):
+        invalid = copy.deepcopy(BUNDLE)
+        panels = invalid['dev-frontend.json']['panels']
+        panels.append({'id': 9999, 'type': 'row', 'collapsed': True,
+                       'panels': [copy.deepcopy(panels[0])]})
+        with self.assertRaisesRegex(ValueError, '중복 패널 ID'):
+            release.validate(invalid)
+
     def test_restart_connection_errors_are_retried(self):
         check = Mock(side_effect=[ConnectionResetError(104, 'reset'),
             http.client.RemoteDisconnected('closed'),
