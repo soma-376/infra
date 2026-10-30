@@ -84,9 +84,9 @@ resource "aws_lb_target_group" "frontend" {
   protocol             = "HTTP"
   deregistration_delay = 30
   health_check {
-    path                = "/login"
+    path                = "/health"
     matcher             = "200"
-    interval            = 30
+    interval            = 15
     timeout             = 5
     healthy_threshold   = 2
     unhealthy_threshold = 3
@@ -136,7 +136,7 @@ resource "aws_ecs_task_definition" "frontend" {
   requires_compatibilities = [local.is_dev ? "EC2" : "FARGATE"]
   network_mode             = local.is_dev ? "bridge" : "awsvpc"
   cpu                      = "512"
-  memory                   = "1024"
+  memory                   = local.is_dev ? "512" : "1024"
   execution_role_arn       = local.execution_role_arn
   runtime_platform {
     operating_system_family = "LINUX"
@@ -148,7 +148,7 @@ resource "aws_ecs_task_definition" "frontend" {
     versionConsistency = "enabled"
     essential          = true
     cpu                = 512
-    memory             = 1024
+    memory             = local.is_dev ? 512 : 1024
     portMappings       = [{ containerPort = 3000, hostPort = 3000, protocol = "tcp" }]
     stopTimeout        = 30
     environment = concat([
@@ -195,10 +195,11 @@ data "aws_ami" "dev" {
   }
 }
 resource "aws_instance" "dev" {
-  count                       = local.is_dev ? 1 : 0
+  # [0] 주소와 설정은 유지하고 [1]에 2c 호스트를 추가한다.
+  count                       = local.is_dev ? 2 : 0
   ami                         = data.aws_ami.dev[0].id
   instance_type               = "t4g.small"
-  subnet_id                   = var.public_subnet_ids[0]
+  subnet_id                   = var.public_subnet_ids[count.index]
   associate_public_ip_address = true
   vpc_security_group_ids      = [aws_security_group.app.id]
   iam_instance_profile        = "${local.name}-instance"
@@ -266,6 +267,14 @@ resource "aws_ecs_service" "frontend" {
   deployment_circuit_breaker {
     enable   = true
     rollback = true
+  }
+  # 다중 BFF의 인증 안전성 검증 전에는 앱을 2a 한 개로 유지한다.
+  dynamic "placement_constraints" {
+    for_each = local.is_dev ? [true] : []
+    content {
+      type       = "memberOf"
+      expression = "attribute:ecs.availability-zone == ap-northeast-2a"
+    }
   }
   dynamic "network_configuration" {
     for_each = local.is_dev ? [] : [true]

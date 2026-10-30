@@ -39,8 +39,16 @@ variables {
 }
 run "dev_https_and_single_process" {
   assert {
-    condition     = aws_lb_target_group.frontend.health_check[0].path == "/login" && aws_lb_target_group.frontend.health_check[0].matcher == "200"
-    error_message = "루트의 로그인 리다이렉트 대신 실제 로그인 페이지의 200 응답으로 상태를 검사해야 합니다."
+    condition     = aws_instance.dev[0].subnet_id == var.public_subnet_ids[0] && aws_instance.dev[1].subnet_id == var.public_subnet_ids[1] && aws_instance.dev[0].user_data == aws_instance.dev[1].user_data
+    error_message = "기존 [0] 호스트를 유지하며 두 번째 서브넷에 같은 ECS 부팅 설정으로 추가해야 합니다."
+  }
+  assert {
+    condition     = aws_ecs_task_definition.frontend.memory == "512" && jsondecode(aws_ecs_task_definition.frontend.container_definitions)[0].memory == 512 && one(aws_ecs_service.frontend.placement_constraints).expression == "attribute:ecs.availability-zone == ap-northeast-2a"
+    error_message = "dev 앱은 512MiB이며 롤링 전환 전까지 2a에 고정해야 합니다."
+  }
+  assert {
+    condition     = aws_lb_target_group.frontend.health_check[0].path == "/health" && aws_lb_target_group.frontend.health_check[0].matcher == "200"
+    error_message = "인증이 필요 없는 전용 /health 경로의 200 응답으로 상태를 검사해야 합니다."
   }
   assert {
     condition     = aws_ecs_task_definition.frontend.skip_destroy
@@ -60,8 +68,8 @@ run "dev_https_and_single_process" {
     error_message = "앱 직접 노출 없이 ALB에서만 3000 포트에 접근해야 합니다."
   }
   assert {
-    condition     = length(aws_instance.dev) == 1 && aws_instance.dev[0].associate_public_ip_address && aws_instance.dev[0].metadata_options[0].http_tokens == "required" && aws_instance.dev[0].root_block_device[0].encrypted && aws_ecs_task_definition.frontend.network_mode == "bridge" && aws_lb_target_group.frontend.target_type == "instance"
-    error_message = "개발은 암호화·IMDSv2를 설정한 public EC2 한 대와 bridge 컨테이너를 사용합니다."
+    condition     = length(aws_instance.dev) == 2 && aws_instance.dev[0].associate_public_ip_address && aws_instance.dev[0].metadata_options[0].http_tokens == "required" && aws_instance.dev[0].root_block_device[0].encrypted && aws_ecs_task_definition.frontend.network_mode == "bridge" && aws_lb_target_group.frontend.target_type == "instance"
+    error_message = "개발은 암호화·IMDSv2를 설정한 public EC2 두 대와 bridge 컨테이너를 사용합니다."
   }
   assert {
     condition     = aws_instance.dev[0].volume_tags["Project"] == "pulsemetry-frontend" && aws_instance.dev[0].volume_tags["Env"] == "dev" && aws_instance.dev[0].volume_tags["ManagedBy"] == "terraform"
@@ -77,6 +85,10 @@ run "dev_https_and_single_process" {
   }
 }
 run "prod_private_fargate_single_process" {
+  assert {
+    condition     = aws_ecs_task_definition.frontend.memory == "1024" && jsondecode(aws_ecs_task_definition.frontend.container_definitions)[0].memory == 1024 && length(aws_ecs_service.frontend.placement_constraints) == 0
+    error_message = "prod Fargate 메모리와 배치 설정은 변경하지 않습니다."
+  }
   command = plan
   variables { environment = "prod" }
   assert {

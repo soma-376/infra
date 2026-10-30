@@ -105,5 +105,28 @@ class LegacyCleanupTest(unittest.TestCase):
         self.assertNotIn('rm -f', log)
 
 
+class EcsAvailabilityZoneTest(unittest.TestCase):
+    def execute(self, instance):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'instance-id').write_text(instance)
+            alloy = root / 'alloy'
+            alloy.write_text('#!/bin/sh\nif [ "$1" = run ]; then printf "%s %s" "$HOST_INSTANCE_ID" "$HOST_AVAILABILITY_ZONE"; fi\n')
+            alloy.chmod(0o755)
+            script = (ROOT / 'observability/host-agent/start-ecs.sh').read_text()
+            script = script.replace('/host/instance-id', str(root / 'instance-id')).replace('/var/lib/alloy', str(root)).replace('/bin/alloy', str(alloy))
+            env = dict(os.environ, ALLOY_CONFIG='test', HOST_AZ_MAP='i-0123456789abcdef0:ap-northeast-2a i-0123456789abcdef1:ap-northeast-2c')
+            return subprocess.run(['sh', '-c', script], env=env, capture_output=True, text=True)
+
+    def test_each_host_gets_its_own_zone(self):
+        for instance, zone in [('i-0123456789abcdef0', 'ap-northeast-2a'), ('i-0123456789abcdef1', 'ap-northeast-2c')]:
+            result = self.execute(instance)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, instance + ' ' + zone)
+
+    def test_unknown_host_fails_instead_of_mislabeling(self):
+        self.assertNotEqual(self.execute('i-0123456789abcdef2').returncode, 0)
+
+
 if __name__ == '__main__':
     unittest.main()

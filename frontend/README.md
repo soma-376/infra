@@ -166,7 +166,7 @@ apply는 환경별 직렬화, S3 잠금, 실행 직전 branch HEAD 검사를 사
 2. bootstrap 관리자 plan/apply로 execution/instance 역할과 빈 BFF secret을 준비한다. CI는 DNS·인증서를 관리하지 않는다. 이전 버전에서 생성한 인증서·DNS가 있다면 아래 기존 배포 전환 절차를 먼저 따른다.
 3. 계정에 `AWSServiceRoleForECS`, `AWSServiceRoleForElasticLoadBalancing`이 있는지 관리자가 확인한다. 기존 CDK/AWS 소유 공용 역할이며 이 코드에서 생성/import하지 않는다. 없으면 관리자가 서비스 연결 역할을 먼저 만든다. CI에는 IAM 생성 권한이 없다.
 4. `bff_secret_arns` 출력의 각 환경 secret에 서로 다른 BFF 키를 **관리자 콘솔에서 값으로 저장**한다. 값은 프론트 `BFF_SESSION_KEYS` 형식(32-byte hex 키, 회전 시 쉼표로 최대 3개)이다. Terraform으로 secret version을 만들지 않는다. 빈 secret 상태로는 태스크가 시작되지 않는다.
-5. 실제 Next.js **linux/arm64** 이미지를 환경별 ECR에 올리고 digest를 확인한다. 이미지 빌드·push는 프론트 앱 저장소의 workflow와 bootstrap의 환경별 image-push 역할로 수행한다. 컨테이너는 `0.0.0.0:3000`에서 Next.js 프로세스 하나를 실행하고 `/login`에 HTTP 200을 응답해야 한다. 빌드 시 `NEXT_PUBLIC_ENROLLMENT_API_URL`에 해당 환경의 공개 HTTPS enrollment origin을 넣는다. 이 값은 이미지 빌드 후 런타임 환경 변수로 바뀌지 않는다.
+5. 실제 Next.js **linux/arm64** 이미지를 환경별 ECR에 올리고 digest를 확인한다. 이미지 빌드·push는 프론트 앱 저장소의 workflow와 bootstrap의 환경별 image-push 역할로 수행한다. 컨테이너는 `0.0.0.0:3000`에서 Next.js 프로세스 하나를 실행하고 `/health`에 HTTP 200을 응답해야 한다. 빌드 시 `NEXT_PUBLIC_ENROLLMENT_API_URL`에 해당 환경의 공개 HTTPS enrollment origin을 넣는다. 이 값은 이미지 빌드 후 런타임 환경 변수로 바뀌지 않는다.
 6. 개발 AMI는 서울 리전 ECS optimized AL2023 ARM64 AMI의 실제 ID를 조회해 고정한다. 아래 명령은 조회만 한다.
 
 ```bash
@@ -185,7 +185,9 @@ ECS EC2/bridge 모드이며 public IP는 외부 통신에 사용한다. SSH는 �
 운영은 private subnet Fargate, public IP 없음, NAT를 통한 HTTPS egress다.
 로그는 [ADR 0020](../docs/adr/0020-frontend-log-retention-policy.md)에 따라 dev 14일/prod 30일 보존하고
 실행 환경 삭제 시 로그 그룹을 남긴다. 다시 생성하려면 기존 로그 그룹을 해당 환경 상태로 import한다.
-ALB health check는 `/login`의 200 응답으로 HTTP 서버 생존을 확인하며 로그인·백엔드 연결 성공을 증명하지 않는다. 루트(`/`)는 미인증 사용자를 307로 리다이렉트하므로 검사 경로로 사용하지 않는다.
+ALB health check는 `/health`의 캐시되지 않는 200 응답으로 HTTP 서버 생존을 확인하며 로그인·백엔드 연결 성공을 증명하지 않는다. 루트(`/`)는 미인증 사용자를 307로 리다이렉트하므로 검사 경로로 사용하지 않는다.
+
+`/login`에서 전환할 때는 먼저 프론트 이미지를 배포하고, 인증 쿠키 없이 `/health`가 200과 `Cache-Control: no-store`를 반환하는지 확인한 뒤 이 Terraform 변경을 적용한다. 공유 모듈이므로 dev와 prod 각각 해당 환경의 이미지가 준비되어야 한다. 인프라를 먼저 적용하면 구 이미지의 404 응답으로 대상이 unhealthy가 될 수 있다. 백엔드·DB 연결 검사는 이 경로에 포함하지 않는다.
 
 두 환경의 태스크 수는 **1개**, 배포 비율은 min 0% / max 100%다. 기존 태스크를 중지한 뒤 새 태스크를
 실행하므로 배포 중 잠시 응답할 서버가 없다. 허브 ADR 0009의 단일 BFF 프로세스 제약 때문에

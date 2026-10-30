@@ -40,6 +40,7 @@ resource "aws_ecs_task_definition" "host_agent" {
       { name = "ALLOY_CONFIG", value = file("${path.module}/../../observability/host-agent/config.alloy") },
       { name = "HOST_ENVIRONMENT", value = "dev" },
       { name = "HOST_ROLE", value = "frontend-dev" },
+      { name = "HOST_AZ_MAP", value = join(" ", [for id, az in module.application[0].dev_instance_zones : "${id}:${az}"]) },
       { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = module.observability[0].otlp_endpoint }
     ]
     mountPoints = [

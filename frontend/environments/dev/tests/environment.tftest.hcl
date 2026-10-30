@@ -33,7 +33,7 @@ run "dev_otlp_security_boundary" {
   }
   override_module {
     target  = module.application[0]
-    outputs = { security_group_id = "sg-00000000000000001", dev_instance_id = "i-0123456789abcdef0", cluster_name = "soma-376-frontend-dev" }
+    outputs = { security_group_id = "sg-00000000000000001", dev_instance_id = "i-0123456789abcdef0", cluster_name = "soma-376-frontend-dev", dev_instance_zones = { "i-0123456789abcdef0" = "ap-northeast-2a", "i-0123456789abcdef1" = "ap-northeast-2c" } }
   }
   override_module {
     target  = module.observability[0]
@@ -72,5 +72,33 @@ run "dev_otlp_security_boundary" {
   assert {
     condition     = contains(jsondecode(aws_ecs_task_definition.host_agent[0].container_definitions)[0].environment, { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "http://10.2.0.142:4318" })
     error_message = "ECS 수집기는 기존 사설 OTLP endpoint를 사용해야 합니다."
+  }
+}
+
+run "host_agent_two_az_mapping" {
+  command = plan
+  variables {
+    frontend_telemetry_enabled = true
+    observability              = { ami_id = "ami-0123456789abcdef0" }
+    runtime = {
+      domain_name        = "frontend.example.com"
+      certificate_arn    = "arn:aws:acm:ap-northeast-2:111111111111:certificate/00000000-0000-0000-0000-000000000001"
+      image_digest       = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      enrollment_api_url = "https://api.example.com"
+      dashboard_api_url  = "https://api.example.com"
+      dev_ami_id         = "ami-0123456789abcdef0"
+    }
+  }
+  override_module {
+    target  = module.application[0]
+    outputs = { security_group_id = "sg-00000000000000001", dev_instance_id = "i-0123456789abcdef0", cluster_name = "soma-376-frontend-dev", dev_instance_zones = { "i-0123456789abcdef0" = "ap-northeast-2a", "i-0123456789abcdef1" = "ap-northeast-2c" } }
+  }
+  override_module {
+    target  = module.observability[0]
+    outputs = { security_group_id = "sg-00000000000000002", otlp_endpoint = "http://10.2.0.142:4318" }
+  }
+  assert {
+    condition     = contains(jsondecode(aws_ecs_task_definition.host_agent[0].container_definitions)[0].environment, { name = "HOST_AZ_MAP", value = "i-0123456789abcdef0:ap-northeast-2a i-0123456789abcdef1:ap-northeast-2c" })
+    error_message = "두 호스트의 ID와 AZ를 Alloy에 전달해야 합니다."
   }
 }

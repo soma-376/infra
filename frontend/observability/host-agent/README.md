@@ -97,3 +97,21 @@ RAM에는 앱 외의 ECS Agent·Docker·OS 사용량도 포함된다.
 
 문제 시 `docker compose logs --tail=100 alloy-host`로 전송 실패/수집 실패를 확인한다.
 Compose로 설치한 에이전트만 중지할 때 `docker compose down`을 실행한다.
+
+
+## 2a·2c 호스트 증설과 메모리 조정 (PROJ-260)
+
+- dev EC2 `[0]`(2a)를 유지하고 `[1]`(2c)에 같은 t4g.small·암호화 gp3 30GiB 호스트를 추가한다.
+  두 호스트가 같은 ECS 클러스터에 등록되면 DAEMON Alloy가 각각 하나씩 실행된다.
+- 앱 태스크/컨테이너 메모리는 dev만 512MiB로 변경한다. prod는 1024MiB를 유지한다.
+  이는 512MiB 내에서 모든 부하가 검증됐다는 뜻이 아니며, 배포 후 OOM·종료 코드·RSS와 컨테이너 전체 메모리를 확인한다.
+- 앱 desired=1 및 배포 최소/최대 0/100은 유지한다. memberOf 제약으로 앱을 2a에 고정한다.
+  이번 단계는 2c 관측 기반 추가이며 앱 이중화/롤링 배포가 아니다. 메모리 변경으로 앱은 기존 방식대로 재배포되어 일시 중단될 수 있다.
+- HOST_AZ_MAP은 Terraform의 실제 EC2 ID/AZ 출력으로 구성한다. 각 Alloy가 호스트 ID를 읽어
+  자기 AZ를 선택하고 `availability_zone` 라벨로 전송한다. ID 매핑 실패는 잘못된 라벨 대신 기동 실패로 처리한다.
+- Grafana Dev Frontend의 OS 범례는 `availability_zone · instance`로 표시한다.
+  최근 수신 패널의 고정 EC2 ID도 제거해 두 호스트를 모두 표시한다. Node 프로세스는 여전히 2a의 한 개다.
+- 기존 정리 SSM Association은 2a의 legacy 수집기만 대상으로 유지한다. 새 2c에는 legacy 설치를 하지 않는다.
+- bootstrap CI plan/apply → dev apply 순서를 기존 workflow가 보장한다. 이번 변경에 새 IAM 권한은 없다.
+  실제 plan에서 기존 2a 교체가 없는지 확인하고, 머지 후 두 EC2의 ECS 등록·DAEMON 실행·Prometheus 최신 샘플을 확인한다.
+- 추가 비용은 2c t4g.small, root EBS 30GiB, public IPv4에서 발생한다.
