@@ -35,7 +35,7 @@ frontend/
   scripts/check.sh     AWS 자격증명 없는 검증
 ```
 
-S3 버킷은 bootstrap/dev/prod 각각 하나다. bootstrap 상태는 CI에 공개하지 않는다.
+S3 버킷은 bootstrap/dev/prod 각각 하나다. bootstrap 상태는 전용 bootstrap CI 역할에만 허용하고 runtime CI 역할에는 공개하지 않는다.
 개발 역할은 개발 상태만, 운영 역할은 운영 상태만 접근한다. S3 native lock을 사용한다.
 S3와 ECR은 `prevent_destroy`와 강제 삭제 금지로 보호한다. backend는 AWS 기본 자격증명
 체인을 사용하고, provider와 backend 모두 입력한 계정 ID를 검증한다. 계정 ID와 자격증명은 파일에 커밋하지 않는다. 비밀이 아닌 runtime 릴리스 입력만 예외적으로 추적한다.
@@ -98,7 +98,21 @@ terraform state list
 `backend.tf`는 Git에서 제외된다. 이후 관리자 checkout에서도 이 파일을 복원하고 동일 버킷으로
 init해야 한다. 이전 후에는 로컬 상태로 bootstrap apply를 다시 실행하지 않는다.
 S3 최신 상태와 버전 관리가 확인된 뒤 로컬 상태·백업·계획 파일은 안전하게 정리한다.
-부트스트랩 변경도 PR→머지→관리자 계획 검토→적용 순서이며, 네트워크 CI 역할에 자기 IAM 수정권을 주지 않는다.
+이후 bootstrap 변경은 [ADR-0050](../docs/adr/0050-frontend-bootstrap-ci.md)에 따라 PR→develop 머지→bootstrap plan→Environment 승인→bootstrap apply→dev runtime 배포 순서다. 최초 CI 역할 준비는 관리자가 수행하고, 기존 runtime CI 역할에는 자기 IAM 수정권을 주지 않는다.
+
+### bootstrap CI Environment
+
+`frontend-bootstrap-plan`, `frontend-bootstrap-apply`에 다음 Variables를 설정한다.
+
+- `AWS_ACCOUNT_ID`, `TF_STATE_BUCKET`: 실제 계정과 기존 bootstrap 버킷
+- `TF_GITHUB_SUBJECT_PREFIX`, `TF_FRONTEND_GITHUB_SUBJECT_PREFIX`: 기존 bootstrap tfvars와 동일한 실제 OIDC subject prefix
+- plan에는 `TF_PLAN_ROLE_ARN`, apply에는 `TF_APPLY_ROLE_ARN`: `bootstrap_ci_role_arns` output의 해당 역할
+
+두 Environment에 필수 reviewer를 지정하고 관리자 bypass를 끈다. plan은 `develop` 및
+`refs/pull/*/merge`, apply는 `develop` branch만 허용한다. 최초 구성은 요청자 본인 승인도 허용한다.
+CI는 `backend.tf.example`을 복사해 기존 S3 backend에 연결한다. state를 별도로 업로드하지 않는다.
+승인 후 계획 해시가 달라지면 중단하므로 최신 develop에서 `Frontend Terraform Apply`를 수동 실행해 다시 확인한다.
+bootstrap은 develop만 배포 원본이며 main의 prod runtime 배포 전에 공통 변경을 먼저 반영한다.
 
 ## GitHub 설정 — AWS 연동 활성화 전 필수
 
@@ -152,7 +166,7 @@ apply는 환경별 직렬화, S3 잠금, 실행 직전 branch HEAD 검사를 사
 2. bootstrap 관리자 plan/apply로 execution/instance 역할과 빈 BFF secret을 준비한다. CI는 DNS·인증서를 관리하지 않는다. 이전 버전에서 생성한 인증서·DNS가 있다면 아래 기존 배포 전환 절차를 먼저 따른다.
 3. 계정에 `AWSServiceRoleForECS`, `AWSServiceRoleForElasticLoadBalancing`이 있는지 관리자가 확인한다. 기존 CDK/AWS 소유 공용 역할이며 이 코드에서 생성/import하지 않는다. 없으면 관리자가 서비스 연결 역할을 먼저 만든다. CI에는 IAM 생성 권한이 없다.
 4. `bff_secret_arns` 출력의 각 환경 secret에 서로 다른 BFF 키를 **관리자 콘솔에서 값으로 저장**한다. 값은 프론트 `BFF_SESSION_KEYS` 형식(32-byte hex 키, 회전 시 쉼표로 최대 3개)이다. Terraform으로 secret version을 만들지 않는다. 빈 secret 상태로는 태스크가 시작되지 않는다.
-5. 실제 Next.js **linux/arm64** 이미지를 환경별 ECR에 올리고 digest를 확인한다. 이미지 빌드·push는 프론트 앱 저장소의 workflow와 bootstrap의 환경별 image-push 역할로 수행한다. 컨테이너는 `0.0.0.0:3000`에서 Next.js 프로세스 하나를 실행하고 `/login`에 HTTP 200을 응답해야 한다. 빌드 시 `NEXT_PUBLIC_ENROLLMENT_API_URL`에 해당 환경의 공개 HTTPS enrollment origin을 넣는다. 이 값은 이미지 빌드 후 런타임 환경 변수로 바뀌지 않는다.
+5. 실제 Next.js **linux/arm64** 이미지를 환경별 ECR에 올리고 digest를 확인한다. 이미지 빌드·push는 프론트 앱 저장소의 workflow와 bootstrap의 환경별 image-push 역할로 수행한다. 컨테이너는 `0.0.0.0:3000`에서 Next.js 프로세스 하나를 실행하고 `/health`에 HTTP 200을 응답해야 한다. 빌드 시 `NEXT_PUBLIC_ENROLLMENT_API_URL`에 해당 환경의 공개 HTTPS enrollment origin을 넣는다. 이 값은 이미지 빌드 후 런타임 환경 변수로 바뀌지 않는다.
 6. 개발 AMI는 서울 리전 ECS optimized AL2023 ARM64 AMI의 실제 ID를 조회해 고정한다. 아래 명령은 조회만 한다.
 
 ```bash
@@ -171,7 +185,9 @@ ECS EC2/bridge 모드이며 public IP는 외부 통신에 사용한다. SSH는 �
 운영은 private subnet Fargate, public IP 없음, NAT를 통한 HTTPS egress다.
 로그는 [ADR 0020](../docs/adr/0020-frontend-log-retention-policy.md)에 따라 dev 14일/prod 30일 보존하고
 실행 환경 삭제 시 로그 그룹을 남긴다. 다시 생성하려면 기존 로그 그룹을 해당 환경 상태로 import한다.
-ALB health check는 `/login`의 200 응답으로 HTTP 서버 생존을 확인하며 로그인·백엔드 연결 성공을 증명하지 않는다. 루트(`/`)는 미인증 사용자를 307로 리다이렉트하므로 검사 경로로 사용하지 않는다.
+ALB health check는 `/health`의 캐시되지 않는 200 응답으로 HTTP 서버 생존을 확인하며 로그인·백엔드 연결 성공을 증명하지 않는다. 루트(`/`)는 미인증 사용자를 307로 리다이렉트하므로 검사 경로로 사용하지 않는다.
+
+`/login`에서 전환할 때는 먼저 프론트 이미지를 배포하고, 인증 쿠키 없이 `/health`가 200과 `Cache-Control: no-store`를 반환하는지 확인한 뒤 이 Terraform 변경을 적용한다. 공유 모듈이므로 dev와 prod 각각 해당 환경의 이미지가 준비되어야 한다. 인프라를 먼저 적용하면 구 이미지의 404 응답으로 대상이 unhealthy가 될 수 있다. 백엔드·DB 연결 검사는 이 경로에 포함하지 않는다.
 
 두 환경의 태스크 수는 **1개**, 배포 비율은 min 0% / max 100%다. 기존 태스크를 중지한 뒤 새 태스크를
 실행하므로 배포 중 잠시 응답할 서버가 없다. 허브 ADR 0009의 단일 BFF 프로세스 제약 때문에

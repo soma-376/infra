@@ -9,7 +9,7 @@ resource "aws_iam_role_policy" "host_agent_read" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      { Effect = "Allow", Action = ["ssm:GetDocument", "ssm:DescribeDocument", "ssm:ListDocumentVersions", "ssm:ListTagsForResource"], Resource = local.host_agent_document_arn },
+      { Effect = "Allow", Action = ["ssm:GetDocument", "ssm:DescribeDocument", "ssm:DescribeDocumentPermission", "ssm:ListDocumentVersions", "ssm:ListTagsForResource"], Resource = local.host_agent_document_arn },
       { Effect = "Allow", Action = ["ssm:DescribeAssociation", "ssm:DescribeAssociationExecutions", "ssm:DescribeAssociationExecutionTargets", "ssm:ListTagsForResource"], Resource = "arn:aws:ssm:ap-northeast-2:${var.aws_account_id}:association/*" }
     ]
   })

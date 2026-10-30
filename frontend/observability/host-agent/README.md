@@ -5,43 +5,51 @@ CPU·RAM·파일시스템 용량/inode·디스크 I/O 원본을 15초 간격으�
 관측 EC2도 저장소 디스크 고갈·메모리 부족을 확인해야 한다. 단, 이 서버 전체가 중단되면 이 안의 Grafana도
 중단되므로 EC2 상태 검사 경보 등 독립된 장애 감지는 별도로 필요하다.
 
-## 적용 상태와 선행 조건
+## ECS DAEMON 운영 (전환 코드, 실제 배포는 별도)
 
-2026-10-29 확인: 관측 EC2는 실행 중이나 dev에는 수집기가 없다. dev 수집기는 OS 지표를 OTLP로 변환하여 앱과 같은 관측 Alloy의 사설 4318 포트로 보낸다. Prometheus의 9090은 외부에 공개하지 않는다.
+`frontend/environments/dev/host-agent-ecs.tf`가 기존 dev ECS 클러스터에
+`soma-376-frontend-dev-host-agent` 서비스를 생성한다. `frontend_telemetry_enabled=true`일 때만
+활성화하며, DAEMON 전략으로 대상 ARM64 EC2마다 Alloy 태스크 하나를 실행한다.
+앱의 REPLICA 서비스·태스크 정의·EC2 user data와 관측 EC2 Compose는 변경하지 않는다.
+prod Fargate에는 이 서비스를 만들지 않는다.
 
-- infra PR #66의 dev 앱 SG → 관측 SG TCP 4318 송수신 규칙이 필요하다.
-- 관측 EC2 자체 수집기는 모듈 내 `host.alloy`를 사용하며 Compose 내부 Prometheus로 직접 전송한다.
-- 아래 수동 설치는 장애 진단용이다. 기본 설치 경로는 Terraform의 SSM Association이다. 코드 구현과 실제 apply 완료는 별도로 확인한다.
+- 이미지 digest와 `config.alloy`, `start-ecs.sh`가 태스크 정의에 포함된다. 설정 변경은 태스크 revision과 서비스 갱신으로 반영한다.
+- CPU 256 units, 메모리 256MiB를 예약/제한한다. 신규 호스트에도 이 여유 용량이 필요하다.
+- `/proc`, `/sys`, `/`와 cloud-init의 `/var/lib/cloud/data/instance-id`를 읽기 전용으로 mount한다.
+  EC2별 instance 라벨은 이 파일에서 읽으므로 Terraform에 한 호스트 ID를 고정하지 않는다.
+- 기존 job=`frontend-host`, environment=`dev`, host_role=`frontend-dev`를 유지한다.
+- bridge 네트워크, host PID namespace를 사용한다. Docker socket·privileged·공개 포트·task IAM 역할은 없다.
+- 앱과 같은 SG → 관측 Alloy TCP 4318 경로를 사용한다. Prometheus 9090은 공개하지 않는다.
+- 로컬 JSON 로그를 10MiB × 3개로 순환한다. 컨테이너 교체 시 과거 로컬 로그는 보존되지 않는다.
+- 최대 배포 비율 100%, 최소 0%로 이전 태스크 종료 후 교체한다. 갱신 중 짧은 OS 수집 공백은 허용한다.
+- 태스크 중단 복구는 ECS가 관리한다. `up=1`만으로 OTLP 도착을 보증하지 않으므로 최신 timestamp도 확인한다.
+- ECS bind mount는 기존 Docker `rslave` 옵션을 그대로 지원하지 않는다. 운영 중 새 디스크를 mount하면
+  Alloy 태스크를 재배포하고 해당 mountpoint 수집을 확인한다. 현재 루트 디스크 수집이 기본 대상이다.
 
+## 적용 순서와 기존 수집기 전환
 
-### 자동 설치·갱신 (2026-10-30 추가, 실제 apply 전)
-
-`frontend/environments/dev/host-agent.tf`가 고정 설치 문서와 SSM Association을 관리한다.
-`frontend_telemetry_enabled=true`일 때만 생성한다. 대상은 application 모듈이 출력한 **단일 dev EC2 ID**다.
-관측 EC2나 prod는 대상에 포함하지 않는다. 기존 user data를 변경하지 않아 수집기 추가만으로 EC2가 교체되지 않는다.
-
-- 최초 apply: 기존 dev EC2에 SSM으로 설치한다. 앱·ECS Agent는 재시작하지 않는다.
-- EC2 교체: Terraform이 새 인스턴스 ID로 Association을 갱신해 설치한다. SSM/Docker가 준비된 뒤 실행되므로 부팅 완료와 수집 시작은 동시가 아니다.
-- 설정/설치기/관측 endpoint 변경: dev state의 SSM 문서 버전이 바뀌고 Association이 그 숫자 버전을 실행한다. 대시보드 문서와 달리 이후 수집기 코드 수정마다 bootstrap apply가 필요하지 않다.
-- 재부팅: `--restart unless-stopped`로 복구한다. 수동 stop은 자동 복구하지 않는다.
-- 주기적 재설치 일정은 없다. Association 삭제/관측 비활성화는 이미 설치한 컨테이너를 제거하지 않는다. 완전 중지 시 별도로 해당 컨테이너만 중지·제거한다.
-
-적용 순서:
-
-1. 관리자가 `frontend/bootstrap` plan을 확인하고 호스트 문서·Association 관리 권한을 적용한다. dev-plan은 읽기만, dev-apply만 쓰기 권한을 갖는다. prod 역할은 바뀌지 않는다.
-2. 리뷰·머지 후 기존 `Frontend Terraform Apply` CI가 dev 문서와 Association을 생성한다. SG 연결 완료 후 설치하며 성공 대기 시간은 900초다.
-3. SSM 설치 성공은 컨테이너 실행까지만 검증한다. 아래 PromQL로 dev 호스트 지표와 timestamp가 갱신되는지 확인해야 실제 전송 완료다.
+1. 관리자 bootstrap plan에서 **dev 호스트 Alloy 전용 ECS 권한** 추가만 확인 후 적용한다.
+   기존 SSM 조회 권한 수정은 전환 작업에도 필요하다. prod 권한·앱 배포 역할은 확대하지 않는다.
+2. dev plan에서 기존 EC2·앱 서비스 교체가 없는지 확인한다. 추가 대상은 Alloy 태스크 정의·서비스이며,
+   기존 SSM 문서/Association은 설치 대신 정리 명령으로 갱신된다. 실제 apply는 리뷰·머지 후 CI에서 실행한다.
+3. Association은 cloud-init ID와 Docker 상태를 확인한 뒤, 이름이 `pulsemetry-dev-host-agent`이고
+   owner 라벨이 `frontend-host-agent`인 기존 컨테이너만 제거한다. 미존재는 성공, 다른 소유자는 실패다.
+4. ECS 서비스는 정리 Association 성공 후 생성한다. 이후 새 호스트에는 ECS가 자동 배치한다.
+   SSM은 더 이상 Alloy를 설치/업데이트하지 않는다. 전환 Association과 IAM은 완료 확인 후 후속 PR에서 제거할 수 있다.
+5. ECS 서비스 events·태스크 상태와 아래 PromQL의 instance별 결과를 확인한다.
+   현재 코드/테스트 통과를 실제 배포·수신 완료로 해석하지 않는다.
 
 ```promql
 up{job="frontend-host",environment="dev",host_role="frontend-dev"}
 time() - timestamp(node_memory_MemTotal_bytes{job="frontend-host",environment="dev",host_role="frontend-dev"})
 ```
 
-실패 시 SSM State Manager에서 `soma-376-frontend-dev-host-agent` 실행 상세와
-`docker logs --tail=100 pulsemetry-dev-host-agent`를 확인한다. 실패 뒤 단순 apply가 실행을 다시 유발한다고 가정하지 않는다.
-관리자가 원인을 해결한 뒤 해당 Association의 Apply association now로 재실행하고 수신을 확인한다.
-설치기는 새 이미지 pull·설정 validate를 기존 컨테이너 제거 전에 수행하지만, 제거 후 실행 실패에 대한 자동 롤백은 없다.
-프론트 앱은 유지되며 호스트 수집만 중단될 수 있다.
+정리 후 ECS 기동 실패 시 앱은 계속 실행되지만 OS 수집은 중단될 수 있다. 이미지 pull·용량·mount·설정 오류를
+ECS events와 해당 컨테이너 로그에서 해결한 뒤 서비스를 재배포한다. 최초 서비스 배포에는 자동 롤백할 이전
+revision이 없다. 기존 설치기로 복구할 경우 **먼저 ECS 서비스가 중지되고 태스크가 0개인지 확인**해야 한다.
+ECS 전환 후 아래 수동 설치/Compose를 동시에 실행하면 같은 호스트 지표가 중복 수집된다.
+
+## 수동 복구·독립 검증 전용 (ECS 서비스와 동시 실행 금지)
 
 ### Compose 없는 dev EC2
 
@@ -89,3 +97,21 @@ RAM에는 앱 외의 ECS Agent·Docker·OS 사용량도 포함된다.
 
 문제 시 `docker compose logs --tail=100 alloy-host`로 전송 실패/수집 실패를 확인한다.
 Compose로 설치한 에이전트만 중지할 때 `docker compose down`을 실행한다.
+
+
+## 2a·2c 호스트 증설과 메모리 조정 (PROJ-260)
+
+- dev EC2 `[0]`(2a)를 유지하고 `[1]`(2c)에 같은 t4g.small·암호화 gp3 30GiB 호스트를 추가한다.
+  두 호스트가 같은 ECS 클러스터에 등록되면 DAEMON Alloy가 각각 하나씩 실행된다.
+- 앱 태스크/컨테이너 메모리는 dev만 512MiB로 변경한다. prod는 1024MiB를 유지한다.
+  이는 512MiB 내에서 모든 부하가 검증됐다는 뜻이 아니며, 배포 후 OOM·종료 코드·RSS와 컨테이너 전체 메모리를 확인한다.
+- 앱 desired=1 및 배포 최소/최대 0/100은 유지한다. memberOf 제약으로 앱을 2a에 고정한다.
+  이번 단계는 2c 관측 기반 추가이며 앱 이중화/롤링 배포가 아니다. 메모리 변경으로 앱은 기존 방식대로 재배포되어 일시 중단될 수 있다.
+- HOST_AZ_MAP은 Terraform의 실제 EC2 ID/AZ 출력으로 구성한다. 각 Alloy가 호스트 ID를 읽어
+  자기 AZ를 선택하고 `availability_zone` 라벨로 전송한다. ID 매핑 실패는 잘못된 라벨 대신 기동 실패로 처리한다.
+- Grafana Dev Frontend의 OS 범례는 `availability_zone · instance`로 표시한다.
+  최근 수신 패널의 고정 EC2 ID도 제거해 두 호스트를 모두 표시한다. Node 프로세스는 여전히 2a의 한 개다.
+- 기존 정리 SSM Association은 2a의 legacy 수집기만 대상으로 유지한다. 새 2c에는 legacy 설치를 하지 않는다.
+- bootstrap CI plan/apply → dev apply 순서를 기존 workflow가 보장한다. 이번 변경에 새 IAM 권한은 없다.
+  실제 plan에서 기존 2a 교체가 없는지 확인하고, 머지 후 두 EC2의 ECS 등록·DAEMON 실행·Prometheus 최신 샘플을 확인한다.
+- 추가 비용은 2c t4g.small, root EBS 30GiB, public IPv4에서 발생한다.
