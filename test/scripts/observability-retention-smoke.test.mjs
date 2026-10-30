@@ -1,7 +1,7 @@
 // 검증기가 조회 공백·미생성 파일을 삭제 성공으로 오판하지 않는지 검사한다.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { deletionVerdict, isolatedConfigs, metricSum, storageObjects } from '../../scripts/observability-retention-smoke.mjs';
+import { deletionVerdict, isolatedConfigs, metricSum, prematureDeletionObserved, storageObjects } from '../../scripts/observability-retention-smoke.mjs';
 
 test('보존 판정은 만료전 생존·5분 경과·최초 저장·파일 부재·삭제 작업·Ready를 모두 요구한다', () => {
   const good = { mapped: ['fixture-chunk'], remaining: [], deletedCount: 1, ready: 200, elapsedSeconds: 300, survivalBeforeExpiry: true };
@@ -11,6 +11,22 @@ test('보존 판정은 만료전 생존·5분 경과·최초 저장·파일 부�
   }
   // 실행 중 cache 조회는 기록하되, 별도 재시작 후 세 번의 부재 검사를 대체하지 않는다.
   assert.equal(deletionVerdict({ ...good, query: 'PRESENT' }), true);
+});
+
+test('생존 표본 뒤 만료 전에 관찰된 조기 삭제도 즉시 실패한다', () => {
+  const alive = { elapsedSeconds: 299, query: { loki: 'PRESENT', tempo: 'PRESENT' },
+    remaining: { loki: ['chunk'], tempo: ['block'] }, deleted: { loki: 0, tempo: 0 } };
+  assert.equal(prematureDeletionObserved(alive), false);
+  for (const backend of ['loki', 'tempo']) {
+    for (const bad of [
+      { query: { ...alive.query, [backend]: 'ABSENT' } },
+      { remaining: { ...alive.remaining, [backend]: [] } },
+      { deleted: { ...alive.deleted, [backend]: 1 } },
+    ]) {
+      assert.equal(prematureDeletionObserved({ ...alive, ...bad }), true);
+      assert.equal(prematureDeletionObserved({ ...alive, ...bad, elapsedSeconds: 300 }), false);
+    }
+  }
 });
 
 test('격리 보존 값은 원본 객체와 수신/저장소 계약을 바꾸지 않는다', () => {

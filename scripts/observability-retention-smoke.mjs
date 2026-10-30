@@ -39,6 +39,12 @@ export function deletionVerdict({ mapped, remaining, deletedCount, ready, elapse
   return mapped.length > 0 && remaining.length === 0 && deletedCount > 0 && ready === 200 && elapsedSeconds >= 300 && survivalBeforeExpiry === true;
 }
 
+// 초기 저장 대응을 완료한 뒤의 표본에만 적용한다. 한 번이라도 관찰된 조기 소실은 이후 기다려도 성공이 아니다.
+export function prematureDeletionObserved({ elapsedSeconds, query, remaining, deleted }) {
+  return elapsedSeconds < 300 && (query.loki === 'ABSENT' || query.tempo === 'ABSENT' ||
+    remaining.loki.length === 0 || remaining.tempo.length === 0 || deleted.loki > 0 || deleted.tempo > 0);
+}
+
 export function metricSum(text, name, label) {
   return text.split('\n').filter(line => line.startsWith(`${name}{`) || line.startsWith(`${name} `))
     .filter(line => !label || line.includes(label))
@@ -255,6 +261,7 @@ async function main() {
       observed = { at: iso(), elapsedSeconds: (Date.now() - fixture.timestamp) / 1000, query: q, remaining: current,
         deleted: { loki: lokiDeleted, tempo: tempoDeleted }, ready: { loki: lr.status, tempo: tr.status } };
       appendFileSync(join(output, 'observations.jsonl'), JSON.stringify(observed) + '\n', { mode: 0o600 });
+      assert.equal(prematureDeletionObserved(observed), false, '5분 만료 전 조회/파일 소실 또는 삭제 작업을 관찰했다');
       if (!evidence.beforeExpiry && observed.elapsedSeconds >= 270 && observed.elapsedSeconds < 300 &&
           q.loki === 'PRESENT' && q.tempo === 'PRESENT' && current.loki.length && current.tempo.length &&
           lr.status === 200 && tr.status === 200 && lokiDeleted === 0 && tempoDeleted === 0) {
