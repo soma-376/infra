@@ -8,7 +8,7 @@ variables {
 run "environment_contract" {
   command = plan
   assert {
-    condition     = length(aws_ssm_association.host_agent) == 0 && length(aws_ssm_document.host_agent) == 0 && length(aws_ecs_service.host_agent) == 0 && length(aws_ecs_task_definition.host_agent) == 0
+    condition     = length(aws_ssm_association.faro) == 0 && length(aws_vpc_security_group_ingress_rule.frontend_faro) == 0 && length(aws_ssm_association.host_agent) == 0 && length(aws_ssm_document.host_agent) == 0 && length(aws_ecs_service.host_agent) == 0 && length(aws_ecs_task_definition.host_agent) == 0
     error_message = "관측 비활성 상태에서는 호스트 설치 작업을 만들지 않습니다."
   }
   assert {
@@ -37,7 +37,11 @@ run "dev_otlp_security_boundary" {
   }
   override_module {
     target  = module.observability[0]
-    outputs = { security_group_id = "sg-00000000000000002", otlp_endpoint = "http://10.2.0.142:4318" }
+    outputs = { instance_id = "i-0123456789abcdef1", security_group_id = "sg-00000000000000002", otlp_endpoint = "http://10.2.0.142:4318" }
+  }
+  assert {
+    condition     = aws_vpc_security_group_ingress_rule.frontend_faro[0].from_port == 12347 && aws_vpc_security_group_ingress_rule.frontend_faro[0].referenced_security_group_id == "sg-00000000000000001" && aws_ssm_association.faro[0].targets[0].values == tolist(["i-0123456789abcdef1"])
+    error_message = "Faro 수신은 앱 보안 그룹에만 허용하고 관측 EC2에 설치해야 합니다."
   }
   assert {
     condition     = aws_vpc_security_group_ingress_rule.frontend_otlp[0].security_group_id == "sg-00000000000000002" && aws_vpc_security_group_ingress_rule.frontend_otlp[0].referenced_security_group_id == "sg-00000000000000001" && aws_vpc_security_group_ingress_rule.frontend_otlp[0].cidr_ipv4 == null && aws_vpc_security_group_ingress_rule.frontend_otlp[0].from_port == 4318 && aws_vpc_security_group_ingress_rule.frontend_otlp[0].to_port == 4318
@@ -95,7 +99,7 @@ run "host_agent_two_az_mapping" {
   }
   override_module {
     target  = module.observability[0]
-    outputs = { security_group_id = "sg-00000000000000002", otlp_endpoint = "http://10.2.0.142:4318" }
+    outputs = { instance_id = "i-0123456789abcdef1", security_group_id = "sg-00000000000000002", otlp_endpoint = "http://10.2.0.142:4318" }
   }
   assert {
     condition     = contains(jsondecode(aws_ecs_task_definition.host_agent[0].container_definitions)[0].environment, { name = "HOST_AZ_MAP", value = "i-0123456789abcdef0:ap-northeast-2a i-0123456789abcdef1:ap-northeast-2c" })

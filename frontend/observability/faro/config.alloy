@@ -1,0 +1,29 @@
+logging {
+  level = "warn"
+}
+faro.receiver "rum" {
+  log_format = "json"
+  extra_log_labels = { job = "frontend-rum" }
+  server {
+    listen_address = "0.0.0.0"
+    listen_port = 12347
+    max_allowed_payload_size = "16KiB"
+    include_metadata = false
+    rate_limiting {
+      enabled = true
+      rate = 20
+      burst_size = 40
+    }
+  }
+  sourcemaps {
+    download = false
+  }
+  output {
+    logs = [loki.write.rum.receiver]
+  }
+}
+loki.write "rum" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

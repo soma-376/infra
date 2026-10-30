@@ -162,7 +162,10 @@ resource "aws_ecs_task_definition" "frontend" {
       { name = "OTEL_SDK_DISABLED", value = "false" },
       { name = "OTEL_DEPLOYMENT_ENVIRONMENT", value = var.environment },
       { name = "OTEL_SERVICE_NAME", value = "pulsemetry-frontend" },
-      { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = var.telemetry.endpoint }
+      { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = var.telemetry.endpoint },
+      { name = "RUM_ENABLED", value = "true" },
+      { name = "RUM_ENVIRONMENT", value = var.environment },
+      { name = "FARO_COLLECTOR_URL", value = "${replace(var.telemetry.endpoint, ":4318", ":12347")}/collect" }
     ])
     secrets = [{ name = "BFF_SESSION_KEYS", valueFrom = data.aws_secretsmanager_secret.bff.arn }]
     logConfiguration = {

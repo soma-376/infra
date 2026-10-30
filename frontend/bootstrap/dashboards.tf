@@ -6,7 +6,7 @@ resource "aws_ssm_document" "dashboards" {
   tags            = merge(local.tags, { Env = "dev", Component = "observability" })
   content = jsonencode({
     schemaVersion = "2.2"
-    description   = "고정된 프론트 관측 대시보드 두 개만 갱신한다."
+    description   = "고정된 프론트 관측 대시보드 세 개만 갱신한다."
     parameters = {
       DashboardBundle = {
         type = "String", interpolationType = "ENV_VAR", allowedPattern = "^[A-Za-z0-9+/=]+$"

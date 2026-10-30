@@ -5,6 +5,9 @@ on:
       - 'frontend/modules/observability/**'
       - 'frontend/observability/dashboards/**'
       - 'frontend/observability/host-agent/**'
+      - 'frontend/observability/faro/**'
+      - 'frontend/environments/dev/faro.tf'
+      - 'frontend/scripts/test-faro.py'
       - 'frontend/environments/dev/host-agent*.tf'
       - 'frontend/scripts/test-observability.py'
       - 'frontend/scripts/test-host-agent.py'
@@ -24,3 +27,6 @@ jobs:
         run: python3 frontend/scripts/test-host-agent.py
       - name: 격리된 관측 스택 검증 (AWS 인증 없음)
         run: python3 frontend/scripts/test-observability.py
+
+      - name: Faro 수신·Loki 조회 검증
+        run: python3 frontend/scripts/test-faro.py

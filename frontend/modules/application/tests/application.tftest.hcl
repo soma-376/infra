@@ -191,6 +191,9 @@ run "dev_telemetry_environment" {
       OTEL_DEPLOYMENT_ENVIRONMENT = "dev"
       OTEL_SERVICE_NAME           = "pulsemetry-frontend"
       OTEL_EXPORTER_OTLP_ENDPOINT = "http://10.2.0.142:4318"
+      RUM_ENABLED                 = "true"
+      RUM_ENVIRONMENT             = "dev"
+      FARO_COLLECTOR_URL          = "http://10.2.0.142:12347/collect"
     } : contains(jsondecode(aws_ecs_task_definition.frontend.container_definitions)[0].environment, { name = name, value = value })])
     error_message = "dev 태스크에는 SDK 활성화와 정확한 환경·서비스·OTLP 주소가 전달되어야 합니다."
   }
