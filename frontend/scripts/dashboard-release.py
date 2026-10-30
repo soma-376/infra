@@ -27,7 +27,11 @@ def validate(bundle):
         panels = dashboard.get('panels')
         if not isinstance(panels, list) or not panels:
             raise ValueError('빈 패널 목록')
-        ids = [p['id'] for p in panels]
+        def panel_ids(items):
+            for panel in items:
+                yield panel['id']
+                yield from panel_ids(panel.get('panels', []))
+        ids = list(panel_ids(panels))
         if len(ids) != len(set(ids)):
             raise ValueError('중복 패널 ID')
         def walk(obj):
