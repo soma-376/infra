@@ -9,7 +9,7 @@ Grafana는 운영자 localhost port-forward로 접속하며 public ALB/Ingress�
 
 ## 현재 판정과 검증 근거
 
-**현재 상태: observability revision 8·Tempo revision 2 적용, G8 API·실제 UI·적용 후 자원 대조 완료. 30분 관찰·Jira 완료 판정은 대기 중이다.**
+**현재 상태: observability revision 8·Tempo revision 2 적용, G8 API·실제 UI·30분 관찰·종료 후 자원 대조를 통과해 완료조건 검증 PASS. 실제 상태는 각 Jira에서 확인한다.**
 최신 source·release revision·검증 범위와 한계는 [Strimzi 관측 완료 근거](proj191-strimzi-completion.md)에 모은다.
 [infra #87](https://github.com/soma-376/infra/pull/87)은 commit 기준 lag와 미커밋 partition을 분리하고
 Tempo 보존 정책을 scheduler·worker 양쪽에 48h로 반영했다.
@@ -19,7 +19,12 @@ observability revision 8로 적용했다. 최종 source는 `8d230aa1ad77efdd2d6a
 05:32 UTC G8 API에서 revision 7과 query·변수·표시 계약이 같고 안내문만 바뀐 것을 확인해 684개 query 대조를 재사용했다.
 05:33 UTC 실제 UI에서 Strimzi 안내문·lag/미커밋·빈 값 표시, 기존 k6 실행 선택과 같은 Kafka 요청의 로그↔trace 왕복을 재확인했다.
 05:34 UTC 자원 대조에서 revision 6 이후 Pod/spec 추가 변경 없음, imageID·PVC/PV·관측 수신 정책 3개 보존을 확인했다.
-이는 시점별 적용 대조이며 진행 중인 30분 관찰과 구분한다.
+최종 30분 관찰은 05:30:52.715–06:00:53.525 UTC, 1,800.808초·31표본으로 PASS했다.
+Gateway ACK·ingest completed는 각각 +499, ClickHouse INSERT success는 +228, Collector sent spans는 +182,
+Fluent Bit의 Loki 전용 전송은 +2,743이었다. 60/60 target UP, 관측된 실패·drop·retry·restart 증가 0이며
+미노출 event counter 3개는 `null / not_emitted`로 구분했다.
+06:01:18 UTC 종료 자원 대조에서도 Pod UID/spec·이미지·PVC/PV와 revision 8 기준 정책 6개·ConfigMap을 보존했다.
+N5의 최초 기준선과 직접 비교한 정책 3개와 종료 비교의 정책 6개는 서로 다른 범위다.
 
 2026-10-29 [PROJ-285](https://team376.atlassian.net/browse/PROJ-285)의 Strimzi target 7개,
 main Gateway ACK→Kafka record→consume/commit→ClickHouse, sampled trace·양 앱 Loki 로그 연결,
@@ -48,7 +53,9 @@ Gateway·ingest 각각의 Collector 허용 경로, Fluent Bit→Loki·Collector�
 Strimzi와 `network-removed` profile·PVC·기존 앱 설정을 보존한다. MSK retain 입력으로 재생성하거나
 Tempo worker가 48h로 고쳐지기 전 revision 1로 되돌리지 않는다. 실제 rollback 실행 증거는 아니다.
 revision 6의 중단 관찰과 revision 8 Helm hook 추가로 FAIL한 revision 7 관찰은 최종 관찰과 분리해 기록했다.
-최종 관찰의 첫 표본은 2026-10-30 05:30:53.713 UTC이며 이전 실행 시간을 합산하지 않는다.
+최종 관찰의 표본 범위는 2026-10-30 05:30:53.713–06:00:53.507 UTC이며 이전 실행 시간을 합산하지 않았다.
+완료조건 검증은 PASS이며 실제 상태는 [PROJ-191](https://team376.atlassian.net/browse/PROJ-191)·
+[PROJ-255](https://team376.atlassian.net/browse/PROJ-255)·[PROJ-256](https://team376.atlassian.net/browse/PROJ-256)에서 확인한다.
 
 ## 적용 순서와 입력
 

@@ -108,7 +108,8 @@ SG는 노드 단위라 세 release가 수신 NetworkPolicy를 두고, platform c
 Grafana 로그↔trace UI 왕복, 같은 digest 격리 저장소의 보존 삭제·재시작 비복원·새 입력을 확인했다.
 격리 시험은 5분 정책이며 dev의 72h/48h 전체 기간 또는 과거 특정 파일 삭제 검증으로 확대하지 않는다.
 최종 revision·G8·30분 판정은 [Strimzi 관측 완료 근거](docs/runbooks/proj191-strimzi-completion.md)에 기록한다.
-observability revision 8·Tempo revision 2, G8 API·실제 UI와 적용 후 자원 보존 대조는 확인됐다. 30분 관찰·Jira 완료 판정은 대기 중이다.
+observability revision 8·Tempo revision 2에서 G8 API·실제 UI, 1,800.808초·31표본 관찰과 종료 후 자원 보존 대조를 통과했다.
+완료조건 검증은 PASS이며 실제 상태는 각 Jira에서 확인한다.
 
 ## PROJ-191 관측 현행과 완료 검증
 
@@ -134,7 +135,9 @@ sampled trace·로그, 30분 안정화와 TLS 실패 경보 발생·해제를 �
 [infra #89](https://github.com/soma-376/infra/pull/89)의 Pipeline 안내문 정정까지 source
 `8d230aa1ad77efdd2d6ae907ba1f5be7e1c13239`로 적용했고 observability revision은 8이다.
 현재 source/runtime·검증 범위·G8·배포 후 30분 판정은 [Strimzi 관측 완료 근거](docs/runbooks/proj191-strimzi-completion.md)가 소유한다.
-[PENDING: 세 티켓의 최종 판정과 Jira 완료 상태를 확인해 반영]. 저부하 관찰을 최대 처리량이나 SLO 검증으로 확대하지 않는다.
+2026-10-30 06:00:53 UTC까지의 최종 관찰과 06:01:18 UTC 자원 대조로 세 티켓의 완료조건 검증은 PASS다.
+실제 상태는 [PROJ-191](https://team376.atlassian.net/browse/PROJ-191)·[PROJ-255](https://team376.atlassian.net/browse/PROJ-255)·
+[PROJ-256](https://team376.atlassian.net/browse/PROJ-256)에서 확인한다. 저부하 관찰을 최대 처리량이나 SLO 검증으로 확대하지 않는다.
 
 
 ---

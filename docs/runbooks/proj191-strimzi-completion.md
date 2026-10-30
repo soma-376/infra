@@ -1,10 +1,12 @@
 # PROJ-191·255·256 — dev Strimzi 관측 완료 근거
 
-**현재 상태: observability revision 8·Tempo revision 2 적용, G8 API·실제 UI·적용 후 자원 대조 완료. 30분 관찰·Jira 완료 판정은 대기 중이다.**
+**현재 상태: observability revision 8·Tempo revision 2 적용, G8 API·실제 UI·30분 관찰·종료 후 자원 대조를 통과해 완료조건 검증 PASS. 실제 상태는 각 Jira에서 확인한다.**
 이 문서는 dev Strimzi 경로의 관측 적용과 실제 확인 범위를 기록한다. 기존 실행 절차는
 [관측 런북](dev-observability.md), 공급자 전환은 [Strimzi 런북](dev-strimzi-kafka.md)을 따른다.
 [ADR-0039](../adr/0039-dev-loki-tempo-and-platform-trace-collector.md)와 backend ADR 0069의 `Proposed` 상태는 유지한다.
 원본 증거는 실행 환경에 보존하고 공유 가능한 요약을 이 문서와 Jira에 연결한다.
+실제 티켓 상태는 [PROJ-191](https://team376.atlassian.net/browse/PROJ-191)·[PROJ-255](https://team376.atlassian.net/browse/PROJ-255)·
+[PROJ-256](https://team376.atlassian.net/browse/PROJ-256)에서 확인한다.
 계정·Secret·내부 주소·고객 본문은 이 문서에 싣지 않는다.
 
 ## Source와 실제 적용
@@ -16,16 +18,18 @@
 | Pipeline 안내문 정정 | [infra #89](https://github.com/soma-376/infra/pull/89), source `8d230aa1ad77efdd2d6ae907ba1f5be7e1c13239`, 병합 2026-10-30 05:29:02 UTC, [CI 성공](https://github.com/soma-376/infra/actions/runs/41008406538) |
 | docs 계약 상태 정정 | [docs #21](https://github.com/soma-376/docs/pull/21), merge `e23cd5b234f8a9b5b550a2ce303e84f80cad9121` |
 | backend 관측 상태 정정 | [backend #55](https://github.com/soma-376/pulsemetry-backend/pull/55), merge `af0c3158d7bc1496b2c0010a188385aae983f1d2` |
-| Loki·Collector | `loki` revision 1, `otel-platform` revision 1. revision 8까지 설정 digest·실행 imageID와 기존 release revision이 같음을 확인했으며 관찰 종료 상태는 별도 대조한다 |
+| Loki·Collector | `loki` revision 1, `otel-platform` revision 1. revision 8까지 설정 digest·실행 imageID와 기존 release revision이 같았고 06:01:18 UTC 종료 대조에서도 유지됐다 |
 | Tempo | revision 2 적용 2026-10-30 05:07:10 UTC. 실행 설정의 scheduler·worker 보존 값 모두 `48h0m0s` 확인 |
 | 관측 차트 | revision 6 적용 2026-10-30 05:08:30 UTC, 05:25 UTC G8에서 revision 7 확인. revision 8은 05:29:19 UTC 적용되어 `deployed` 상태이며 05:32 UTC API의 source·안내문 대조를 통과했다 |
 
 기존 고정 이미지와 입력을 재사용했다. backend 문서 병합은 이미지 게시 workflow를 실행하지만
-Kubernetes workload를 자동 배포하지 않는다. 관찰 구간의 실제 이미지·Pod·PVC 동일성은 아래 적용 전후 대조로 별도 판단한다.
+Kubernetes workload를 자동 배포하지 않는다. 관찰 종료 후 실제 이미지·Pod·PVC 동일성은 아래 적용 전후 대조에서 확인했다.
 
 ### 코드·렌더링 검증
 
-#87의 관측 관련 회귀 검사는 총 46개 suite·1,301개 test와 TypeScript build를 통과했다.
+#87의 전체 회귀 범위는 46개 suite·1,301개 test다. 최초 실행에서 44개 suite·1,299개 test가 통과했고,
+나머지 두 Helm schema 검사는 sandbox의 schema 다운로드 차단으로 실패했다. 네트워크를 허용한 동일 두 검사를
+재실행해 모두 통과했으며 TypeScript build도 성공했다. 이 합산 결과를 한 번의 전체 실행 성공으로 해석하지 않는다.
 고정 Helm 3.22.0·Promtool 3.9.1을 사용한 실제 렌더링과 rule 시험에서 정상 0,
 미커밋만 존재, `1001 + 미커밋 4개`, 경계 1000, exporter 중단, 지표 누락,
 group·cluster 분리와 `1000 초과·5분 지속` 경보를 확인했다. 빈 수집 결과는 정상 0으로 채우지 않는다.
@@ -35,8 +39,8 @@ group·cluster 분리와 `1000 초과·5분 지속` 경보를 확인했다. 빈 
 ### 실제 고정 이미지
 
 아래는 2026-10-30 05:09 UTC의 읽기 전용 Pod 캡처에서 추출한 digest다.
-각 구성요소의 image 설정과 실행 imageID의 `sha256`가 일치했고 05:34:45 UTC revision 8 자원 대조에서도 그대로였다.
-registry·개인 ECR 계정·저장소 이름은 제외한다. 관찰 종료 상태 동일성은 별도 대조한다.
+각 구성요소의 image 설정과 실행 imageID의 `sha256`가 일치했고 05:34:45 UTC revision 8 자원 대조와
+06:01:18 UTC 최종 관찰 종료 대조에서도 그대로였다. registry·개인 ECR 계정·저장소 이름은 제외한다.
 
 | 구성요소 | 설정 및 실행 imageID digest |
 |---|---|
@@ -164,7 +168,16 @@ Loki·Tempo·Collector 수신 NetworkPolicy 3개의 UID·spec은 적용 전과 �
 profile도 유지됐다. AWS SG 또는 MSK 물리 자원 전체를 새로 조사한 결과는 아니며 철거는 10/29 증거를 재사용한다.
 revision 7→8의 dashboard 변경은 Pipeline 안내문 한 곳뿐이고 실제 내용은 검토한 candidate와 같았다.
 Loki 실행 설정과 Tempo worker 보정 후 설정도 유지됐다. Helm hook은 종료됐고 최종 관찰 기준선에는 포함되지 않았다.
-이 결과는 해당 시점의 적용 대조이며 아직 진행 중인 30분 관찰을 대신하지 않는다.
+이 결과는 해당 시점의 적용 대조이며 아래 30분 관찰 결과와 별도로 기록한다.
+
+최종 관찰이 끝난 뒤 2026-10-30 06:01:18 UTC 자원 대조도 PASS했다.
+revision 8 시작 대비 자원 추가·제거·UID/spec 변경은 없었고 revision 6 이후에도 추가 변경은 없었다.
+26개 Pod는 모두 Ready였으며 이미지 설정·실행 imageID, Gateway/ingest sampling 0.1을 유지했다.
+PVC 10개·PV 10개는 UID·spec·volume identity와 연결을 보존했고 모두 Bound였다.
+revision 8 시작 snapshot의 NetworkPolicy 6개 전체와 캡처한 ConfigMap 데이터도 같았다.
+최초 N5 기준선과 비교할 수 있는 관측 정책은 3개였으며 이 6개 종료 비교와 혼동하지 않는다.
+Loki·Tempo 실행 설정, 추적 deployment/runtime 입력과 네 release revision도 유지됐다.
+현재 관측 Job은 없었다. AWS SG/MSK 전체 조사·Secret 읽기·workload 변경·새 트래픽은 수행하지 않았다.
 배포 중 이력과 배포 후 안정화의 restart 기준선은 분리한다. 의도한 Tempo 재기동을 이후 무재시작 관찰에서 숨기지 않는다.
 
 ### 이번 변경의 복구 기준
@@ -175,7 +188,8 @@ Loki 실행 설정과 Tempo worker 보정 후 설정도 유지됐다. Helm hook�
 
 ## 배포 후 30분 수동 트래픽 없는 관찰
 
-**상태: 진행 중 — revision 8 최종 실행의 첫 표본은 2026-10-30 05:30:53.713 UTC다. 종료 판정은 아직 없다.**
+**상태: PASS — revision 8 최종 실행은 2026-10-30 05:30:52.715–06:00:53.525 UTC, 1,800.808초·31표본이다.**
+첫 표본은 05:30:53.713 UTC, 마지막 표본은 06:00:53.507 UTC였다.
 10/29 공개 요청 31회와 다른 실행이다.
 새 공개 트래픽을 만들지 않고 기존 업무 수집 증가를 확인하며 특정 요청 ID·Kafka record·ClickHouse 논리 행의
 관통 정합성은 위 PROJ-285 증거를 재사용한다. 이번 counter 증가는 새 요청별 완전성 대조가 아니다.
@@ -189,17 +203,17 @@ Loki 실행 설정과 Tempo worker 보정 후 설정도 유지됐다. Helm hook�
   실제 업무 Pod 교체로 해석하지 않으며 이 FAIL을 삭제하거나 revision 8 최종 관찰 성공으로 바꾸지 않는다.
 - hook 종료 후 새 기준선으로 revision 8 관찰을 시작했다. 앞선 실행 시간을 이어 붙이지 않고 최소 1,800초·31개 표본을 새로 요구한다.
 
-| 항목 | 최종 실행에서 채울 값 |
+| 항목 | 최종 실측값과 범위 |
 |---|---|
-| 시작·종료·duration·표본 수 | 첫 표본 2026-10-30 05:30:53.713 UTC. [PENDING: 최종 startedAt·finishedAt / 최소 1,800초 / 최소 31회] |
-| source·Helm revision | `8d230aa1ad77efdd2d6ae907ba1f5be7e1c13239` / observability 8 / Tempo 2. [PENDING: 관찰 종료 상태 동일성 대조] |
-| target·health·freshness | [PENDING: 기대 job·identity별 UP, 서비스 Ready, scrape 시각] |
-| 업무 진행 | [PENDING: Gateway ACK·ingest completed·ClickHouse INSERT success 각각 실제 증가량] |
-| trace·로그 진행 | [PENDING: Collector sent spans·Fluent Bit Loki output 각각 실제 증가량] |
-| 실패·drop·retry·restart | [PENDING: 관측된 counter 증가량과 not_emitted를 구분, Pod UID·restart 변화] |
-| queue·PVC | [PENDING: Collector 최대 비율/종료 0, Fluent Bit 가용량, PVC 최소 여유 비율] |
-| lag 범위 | [PENDING: 확인된 lag 최대/종료값·미커밋 partition 수; 부분합을 전체 backlog로 표현하지 않음] |
-| 최종 판정과 한계 | [PENDING: PASS/FAIL, 실패 원인·미확정과 시간 범위] |
+| 시작·종료·duration·표본 수 | 2026-10-30 05:30:52.715–06:00:53.525 UTC / 1,800.808초 / 31표본 |
+| source·Helm revision | `8d230aa1ad77efdd2d6ae907ba1f5be7e1c13239` / observability 8 / Tempo 2 / Loki 1 / Collector 1. 06:01:18 UTC 종료 상태 대조도 PASS |
+| target·health·freshness | 모든 표본에서 60/60 target UP, health HTTP 200. 표본 시점 최대 scrape age 11.221초 |
+| 업무 진행 | Gateway ACK +499 / ingest completed +499 / ClickHouse INSERT success +228. 서로 다른 counter 단위이며 요청별 행 정합성의 새 대조는 아님 |
+| trace·로그 진행 | Collector sent spans +182 / Fluent Bit Loki 전용 sent +2,743. 전체 output sent +5,486과 구분 |
+| 실패·drop·retry·restart | 관측된 Gateway failure·commit failure·retry exhausted·Fluent Bit error/retry/drop·Loki drop·restart 증가 모두 0. Collector failure·Tempo drop·ingest failure는 `null / not_emitted`. Pod UID/spec 변화 없음 |
+| queue·PVC | Collector 최대·종료 queue 0/2,000, 최대 비율 0%. Fluent Bit output 최소 가용률 100%. PVC 10개 최소 가용률 80.4765% |
+| lag 범위 | 확인된 lag 0–1, 종료 1. 전체 6 partition 중 미커밋 4개를 계속 별도 표시. 확인된 부분합이며 전체 backlog가 아님 |
+| 최종 판정과 한계 | PASS, 실패 목록 없음. sampling 10%의 기존 저부하 업무를 관찰한 범위 |
 
 실측 없는 lazy event counter는 `null / not_emitted`다. 이것을 정상 0 또는 실패 없음의 직접 측정으로 바꾸지 않는다.
 낮은 기존 부하의 관찰은 최대 처리량·SLO, 무손실·exactly-once, 모든 요청의 sampling을 보장하지 않는다.

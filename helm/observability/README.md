@@ -102,8 +102,11 @@ MSK active scrape·전용 경보 제거 후 최종 profile은 [infra #85](https:
 최종 source·Helm revision·G8·배포 후 30분 판정은
 [Strimzi 관측 완료 근거](../../docs/runbooks/proj191-strimzi-completion.md)에 기록한다.
 observability revision 8·Tempo revision 2와 G8 API·실제 UI 대조는 확인됐다. query·변수·표시 계약이 같음을 대조해
-revision 7의 684개 query 검증을 재사용한다. revision 8의 imageID·PVC/PV·관측 수신 정책 3개 보존도 확인했고
-30분 관찰·Jira 판정은 아직 대기 중이다.
+revision 7의 684개 query 검증을 재사용한다. 최종 관찰은 2026-10-30 05:30:52.715–06:00:53.525 UTC,
+1,800.808초·31표본으로 PASS했다. 06:01:18 UTC 종료 대조에서 imageID·Pod UID/spec·PVC/PV와
+revision 8 기준 NetworkPolicy 6개·ConfigMap 보존도 확인했다. N5 최초 기준선과의 정책 비교는 관측 수신 정책 3개다.
+완료조건 검증은 PASS이며 실제 상태는 [PROJ-191](https://team376.atlassian.net/browse/PROJ-191)·
+[PROJ-255](https://team376.atlassian.net/browse/PROJ-255)·[PROJ-256](https://team376.atlassian.net/browse/PROJ-256)에서 확인한다.
 표시 rollback은 observability 8→7 범위이며 Tempo 2·현재 Strimzi·`network-removed` profile을 유지한다. 재검증 절차는
 [관측 런북](../../docs/runbooks/dev-observability.md#현재-판정과-검증-근거)을 따른다.
 
