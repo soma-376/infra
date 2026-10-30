@@ -113,6 +113,29 @@ Strimzi verify Job은 MSK 환경변수와 generic scalar query를 받지 않는�
 
 관련 결정: [ADR 0050](../adr/0050-perf-strimzi-provider-and-isolated-capacity.md).
 
+## 발생기 관측과 최초 smoke의 Job 입력
+
+v3의 정식 Job 입력은 load-tests `docs/path-comparison.md`의 paired manifest와 실행 직전 상태 검증으로 만든다.
+`pathPair`의 ID·SHA·환경 evidence 경로·smoke 예약량·사용 slot을 함께 전달한다. chart는 다른 환경의 경로,
+잘못된 SHA/slot과 누락된 pair를 거부한다. smoke는 조건부 S3 slot 기록 후 요청하므로 실패한 시도도 공통 예산을 쓴다.
+drain과 최종 검증은 각각 900초 이하이며 verify Job은 두 단계와 업로드 120초를 수용한다(각 900초이면 1,920초).
+
+최초 인증·저장 smoke 전에는 ready resolved가 없으므로 load-tests `tools/prepare/bootstrap.py`를 사용한다.
+이 도구가 실제 배포 metadata와 request/provisional SHA를 대조해 만든 `bootstrapMode: true` 입력은 내부
+prepare·smoke에만 사용할 수 있다. runner·sentinel·verify·seed에는 허용하지 않는다. 증거는
+`runs/bootstrap/<environment>/<request-sha>/<provisional-sha>/executions/<run>/`에 귀속하고, bootstrap 성공을
+정식 시험 준비 완료로 바꾸지 않는다. 최초 시험용 identities 생성·DB 적용은 별도의 기존 seed operator 절차다.
+배경 rich 데이터와 시험용 계정의 생성량·귀속을 함께 기록한다.
+
+발생기 runner에는 `ENVIRONMENT=perf`와 고유 `ENVIRONMENT_ID`, Prometheus 조회 URL과 remote-write URL을 공급한다.
+Pod 이름·namespace·node는 Downward API에서 읽는다. load-tests `docs/generator-readiness.md`에 따라 실제 node/NIC
+용량 증거 SHA를 담은 `generator-policy.json`을 만들고 `objects.generatorPolicyConfigMap` 이름의 immutable ConfigMap으로
+같은 runner namespace에 준비한다. chart는 `/generator-policy/generator-policy.json`에 읽기 전용으로 mount한다.
+정책이나 관측이 없으면 실행을 시작하지 않는다. CPU 약 20% 여유는 해당 단일 발생기에서의 초기 유효성 기준이며 용량 C가 아니다.
+
+로컬 검증은 v2 기존 Job과 v3 pair/bootstrap/Downward API/관측 mount를 포함한 13개 Helm 검사와 공식 Kubernetes schema를 통과했다.
+초기 sandbox의 schema 검사 8건은 실패했고, 네트워크를 허용한 동일 suite 재검사에서 13건이 통과했다. load-tests `b9a29034079193aa65a9773fb25107fe4ed4873e`의 원본 bootstrap/paired values로 Job 7종 교차 렌더도 통과했다. AWS 적용·실제 관측은 NOT_RUN이다.
+
 ## PROJ-292 검증 기록
 
 - build와 `git diff --check` 통과. v2/v3 SOURCE의 SHA-256 검사 통과; v3 원본 commit은 `65cba77274a1b3a6ffdc8e1c94ac2a32d92f3562`다.

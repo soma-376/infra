@@ -20,6 +20,25 @@
 {{- define "perfJobs.validate" -}}
 {{- $v := .Values -}}
 {{- $infra := $v.infra -}}
+{{- $bootstrap := $v.bootstrapMode | default false -}}
+{{- if $bootstrap -}}
+{{- if or (ne (int $v.contractVersion) 3) (not (has $v.job (list "prepare" "smoke"))) (ne $v.ingressPath "internal") $v.pathPair -}}{{- include "perfJobs.fail" "bootstrap은 v3 내부 prepare·smoke에만 허용한다" -}}{{- end -}}
+{{- range $key := list "requestSha256" "provisionalSha256" "metadataSha256" -}}
+{{- if not (regexMatch "^[a-f0-9]{64}$" (index ($v.bootstrap | default dict) $key | default "")) -}}{{- include "perfJobs.fail" (printf "bootstrap.%s SHA-256이 필요하다" $key) -}}{{- end -}}
+{{- end -}}
+{{- else if and (eq (int $v.contractVersion) 3) (ne $v.job "seed") -}}
+{{- $pair := $v.pathPair | default dict -}}
+{{- if or (not (regexMatch "^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$" ($pair.pairId | default ""))) (not (regexMatch "^[a-f0-9]{64}$" ($pair.sha256 | default ""))) -}}{{- include "perfJobs.fail" "v3 실행에는 pathPair ID·SHA-256이 필요하다" -}}{{- end -}}
+{{- if ne $pair.evidenceUri (printf "s3://%s/%spairs/%s/" $infra.evidenceBucket $infra.evidencePrefix $pair.pairId) -}}{{- include "perfJobs.fail" "pathPair.evidenceUri가 환경의 pair 경로와 다르다" -}}{{- end -}}
+{{- if or (lt (int $v.deadlines.drainDeadlineSeconds) 1) (gt (int $v.deadlines.drainDeadlineSeconds) 900) (lt (int $v.deadlines.verifyPollDeadlineSeconds) 1) (gt (int $v.deadlines.verifyPollDeadlineSeconds) 900) (lt (int $v.deadlines.verifyActiveDeadlineSeconds) (add (int $v.deadlines.drainDeadlineSeconds) (int $v.deadlines.verifyPollDeadlineSeconds) 120)) -}}{{- include "perfJobs.fail" "drain·최종 검증은 각각 900초 이하이며 Job은 두 단계와 업로드 120초를 수용해야 한다" -}}{{- end -}}
+{{- end -}}
+{{- if and (eq (int $v.contractVersion) 3) (ne $v.job "seed") -}}
+{{- $budget := ternary ($v.bootstrap | default dict) ($v.pathPair | default dict) $bootstrap -}}
+{{- range $key := list "smokeRequestReserve" "smokeSlotStart" -}}
+{{- if not (regexMatch "^[0-9]+$" (toString (index $budget $key))) -}}{{- include "perfJobs.fail" (printf "%s 정수 입력이 필요하다" $key) -}}{{- end -}}
+{{- end -}}
+{{- if or (lt (int $budget.smokeRequestReserve) 1) (gt (int $budget.smokeRequestReserve) 10000) (gt (int $budget.smokeSlotStart) (int $budget.smokeRequestReserve)) -}}{{- include "perfJobs.fail" "smoke 요청 예약 또는 시작 slot이 범위 밖이다" -}}{{- end -}}
+{{- end -}}
 {{- if $v.contractVersion -}}
 {{- if ne (int $infra.contractVersion) 3 -}}{{- include "perfJobs.fail" "v3 Job과 infra 계약 버전이 다르다" -}}{{- end -}}
 {{- $actual := $infra.kafka | default $infra.msk -}}
@@ -42,11 +61,15 @@
 {{- $evidence := printf "s3://%s/%s" $infra.evidenceBucket $infra.evidencePrefix -}}
 {{- if eq $v.job "seed" -}}
 {{- if ne $v.evidenceUri (printf "%sseed/" $evidence) -}}{{- include "perfJobs.fail" (printf "seed evidenceUri는 %sseed/다" $evidence) -}}{{- end -}}
+{{- else if $bootstrap -}}
+{{- $root := printf "%sbootstrap/%s/%s/%s/" $evidence $v.environmentId $v.bootstrap.requestSha256 $v.bootstrap.provisionalSha256 -}}
+{{- if or (ne $v.bootstrap.evidenceUri $root) (ne $v.evidenceUri (printf "%sexecutions/%s/" $root $v.run.runId)) (ne $v.run.experimentId "bootstrap") -}}{{- include "perfJobs.fail" "bootstrap evidence는 request·provisional SHA와 실행 ID에 귀속돼야 한다" -}}{{- end -}}
 {{- else -}}
 {{- if not (and $v.run $v.run.runId $v.run.experimentId) -}}{{- include "perfJobs.fail" "run.experimentId·run.runId가 필요하다" -}}{{- end -}}
 {{- if ne $v.evidenceUri (printf "%s%s/%s/" $evidence $v.run.experimentId $v.run.runId) -}}{{- include "perfJobs.fail" (printf "evidenceUri는 %s<experiment>/<run>/이다" $evidence) -}}{{- end -}}
 {{- end -}}
 {{- $ingress := $v.ingressPath | default "internal" -}}
+{{- if not (has $ingress (list "internal" "alb_https")) -}}{{- include "perfJobs.fail" "ingressPath는 internal 또는 alb_https다" -}}{{- end -}}
 {{- $gateway := $infra.endpoints.gateway -}}
 {{- if eq $ingress "alb_https" -}}
 {{- if ne (int $v.contractVersion) 3 -}}{{- include "perfJobs.fail" "공개 HTTPS 경로에는 v3 Job 입력이 필요하다" -}}{{- end -}}
@@ -65,6 +88,10 @@
 {{- if ne $v.enrollment.deployment "enrollment-api" -}}{{- include "perfJobs.fail" "prepare의 scale 권한은 enrollment-api뿐이다" -}}{{- end -}}
 {{- end -}}
 {{- if eq $v.job "runner" -}}
+{{- if eq (int $v.contractVersion) 3 -}}
+{{- $policy := $v.objects.generatorPolicyConfigMap | default "" -}}
+{{- if or (gt (len $policy) 63) (not (regexMatch "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$" $policy)) -}}{{- include "perfJobs.fail" "발생기 policy ConfigMap 이름이 필요하다" -}}{{- end -}}
+{{- end -}}
 {{- if lt (int $v.deadlines.terminationGracePeriodSeconds) (add (int $v.deadlines.gracefulStopSeconds) 120) -}}{{- include "perfJobs.fail" "terminationGracePeriodSeconds는 gracefulStop + 120초 이상이다" -}}{{- end -}}
 {{- /* /out sizeLimit은 예상 journal bytes의 2배 이상이다(perf-jobs.md runner). */ -}}
 {{- with $v.runner.journalBytesEstimate -}}
@@ -85,5 +112,11 @@
 
 {{- define "perfJobs.envVar" -}}
 - name: {{ .name }}
+  {{- if .fieldPath }}
+  valueFrom:
+    fieldRef:
+      fieldPath: {{ .fieldPath | quote }}
+  {{- else }}
   value: {{ .value | toString | quote }}
+  {{- end }}
 {{- end -}}

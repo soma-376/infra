@@ -43,7 +43,7 @@ function schema(documents: any[]): void {
   writeFileSync(file, documents.map(document => dump(document)).join('---\n'));
   const result = run(kubeconform, ['-strict', '-summary', '-kubernetes-version', '1.36.0', '-ignore-missing-schemas',
     '-schema-location', 'default', '-schema-location', 'helm/dev/runtime/schemas/{{.ResourceKind}}_{{.Group}}_{{.ResourceAPIVersion}}.json', file]);
-  expect([result.status, result.stderr]).toEqual([0, '']);
+  expect([result.status, result.stderr, result.status === 0 ? '' : result.stdout]).toEqual([0, '', '']);
 }
 
 const find = (documents: any[], kind: string, name: string) => {
@@ -56,7 +56,7 @@ const workload = (name: string) => [join(root, `helm/perf/workloads/${name}.yaml
 function jobValues(overrides: Record<string, unknown> = {}): string {
   const infra = (load(readFileSync(generated('jobs.yaml'), 'utf8')) as any).infra;
   const runId = 'm1-smoke-01';
-  const value = {
+  const value: any = {
     run: { experimentId: '0002-perf-smoke', runId, testid: `0002-perf-smoke/${runId}`, epochId: 'e1' },
     images: { k6Runner: `${REGISTRY}/perf-k6-runner@${DIGEST('5')}`, perfTools: `${REGISTRY}/perf-tools@${DIGEST('6')}` },
     namespaces: infra.namespaces,
@@ -73,6 +73,13 @@ function jobValues(overrides: Record<string, unknown> = {}): string {
     tools: { clockSkewBoundMs: 1000, archiveSample: 20 },
     ...overrides,
   };
+  if (overrides.contractVersion === 3 && !overrides.bootstrapMode) {
+    value.objects.generatorPolicyConfigMap = `run-${runId}-generator-policy`;
+    value.pathPair ??= { pairId: 'readiness-01', sha256: 'a'.repeat(64),
+      evidenceUri: `s3://${infra.evidenceBucket}/runs/pairs/readiness-01/`, smokeRequestReserve: 100, smokeSlotStart: 6 };
+    value.deadlines.verifyPollDeadlineSeconds ??= 900;
+    value.deadlines.verifyActiveDeadlineSeconds = 1920;
+  }
   const file = join(directory, `job-values-${Math.random().toString(16).slice(2)}.json`);
   writeFileSync(file, JSON.stringify(value));
   return file;
@@ -120,10 +127,62 @@ suite('perf Helm chart', () => {
     const job = render('runner', 'helm/perf/jobs', 'pulsemetry-perf-runner', [file, selected], ['job=runner'])[0];
     expect(job.spec.template.spec.containers[0].env).toContainEqual({ name: 'GATEWAY_ENDPOINT', value: 'https://perf-api.pulsemetry.co.kr' });
     expect(job.spec.template.spec.containers[0].env).toContainEqual({ name: 'INGRESS_PATH', value: 'alb_https' });
+    const pod = job.spec.template.spec;
+    expect(pod.containers[0].env).toEqual(expect.arrayContaining([
+      { name: 'ENVIRONMENT', value: 'perf' },
+      { name: 'PROMETHEUS_URL', value: infra.endpoints.prometheus },
+      { name: 'GENERATOR_POLICY', value: '/generator-policy/generator-policy.json' },
+      { name: 'POD_NAME', valueFrom: { fieldRef: { fieldPath: 'metadata.name' } } },
+      { name: 'POD_NAMESPACE', valueFrom: { fieldRef: { fieldPath: 'metadata.namespace' } } },
+      { name: 'NODE_NAME', valueFrom: { fieldRef: { fieldPath: 'spec.nodeName' } } },
+    ]));
+    expect(pod.volumes.find((v: any) => v.name === 'generator-policy').configMap).toEqual({
+      name: 'run-m1-smoke-01-generator-policy', items: [{ key: 'generator-policy.json', path: 'generator-policy.json' }],
+    });
+    schema([job]);
+    const smoke = render('smoke', 'helm/perf/jobs', 'pulsemetry-perf-runner', [file, selected], ['job=smoke'])[0];
+    expect(smoke.spec.template.spec.containers[0].env).toEqual(expect.arrayContaining([
+      { name: 'PAIR_SHA256', value: 'a'.repeat(64) }, { name: 'SMOKE_REQUEST_RESERVE', value: '100' },
+      { name: 'SMOKE_SLOT_START', value: '6' },
+      { name: 'PAIR_EVIDENCE_URI', value: `s3://${infra.evidenceBucket}/runs/pairs/readiness-01/` },
+    ]));
+    for (const change of ['pathPair=null', 'pathPair.sha256=bad', 'pathPair.smokeSlotStart=101',
+      'pathPair.evidenceUri=s3://other/runs/pairs/readiness-01/', 'objects.generatorPolicyConfigMap=null',
+      'deadlines.verifyActiveDeadlineSeconds=900', 'deadlines.drainDeadlineSeconds=901', 'ingressPath=unknown']) {
+      rejects('helm/perf/jobs', 'pulsemetry-perf-runner', [file, selected], ['job=runner', change]);
+    }
     rejects('helm/perf/jobs', 'pulsemetry-perf-runner', [file, selected], ['job=runner', 'ingressPath=internal']);
     rejects('helm/perf/jobs', 'pulsemetry-perf-runner', [file, selected], ['job=runner', 'endpoints.gateway=https://unexpected.example']);
     rejects('helm/perf/jobs', 'pulsemetry-perf-runner', [file, selected], ['job=runner', 'infra.endpoints.gatewayHttps=null']);
     rejects('helm/perf/jobs', 'pulsemetry-perf-runner', [generated('jobs.yaml'), jobValues({ ingressPath: 'alb_https' })], ['job=runner']);
+  });
+
+  test('bootstrap은 ready를 선언하지 않고 내부 prepare·smoke의 SHA 귀속 경로만 사용한다', () => {
+    const infra = (load(readFileSync(generated('jobs.yaml'), 'utf8')) as any).infra;
+    delete infra.msk; infra.contractVersion = 3;
+    infra.kafka = { provider: 'strimzi', clusterName: 'soma-376-perf-telemetry', namespace: 'pulsemetry-perf',
+      topic: 'pulsemetry-perf-telemetry-ingress', consumerGroup: 'pulsemetry-perf-telemetry-ingest', partitions: 6 };
+    const file = join(directory, 'bootstrap-infra.yaml'); writeFileSync(file, dump({ infra }));
+    const uri = `s3://${infra.evidenceBucket}/runs/bootstrap/${ENVIRONMENT_ID}/${'b'.repeat(64)}/${'c'.repeat(64)}/`;
+    const selected = jobValues({ contractVersion: 3, kafka: infra.kafka, bootstrapMode: true, ingressPath: 'internal',
+      run: { experimentId: 'bootstrap', runId: 'm1-smoke-01', testid: 'bootstrap/m1-smoke-01', epochId: 'e1' },
+      evidenceUri: `${uri}executions/m1-smoke-01/`,
+      bootstrap: { requestSha256: 'b'.repeat(64), provisionalSha256: 'c'.repeat(64), metadataSha256: 'd'.repeat(64),
+        evidenceUri: uri, smokeRequestReserve: 100, smokeSlotStart: 0 },
+      deadlines: { prepareActiveDeadlineSeconds: 900, smokeActiveDeadlineSeconds: 1020, requiredLifetimeSeconds: 1800 },
+    });
+    for (const job of ['prepare', 'smoke']) schema(render(job, 'helm/perf/jobs', 'pulsemetry-perf-runner', [file, selected], [`job=${job}`]));
+    const smoke = render('smoke', 'helm/perf/jobs', 'pulsemetry-perf-runner', [file, selected], ['job=smoke'])[0];
+    expect(smoke.spec.template.spec.containers[0].env).toEqual(expect.arrayContaining([
+      { name: 'BOOTSTRAP_EVIDENCE_URI', value: uri }, { name: 'BOOTSTRAP_REQUEST_SHA256', value: 'b'.repeat(64) },
+      { name: 'BOOTSTRAP_PROVISIONAL_SHA256', value: 'c'.repeat(64) },
+      { name: 'BOOTSTRAP_SMOKE_REQUEST_RESERVE', value: '100' }, { name: 'BOOTSTRAP_SMOKE_SLOT_START', value: '0' },
+    ]));
+    for (const job of ['runner', 'sentinel', 'verify', 'seed']) rejects('helm/perf/jobs', 'pulsemetry-perf-runner', [file, selected], [`job=${job}`]);
+    for (const change of ['ingressPath=alb_https', 'bootstrap.requestSha256=bad', 'bootstrap.smokeSlotStart=101',
+      'bootstrap.evidenceUri=s3://other/runs/', 'evidenceUri=s3://other/runs/', 'bootstrap.metadataSha256=null']) {
+      rejects('helm/perf/jobs', 'pulsemetry-perf-runner', [file, selected], ['job=smoke', change]);
+    }
   });
 
   test('platform: namespace 4개, StorageClass, pool마다 NodeClass·고정 용량 NodePool', () => {
