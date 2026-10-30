@@ -2,6 +2,7 @@
 import datetime as dt
 import json
 import os
+import re
 import time
 
 OWNER = 'pulsemetry:perf-environment'
@@ -9,6 +10,8 @@ STACKS = ['PerfEdgeStack', 'PerfEksStack', 'PerfDataStack', 'PerfNetworkStack', 
 GUARD = 'PerfGuardrailStack'
 REPOSITORIES = ['soma-376/perf-k6-runner', 'soma-376/perf-tools']
 ACTIVE = ['pending', 'running', 'stopping', 'stopped', 'shutting-down']
+CLUSTER = 'soma-376-perf-eks'
+CLEANUP_CONTRACT = 2
 
 
 def code(error):
@@ -143,24 +146,56 @@ class Cleaner:
             s3.delete_bucket(Bucket=name)
         return True
 
+    def node_role(self, stack, allow_not_created=False):
+        outputs = {x['OutputKey']: x['OutputValue'] for x in stack.get('Outputs', [])}
+        name, arn = outputs.get('EksNodeRoleName', ''), outputs.get('EksNodeRoleArn', '')
+        if not name and not arn:
+            # 부분 생성 실패에는 output이 없다. 같은 CFN 스택의 실제 NodeRole만 대체 근거로 쓴다.
+            roles = []
+            for page in self.aws['cloudformation'].get_paginator('list_stack_resources').paginate(StackName=stack['StackId']):
+                self.check_time()
+                for item in page['StackResourceSummaries']:
+                    if (item.get('ResourceType') == 'AWS::IAM::Role'
+                            and re.fullmatch(r'NodeRole[A-Za-z0-9]+', item.get('LogicalResourceId', ''))
+                            and item.get('PhysicalResourceId')):
+                        roles.append(item['PhysicalResourceId'])
+            if not roles and allow_not_created:
+                # 역할/cluster가 모두 생성되지 않은 초기 실패는 정리를 진행할 수 있다.
+                try:
+                    self.aws['eks'].describe_cluster(name=CLUSTER)
+                except Exception as error:
+                    if code(error) == 'ResourceNotFoundException':
+                        return None
+                    raise
+            if len(roles) == 1:
+                name = roles[0]
+                arn = 'arn:aws:iam::' + self.config['account'] + ':role/' + name
+        if (not re.fullmatch(r'PerfEksStack-NodeRole[A-Za-z0-9-]+', name)
+                or arn != 'arn:aws:iam::' + self.config['account'] + ':role/' + name):
+            raise ValueError('cleanup_node_role_identity_mismatch')
+        return name
+
     def kubernetes(self, stack):
-        if self.state.get('kubernetes_complete'):
+        if self.state.get('kubernetes_complete') and self.state.get('kubernetes_cleanup_contract') == CLEANUP_CONTRACT:
             return True
         if not stack:
             self.state['kubernetes_complete'] = True
+            self.state['kubernetes_cleanup_contract'] = CLEANUP_CONTRACT
             return True
         outputs = {x['OutputKey']: x['OutputValue'] for x in stack.get('Outputs', [])}
         relay = outputs.get('EksRelayInstanceId')
         if not relay:
             # 클러스터가 만들어졌으나 relay가 없으면 자동으로 EKS부터 지우지 않는다.
             try:
-                self.aws['eks'].describe_cluster(name='soma-376-perf-eks')
+                self.aws['eks'].describe_cluster(name=CLUSTER)
             except Exception as error:
                 if code(error) == 'ResourceNotFoundException':
                     self.state['kubernetes_complete'] = True
+                    self.state['kubernetes_cleanup_contract'] = CLEANUP_CONTRACT
                     return True
                 raise
             raise ValueError('eks_exists_without_cleanup_relay')
+        node_role = self.node_role(stack)
         instances = self.aws['ec2'].describe_instances(InstanceIds=[relay])['Reservations']
         instance = instances[0]['Instances'][0]
         self.owned(instance.get('Tags', []), relay)
@@ -183,12 +218,45 @@ class Cleaner:
             result = json.loads(result.get('StandardOutputContent', '').strip().splitlines()[-1])
             if result.get('environment_id') != self.env:
                 raise ValueError('kubernetes_cleanup_environment_mismatch')
+            if result.get('cleanup_contract') != CLEANUP_CONTRACT or result.get('node_role_name') != node_role:
+                raise ValueError('kubernetes_cleanup_contract_mismatch')
             if result.get('complete') is True:
                 self.state['kubernetes_complete'] = True
+                self.state['kubernetes_cleanup_contract'] = CLEANUP_CONTRACT
                 return True
-        response = self.aws['ssm'].send_command(InstanceIds=[relay], DocumentName=self.config['document_name'], TimeoutSeconds=120)
+        response = self.aws['ssm'].send_command(InstanceIds=[relay], DocumentName=self.config['document_name'],
+                                               Parameters={'nodeRoleName': [node_role]}, TimeoutSeconds=120)
         self.state['command_id'] = response['Command']['CommandId']
         return False
+
+    def auto_mode_finalized(self, stack):
+        # EKS/NodeRole 삭제 전에 controller 소유 자원 소멸을 실제 서비스별 조회로 확인한다.
+        # profile/LT 직접 삭제나 finalizer 강제 제거 권한은 사용하지 않는다.
+        node_role = self.node_role(stack, allow_not_created=True)
+        profiles = 0 if node_role else None
+        if node_role:
+            try:
+                for page in self.aws['iam'].get_paginator('list_instance_profiles_for_role').paginate(RoleName=node_role):
+                    self.check_time()
+                    profiles += len(page['InstanceProfiles'])
+            except Exception as error:
+                if code(error) != 'NoSuchEntity':
+                    raise
+                # CFN이 이미 역할을 지운 재진입에서만 API가 확인한 부재로 기록한다.
+                profiles = 0
+        templates = 0
+        filters = [{'Name': 'tag:' + OWNER, 'Values': [self.env]},
+                   {'Name': 'tag:eks:eks-cluster-name', 'Values': [CLUSTER]}]
+        for page in self.aws['ec2'].get_paginator('describe_launch_templates').paginate(Filters=filters):
+            self.check_time()
+            for item in page['LaunchTemplates']:
+                self.owned(item.get('Tags', []), 'launch_template')
+                if tags(item.get('Tags', [])).get('eks:eks-cluster-name') != CLUSTER:
+                    raise ValueError('launch_template_cluster_mismatch')
+                templates += 1
+        self.state['auto_mode_residual_counts'] = {'instance_profiles': profiles, 'launch_templates': templates}
+        self.state['auto_mode_node_role'] = 'FOUND' if node_role else 'NOT_CREATED'
+        return profiles in [None, 0] and templates == 0
 
     def volumes_and_instances(self):
         ec2 = self.aws['ec2']
@@ -229,6 +297,10 @@ class Cleaner:
             self.state['phase'] = 'KUBERNETES'
             if not self.kubernetes(stacks['PerfEksStack']):
                 return self.save()
+            if stacks['PerfEksStack']:
+                self.state['phase'] = 'AUTO_MODE_FINALIZATION'
+                if not self.auto_mode_finalized(stacks['PerfEksStack']):
+                    return self.save()
             self.state['phase'] = 'STACKS'
             # 의존 역순으로 하나씩 요청하고 다음 스케줄에서 완료를 확인한다.
             for name in STACKS:
@@ -270,7 +342,7 @@ def handler(event, context):
     from botocore.config import Config
     config = json.loads(os.environ['CLEANUP_CONFIG'])
     sdk = Config(connect_timeout=3, read_timeout=5, retries={'total_max_attempts': 1, 'mode': 'standard'})
-    clients = {name: boto3.client(name, region_name=config['region'], config=sdk) for name in ['cloudformation', 'ssm', 'ecr', 'ec2', 'eks', 's3']}
+    clients = {name: boto3.client(name, region_name=config['region'], config=sdk) for name in ['cloudformation', 'ssm', 'ecr', 'ec2', 'eks', 's3', 'iam']}
     # 수동 호출도 정확한 환경을 명시해야 하며 자원 허용목록/TTL을 변경할 수 없다.
     force = event == {'action': 'cleanup', 'environment_id': config['environment_id']}
     if event and not force and event.get('source') != 'aws.events':

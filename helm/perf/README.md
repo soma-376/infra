@@ -45,7 +45,7 @@ perf Kafka 이름을 쓴다. Gateway만 선택적 NodePort/TGB를 지원하며 �
 
 pool마다 NodeClass(`perf-<pool>`, 공통 노드 SG + pool SG)와 고정 용량 NodePool(`replicas` = 프로필 노드 수,
 `limits.nodes` = +1)을 둔다. 측정·관측 pool은 `workload=<pool>:NoSchedule` taint를, system pool은 taint 없이
-준비 도구·enrollment·CSI를 받는다. 모든 pool의 disruption budget은 `nodes: "0"`이다. drift 교체를 막지만
+준비 도구·enrollment·CSI를 받는다. 모든 pool의 disruption budget은 `nodes: "0"`이고 필수 `consolidateAfter: Never`를 명시한다. 고정 `replicas`가 있으면 consolidation 필드는 동작상 무시되며, 설정 누락은 API 검증에서 거부된다. `schemas/`의 실측 NodePool schema 검사는 누락을 허용하지 않는다. drift 교체를 막지만
 만료·강제 interruption·수동 삭제·static scale은 막지 못하므로 run 전 NodeClaim 만료 여유를 확인한다(PLAN §4.1).
 
 ## Job template

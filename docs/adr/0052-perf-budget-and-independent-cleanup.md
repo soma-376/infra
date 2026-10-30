@@ -44,3 +44,7 @@ Accepted — PROJ-294 로컬 구현 대상이다. 실제 비용·배포·강제 
 - [AWS CloudFormation 권한](https://docs.aws.amazon.com/service-authorization/latest/reference/list_cloudformation.html)
 - [Amazon ECR 권한](https://docs.aws.amazon.com/service-authorization/latest/reference/list_ecr.html)
 - [SSM 명령 상태](https://docs.aws.amazon.com/systems-manager/latest/userguide/monitor-commands.html)
+
+## 2026-10-30 Auto Mode controller 소유 자원 정리 보완
+
+NodeClass 생성만으로도 전용 NodeRole에 연결된 instance profile이 만들어진다. NodePool·node·NodeClaim 소멸 후 동일 환경 태그와 실제 NodeRole을 확인한 NodeClass를 삭제하고 finalizer의 자연 완료를 기다린다. EKS/NodeRole 스택을 지우기 전 IAM ListInstanceProfilesForRole의 모든 페이지가 비고 소유 launch template도 없는지 확인한다. Guardrail은 이를 조회하는 최소 권한만 더하며 profile/launch template 직접 삭제나 finalizer 강제 제거 권한을 추가하지 않는다. CFN 밖 profile/LT도 최종 inventory와 서비스별 부재 증거에 포함한다.

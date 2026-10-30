@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -195,7 +196,7 @@ suite('perf Helm chart', () => {
       const nodePool = find(documents, 'NodePool', `perf-${pool}`).spec;
       expect(nodePool.replicas).toBe(1);
       expect(nodePool.limits).toEqual({ nodes: 2 });
-      expect(nodePool.disruption).toEqual({ budgets: [{ nodes: '0' }] });
+      expect(nodePool.disruption).toEqual({ consolidateAfter: 'Never', budgets: [{ nodes: '0' }] });
       expect(nodePool.template.metadata.labels['pulsemetry.io/workload']).toBe(pool);
       expect(nodePool.template.spec.taints).toEqual(pool === 'system' ? undefined : [{ key: 'workload', value: pool, effect: 'NoSchedule' }]);
       const requirement = (key: string) => nodePool.template.spec.requirements.find((item: any) => item.key === key).values;
@@ -205,6 +206,31 @@ suite('perf Helm chart', () => {
       expect(nodeClass.securityGroupSelectorTerms).toHaveLength(2);
       expect(nodeClass.advancedNetworking).toEqual({ associatePublicIPAddress: false });
     }
+  });
+
+
+  test('실측 EKS NodePool schema는 고정 7 pool과 필수 consolidateAfter 누락을 검증한다', () => {
+    const provenance = JSON.parse(readFileSync(join(root, 'helm/perf/platform/schemas/SOURCE.json'), 'utf8'));
+    expect(createHash('sha256').update(readFileSync(join(root, 'helm/perf/platform/schemas', provenance.file))).digest('hex')).toBe(provenance.sha256);
+    const base = load(readFileSync(generated('platform.yaml'), 'utf8')) as any;
+    base.pools.kafka = { ...base.pools.gateway, nodes: 3 };
+    const input = join(directory, 'strimzi-platform.yaml'); writeFileSync(input, dump(base));
+    const pools = render('perf-platform', 'helm/perf/platform', 'default', [input]).filter(d => d.kind === 'NodePool');
+    expect(pools).toHaveLength(7);
+    expect(pools.reduce((sum: number, pool: any) => sum + pool.spec.replicas, 0)).toBe(9);
+    const file = join(directory, 'nodepools.yaml');
+    const check = (documents: any[]) => {
+      writeFileSync(file, documents.map(document => dump(document)).join('---\n'));
+      return run(kubeconform, ['-strict', '-summary', '-schema-location', 'helm/perf/platform/schemas/nodepool_karpenter.sh_v1.json', file]);
+    };
+    const valid = check(pools);
+    expect([valid.status, valid.stderr, valid.stdout]).toEqual([0, '', expect.stringContaining('Valid: 7, Invalid: 0, Errors: 0, Skipped: 0')]);
+    const missing = JSON.parse(JSON.stringify(pools[0]));
+    delete missing.spec.disruption.consolidateAfter;
+    const invalid = check([missing]);
+    expect(invalid.status).not.toBe(0);
+    expect(invalid.stdout).toContain('consolidateAfter');
+    expect(invalid.stdout).toContain('Invalid: 1');
   });
 
   test('runtime: app·runner SPC와 active kid 하나의 공개키', () => {

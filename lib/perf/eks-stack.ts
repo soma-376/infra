@@ -11,6 +11,7 @@ import {
   PERF_EKS_CLUSTER_NAME, PERF_EKS_CONTROL_PLANE_LOG_GROUP, PERF_EKS_OPERATOR_ROLE_NAME, PERF_NAMESPACES,
 } from './config';
 import { PerfEksLbc } from './eks-lbc';
+import { allowPerfAutoModeOwnerTags } from './eks-auto-tags';
 import { PerfEksAccess } from './eks-access';
 import { PerfEksRelay } from './eks-relay';
 import { perfPoolIds, PerfPoolId, PerfProfile } from './profile';
@@ -73,6 +74,7 @@ export class PerfEksStack extends Stack {
         'AmazonEKSBlockStoragePolicyV2', 'AmazonEKSNetworkingPolicy', 'AmazonEKSLoadBalancingPolicy',
       ].map(name => ManagedPolicy.fromAwsManagedPolicyName(name)),
     });
+    allowPerfAutoModeOwnerTags(this, clusterRole, props.profile, props.provenance.environmentId);
     this.nodeRole = new Role(this, 'NodeRole', {
       assumedBy: new ServicePrincipal('ec2.amazonaws.com'),
       description: 'perf EKS Auto Mode node role',

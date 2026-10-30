@@ -15,7 +15,9 @@ Accepted — PROJ-292의 로컬 구현 범위다. 사용자는 B01–B07 구현�
 - 최신 develop의 dev/prod/cicd를 보존하고 PROJ-192의 perf 전용 영역을 선별 통합한다. `perf → common` 단방향 의존을 유지한다. dev 스택을 perf에서 import하지 않는다.
 - v2 교환 파일과 fixture를 보존한다. 새 공급자 계약은 v3이며 version dispatch와 bundle 혼합 거부로 처리한다. canonical schema와 공유 사본은 load-tests의 export 명령으로 동기화한다.
 - 기존 MSK 가설 프로필은 호환용으로 보존하고 Strimzi 고정 용량 가설을 별도 프로필로 추가한다. Strimzi는 전용 ARM64 m7g.large 노드 3대에 dual-role broker/controller 3개를 배치하고 main topic 6 partitions/RF3/minISR2/mTLS9093을 사용한다. 자동 크기 조정은 측정 용량으로 취급하지 않는다.
+- 고정 NodePool은 `replicas`·`limits.nodes`·중단 예산 0을 유지하고 `disruption.consolidateAfter: Never`를 명시한다. EKS 1.36 실측 CRD가 이 필드를 필수로 요구하며, `replicas`가 설정되면 consolidation 필드는 동작상 무시된다. 객체 전체의 기본값에 의존하지 않는다.
 - CDK는 별도 VPC·SG·EKS·RDS·S3·Secret·IAM, Helm은 Kafka CR·NodePool·PVC·앱·Job을 소유한다. runner는 Kafka/DB/JWT 개인키 권한을 갖지 않는다.
+- Auto Mode ClusterRole에는 기존 관리형 정책을 유지하고 소유 태그를 가진 compute·EBS·ENI 생성에만 추가 Allow를 준다. 계정/서울 리전 ARN, 고정 EKS cluster/request·principal tag, 정확한 환경 owner, 명시한 tag-key 집합으로 제한한다. Compute의 class/pool은 프로필 pool 집합이며 초기 NodeClass 검사에서 비어 있는 EKS pool tag를 허용한다. PVC에는 owner만 요구한다. 새 CreateTags·CopyVolumes·Snapshot·태그 변경 권한은 추가하지 않는다.
 - dev의 고정 Kafka 이미지·PKCS12 mount·역할별 ACL·CA/user metadata 검증을 재사용한다. 공유 chart의 기본 dev 입력과 렌더는 유지하고 perf namespace/pool/topic/group은 명시적 environment 입력으로 분리한다.
 - Strimzi CA와 사용자 Secret의 필요한 public truststore/password 및 user keystore/password 항목만 mount한다. CA 개인키와 원문 secret은 values/output/evidence에 넣지 않는다. UID/resourceVersion 기반 revision을 배포 입력에 기록한다.
 - perf verify Job은 provider별 lag 경로를 명시한다. MSK env를 Strimzi Job에 공급하지 않는다. 기존 generic Prometheus probe의 freshness/coverage/미커밋 의미 보완은 PROJ-297이 소유한다.
@@ -48,3 +50,9 @@ v2 fixture 불변, v3 provider와 혼합 버전 거부, MSK/Strimzi template의 
 - [dev Strimzi](0049-dev-strimzi-kafka-and-staged-msk-retirement.md)
 - [telemetry Kafka 계약](https://github.com/soma-376/docs/blob/main/contracts/telemetry-kafka.md)
 - [load-tests v2/v3 계약 원본](https://github.com/soma-376/telemetry-load-tests/blob/main/docs/contracts/infra-environment.md)
+
+## 2026-10-30 실제 최초 설치 보완
+
+perf 최초 설치에서 NodeClass 7개는 생성됐지만 NodePool 7개는 `spec.disruption.consolidateAfter: Required value`로 거부됐다. 기존 kubeconform 검사가 NodePool CRD 누락을 허용해 이 오류를 잡지 못했다. 실제 EKS의 `karpenter.sh/v1` 구조 schema를 검증용으로 고정하고, 필수 필드 제거가 실패하는 회귀 검사를 추가한다. 구조 schema 검사는 CEL·controller 권한·노드 생성 성공을 대신하지 않으며 실제 server dry-run과 NodeClass Ready/노드 수를 별도로 확인한다.
+
+같은 최초 설치에서 관리형 Compute 정책의 tag-key 허용 목록이 NodeClass 소유 태그 두 개를 제외해 `CreateLaunchTemplateAuthCheckFailed`가 발생했다. StorageClass의 owner 및 추가 ENI도 관리형 태그 제한과 함께 점검한다. 추가 권한의 범위는 [Auto Mode custom tags 공식 지침](https://docs.aws.amazon.com/eks/latest/userguide/auto-cluster-iam-role.html#tag-prop)을 따르되 현재 생성에 필요한 세 경로만 허용한다. AWS 관리형 정책 자체의 기존 권한을 축소하거나 추가 권한 조건을 전체 역할의 권한 경계라고 표현하지 않는다.
