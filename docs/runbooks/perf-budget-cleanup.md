@@ -23,6 +23,7 @@
 
 1. 이번 계정/서울 리전의 기존 `Perf*Stack`과 perf ECR 두 이름을 조회한다. 다른 환경 태그·기존 shared 자원을 채택하지 않는다. 고정 스택/cluster 이름이므로 동시 perf 환경은 허용하지 않는다.
 2. 같은 CDK assembly의 `PerfGuardrailStack`을 먼저 배포한다. workload 스택의 assembly dependency가 이 순서를 고정한다. VPC에 붙지 않은 Lambda, 1분 schedule, SSM 상태와 고정 cleanup 문서를 확인한다. 모든 CFN 스택에 같은 계정의 기존 CDK CloudFormation execution RoleARN이 있어야 한다. 드라이버는 그 역할을 지정/변경하지 않고 이미 연결된 역할로 DeleteStack만 요청한다.
+   `explicitStackTags=true`에서는 `Tags.of()`의 자원 태그만으로 CFN 스택 태그가 생기지 않는다. `manifest.json`의 각 스택 `properties.tags`와 실제 `describe-stacks`의 `Tags`에 `pulsemetry:perf-environment=<이번 ID>`가 있어야 한다. Guardrail 관측이 `ownership_mismatch`이면 후속 스택을 만들지 않고 수정한 assembly로 Guardrail 태그를 업데이트한다. 생성 시각은 초기 값을 유지하고, 실제 태그/RoleARN 및 관측 `WAITING`을 재확인한다.
 3. `soma-376/perf-k6-runner`, `soma-376/perf-tools`가 없음을 확인한 뒤 CDK 밖에서 생성한다. 생성 요청에 `pulsemetry:perf-environment=<이번 ID>`, `Env=perf`, `Org=soma-376` 태그를 넣는다. **기존 shared ECR에는 새 소유 태그를 붙이지 않는다.** 드라이버는 정확한 두 이름+태그+계정/리전 확인 후 이미지를 포함해 삭제한다.
 4. 나머지 스택을 배포하고 실제 `CreationTime`, ECR `createdAt`, outputs를 로컬에 보관한다. 상태의 `created_epoch`는 이들 최솟값이며 이후 update로 연장하지 않는다. `PerfBudgetSha256`, `PerfEvidenceCleanupMode=owned-24h`, `PerfCleanupStateParameter`를 request/배포 원본과 묶는다.
 5. `ssm describe-instance-information`에서 relay Online과 고정 SSM 문서 가용성을 확인한다. relay는 AL2023의 python3/awscli-2를 설치하고 전용 perf EKS access entry만 사용한다. 이 확인 실패 상태에서 시험을 시작하지 않는다.
