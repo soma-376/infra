@@ -62,19 +62,34 @@ suite('Strimzi 관측 계약', () => {
       writeFileSync(resolve(temp, 'rules.test.yaml'), dump(tests));
       command(promtool, ['test', 'rules', resolve(temp, 'rules.test.yaml')]);
       const dashboards: any[] = Object.values(find('ConfigMap', 'pulsemetry-dashboards').data).map(x => JSON.parse(x as string));
-      expect(dashboards).toHaveLength(8);
+      expect(dashboards).toHaveLength(9);
       expect(dashboards.map(x => x.uid)).toContain('pulsemetry-kafka');
-      expect(dashboards.map(x => x.uid)).not.toContain('pulsemetry-msk');
+      expect(dashboards.filter(x => x.tags.includes('pulsemetry'))).toHaveLength(8);
+      const history = dashboards.find(x => x.uid === 'pulsemetry-msk');
+      expect(history.title).toContain('전환 전 이력');
+      expect(history.tags).toContain('pulsemetry-history');
+      expect(history.tags).not.toContain('pulsemetry');
+      expect(history.panels).toHaveLength(1);
+      expect(history.panels[0].type).toBe('text');
+      expect(history.panels[0].targets).toBeUndefined();
+      expect(history.panels[0].options.content).toContain('/d/pulsemetry-kafka');
+      expect(history.panels[0].options.content).toContain('https://team376.atlassian.net/browse/PROJ-285');
+      expect(history.panels[0].options.content).toContain('https://github.com/soma-376/infra/pull/85');
       expect(JSON.stringify(dashboards).match(/AWS\/Kafka|__MSK_CLUSTER__|__BROKER_LOG_GROUP__|msk-jmx|msk-node/g)).toBeNull();
       for (const uid of ['pulsemetry-overview', 'pulsemetry-pipeline', 'pulsemetry-kafka']) {
         const dashboard = dashboards.find(x => x.uid === uid);
         const lag = dashboard.panels.find((p: any) => p.title === '확인된 commit 기준 lag');
         const uncommitted = dashboard.panels.find((p: any) => p.title === '미커밋 partition 수');
+        expect(lag.type).toBe('stat');
+        expect(lag.targets[0]).toMatchObject({ instant: true, range: false });
+        expect(lag.fieldConfig.defaults).toMatchObject({ noValue: '미수집', decimals: 0 });
+        expect(lag.options).toMatchObject({ graphMode: 'none', reduceOptions: { calcs: ['lastNotNull'] } });
         expect(lag.targets[0].expr).toContain('pulsemetry:kafka_committed_lag:sum{');
         expect(lag.description).toContain('전체 backlog를 뜻하지 않는다');
         expect(uncommitted.type).toBe('stat');
         expect(uncommitted.targets[0].expr).toContain('pulsemetry:kafka_uncommitted_partitions:count{');
         expect(uncommitted.targets[0].instant).toBe(true);
+        expect(uncommitted.targets[0].range).toBe(false);
         expect(uncommitted.fieldConfig.defaults.noValue).toBe('미수집');
         for (const filter of ['cluster="$cluster"', 'kafka_cluster="$kafka_cluster"', 'topic="$topic"', 'consumergroup="$consumer_group"']) {
           expect(lag.targets[0].expr).toContain(filter);
@@ -94,6 +109,30 @@ suite('Strimzi 관측 계약', () => {
       }
       writeFileSync(resolve(temp, 'dashboard-queries.yaml'), dump({ groups: [{ name: 'strimzi-dashboard-queries', rules: expressions }] }));
       command(promtool, ['check', 'rules', resolve(temp, 'dashboard-queries.yaml')]);
+      // 퇴역 구성요소의 과거 표본은 남아 있어도 현재 상태표에는 합쳐지지 않는다.
+      const status = dashboards.find(x => x.uid === 'pulsemetry-overview').panels.find((p: any) => p.title === '구성요소별 수집 상태');
+      expect(status.targets[0].expr).toBe('pulsemetry:collection_state');
+      const historyTargets = status.targets.filter((t: any) => ['B', 'C'].includes(t.refId));
+      for (const target of historyTargets) expect(target.expr).toContain('and on (component, dashboard) pulsemetry:collection_state');
+      writeFileSync(resolve(temp, 'collection-query.test.yaml'), dump({
+        rule_files: [], evaluation_interval: '1m', tests: [{
+          interval: '1m', input_series: [
+            { series: 'pulsemetry:collection_state{component="strimzi-exporter",dashboard="pulsemetry-kafka"}', values: '2+0x10' },
+            { series: 'pulsemetry:collection_success:ratio{component="strimzi-exporter",dashboard="pulsemetry-kafka"}', values: '1+0x10' },
+            { series: 'pulsemetry:collection_last_success:timestamp{component="strimzi-exporter",dashboard="pulsemetry-kafka"}', values: '0+60x10' },
+            { series: 'pulsemetry:collection_state{component="msk-jmx",dashboard="pulsemetry-msk"}', values: '2+0x4 stale _ _ _ _ _' },
+            { series: 'pulsemetry:collection_success:ratio{component="msk-jmx",dashboard="pulsemetry-msk"}', values: '1+0x4 stale _ _ _ _ _' },
+            { series: 'pulsemetry:collection_last_success:timestamp{component="msk-jmx",dashboard="pulsemetry-msk"}', values: '0+60x4 stale _ _ _ _ _' },
+            { series: 'pulsemetry:collection_success:ratio{component="strimzi-exporter",dashboard="retired-dashboard"}', values: '1+0x10' },
+            { series: 'pulsemetry:collection_last_success:timestamp{component="strimzi-exporter",dashboard="retired-dashboard"}', values: '0+60x10' },
+          ],
+          promql_expr_test: historyTargets.map((target: any) => ({
+            expr: target.expr.replaceAll('$__range', '1h'), eval_time: '10m',
+            exp_samples: [{ labels: '{component="strimzi-exporter",dashboard="pulsemetry-kafka"}', value: target.refId === 'B' ? 1 : 0 }],
+          })),
+        }],
+      }));
+      command(promtool, ['test', 'rules', resolve(temp, 'collection-query.test.yaml')]);
       const brokerLog = dashboards.find(x => x.uid === 'pulsemetry-diagnostics').panels.find((p: any) => p.title === 'Kafka broker Pod 로그');
       expect(brokerLog.targets[0].logGroupNames).toEqual(['/eks/dev/application']);
       expect(brokerLog.targets[0].expression).toContain('soma-376-dev-telemetry-dual-role-');
@@ -106,6 +145,12 @@ suite('Strimzi 관측 계약', () => {
     const dashboards = Object.values(resources.find(x => x.kind === 'ConfigMap' && x.metadata.name === 'pulsemetry-dashboards').data).map(x => JSON.parse(x as string));
     expect(dashboards.map(x => x.uid)).toContain('pulsemetry-msk');
     expect(dashboards.map(x => x.uid)).not.toContain('pulsemetry-kafka');
+    expect(dashboards).toHaveLength(8);
+    const msk = dashboards.find(x => x.uid === 'pulsemetry-msk');
+    expect(msk.title).toBe('Pulsemetry · MSK');
+    expect(msk.tags).toContain('pulsemetry');
+    expect(msk.panels.some((p: any) => p.targets?.length)).toBe(true);
+    expect(JSON.stringify(dashboards)).not.toContain('and on (component, dashboard) pulsemetry:collection_state');
     expect(JSON.stringify(dashboards)).not.toMatch(/pulsemetry:kafka_committed_lag:sum|pulsemetry:kafka_uncommitted_partitions:count/);
     expect(resources.some(x => x.kind === 'PrometheusRule' && x.metadata.name === 'pulsemetry-strimzi')).toBe(false);
   });
