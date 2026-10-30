@@ -13,7 +13,7 @@
         "content": "dev EC2 OS → Node 프로세스 → 요청·에러 → 로그·트레이스 순서로 확인합니다. **No data는 사용량 0이 아니라 해당 지표가 없는 상태입니다.** OS와 앱 OTel은 별도 수집 경로입니다.",
         "mode": "markdown"
       },
-      "title": "수집 범위와 읽는 방법",
+      "title": "대시보드 안내 · 측정 범위와 단위",
       "type": "text"
     },
     {
@@ -25,10 +25,10 @@
       },
       "id": 10,
       "options": {
-        "content": "호스트 Alloy 연결 전에는 그래프가 비어 있습니다. Node SDK만 활성화해도 EC2 전체 자원은 수집되지 않습니다.",
+        "content": "AZ와 EC2 필터는 이 OS 영역에만 적용됩니다. 범례는 가용영역 · EC2 ID입니다. OS 수치는 호스트 전체이며 Node 프로세스 수치와 별개입니다.",
         "mode": "markdown"
       },
-      "title": "dev 프론트 EC2",
+      "title": "dev EC2 · AZ별 OS 자원",
       "type": "text"
     },
     {
@@ -83,12 +83,12 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "100 * (1 - avg by (instance, environment, host_role, availability_zone) (rate(node_cpu_seconds_total{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",mode=\"idle\"}[$__rate_interval])))",
+          "expr": "100 * (1 - avg by (instance, environment, host_role, availability_zone) (rate(node_cpu_seconds_total{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone=~\"$az\",instance=~\"$instance\",mode=\"idle\"}[$__rate_interval])))",
           "legendFormat": "{{availability_zone}} · {{instance}}",
           "refId": "A"
         }
       ],
-      "title": "dev 프론트 EC2 · OS CPU · 전체 코어 사용률",
+      "title": "EC2 CPU 사용률 · 전체 코어 평균 (%)",
       "type": "timeseries"
     },
     {
@@ -143,12 +143,12 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "100 * (1 - node_memory_MemAvailable_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\"} / node_memory_MemTotal_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\"})",
+          "expr": "100 * (1 - node_memory_MemAvailable_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone=~\"$az\",instance=~\"$instance\"} / node_memory_MemTotal_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone=~\"$az\",instance=~\"$instance\"})",
           "legendFormat": "{{availability_zone}} · {{instance}}",
           "refId": "A"
         }
       ],
-      "title": "dev 프론트 EC2 · OS RAM · 사용률 (MemAvailable 기준)",
+      "title": "EC2 메모리 사용률 · 가용 메모리 기준 (%)",
       "type": "timeseries"
     },
     {
@@ -193,12 +193,12 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "node_memory_MemAvailable_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\"}",
+          "expr": "node_memory_MemAvailable_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone=~\"$az\",instance=~\"$instance\"}",
           "legendFormat": "{{availability_zone}} · {{instance}}",
           "refId": "A"
         }
       ],
-      "title": "dev 프론트 EC2 · OS RAM · 가용 바이트",
+      "title": "EC2 메모리 · 가용 용량",
       "type": "timeseries"
     },
     {
@@ -253,12 +253,12 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "100 * (1 - node_filesystem_avail_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",fstype!~\"tmpfs|overlay|squashfs|ramfs|rpc_pipefs\",mountpoint!~\"/host/root.*\"} / node_filesystem_size_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",fstype!~\"tmpfs|overlay|squashfs|ramfs|rpc_pipefs\",mountpoint!~\"/host/root.*\"})",
+          "expr": "100 * (1 - node_filesystem_avail_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone=~\"$az\",instance=~\"$instance\",fstype!~\"tmpfs|overlay|squashfs|ramfs|rpc_pipefs\",mountpoint!~\"/host/root.*\"} / node_filesystem_size_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone=~\"$az\",instance=~\"$instance\",fstype!~\"tmpfs|overlay|squashfs|ramfs|rpc_pipefs\",mountpoint!~\"/host/root.*\"})",
           "legendFormat": "{{availability_zone}} · {{instance}} · {{mountpoint}}",
           "refId": "A"
         }
       ],
-      "title": "dev 프론트 EC2 · 파일시스템 · 사용률",
+      "title": "EC2 디스크 사용률 · 마운트별 (%)",
       "type": "timeseries"
     },
     {
@@ -303,12 +303,12 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "node_filesystem_avail_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",fstype!~\"tmpfs|overlay|squashfs|ramfs|rpc_pipefs\",mountpoint!~\"/host/root.*\"}",
+          "expr": "node_filesystem_avail_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone=~\"$az\",instance=~\"$instance\",fstype!~\"tmpfs|overlay|squashfs|ramfs|rpc_pipefs\",mountpoint!~\"/host/root.*\"}",
           "legendFormat": "{{availability_zone}} · {{instance}} · {{mountpoint}}",
           "refId": "A"
         }
       ],
-      "title": "dev 프론트 EC2 · 파일시스템 · 가용 용량",
+      "title": "EC2 디스크 · 마운트별 가용 용량",
       "type": "timeseries"
     },
     {
@@ -353,12 +353,12 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "up{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\"}",
+          "expr": "up{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone=~\"$az\",instance=~\"$instance\"}",
           "legendFormat": "{{availability_zone}} · {{instance}}",
           "refId": "A"
         }
       ],
-      "title": "dev 프론트 EC2 · 수집 상태 · 1=성공, 0=실패, No data=미수신",
+      "title": "EC2 OS 수집 성공 여부 · 1=성공 / 0=실패",
       "type": "timeseries"
     },
     {
@@ -368,21 +368,9 @@
       },
       "fieldConfig": {
         "defaults": {
-          "mappings": [
-            {
-              "options": {
-                "0": {
-                  "color": "orange",
-                  "text": "미수신"
-                },
-                "1": {
-                  "color": "green",
-                  "text": "수신 중"
-                }
-              },
-              "type": "value"
-            }
-          ]
+          "mappings": [],
+          "unit": "s",
+          "noValue": "미수신"
         },
         "overrides": []
       },
@@ -395,14 +383,16 @@
       "id": 17,
       "targets": [
         {
-          "expr": "count by (availability_zone, instance) (present_over_time(node_memory_MemTotal_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\"}[5m]))",
+          "expr": "time() - timestamp(node_memory_MemTotal_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone=~\"$az\",instance=~\"$instance\"})",
           "instant": true,
           "refId": "A",
-          "legendFormat": "{{availability_zone}} · {{instance}}"
+          "legendFormat": "{{availability_zone}} · {{instance}}",
+          "range": false
         }
       ],
-      "title": "dev EC2별 · 최근 5분 수신 여부 (미수신=No data)",
-      "type": "stat"
+      "title": "EC2 OS 지표 · 마지막 수신 후 경과 시간",
+      "type": "stat",
+      "description": "Prometheus에서 조회되는 최신 OS 샘플의 경과 시간입니다. 오래된 샘플이 조회 범위를 벗어나면 No data가 됩니다. No data를 정상으로 해석하지 마세요."
     },
     {
       "gridPos": {
@@ -413,10 +403,10 @@
       },
       "id": 18,
       "options": {
-        "content": "범례의 service_instance_id는 Node 프로세스 시작마다 달라지는 ID입니다. EC2 ID와는 다릅니다. CPU는 코어 1개=100%, RSS는 프로세스 전체 상주 메모리입니다. heapUsed/heapTotal은 현재 확보한 힙 대비 비율이며 컨테이너 메모리 한도가 아닙니다.",
+        "content": "현재 앱은 2a에서 한 개만 실행됩니다. Node 지표에는 AZ·EC2 라벨이 없어 상단 OS 필터가 적용되지 않습니다. service_instance_id는 프로세스 시작마다 바뀌는 ID입니다. RSS는 프로세스 상주 메모리, 힙 사용 비율은 확보한 힙 대비 비율이며 컨테이너 한도 대비 비율이 아닙니다.",
         "mode": "markdown"
       },
-      "title": "dev Node.js · 인스턴스별 비교",
+      "title": "dev Node.js · 프로세스별 자원",
       "type": "text"
     },
     {
@@ -457,7 +447,7 @@
           "refId": "A"
         }
       ],
-      "title": "Node.js CPU · 코어 1개 = 100%",
+      "title": "Node.js CPU 사용률 · 1코어 기준 (%)",
       "type": "timeseries"
     },
     {
@@ -497,7 +487,7 @@
           "refId": "A"
         }
       ],
-      "title": "Node.js process RSS",
+      "title": "Node.js 메모리 · 상주 메모리 (RSS)",
       "type": "timeseries"
     },
     {
@@ -537,7 +527,7 @@
           "refId": "A"
         }
       ],
-      "title": "JavaScript heap",
+      "title": "Node.js JS 힙 · 사용량 / 확보 용량",
       "type": "timeseries"
     },
     {
@@ -545,7 +535,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "arrayBuffers는 external에 포함됩니다. RSS, heap, external 값을 더하지 마세요.",
+      "description": "external은 V8이 관리하는 JavaScript 객체에 연결된 C++ 메모리입니다. ArrayBuffers는 external에 포함되므로 더하지 않습니다. 네이티브 메모리 전체를 의미하지 않습니다.",
       "fieldConfig": {
         "defaults": {
           "min": 0,
@@ -577,7 +567,7 @@
           "refId": "A"
         }
       ],
-      "title": "Native memory / ArrayBuffers",
+      "title": "Node.js 외부 메모리 · external / ArrayBuffers",
       "type": "timeseries"
     },
     {
@@ -606,7 +596,7 @@
           "refId": "A"
         }
       ],
-      "title": "Node heapUsed / heapTotal · 현재 확보한 힙 대비",
+      "title": "Node.js JS 힙 사용 비율 · 확보 용량 대비 (%)",
       "type": "timeseries"
     },
     {
@@ -651,7 +641,7 @@
           "refId": "A"
         }
       ],
-      "title": "요청 수 · 선택 기간 (추정)",
+      "title": "프론트 서버 계측 요청 수 · 선택 기간 추정값",
       "type": "stat"
     },
     {
@@ -692,7 +682,7 @@
           "refId": "A"
         }
       ],
-      "title": "서버 에러율 · 5xx (5분)",
+      "title": "프론트 서버 HTTP 5xx 비율 · 최근 5분 (%)",
       "type": "timeseries"
     },
     {
@@ -733,7 +723,7 @@
           "refId": "A"
         }
       ],
-      "title": "응답 시간 p95 · 5분",
+      "title": "프론트 서버 응답 시간 p95 · 최근 5분",
       "type": "timeseries"
     },
     {
@@ -748,7 +738,7 @@
         "content": "Explore → Tempo에서 다음 TraceQL로 검색합니다.\n```traceql\n{ resource.service.name = \"pulsemetry-frontend\" && resource.deployment.environment.name = \"dev\" }\n```\n프론트에서 /login 등의 요청을 만든 뒤 확인합니다. Trace를 통해 BFF 처리와 하위 API 호출 시간을 나눠 봅니다.",
         "mode": "markdown"
       },
-      "title": "Trace · 요청이 느린 구간 찾기",
+      "title": "요청 추적 안내 · Tempo",
       "type": "text"
     },
     {
@@ -782,7 +772,7 @@
           "refId": "A"
         }
       ],
-      "title": "dev 서버 에러 로그 · Loki",
+      "title": "프론트 서버 오류 로그 · ERROR / FATAL",
       "type": "logs"
     }
   ],
@@ -811,5 +801,51 @@
       "keepTime": true,
       "targetBlank": false
     }
-  ]
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "az",
+        "label": "AZ · OS만",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(node_memory_MemTotal_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone!=\"\"}, availability_zone)",
+        "definition": "label_values(node_memory_MemTotal_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone!=\"\"}, availability_zone)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": []
+      },
+      {
+        "name": "instance",
+        "label": "EC2 · OS만",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(node_memory_MemTotal_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone=~\"$az\"}, instance)",
+        "definition": "label_values(node_memory_MemTotal_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone=~\"$az\"}, instance)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": []
+      }
+    ]
+  }
 }
