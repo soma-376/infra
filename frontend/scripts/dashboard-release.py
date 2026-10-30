@@ -14,7 +14,7 @@ import time
 import urllib.error
 import urllib.request
 
-EXPECTED = {'dev-frontend.json': 'pulsemetry-dev-overview', 'observability.json': 'pulsemetry-frontend-hosts'}
+EXPECTED = {'dev-frontend.json': 'pulsemetry-dev-overview', 'observability.json': 'pulsemetry-frontend-hosts', 'rum.json': 'pulsemetry-browser-rum'}
 SOURCES = {'prometheus', 'loki', 'tempo'}
 
 
@@ -148,7 +148,7 @@ def deploy(bundle):
             if not old['meta']['provisioned']:
                 api('/api/dashboards/db', {'dashboard': old['dashboard'], 'folderUid': old['meta']['folderUid'], 'overwrite': True})
         raise
-    print('두 대시보드 파일 provisioning 및 내용 검증 완료. backup=' + str(backup))
+    print('대시보드 파일 provisioning 및 내용 검증 완료. backup=' + str(backup))
 
 
 if __name__ == '__main__':

@@ -29,7 +29,7 @@ def main():
     payload = base64.b64encode(gzip.compress(json.dumps(bundle).encode(), mtime=0)).decode()
     if len(payload) > 24000:
         raise ValueError('SSM payload 크기 제한 초과')
-    print('대시보드 2개 검증 완료', flush=True)
+    print(f'대시보드 {len(bundle)}개 검증 완료', flush=True)
     if not args.deploy:
         return
     result = aws('ec2', 'describe-instances', '--filters',

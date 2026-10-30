@@ -173,6 +173,7 @@ run "host_agent_ecs_permissions" {
       length(aws_iam_role_policy.runtime_read[key].policy),
       length(aws_iam_role_policy.observability_read[key].policy),
       length(aws_iam_role_policy.host_agent_read[key].policy),
+      length(aws_iam_role_policy.faro_read[key].policy),
       length(aws_iam_role_policy.host_agent_ecs_read[key].policy),
       key == "dev-apply" ? length(aws_iam_role_policy.network_write["dev"].policy) : 0
     ]) <= 10240])
@@ -197,5 +198,13 @@ run "bootstrap_ci_boundary" {
   assert {
     condition     = alltrue([for p in [aws_iam_policy.bootstrap_ci_read, aws_iam_policy.bootstrap_ci_iam_write, aws_iam_policy.bootstrap_ci_resource_write] : length(p.policy) <= 6144]) && !strcontains(aws_iam_policy.bootstrap_ci_iam_write.policy, "AdministratorAccess")
     error_message = "bootstrap 정책은 크기 한도를 지키며 AdministratorAccess를 부여하지 않습니다."
+  }
+}
+
+run "faro_permissions_are_scoped" {
+  command = plan
+  assert {
+    condition     = jsondecode(aws_iam_policy.faro_write.policy).Statement[0].Resource == "arn:aws:ssm:ap-northeast-2:111111111111:document/soma-376-frontend-dev-faro" && jsondecode(aws_iam_policy.faro_write.policy).Statement[4].Condition.StringEquals["ssm:resourceTag/Name"] == "soma-376-frontend-observability" && !strcontains(aws_iam_policy.faro_write.policy, "SendCommand")
+    error_message = "Faro는 전용 문서·관측 EC2에만 배포해야 합니다."
   }
 }
