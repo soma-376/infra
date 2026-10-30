@@ -11,6 +11,7 @@ import { PerfWaf } from './waf';
 
 export interface PerfEdgeStackProps extends StackProps {
   readonly vpc: IVpc;
+  readonly ownedCleanup?: boolean;
   readonly securityGroup: ISecurityGroup;
   readonly certificateArn: string;
   readonly natPublicIps: readonly string[];
@@ -33,7 +34,7 @@ export class PerfEdgeStack extends Stack {
       defaultAction: ListenerAction.fixedResponse(404, { contentType: 'text/plain', messageBody: 'Not found' }) });
     listener.addAction('Otlp', { priority: 1, conditions: [ListenerCondition.hostHeaders([PERF_GATEWAY_HOST]), ListenerCondition.httpRequestMethods(['POST']), ListenerCondition.pathPatterns([...PERF_OTLP_PATHS])], action: ListenerAction.forward([group]) });
     const logs = new Bucket(this, 'AccessLogs', { encryption: BucketEncryption.S3_MANAGED, blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
-      enforceSSL: true, removalPolicy: RemovalPolicy.DESTROY, lifecycleRules: [{ expiration: Duration.days(1), abortIncompleteMultipartUploadAfter: Duration.days(1) }] });
+      enforceSSL: true, autoDeleteObjects: props.ownedCleanup ?? false, removalPolicy: RemovalPolicy.DESTROY, lifecycleRules: [{ expiration: Duration.days(1), abortIncompleteMultipartUploadAfter: Duration.days(1) }] });
     alb.logAccessLogs(logs, 'alb');
     const waf = new PerfWaf(this, 'Waf', { sourceCidrs: props.natPublicIps.map(ip => `${ip}/32`) });
     new CfnWebACLAssociation(this, 'WafAssociation', { resourceArn: alb.loadBalancerArn, webAclArn: waf.webAcl.attrArn });

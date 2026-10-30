@@ -1,6 +1,6 @@
 # 격리 perf 환경 입력과 실제 상태 확인
 
-PROJ-292는 별도 VPC/EKS/RDS와 Kafka provider를 표현하는 로컬 구현이다. 배포·부하·정리는 **NOT_RUN**이다. 사용자 승인 범위는 1회 총 100,000원, 생성 후 24시간 안에 seed·조회·시험·삭제 완료, 두 경로 합계 10,000요청 이하, 최대 20RPS, 실행당 600초, 시험 추가 저장량 1GiB다. 최대 처리용량 측정은 포함하지 않는다. 이 제한을 실제 실행/정리 gate에 반영하는 PROJ-294 전에는 배포하지 않는다.
+PROJ-292는 별도 VPC/EKS/RDS와 Kafka provider를 표현하는 로컬 구현이다. 배포·부하·정리는 **NOT_RUN**이다. 사용자 승인 범위는 1회 총 100,000원, 생성 후 24시간 안에 seed·조회·시험·삭제 완료, 두 경로 합계 10,000요청 이하, 최대 20RPS, 실행당 600초, 시험 추가 저장량 1GiB다. 최대 처리용량 측정은 포함하지 않는다. 실행 예산·독립 정리는 [PROJ-294 런북](perf-budget-cleanup.md)을 따른다. 로컬 코드만으로 실제 보호 작동/잔존 부재를 주장하지 않는다.
 
 공개 경로는 `perf-api.pulsemetry.co.kr`이며 PROJ-293의 선택적 ALB/ACM/WAF 선언으로 연결한다. 공유 인증서는 runtime ARN 참조로만 받고 사용자 CNAME 등록을 확인한다. 이 변경의 내부 Service URL을 공개 경로 검증 결과로 취급하지 않는다. seed 초기 기준은 합성 400명/50팀/약 400설치/180일이며 운영 동등성은 별도 판단이다.
 
@@ -10,7 +10,7 @@ PROJ-292는 별도 VPC/EKS/RDS와 Kafka provider를 표현하는 로컬 구현�
 - 사본: `test/fixtures/perf-contract-v{2,3}`. SOURCE commit·파일별 SHA-256 검사를 통과해야 한다. 수동 schema 편집 금지.
 - v2 환경 교환 파일은 기존 MSK IAM 9098 의미를 보존한다. v3 request의 `kafka.provider`로 MSK/Strimzi를 구분한다. request/provisional/resolved/lock의 혼합 버전은 거부한다. run manifest/journal/plan/verdict 버전은 이 묶음과 독립적이다.
 - CDK는 perf 전용 AWS 자원, Helm은 노드 배치와 Kafka/앱 CR을 관리한다. `lib/perf`는 `common`만 참조한다.
-- 현재 `Retain`/keep, raw 7일/evidence 90일은 과거 foundation 동작이다. 24시간 수명 보장이 아니며 PROJ-294에서 전용 자원과 bucket versions/multipart, Secret, 로그, CR/PVC/PV/EBS의 제거를 구현해야 한다. 증거는 삭제 전에 로컬에 수집한다.
+- MSK/v2의 raw 7일/evidence 90일 Retain은 과거 foundation 호환 동작이다. 현행 Strimzi는 raw/evidence/Prom/로그 1일과 환경 소유 evidence Destroy, 독립 정리 driver를 사용한다. Kafka keep/Retain도 명시 삭제하며 증거는 삭제 전에 로컬에 수집한다.
 
 ## 로컬 합성과 입력 준비
 

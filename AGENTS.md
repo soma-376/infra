@@ -792,7 +792,9 @@ Template.fromStack(edge).hasResourceProperties('AWS::ElasticLoadBalancingV2::Lis
 - canonical v2/v3 환경 계약은 load-tests 소유이며 shared export/SOURCE hash를 검사한다. v2 원본은 바꾸지 않는다. request/provisional/resolved/lock만 동일 버전을 강제한다.
 - Kafka Secret 원문 입력 금지. CA/4 역할 사용자 metadata만 받고 PKCS12 참조와 revision을 기록한다. Kafka CR/ACL/PVC 실측이 부족하면 resolved ready를 만들지 않는다.
 - 공유 dev workload/Kafka chart 기본 렌더는 유지한다. perf에만 namespace·고정 전용 pool·topic/group을 바꾼다. 스택 테스트는 `buildPerfApp()` 팩토리를 사용한다.
-- 승인 상한은 100,000원·24시간 내 생성/seed/시험/삭제, 총 10,000요청·20RPS·실행당 600초·추가 저장 1GiB다. PROJ-294의 budget/cleanup gate 전 배포 금지; Retain은 정리 완료가 아니다.
+- 승인 상한은 100,000원·24시간 내 생성/seed/시험/삭제, 총 10,000요청·20RPS·실행당 600초·추가 저장 1GiB다. PROJ-294의 [budget/cleanup gate](docs/runbooks/perf-budget-cleanup.md)를 적용하고 actual billing과 계획 예상액을 구분한다. Retain은 정리 완료가 아니다.
 - 후속 별도 PR: PROJ-293 공개 HTTPS/WAF, PROJ-294 실행 예산/24시간 정리, PROJ-295 합성 데이터, PROJ-296 발생기 관측, PROJ-297 Strimzi drain 증거, PROJ-298 외부 API/DB 기준선.
 
 - PROJ-293 공개 경로는 [ADR 0051](docs/adr/0051-perf-https-edge-to-shared-gateway.md)을 따른다. runtime `perfCertificateArn`이 있을 때만 Edge/LBC를 만들고 공유 ACM은 참조만 한다. public host는 perf-api.pulsemetry.co.kr, 같은 Gateway NodePort/Pod를 사용하며 자체 NAT EIP만 받는다. WAF source Allow shortcut 금지; dev OTLP managed/rate/query 의미와 동등성 테스트를 유지한다. DNS 등록·실제 HTTPS/target health는 별도 증거가 필요하다.
+
+- PROJ-294는 ADR 0052를 따른다. 현행 Strimzi profile/SHA와 예산 policy를 함께 고정하고 GuardrailStack을 먼저 만든다. 22h 정리 시작/24h 삭제 완료, 새 perf ECR 두 개 포함 소유 태그 검증, evidence/raw/로그/CR/PVC/EBS 삭제 후 Guardrail 자체 삭제를 확인한다. 기존 dev/shared ACM/ECR는 제외한다. 모의 테스트는 실제 삭제 증거가 아니다.

@@ -63,7 +63,7 @@ export interface PerfOutputs {
   readonly stacks: readonly DeployedStack[];
 }
 
-const PERF_STACK_NAMES = ['PerfEvidenceStack', 'PerfNetworkStack', 'PerfDataStack', 'PerfEksStack', 'PerfEdgeStack'];
+const PERF_STACK_NAMES = ['PerfEvidenceStack', 'PerfNetworkStack', 'PerfDataStack', 'PerfEksStack', 'PerfEdgeStack', 'PerfGuardrailStack'];
 
 /**
  * `cdk deploy --outputs-file` 또는 `aws cloudformation describe-stacks` 결과를 합친다. 같은 key의 값이 다르면 거부한다.

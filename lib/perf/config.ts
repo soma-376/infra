@@ -1,3 +1,4 @@
+import { LoadedPerfBudget, loadPerfBudget } from './budget';
 import { loadPerfEdgeConfig, PerfEdgeConfig, PERF_GATEWAY_HTTPS } from './edge-config';
 import { resolve } from 'node:path';
 import { App } from 'aws-cdk-lib/core';
@@ -5,7 +6,7 @@ import { LoadedPerfProfile, PerfPoolId, loadPerfProfile, kafkaProfile } from './
 
 /**
  * perf 스택 공통 태그. `Org`·`ManagedBy`는 prod·dev와 같고 `Env`만 갈린다(ADR-0021 4번과 같은 방식).
- * 환경 소유 태그(`PERF_ENVIRONMENT_TAG`)는 환경 스택에만 붙이고 evidence 스택에는 붙이지 않는다.
+ * 환경 소유 태그는 현행 Strimzi의 evidence/guardrail도 포함한다. 과거 MSK evidence만 shared다.
  */
 export const PERF_COMMON_TAGS: Readonly<Record<string, string>> = {
   Org: 'soma-376',
@@ -20,7 +21,7 @@ export const PERF_EVIDENCE_TAG = 'pulsemetry:perf-evidence';
 
 /**
  * 스택 ID. `Perf` 접두사가 prod·dev 스택 이름과의 충돌을 막는다(ADR-0021 3번).
- * evidence 스택은 환경을 지워도 남는다. 나머지 셋은 environment마다 새로 만들고 지운다.
+ * 현행 Strimzi는 모든 스택을 삭제한다. 과거 MSK evidence의 보존 호환만 남긴다.
  */
 export const PERF_STACK_IDS = {
   evidence: 'PerfEvidenceStack',
@@ -28,6 +29,7 @@ export const PERF_STACK_IDS = {
   data: 'PerfDataStack',
   eks: 'PerfEksStack',
   edge: 'PerfEdgeStack',
+  guardrail: 'PerfGuardrailStack',
 } as const;
 
 export const PERF_EKS_CLUSTER_NAME = 'soma-376-perf-eks';
@@ -131,6 +133,7 @@ export interface PerfConfig {
   /** 계약 `environment.environment_id`. 소유 태그·Secret 이름에 들어간다. */
   readonly environmentId: string;
   readonly edge?: PerfEdgeConfig;
+  readonly budget?: LoadedPerfBudget;
   readonly profile: LoadedPerfProfile;
   /** 프로필 기본값을 덮어쓴 배포 입력. 계약 `infra.parameters`에 그대로 기록한다. */
   readonly natGateways: number;
@@ -161,11 +164,13 @@ export function loadPerfConfig(app: App, repositoryRoot = resolve(__dirname, '..
   }
   const profile = loadPerfProfile(app.node.tryGetContext('perfProfile') ?? 'profiles/perf/fixed-v1.json', repositoryRoot);
   if (profile.profile.kafka_provider === 'strimzi' && app.node.tryGetContext('perfMskBrokerVolumeGiB') !== undefined) throw new Error('Strimzi 프로필은 perfMskBrokerVolumeGiB를 받지 않는다');
+  const natGateways = contextInteger(app, 'perfNatGateways', profile.profile.network.nat_gateways, 1, 3);
   return {
     environmentId,
+    budget: profile.profile.kafka_provider === 'strimzi' ? loadPerfBudget(repositoryRoot, profile, natGateways) : undefined,
     edge: loadPerfEdgeConfig(app),
     profile,
-    natGateways: contextInteger(app, 'perfNatGateways', profile.profile.network.nat_gateways, 1, 3),
+    natGateways,
     mskBrokerVolumeGiB: contextInteger(app, 'perfMskBrokerVolumeGiB', kafkaProfile(profile.profile).volume_gib, 1, 16_384),
   };
 }
@@ -174,6 +179,7 @@ export function loadPerfConfig(app: App, repositoryRoot = resolve(__dirname, '..
 export function perfInfraParameters(config: PerfConfig): Record<string, string | number> {
   return {
     environmentId: config.environmentId,
+    ...(config.budget ? { budgetPolicySha256: config.budget.sha256, budgetKrw: 100000, estimatedKrw: config.budget.policy.estimated_total, ttlSeconds: 86400, cleanupStartSeconds: 79200, maxTotalRequests: 10000, maxRps: 20, maxRunSeconds: 600, maxAddedStorageBytes: 1073741824, drainTimeoutSeconds: 900, storageVerifyTimeoutSeconds: 900 } : {}),
     ...(config.edge ? { certificateArn: config.edge.certificateArn, gatewayHttps: PERF_GATEWAY_HTTPS } : {}),
     natGateways: config.natGateways,
     ...(config.profile.profile.kafka_provider === 'strimzi' ? { kafkaProvider: 'strimzi', kafkaVolumeGiB: config.profile.profile.strimzi!.volume_gib } : { mskBrokerVolumeGiB: config.mskBrokerVolumeGiB }),

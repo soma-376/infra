@@ -9,6 +9,7 @@ import { PERF_EKS_RELAY_INSTANCE_TYPE, PERF_EKS_RELAY_SESSION_DOCUMENT_NAME } fr
 
 interface PerfEksRelayProps {
   readonly vpc: IVpc;
+  readonly cleanupEnabled?: boolean;
   readonly subnet: ISubnet;
   readonly securityGroup: ISecurityGroup;
   readonly clusterEndpoint: string;
@@ -21,12 +22,13 @@ interface PerfEksRelayProps {
  */
 export class PerfEksRelay extends Construct {
   public readonly instance: Instance;
+  public readonly role: Role;
   public readonly sessionDocument: CfnDocument;
 
   constructor(scope: Construct, id: string, props: PerfEksRelayProps) {
     super(scope, id);
     const stack = Stack.of(this);
-    const role = new Role(this, 'Role', {
+    const role = this.role = new Role(this, 'Role', {
       assumedBy: new ServicePrincipal('ec2.amazonaws.com'),
       description: 'perf EKS API relay SSM instance role',
       managedPolicies: [ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore')],
@@ -42,6 +44,7 @@ export class PerfEksRelay extends Construct {
       }) }],
     });
     this.instance.addUserData('set -euo pipefail', 'systemctl enable --now amazon-ssm-agent');
+    if (props.cleanupEnabled) this.instance.addUserData('dnf install -y python3 awscli-2');
 
     this.sessionDocument = new CfnDocument(this, 'SessionDocument', {
       name: PERF_EKS_RELAY_SESSION_DOCUMENT_NAME,

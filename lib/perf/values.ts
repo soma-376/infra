@@ -61,6 +61,7 @@ export function checkDeployment(outputs: PerfOutputs, profile: LoadedPerfProfile
   if (infra.profile !== profile.path || infra.profile_sha256 !== profile.sha256) fail('request infra.profile·profile_sha256이 입력 프로필과 다르다');
   const deployed = JSON.parse(requiredOutput(outputs, 'PerfInfraParameters'));
   const expectsHttps = typeof deployed.certificateArn === 'string';
+  if (provider === 'strimzi' && (outputs.values.PerfEvidenceCleanupMode !== 'owned-24h' || outputs.values.PerfBudgetSha256 !== deployed.budgetPolicySha256)) fail('현행 Strimzi에는 일치하는 budget/24h cleanup 배포 output이 필요하다');
   if (expectsHttps !== Boolean(outputs.values.GatewayHttpsUrl)) fail('공개 Gateway 배포 입력과 Edge output 유무가 다르다');
   if (expectsHttps && (request.schema_version !== 3 || outputs.values.GatewayHttpsUrl !== PERF_GATEWAY_HTTPS || outputs.values.PerfCertificateArn !== deployed.certificateArn || deployed.gatewayHttps !== PERF_GATEWAY_HTTPS)) fail('공개 Gateway의 v3·인증서·HTTPS output이 배포 입력과 다르다');
   if (JSON.stringify(sortKeys(infra.parameters)) !== JSON.stringify(sortKeys(deployed))) fail('request infra.parameters가 배포 입력과 다르다');
@@ -270,10 +271,12 @@ export function generatePerfValues(input: PerfValuesInput): Record<string, Recor
         topic: PERF_MSK.topic, consumerGroup: PERF_MSK.consumerGroup,
       } },
       // upstream chart의 relabelings는 tpl로 평가되지 않으므로 실제 문자열을 넣는다(scripts/eks-values.mjs와 같은 방식).
-      monitoring: Object.fromEntries([
+      monitoring: { ...Object.fromEntries([
         ['kubelet', ['serviceMonitor']], ['prometheus', ['serviceMonitor']], ['prometheusOperator', ['serviceMonitor']],
         ['grafana', ['serviceMonitor']], ['kube-state-metrics', ['prometheus', 'monitor']], ['prometheus-node-exporter', ['prometheus', 'monitor']],
       ].map(([name, path]) => [name, (path as string[]).reduceRight<Record<string, unknown>>((value, key) => ({ [key]: value }), { relabelings: observabilityRelabel })])),
+        prometheus: { serviceMonitor: { relabelings: observabilityRelabel }, prometheusSpec: { retention: `${p.retention.prometheus_days}d` } },
+      },
     },
     'jobs.yaml': {
       infra: {

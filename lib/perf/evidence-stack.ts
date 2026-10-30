@@ -5,13 +5,14 @@ import { PERF_ENVIRONMENT_EVIDENCE_PREFIX, PERF_EVIDENCE_PREFIX, PERF_EVIDENCE_T
 
 export interface PerfEvidenceStackProps extends StackProps {
   readonly retentionDays: number;
+  readonly ownedCleanup?: boolean;
 }
 
 /**
- * 시험 증거 bucket. 환경 스택과 수명을 분리해 환경을 지워도 남긴다(PLAN §10).
+ * 시험 증거 bucket. 과거 MSK는 보존하고 현행 Strimzi는 환경과 함께 지운다(ADR 0052).
  *
  * 덮어쓰기는 쓰기 쪽 조건부 PUT(`If-None-Match: *`)이 막고, versioning이 실수로 덮인 이전 버전을 보존한다.
- * 이 bucket만 `RETAIN`이다. 다른 perf 자원은 환경과 함께 지운다.
+ * ownedCleanup에서는 버전까지 삭제하므로 증거를 먼저 로컬에 수집한다.
  */
 export class PerfEvidenceStack extends Stack {
   public readonly bucket: IBucket;
@@ -31,9 +32,10 @@ export class PerfEvidenceStack extends Stack {
         noncurrentVersionExpiration: Duration.days(props.retentionDays),
         abortIncompleteMultipartUploadAfter: Duration.days(1),
       })),
-      removalPolicy: RemovalPolicy.RETAIN,
+      removalPolicy: props.ownedCleanup ? RemovalPolicy.DESTROY : RemovalPolicy.RETAIN,
+      autoDeleteObjects: props.ownedCleanup ?? false,
     });
-    Tags.of(bucket).add(PERF_EVIDENCE_TAG, 'shared');
+    if (!props.ownedCleanup) Tags.of(bucket).add(PERF_EVIDENCE_TAG, 'shared');
     this.bucket = bucket;
     for (const [name, value] of Object.entries({
       EvidenceBucketName: bucket.bucketName,

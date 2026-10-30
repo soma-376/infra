@@ -65,9 +65,11 @@
 | 0050 | [격리 perf 환경의 공급자별 Kafka와 고정 Strimzi 용량](0050-perf-strimzi-provider-and-isolated-capacity.md) | Accepted (로컬 구현; 배포 NOT_RUN) |
 | 0051 | [perf 내부 Service와 공개 HTTPS는 같은 Gateway를 사용한다](0051-perf-https-edge-to-shared-gateway.md) | Accepted (로컬 구현; 실제 HTTPS 검증 NOT_RUN) |
 
+| 0052 | [perf 예산과 독립 정리 보호](0052-perf-budget-and-independent-cleanup.md) | Accepted (로컬 구현; 실제 정리 검증 별도) |
+
 병행 작업에서 사용한 `0035`·`0036`은 각각 파일명·제목·링크를 보존한다. 번호만으로 대상을 식별하지 않는다.
 
-새 ADR을 작성할 때는 다음 미사용 번호(`0052-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
+새 ADR을 작성할 때는 다음 미사용 번호(`0053-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
 
 섹션 순서는 다음과 같다. 괄호로 표시한 것은 내용이 있을 때만 둔다.
 

@@ -231,8 +231,8 @@ export function parsePerfProfile(value: unknown): PerfProfile {
   const retention = object(root.retention, 'retention', ['evidence_days', 'raw_signal_days', 'prometheus_days', 'prometheus_bytes', 'cloudwatch_log_days']);
   integer(retention.evidence_days, 'retention.evidence_days', 1, 3650);
   integer(retention.raw_signal_days, 'retention.raw_signal_days', 1, 365);
-  // Prometheus chart가 7d/20GB로 고정돼 있다. 다른 값은 chart values와 함께 바꾼다(ADR-0037).
-  constant(retention.prometheus_days, 'retention.prometheus_days', 7);
+  // 현행 Strimzi는 generated values에서 1d로 덮어쓰고 과거 MSK 7d/20GB는 보존한다.
+  constant(retention.prometheus_days, 'retention.prometheus_days', strimzi ? 1 : 7);
   constant(retention.prometheus_bytes, 'retention.prometheus_bytes', 20_000_000_000);
   if (!LOG_RETENTION_DAYS.includes(retention.cloudwatch_log_days as number)) fail('retention.cloudwatch_log_days', `CloudWatch 보존 일수 ${LOG_RETENTION_DAYS.join('|')} 중 하나다`);
 
