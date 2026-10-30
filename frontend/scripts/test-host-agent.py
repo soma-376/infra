@@ -61,5 +61,49 @@ class HostAgentDeploymentTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
 
 
+class LegacyCleanupTest(unittest.TestCase):
+    def execute(self, existing=True, owner='frontend-host-agent', docker_failure=False):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log = root / 'docker.log'
+            instance = root / 'instance-id'
+            instance.write_text('i-0123456789abcdef0\n')
+            script = (ROOT / 'observability/host-agent/cleanup-legacy.sh').read_text()
+            script = script.replace('/var/lock/pulsemetry-host-agent-install.lock', str(root / 'lock'))
+            script = script.replace('/var/lib/cloud/data/instance-id', str(instance))
+            docker = root / 'docker'
+            docker.write_text('#!/bin/bash\necho "$*" >> "$DOCKER_LOG"\n' +
+                'case "$1" in\ninfo) exit 0;;\ncontainer) ' +
+                ('exit 1' if docker_failure else ('echo pulsemetry-dev-host-agent' if existing else 'exit 0')) +
+                ';;\ninspect) echo ' + owner + ';;\nesac\n')
+            docker.chmod(0o755)
+            flock = root / 'flock'
+            flock.write_text('#!/bin/sh\nexit 0\n')
+            flock.chmod(0o755)
+            result = subprocess.run(['bash', '-c', script], env=dict(os.environ, PATH=str(root)+':'+os.environ['PATH'], DOCKER_LOG=str(log)), capture_output=True, text=True)
+            return result, log.read_text()
+
+    def test_removes_only_owned_legacy_container(self):
+        result, log = self.execute()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('rm -f pulsemetry-dev-host-agent', log)
+        self.assertNotIn('restart', log)
+
+    def test_missing_legacy_container_is_idempotent(self):
+        result, log = self.execute(existing=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('rm -f', log)
+
+    def test_foreign_container_is_not_removed(self):
+        result, log = self.execute(owner='someone-else')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('rm -f', log)
+
+    def test_docker_failure_is_not_treated_as_absent(self):
+        result, log = self.execute(docker_failure=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('rm -f', log)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -143,11 +143,59 @@ run "dashboard_deploy_boundary" {
 run "host_agent_dev_only_permissions" {
   command = plan
   assert {
+    condition     = alltrue([for p in aws_iam_role_policy.host_agent_read : contains(jsondecode(p.policy).Statement[0].Action, "ssm:DescribeDocumentPermission")])
+    error_message = "Terraform SSM 문서 refresh에 필요한 공유 권한 조회를 dev-plan/dev-apply 모두 허용해야 합니다."
+  }
+  assert {
     condition     = toset(keys(aws_iam_role_policy.host_agent_read)) == toset(["dev-plan", "dev-apply"]) && aws_iam_role_policy_attachment.host_agent_write.role == aws_iam_role.terraform["dev-apply"].name
     error_message = "호스트 수집기 권한은 dev 역할로 한정해야 합니다."
   }
   assert {
     condition     = !strcontains(aws_iam_policy.host_agent_write.policy, "SendCommand") && !strcontains(aws_iam_policy.host_agent_write.policy, "AWS-RunShellScript") && jsondecode(aws_iam_policy.host_agent_write.policy).Statement[0].Resource == "arn:aws:ssm:ap-northeast-2:111111111111:document/soma-376-frontend-dev-host-agent"
     error_message = "호스트 설치 문서만 관리하며 임의 Run Command를 허용하지 않습니다."
+  }
+}
+
+run "host_agent_ecs_permissions" {
+  command = plan
+  assert {
+    condition     = aws_iam_role_policy_attachment.host_agent_ecs_write.role == aws_iam_role.terraform["dev-apply"].name && toset(keys(aws_iam_role_policy.host_agent_ecs_read)) == toset(["dev-plan", "dev-apply"])
+    error_message = "호스트 ECS 권한은 dev에만 부여해야 합니다."
+  }
+  assert {
+    condition     = jsondecode(aws_iam_policy.host_agent_ecs_write.policy).Statement[0].Resource == "arn:aws:ecs:ap-northeast-2:111111111111:task-definition/soma-376-frontend-dev-host-agent:*" && jsondecode(aws_iam_policy.host_agent_ecs_write.policy).Statement[1].Resource == "arn:aws:ecs:ap-northeast-2:111111111111:service/soma-376-frontend-dev/soma-376-frontend-dev-host-agent" && !strcontains(aws_iam_policy.host_agent_ecs_write.policy, "PassRole") && !strcontains(aws_iam_policy.host_agent_ecs_write.policy, "DeregisterTaskDefinition")
+    error_message = "Alloy의 정확한 서비스/태스크만 관리하고 IAM 전달·등록 해제 권한을 추가하면 안 됩니다."
+  }
+  assert {
+    condition = length(aws_iam_policy.host_agent_ecs_write.policy) <= 6144 && alltrue([for key in ["dev-plan", "dev-apply"] : sum([
+      length(aws_iam_role_policy.state[key].policy),
+      length(aws_iam_role_policy.network_read[key].policy),
+      length(aws_iam_role_policy.runtime_read[key].policy),
+      length(aws_iam_role_policy.observability_read[key].policy),
+      length(aws_iam_role_policy.host_agent_read[key].policy),
+      length(aws_iam_role_policy.host_agent_ecs_read[key].policy),
+      key == "dev-apply" ? length(aws_iam_role_policy.network_write["dev"].policy) : 0
+    ]) <= 10240])
+    error_message = "기존 SSM/관측 조회 정책까지 합산해 dev 역할의 IAM inline 한도를 지켜야 합니다."
+  }
+}
+
+run "bootstrap_ci_boundary" {
+  command = plan
+  assert {
+    condition     = toset(keys(aws_iam_role.bootstrap_ci)) == toset(["plan", "apply"]) && alltrue([for mode, role in aws_iam_role.bootstrap_ci : jsondecode(role.assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:soma-376/infra:environment:frontend-bootstrap-${mode}"])
+    error_message = "bootstrap OIDC는 별도의 plan/apply Environment와 정확히 일치해야 합니다."
+  }
+  assert {
+    condition     = aws_iam_role_policy_attachment.bootstrap_ci_iam_write.role == aws_iam_role.bootstrap_ci["apply"].name && aws_iam_role_policy_attachment.bootstrap_ci_resource_write.role == aws_iam_role.bootstrap_ci["apply"].name && !strcontains(aws_iam_policy.bootstrap_ci_read.policy, "GetSecretValue") && !strcontains(aws_iam_policy.bootstrap_ci_read.policy, "PutRolePolicy")
+    error_message = "관리 권한은 apply에만 부여하고 plan은 Secret 원문·IAM 쓰기를 허용하지 않습니다."
+  }
+  assert {
+    condition     = alltrue([for statement in jsondecode(aws_iam_policy.bootstrap_ci_read.policy).Statement : !contains(statement.Action, "s3:PutObject") || try(endswith(statement.Resource, ".tflock"), false)])
+    error_message = "plan의 S3 쓰기는 state 잠금 파일로 제한해야 합니다."
+  }
+  assert {
+    condition     = alltrue([for p in [aws_iam_policy.bootstrap_ci_read, aws_iam_policy.bootstrap_ci_iam_write, aws_iam_policy.bootstrap_ci_resource_write] : length(p.policy) <= 6144]) && !strcontains(aws_iam_policy.bootstrap_ci_iam_write.policy, "AdministratorAccess")
+    error_message = "bootstrap 정책은 크기 한도를 지키며 AdministratorAccess를 부여하지 않습니다."
   }
 }

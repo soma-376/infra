@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 TF_BIN="${TF_BIN:-terraform}"
 export TF_IN_AUTOMATION=true AWS_EC2_METADATA_DISABLED=true
+python3 scripts/test-bootstrap-plan.py
 "$TF_BIN" fmt -check -recursive .
 for root in bootstrap modules/network modules/application modules/observability environments/dev environments/prod; do
   "$TF_BIN" -chdir="$root" init -backend=false -input=false -lockfile=readonly

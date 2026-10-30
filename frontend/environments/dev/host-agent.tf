@@ -1,5 +1,5 @@
-# 기존 EC2와 Terraform으로 교체된 EC2에 동일한 설치 절차를 적용한다.
-# user_data는 변경하지 않으므로 수집기 추가 때문에 앱 EC2를 교체하지 않는다.
+# 기존 리소스 주소를 유지해 설치 Association을 정리 작업으로 갱신한다.
+# ECS 서비스는 이 작업의 성공 후 시작한다. 전환 완료 후 별도 변경으로 제거할 수 있다.
 resource "aws_ssm_document" "host_agent" {
   count           = var.frontend_telemetry_enabled ? 1 : 0
   name            = "soma-376-frontend-dev-host-agent"
@@ -8,16 +8,12 @@ resource "aws_ssm_document" "host_agent" {
   tags            = local.telemetry_tags
   content = jsonencode({
     schemaVersion = "2.2"
-    description   = "dev 프론트 EC2의 OS Alloy 수집기를 설치한다."
+    description   = "ECS DAEMON 전환 전에 기존 Docker Alloy만 정리한다."
     mainSteps = [{
-      action = "aws:runShellScript", name = "installHostAgent"
+      action = "aws:runShellScript", name = "removeLegacyHostAgent"
       inputs = {
         timeoutSeconds = "600"
-        runCommand = [templatefile("${path.module}/../../observability/host-agent/deploy.sh.tftpl", {
-          installer = filebase64("${path.module}/../../observability/host-agent/install-dev.sh")
-          config    = filebase64("${path.module}/../../observability/host-agent/config.alloy")
-          endpoint  = module.observability[0].otlp_endpoint
-        })]
+        runCommand     = [file("${path.module}/../../observability/host-agent/cleanup-legacy.sh")]
       }
     }]
   })

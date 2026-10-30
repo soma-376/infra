@@ -35,7 +35,7 @@ frontend/
   scripts/check.sh     AWS 자격증명 없는 검증
 ```
 
-S3 버킷은 bootstrap/dev/prod 각각 하나다. bootstrap 상태는 CI에 공개하지 않는다.
+S3 버킷은 bootstrap/dev/prod 각각 하나다. bootstrap 상태는 전용 bootstrap CI 역할에만 허용하고 runtime CI 역할에는 공개하지 않는다.
 개발 역할은 개발 상태만, 운영 역할은 운영 상태만 접근한다. S3 native lock을 사용한다.
 S3와 ECR은 `prevent_destroy`와 강제 삭제 금지로 보호한다. backend는 AWS 기본 자격증명
 체인을 사용하고, provider와 backend 모두 입력한 계정 ID를 검증한다. 계정 ID와 자격증명은 파일에 커밋하지 않는다. 비밀이 아닌 runtime 릴리스 입력만 예외적으로 추적한다.
@@ -98,7 +98,21 @@ terraform state list
 `backend.tf`는 Git에서 제외된다. 이후 관리자 checkout에서도 이 파일을 복원하고 동일 버킷으로
 init해야 한다. 이전 후에는 로컬 상태로 bootstrap apply를 다시 실행하지 않는다.
 S3 최신 상태와 버전 관리가 확인된 뒤 로컬 상태·백업·계획 파일은 안전하게 정리한다.
-부트스트랩 변경도 PR→머지→관리자 계획 검토→적용 순서이며, 네트워크 CI 역할에 자기 IAM 수정권을 주지 않는다.
+이후 bootstrap 변경은 [ADR-0050](../docs/adr/0050-frontend-bootstrap-ci.md)에 따라 PR→develop 머지→bootstrap plan→Environment 승인→bootstrap apply→dev runtime 배포 순서다. 최초 CI 역할 준비는 관리자가 수행하고, 기존 runtime CI 역할에는 자기 IAM 수정권을 주지 않는다.
+
+### bootstrap CI Environment
+
+`frontend-bootstrap-plan`, `frontend-bootstrap-apply`에 다음 Variables를 설정한다.
+
+- `AWS_ACCOUNT_ID`, `TF_STATE_BUCKET`: 실제 계정과 기존 bootstrap 버킷
+- `TF_GITHUB_SUBJECT_PREFIX`, `TF_FRONTEND_GITHUB_SUBJECT_PREFIX`: 기존 bootstrap tfvars와 동일한 실제 OIDC subject prefix
+- plan에는 `TF_PLAN_ROLE_ARN`, apply에는 `TF_APPLY_ROLE_ARN`: `bootstrap_ci_role_arns` output의 해당 역할
+
+두 Environment에 필수 reviewer를 지정하고 관리자 bypass를 끈다. plan은 `develop` 및
+`refs/pull/*/merge`, apply는 `develop` branch만 허용한다. 최초 구성은 요청자 본인 승인도 허용한다.
+CI는 `backend.tf.example`을 복사해 기존 S3 backend에 연결한다. state를 별도로 업로드하지 않는다.
+승인 후 계획 해시가 달라지면 중단하므로 최신 develop에서 `Frontend Terraform Apply`를 수동 실행해 다시 확인한다.
+bootstrap은 develop만 배포 원본이며 main의 prod runtime 배포 전에 공통 변경을 먼저 반영한다.
 
 ## GitHub 설정 — AWS 연동 활성화 전 필수
 

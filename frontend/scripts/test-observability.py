@@ -76,10 +76,19 @@ with tempfile.TemporaryDirectory(prefix='proj260-observability-') as directory:
             port['published'] = str(grafana_port if name == 'grafana' else otlp_port)
     # dev 호스트는 Prometheus 직접 접근 없이 앱과 같은 OTLP 경로를 사용한다.
     host = json.loads(run('docker', 'compose', '-f', str(ROOT / 'observability/host-agent/compose.yaml'),
-                         'config', '--format', 'json', env=dict(env, HOST_INSTANCE_ID='validation-dev',
+                         'config', '--format', 'json', env=dict(env, HOST_INSTANCE_ID='i-0123456789abcdef0',
                          HOST_ENVIRONMENT='dev', HOST_ROLE='frontend-dev',
                          OTEL_EXPORTER_OTLP_ENDPOINT='http://alloy:4318'), capture_output=True).stdout)
     data['services']['dev-host'] = host['services']['alloy-host']
+    dev_host = data['services']['dev-host']
+    instance_file = temp / 'instance-id'
+    instance_file.write_text('i-0123456789abcdef0\n')
+    dev_host['volumes'].append({'type': 'bind', 'source': str(instance_file), 'target': '/host/instance-id', 'read_only': True})
+    dev_host['environment']['ALLOY_CONFIG'] = (ROOT / 'observability/host-agent/config.alloy').read_text()
+    dev_host['entrypoint'] = ['/bin/sh', '-ec']
+    # Compose의 $ 보간을 피하고 태스크 정의와 같은 시작 스크립트를 실행한다.
+    dev_host['command'] = [(ROOT / 'observability/host-agent/start-ecs.sh').read_text().replace('$', '$$')]
+
     config = temp / 'compose.json'
     config.write_text(json.dumps(data))
     compose = ['docker', 'compose', '-f', str(config)]
@@ -138,8 +147,8 @@ with tempfile.TemporaryDirectory(prefix='proj260-observability-') as directory:
         post('traces', {'resourceSpans': [{'resource': {'attributes': attrs}, 'scopeSpans': [{'spans': [{'traceId': '12345678901234567890123456789012', 'spanId': '1234567890123456', 'name': 'proj260-stack-validation', 'kind': 2, 'startTimeUnixNano': str(now - 1000000), 'endTimeUnixNano': str(now), 'status': {'code': 1}}]}]}]})
         eventually(lambda: metric('proj260_validation{deployment_environment_name="dev"}'))
         eventually(lambda: metric('up{job="frontend-host",host_role="observability"}')[0]['value'][1] == '1')
-        eventually(lambda: metric('up{job="frontend-host",host_role="frontend-dev",environment="dev",instance="validation-dev"}')[0]['value'][1] == '1')
-        eventually(lambda: metric('node_memory_MemTotal_bytes{job="frontend-host",host_role="frontend-dev",environment="dev",instance="validation-dev"}'))
+        eventually(lambda: metric('up{job="frontend-host",host_role="frontend-dev",environment="dev",instance="i-0123456789abcdef0"}')[0]['value'][1] == '1')
+        eventually(lambda: metric('node_memory_MemTotal_bytes{job="frontend-host",host_role="frontend-dev",environment="dev",instance="i-0123456789abcdef0"}'))
         eventually(logs)
         eventually(trace)
         print('PASS: 인증, 데이터 소스, OS 대시보드, metrics/logs/traces와 dev 라벨', flush=True)
