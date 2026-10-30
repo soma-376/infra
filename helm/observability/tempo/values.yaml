@@ -1,5 +1,5 @@
 # Tempo 3.x 단일 바이너리(ADR-0039). upstream chart 값은 `tempo:` 아래에 둔다.
-# 플랫폼 자체 span만 받는다. 업무용 MSK와 연결하지 않는다. 3→2 같은 major downgrade는 in-place rollback이 아니다.
+# 플랫폼 자체 span만 받는다. 업무용 Kafka와 연결하지 않는다. 3→2 같은 major downgrade는 in-place rollback이 아니다.
 tempo:
   # Grafana 조회 `pulsemetry-tempo...:3200`, Collector 송신 `pulsemetry-tempo...:4317`.
   fullnameOverride: pulsemetry-tempo
@@ -8,7 +8,7 @@ tempo:
     repository: grafana/tempo
     tag: "3.1.0@sha256:3076b8dcdfb32fd6bc5ccef85e7b7313e6199b9cb84366257fc17ecb696db5fd"
     reportingEnabled: false
-    # backend_scheduler의 block_retention이다. 보존은 디스크 상한이 아니다.
+    # 예약과 실제 삭제를 맡는 backend_scheduler·backend_worker에 함께 전달한다. 보존은 디스크 상한이 아니다.
     retention: 48h
     resources:
       requests: {cpu: 250m, memory: 512Mi}
@@ -53,6 +53,9 @@ tempo:
         compaction:
           compaction:
             block_retention: {{ .Values.tempo.retention }}
+    backend_worker:
+      compaction:
+        block_retention: {{ .Values.tempo.retention }}
     distributor:
       receivers:
         otlp:

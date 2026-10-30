@@ -124,6 +124,9 @@ assert.deepEqual(Object.keys(tempo.distributor.receivers), ['otlp']);
 assert.deepEqual(Object.keys(tempo.distributor.receivers.otlp.protocols), ['grpc']);
 assert.equal(tempo.distributor.receivers.otlp.protocols.grpc.endpoint, '0.0.0.0:4317');
 assert.equal(tempo.backend_scheduler.provider.compaction.compaction.block_retention, '48h');
+// Tempo 3.1의 retention job은 worker 설정으로 삭제한다. scheduler만 지정하면 worker 기본 336h가 남는다.
+assert.equal(tempo.backend_worker.compaction.block_retention, '48h');
+assert.equal(tempo.backend_worker.compaction.block_retention, tempo.backend_scheduler.provider.compaction.compaction.block_retention);
 assert.equal(tempo.storage.trace.backend, 'local');
 assert.ok(tempo.storage.trace.local.path.startsWith('/var/tempo/') && tempo.storage.trace.wal.path.startsWith('/var/tempo/'));
 assert.equal(tempo.usage_report.reporting_enabled, false);

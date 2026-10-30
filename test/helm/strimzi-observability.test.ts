@@ -66,6 +66,25 @@ suite('Strimzi 관측 계약', () => {
       expect(dashboards.map(x => x.uid)).toContain('pulsemetry-kafka');
       expect(dashboards.map(x => x.uid)).not.toContain('pulsemetry-msk');
       expect(JSON.stringify(dashboards).match(/AWS\/Kafka|__MSK_CLUSTER__|__BROKER_LOG_GROUP__|msk-jmx|msk-node/g)).toBeNull();
+      for (const uid of ['pulsemetry-overview', 'pulsemetry-pipeline', 'pulsemetry-kafka']) {
+        const dashboard = dashboards.find(x => x.uid === uid);
+        const lag = dashboard.panels.find((p: any) => p.title === '확인된 commit 기준 lag');
+        const uncommitted = dashboard.panels.find((p: any) => p.title === '미커밋 partition 수');
+        expect(lag.targets[0].expr).toContain('pulsemetry:kafka_committed_lag:sum{');
+        expect(lag.description).toContain('전체 backlog를 뜻하지 않는다');
+        expect(uncommitted.type).toBe('stat');
+        expect(uncommitted.targets[0].expr).toContain('pulsemetry:kafka_uncommitted_partitions:count{');
+        expect(uncommitted.targets[0].instant).toBe(true);
+        expect(uncommitted.fieldConfig.defaults.noValue).toBe('미수집');
+        for (const filter of ['cluster="$cluster"', 'kafka_cluster="$kafka_cluster"', 'topic="$topic"', 'consumergroup="$consumer_group"']) {
+          expect(lag.targets[0].expr).toContain(filter);
+          expect(uncommitted.targets[0].expr).toContain(filter);
+        }
+        expect(uncommitted.gridPos).toEqual({ x: lag.gridPos.x + 8, y: lag.gridPos.y, w: 4, h: 8 });
+        expect(lag.gridPos.w).toBe(8);
+        expect(new Set(dashboard.panels.map((p: any) => p.id)).size).toBe(dashboard.panels.length);
+      }
+      expect(JSON.stringify(dashboards)).not.toContain('kafka_consumergroup_lag{');
       const expressions: any[] = [];
       for (const dashboard of dashboards) for (const panel of dashboard.panels) for (const target of panel.targets ?? []) {
         if (target.expr && (target.datasource?.uid ?? panel.datasource?.uid) === 'pulsemetry-prometheus') {
@@ -79,6 +98,16 @@ suite('Strimzi 관측 계약', () => {
       expect(brokerLog.targets[0].logGroupNames).toEqual(['/eks/dev/application']);
       expect(brokerLog.targets[0].expression).toContain('soma-376-dev-telemetry-dual-role-');
     } finally { rmSync(temp, { recursive: true, force: true }); }
+  });
+
+  test('MSK 호환 렌더는 Strimzi lag 규칙·미커밋 패널을 추가하지 않는다', () => {
+    const rendered = command(process.env.HELM_BIN!, ['template', 'observability', chart, '-n', 'pulsemetry-observability', '-f', resolve(root, 'helm/observability/tests/generated-values.yaml')]);
+    const resources: any[] = loadAll(rendered).filter(Boolean);
+    const dashboards = Object.values(resources.find(x => x.kind === 'ConfigMap' && x.metadata.name === 'pulsemetry-dashboards').data).map(x => JSON.parse(x as string));
+    expect(dashboards.map(x => x.uid)).toContain('pulsemetry-msk');
+    expect(dashboards.map(x => x.uid)).not.toContain('pulsemetry-kafka');
+    expect(JSON.stringify(dashboards)).not.toMatch(/pulsemetry:kafka_committed_lag:sum|pulsemetry:kafka_uncommitted_partitions:count/);
+    expect(resources.some(x => x.kind === 'PrometheusRule' && x.metadata.name === 'pulsemetry-strimzi')).toBe(false);
   });
 
   test.each([
