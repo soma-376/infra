@@ -15,6 +15,10 @@ tests:
         values: '0+0x10'
       - series: 'kafka_server_socket_server_metrics_failed_authentication_total{job="strimzi-jmx"}'
         values: '0+0x10'
+      - series: 'up{job="strimzi-exporter"}'
+        values: '1+0x10'
+      - series: 'kafka_consumergroup_current_offset{job="strimzi-exporter",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main"}'
+        values: '10+0x10'
       - series: 'kafka_consumergroup_lag{job="strimzi-exporter",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main"}'
         values: '500+0x10'
       - series: 'kubelet_volume_stats_available_bytes{namespace="pulsemetry-dev",persistentvolumeclaim="data-0-soma-376-dev-telemetry-dual-role-0"}'
@@ -63,6 +67,10 @@ tests:
         values: '1+0x10'
       - series: 'kafka_controller_kafkacontroller_offlinepartitionscount{job="strimzi-jmx"}'
         values: '1+0x10'
+      - series: 'up{job="strimzi-exporter"}'
+        values: '1+0x10'
+      - series: 'kafka_consumergroup_current_offset{job="strimzi-exporter",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main"}'
+        values: '10+0x10'
       - series: 'kafka_consumergroup_lag{job="strimzi-exporter",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main"}'
         values: '1001+0x10'
     alert_rule_test:
@@ -128,3 +136,252 @@ tests:
         exp_alerts:
           - exp_labels: {severity: warning, job: strimzi-jmx}
             exp_annotations: {summary: 'Kafka 필수 JMX 지표가 없다. 빈 값을 정상으로 해석하지 않는다'}
+  - name: 미커밋 네 partition의 -1은 정상 lag를 음수로 만들거나 1001 경보를 상쇄하지 않는다
+    interval: 1m
+    input_series:
+      - series: up{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404"}
+        values: 1+0x10
+      - series: kafka_consumergroup_current_offset{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="0"}
+        values: 20+0x10
+      - series: kafka_consumergroup_lag{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="0"}
+        values: 0+0x1 1001+0x5 1000+0x2
+      - series: kafka_consumergroup_current_offset{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="1"}
+        values: 10+0x10
+      - series: kafka_consumergroup_lag{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="1"}
+        values: 0+0x10
+      - series: kafka_consumergroup_current_offset{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="2"}
+        values: -1+0x10
+      - series: kafka_consumergroup_lag{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="2"}
+        values: -1+0x10
+      - series: kafka_consumergroup_current_offset{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="3"}
+        values: -1+0x10
+      - series: kafka_consumergroup_lag{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="3"}
+        values: -1+0x10
+      - series: kafka_consumergroup_current_offset{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="4"}
+        values: -1+0x10
+      - series: kafka_consumergroup_lag{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="4"}
+        values: -1+0x10
+      - series: kafka_consumergroup_current_offset{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="5"}
+        values: -1+0x10
+      - series: kafka_consumergroup_lag{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="5"}
+        values: -1+0x10
+    promql_expr_test:
+      - expr: pulsemetry:kafka_committed_lag:sum
+        eval_time: 1m
+        exp_samples:
+          - labels: '{__name__="pulsemetry:kafka_committed_lag:sum",environment="dev",cluster="eks-a",kafka_cluster="kafka-a",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main"}'
+            value: 0
+      - expr: pulsemetry:kafka_uncommitted_partitions:count
+        eval_time: 1m
+        exp_samples:
+          - labels: '{__name__="pulsemetry:kafka_uncommitted_partitions:count",environment="dev",cluster="eks-a",kafka_cluster="kafka-a",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main"}'
+            value: 4
+      - expr: pulsemetry:kafka_committed_lag:sum
+        eval_time: 7m
+        exp_samples:
+          - labels: '{__name__="pulsemetry:kafka_committed_lag:sum",environment="dev",cluster="eks-a",kafka_cluster="kafka-a",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main"}'
+            value: 1001
+      - expr: pulsemetry:kafka_uncommitted_partitions:count
+        eval_time: 7m
+        exp_samples:
+          - labels: '{__name__="pulsemetry:kafka_uncommitted_partitions:count",environment="dev",cluster="eks-a",kafka_cluster="kafka-a",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main"}'
+            value: 4
+      - expr: pulsemetry:kafka_committed_lag:sum
+        eval_time: 10m
+        exp_samples:
+          - labels: '{__name__="pulsemetry:kafka_committed_lag:sum",environment="dev",cluster="eks-a",kafka_cluster="kafka-a",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main"}'
+            value: 1000
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: KafkaConsumerLagHigh
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: KafkaConsumerLagHigh
+        exp_alerts:
+          - exp_labels:
+              environment: dev
+              cluster: eks-a
+              kafka_cluster: kafka-a
+              consumergroup: pulsemetry-dev-telemetry-ingest-main
+              topic: pulsemetry-dev-telemetry-ingress-main
+              severity: warning
+            exp_annotations:
+              summary: Kafka commit 기준 lag가 5분간 1000 record를 넘었다
+      - eval_time: 10m
+        alertname: KafkaConsumerLagHigh
+        exp_alerts: []
+  - name: 모든 partition이 미커밋이면 확인된 lag는 빈 값이고 미커밋 수만 표시한다
+    interval: 1m
+    input_series:
+      - series: up{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404"}
+        values: 1+0x5
+      - series: kafka_consumergroup_current_offset{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="0"}
+        values: -1+0x5
+      - series: kafka_consumergroup_lag{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="0"}
+        values: -1+0x5
+      - series: kafka_consumergroup_current_offset{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="1"}
+        values: -1+0x5
+      - series: kafka_consumergroup_lag{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="1"}
+        values: -1+0x5
+    promql_expr_test:
+      - expr: pulsemetry:kafka_committed_lag:sum
+        eval_time: 1m
+        exp_samples: []
+      - expr: pulsemetry:kafka_uncommitted_partitions:count
+        eval_time: 1m
+        exp_samples:
+          - labels: '{__name__="pulsemetry:kafka_uncommitted_partitions:count",environment="dev",cluster="eks-a",kafka_cluster="kafka-a",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main"}'
+            value: 2
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: KafkaConsumerLagHigh
+        exp_alerts: []
+  - name: 모든 관측 partition이 커밋됐으면 미커밋 수 0을 반환한다
+    interval: 1m
+    input_series:
+      - series: up{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404"}
+        values: 1+0x5
+      - series: kafka_consumergroup_current_offset{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="0"}
+        values: 20+0x5
+      - series: kafka_consumergroup_lag{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="0"}
+        values: 0+0x5
+      - series: kafka_consumergroup_current_offset{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="1"}
+        values: 10+0x5
+      - series: kafka_consumergroup_lag{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="1"}
+        values: 50+0x5
+    promql_expr_test:
+      - expr: pulsemetry:kafka_committed_lag:sum
+        eval_time: 1m
+        exp_samples:
+          - labels: '{__name__="pulsemetry:kafka_committed_lag:sum",environment="dev",cluster="eks-a",kafka_cluster="kafka-a",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main"}'
+            value: 50
+      - expr: pulsemetry:kafka_uncommitted_partitions:count
+        eval_time: 1m
+        exp_samples:
+          - labels: '{__name__="pulsemetry:kafka_uncommitted_partitions:count",environment="dev",cluster="eks-a",kafka_cluster="kafka-a",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main"}'
+            value: 0
+  - name: exporter가 down이면 이전 lag와 offset 표본이 남아도 정상 0을 표시하지 않는다
+    interval: 1m
+    input_series:
+      - series: up{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404"}
+        values: 1+0x1 0+0x3
+      - series: kafka_consumergroup_current_offset{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="0"}
+        values: 20+0x5
+      - series: kafka_consumergroup_lag{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="0"}
+        values: 0+0x5
+    promql_expr_test:
+      - expr: pulsemetry:kafka_committed_lag:sum
+        eval_time: 1m
+        exp_samples:
+          - labels: '{__name__="pulsemetry:kafka_committed_lag:sum",environment="dev",cluster="eks-a",kafka_cluster="kafka-a",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main"}'
+            value: 0
+      - expr: pulsemetry:kafka_uncommitted_partitions:count
+        eval_time: 1m
+        exp_samples:
+          - labels: '{__name__="pulsemetry:kafka_uncommitted_partitions:count",environment="dev",cluster="eks-a",kafka_cluster="kafka-a",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main"}'
+            value: 0
+      - expr: pulsemetry:kafka_committed_lag:sum
+        eval_time: 2m
+        exp_samples: []
+      - expr: pulsemetry:kafka_uncommitted_partitions:count
+        eval_time: 2m
+        exp_samples: []
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: KafkaExporterUnavailable
+        exp_alerts:
+          - exp_labels:
+              environment: dev
+              cluster: eks-a
+              kafka_cluster: kafka-a
+              job: strimzi-exporter
+              instance: exporter-a:9404
+              severity: warning
+            exp_annotations:
+              summary: Kafka exporter 수집이 중단됐다
+  - name: exporter target이 없으면 남아 있는 lag와 offset도 집계하지 않는다
+    interval: 1m
+    input_series:
+      - series: kafka_consumergroup_current_offset{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="0"}
+        values: 20+0x5
+      - series: kafka_consumergroup_lag{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="0"}
+        values: 0+0x5
+    promql_expr_test:
+      - expr: pulsemetry:kafka_committed_lag:sum
+        eval_time: 2m
+        exp_samples: []
+      - expr: pulsemetry:kafka_uncommitted_partitions:count
+        eval_time: 2m
+        exp_samples: []
+  - name: exporter가 정상이더라도 group의 offset이 없으면 값을 만들지 않는다
+    interval: 1m
+    input_series:
+      - series: up{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404"}
+        values: 1+0x5
+      - series: kafka_consumergroup_lag{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="0"}
+        values: 0+0x5
+    promql_expr_test:
+      - expr: pulsemetry:kafka_committed_lag:sum
+        eval_time: 2m
+        exp_samples: []
+      - expr: pulsemetry:kafka_uncommitted_partitions:count
+        eval_time: 2m
+        exp_samples: []
+  - name: target과 group이 모두 없으면 0으로 채우지 않는다
+    interval: 1m
+    input_series: []
+    promql_expr_test:
+      - expr: pulsemetry:kafka_committed_lag:sum
+        eval_time: 2m
+        exp_samples: []
+      - expr: pulsemetry:kafka_uncommitted_partitions:count
+        eval_time: 2m
+        exp_samples: []
+  - name: 서로 다른 group·cluster의 lag를 합치거나 다른 instance의 up으로 정상 판정하지 않는다
+    interval: 1m
+    input_series:
+      - series: up{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404"}
+        values: 1+0x10
+      - series: up{environment="dev",cluster="eks-b",kafka_cluster="kafka-b",job="strimzi-exporter",instance="exporter-a:9404"}
+        values: 1+0x10
+      - series: up{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-down:9404"}
+        values: 0+0x10
+      - series: kafka_consumergroup_current_offset{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="0"}
+        values: 10+0x10
+      - series: kafka_consumergroup_lag{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="0"}
+        values: 500+0x10
+      - series: kafka_consumergroup_current_offset{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-validation",topic="pulsemetry-dev-telemetry-ingress-validation",partition="0"}
+        values: 10+0x10
+      - series: kafka_consumergroup_lag{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-validation",topic="pulsemetry-dev-telemetry-ingress-validation",partition="0"}
+        values: 700+0x10
+      - series: kafka_consumergroup_current_offset{environment="dev",cluster="eks-b",kafka_cluster="kafka-b",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="0"}
+        values: 10+0x10
+      - series: kafka_consumergroup_lag{environment="dev",cluster="eks-b",kafka_cluster="kafka-b",job="strimzi-exporter",instance="exporter-a:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="0"}
+        values: 600+0x10
+      - series: kafka_consumergroup_current_offset{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-down:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="1"}
+        values: 10+0x10
+      - series: kafka_consumergroup_lag{environment="dev",cluster="eks-a",kafka_cluster="kafka-a",job="strimzi-exporter",instance="exporter-down:9404",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main",partition="1"}
+        values: 1001+0x10
+    promql_expr_test:
+      - expr: pulsemetry:kafka_committed_lag:sum
+        eval_time: 10m
+        exp_samples:
+          - labels: '{__name__="pulsemetry:kafka_committed_lag:sum",environment="dev",cluster="eks-a",kafka_cluster="kafka-a",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main"}'
+            value: 500
+          - labels: '{__name__="pulsemetry:kafka_committed_lag:sum",environment="dev",cluster="eks-a",kafka_cluster="kafka-a",consumergroup="pulsemetry-dev-telemetry-ingest-validation",topic="pulsemetry-dev-telemetry-ingress-validation"}'
+            value: 700
+          - labels: '{__name__="pulsemetry:kafka_committed_lag:sum",environment="dev",cluster="eks-b",kafka_cluster="kafka-b",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main"}'
+            value: 600
+      - expr: pulsemetry:kafka_uncommitted_partitions:count
+        eval_time: 10m
+        exp_samples:
+          - labels: '{__name__="pulsemetry:kafka_uncommitted_partitions:count",environment="dev",cluster="eks-a",kafka_cluster="kafka-a",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main"}'
+            value: 0
+          - labels: '{__name__="pulsemetry:kafka_uncommitted_partitions:count",environment="dev",cluster="eks-a",kafka_cluster="kafka-a",consumergroup="pulsemetry-dev-telemetry-ingest-validation",topic="pulsemetry-dev-telemetry-ingress-validation"}'
+            value: 0
+          - labels: '{__name__="pulsemetry:kafka_uncommitted_partitions:count",environment="dev",cluster="eks-b",kafka_cluster="kafka-b",consumergroup="pulsemetry-dev-telemetry-ingest-main",topic="pulsemetry-dev-telemetry-ingress-main"}'
+            value: 0
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: KafkaConsumerLagHigh
+        exp_alerts: []

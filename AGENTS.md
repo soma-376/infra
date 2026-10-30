@@ -1,7 +1,7 @@
 # AGENTS.md
 
-> 이 문서는 PROJ-248의 EKS 전용 로컬 구현·정책을 반영한다. AWS 철거·Snapshot·live E2E는 수행하지 않았으므로
-> 아래 구성은 배포된 dev 현행이나 DB 연결 문제 해결을 증명하지 않는다.
+> 현재 dev Kafka는 Strimzi·`network-removed` profile이며, 배포·검증 범위는 아래 PROJ-282·191·256 절과
+> [Strimzi 관측 완료 근거](docs/runbooks/proj191-strimzi-completion.md)를 따른다. 과거 로컬 구현 절의 미검증 표기는 당시 범위에만 적용하며 현재 배포 전체의 상태로 해석하지 않는다.
 
 이 레포에서 작업하는 코딩 에이전트를 위한 핸드오프 문서다. 코드를 수정하기 전에 **3장(불변 규칙)** 과 **5장(남은 작업)** 을 반드시 읽는다.
 
@@ -30,9 +30,17 @@ BFF 단일 프로세스에 맞춰 서비스 desired=1/min=0/max=100이다. 앱 �
 [허브 Kafka 계약](https://github.com/soma-376/docs/blob/main/contracts/telemetry-kafka.md)을 따른다.
 Strimzi 1.3.0/Kafka 4.2.2는 ClickHouse와 같은 AZ의 전용 ARM64 노드 3대에서 실행한다.
 Kafka 인증서에 한해 Strimzi 소유 Kubernetes Secret을 읽기 전용 mount한다. 기존 AWS Secret의 CSI 원칙은 유지한다.
-현재 추적 profile은 Strimzi 병렬 준비(`retain`)이며 실제 전환·30분 안정화·MSK 제거 완료를 뜻하지 않는다.
-`devMskRetirementStage`의 `cluster-removed`는 EKS 단독 배포, `network-removed`는 MSK ENI 해제 확인 뒤 Network 단독 배포다.
-삭제에 최초 전체 스택 배포를 사용하지 않는다. 기존 HTTP 경로를 복구 경로로 유지한다.
+최종 추적 MSK 제거 단계는 `network-removed`다. 이 profile은 두 수동 삭제·MSK/ENI 부재·수집 보존을 실제로
+확인한 뒤에만 머지·사용하며, 파일의 단계 값만으로 실제 제거 완료를 판정하지 않는다.
+main Kafka 전용 profile은 `archivePrefix=eks`·ALB Gateway·ingest kafka를 유지한다. 공개 ALB의
+main ACK/consume/commit·S3/ClickHouse 성공을 확인한 뒤 적용한다. HTTP 복구는 현재 main 입력으로 만든 dual
+수신기/TGB의 직접 서비스·NodePort·Ready·등록을 먼저 확인하고 ALB ingest 연결 뒤 실제 healthy를 확인한다.
+코드의 profile은 실제 배포·검증 완료 증거가 아니다. 병렬 준비의 `strimzi/eks/retain` 조합만 ingest의
+S3 PutObject를 `eks/*`와 `eks_validation/*`에 허용한다. `cluster-removed`부터 validation 권한을 회수하며
+최종 단계는 main `eks/*`와 TLS 조건만 남긴다. 회수 전에 validation writer가 없어야 한다.
+ingest와 offset-admin의 Kafka Group Read는 commit/reset을 함께 허용한다. 별도 Secret·수동 Job은 운영 절차 분리다.
+최초 철거는 고정 private profile의 `cluster-removed`로 EKS 단독 배포, MSK ENI 해제 확인 뒤 `network-removed`로 Network 단독 배포다.
+추적 profile 갱신은 두 단계가 끝난 실제 baseline과 정합을 맞추는 후속 작업이며 최초 삭제에 쓰지 않는다. main dual/TGB를 먼저 복원하는 HTTP 복구 절차를 유지한다.
 
 ## PROJ-259 dev CloudFormation CI/CD
 
@@ -89,31 +97,54 @@ TGB를 Helm에서 먼저 제거하고 삭제/finalizer 완료 후 Edge TG를 제
 ## PROJ-256 Loki·Tempo·플랫폼 trace (Proposed)
 
 [ADR-0039](docs/adr/0039-dev-loki-tempo-and-platform-trace-collector.md)는 관측 namespace에 `loki`·`tempo`·`otel-platform`
-독립 release를 더하고 Fluent Bit이 CloudWatch와 Loki에 함께 보내는 구성을 제안한다. 채택 전까지 ADR-0037이 기준이다.
+독립 release와 Fluent Bit의 CloudWatch·Loki 병행 배송을 기술한다. ADR의 `Proposed` 상태는 유지하며,
+실제 dev 적용·검증 기록과 ADR 채택 여부를 구분한다.
 세 chart는 `helm/observability/{loki,tempo,otel-platform}` wrapper가 upstream chart를 감싸고, chart checksum·이미지 digest를 lock에 고정한다.
 apps·ClickHouse SG → 관측 SG 3100, apps SG → 관측 SG 4318 두 규칙만 더한다. Gateway·ingest의 trace 설정은 backend ADR 0069 계약을 생성기가 공급한다.
 SG는 노드 단위라 세 release가 수신 NetworkPolicy를 두고, platform chart가 `kube-system/amazon-vpc-cni` ConfigMap으로 controller를 켠다. NodeClass는 바꾸지 않는다(노드 교체).
-AWS 배포·실제 로그/trace 수집은 아직 수행하지 않았다.
+2026-10-26의 HTTP trace·로그 왕복과 장애 격리 검증은 [PROJ-256](https://team376.atlassian.net/browse/PROJ-256)에,
+2026-10-29의 Strimzi main Gateway→Kafka→ingest→ClickHouse trace·로그 연결은
+[PROJ-285](https://team376.atlassian.net/browse/PROJ-285)에 기록됐다. 2026-10-30에는 최신 N5와 실제 Kafka 요청의
+Grafana 로그↔trace UI 왕복, 같은 digest 격리 저장소의 보존 삭제·재시작 비복원·새 입력을 확인했다.
+격리 시험은 5분 정책이며 dev의 72h/48h 전체 기간 또는 과거 특정 파일 삭제 검증으로 확대하지 않는다.
+최종 revision·G8·30분 판정은 [Strimzi 관측 완료 근거](docs/runbooks/proj191-strimzi-completion.md)에 기록한다.
+observability revision 8·Tempo revision 2에서 G8 API·실제 UI, 1,800.808초·31표본 관찰과 종료 후 자원 보존 대조를 통과했다.
+완료조건 검증은 PASS이며 실제 상태는 각 Jira에서 확인한다.
 
-## PROJ-191 관측 로컬 구현 보충
+## PROJ-191 관측 현행과 완료 검증
 
 [ADR-0037](docs/adr/0037-dev-observability-and-system-diagnostics.md)은 전용 관측 NodePool·SG,
-Prometheus/Grafana, MSK Open Monitoring, 내부 9404·9363 metrics, CloudWatch 시스템 로그를 정의한다.
-`scripts/eks-values.mjs`는 기존 입력에 전체 `list-nodes` JSON인 `--msk-nodes`를 추가로 필수로 받는다.
-bootstrap 목록으로 전체 broker를 추정하지 않는다. EKS 하위 Grafana Secret은 서버 측 생성·Retain이며
+Prometheus/Grafana, 내부 9404·9363 metrics, CloudWatch 시스템 로그를 정의한다. dev Kafka 관측은
+[ADR-0049](docs/adr/0049-dev-strimzi-kafka-and-staged-msk-retirement.md)에 따라 Strimzi JMX·Kafka exporter·Operator·Pod/PVC로 전환했다.
+`scripts/eks-values.mjs`는 배포 profile/output의 `kafkaProvider=strimzi`와 Secret metadata 입력으로 values를 생성한다.
+MSK ARN/bootstrap/`--msk-nodes`는 현행 dev 입력이 아니다. 전체 `list-nodes` 검증은 호환용 MSK 경로에만 남는다.
+EKS 하위 Grafana Secret은 서버 측 생성·Retain이며
 전용 Pod Identity·CSI 파일로 공급한다. 기존 데이터 Secret을 관측 스택에 공유하지 않는다.
 Fluent Bit은 Kubernetes metadata(label 포함, annotation 제외)·원문과 node-local DB/buffer를 보존한다. 실패 event
 metric filter는 실제 Fluent Bit envelope 샘플로 대조하며 배포 전 `observability-metric-filter-check.mjs --aws`가 관문이다.
-단일 Events collector는 PVC를, 노드 진단은 private S3의 NodeDiagnostic bundle을 사용한다. 계측은 요청 tracing을 추가하지 않는다(PROJ-256의 ADR-0039가 Proposed로 개정을 제안한다).
+단일 Events collector는 PVC를, 노드 진단은 private S3의 NodeDiagnostic bundle을 사용한다.
+업무 지표 계측과 PROJ-256의 플랫폼 tracing은 별도 설정이며, tracing의 ADR-0039 상태는 `Proposed`로 유지한다.
 생성기는 관측을 항상 켠다(opt-in 없음, 근거는 런북). runtime-values의 `jvmGcSafepointLog`만 Gateway·ingest의
 GC/safepoint stderr를 켠다. 관측 이미지 8개와 Fluent Bit DaemonSet은 검증한 multi-arch digest로 고정한다.
 [관측 런북](docs/runbooks/dev-observability.md)과 [차트 안내](helm/observability/README.md)를 따른다.
-AWS 배포·실제 로그 배송·MSK exporter·장애/부하 검증은 아직 수행하지 않았다.
+2026-10-29 [PROJ-285](https://team376.atlassian.net/browse/PROJ-285)는 Strimzi target 7개, main ACK→consume→commit→ClickHouse,
+sampled trace·로그, 30분 안정화와 TLS 실패 경보 발생·해제를 기록한다. MSK active scrape·전용 경보 제거와 최종 profile은
+[infra #85](https://github.com/soma-376/infra/pull/85)에 연결된다. 2026-10-30의 lag·Tempo 보존 정정은
+[infra #87](https://github.com/soma-376/infra/pull/87), lag 표시·현재 수집 상태 정정은
+[infra #88](https://github.com/soma-376/infra/pull/88)에 반영됐다.
+[infra #89](https://github.com/soma-376/infra/pull/89)의 Pipeline 안내문 정정까지 source
+`8d230aa1ad77efdd2d6ae907ba1f5be7e1c13239`로 적용했고 observability revision은 8이다.
+현재 source/runtime·검증 범위·G8·배포 후 30분 판정은 [Strimzi 관측 완료 근거](docs/runbooks/proj191-strimzi-completion.md)가 소유한다.
+2026-10-30 06:00:53 UTC까지의 최종 관찰과 06:01:18 UTC 자원 대조로 세 티켓의 완료조건 검증은 PASS다.
+실제 상태는 [PROJ-191](https://team376.atlassian.net/browse/PROJ-191)·[PROJ-255](https://team376.atlassian.net/browse/PROJ-255)·
+[PROJ-256](https://team376.atlassian.net/browse/PROJ-256)에서 확인한다. 저부하 관찰을 최대 처리량이나 SLO 검증으로 확대하지 않는다.
 
 
 ---
 
-## PROJ-246 telemetry Gateway·MSK 로컬 구현 보충
+## PROJ-246 telemetry Gateway·MSK 로컬 구현 이력
+
+아래는 Strimzi 전환 전의 기록이다. 현재 dev Kafka 연결·관측·철거 상태는 위 PROJ-282·191 절과 ADR-0049를 따른다.
 
 [ADR-0035](docs/adr/0035-dev-msk-isolated-subnets-under-eks-stack.md)와 [ADR-0036](docs/adr/0036-dev-telemetry-gateway-workload-and-msk-iam.md)을 따른다.
 Network가 MSK 전용 isolated subnet 3개(`10.1.32~34.0/24`, 2a·2b·2c)와 `DevMskSg`를 만든다. VPC construct·`maxAzs: 2`·NAT 0은 그대로다.
@@ -133,7 +164,7 @@ backend-dev 배포 역할은 Gateway를 포함한 네 ECR push만 받고 ECS 권
 ## PROJ-248 dev 백엔드 EKS 전용 기준
 
 [ADR-0035](docs/adr/0035-dev-backend-eks-only.md)는 DB 연결 한도 문제로 dev 백엔드 ECS를 조기 제거한다.
-이 문서는 코드·로컬 검증 기준이며 실제 AWS 철거·Snapshot·EKS 기능 검증 완료를 뜻하지 않는다.
+이 절은 PROJ-248 당시의 코드·로컬 검증 기준이다. 당시 AWS 철거·Snapshot·EKS 기능 검증 미완료 표기를 현재 배포 상태로 사용하지 않는다.
 prod와 별도 frontend Terraform의 ECS는 유지한다. backend workflow의 ECS 검사·재배포 제거와 허브 배포
 계약 정합화는 PROJ-249가 담당한다. **실제 철거는 PROJ-249 완료 후** [철거 런북](docs/runbooks/dev-ecs-retirement.md)을 따른다.
 
@@ -203,7 +234,7 @@ dev는 제품 수집용 OTel Collector를 배포하지 않고 `pulsemetry-backen
 AWS CDK v2 (TypeScript) 로 작성된 **단일 인프라 레포**다. MVP 관측성(observability) 플랫폼의 AWS 리소스를 정의한다.
 
 ```
-dev:  AI Tool → ALB → telemetry-ingest → S3 / ClickHouse
+dev:  AI Tool → ALB → telemetry-gateway → Strimzi Kafka → telemetry-ingest → S3 / ClickHouse
       사용자  → ALB → enrollment-api  → RDS PostgreSQL
 prod: AI Tool → ALB → OTel Collector + post-processor → ClickHouse
       브라우저 → ALB → api-server + batch-processor → Aurora PostgreSQL
@@ -276,18 +307,21 @@ Application 삭제 → Edge → Network 순서가 우선한다. weak 참조는 E
 ### dev 스택
 
 스택 ID의 `Dev` 접두사는 prod와의 충돌 방지 경계다. 기존 스택 이름을 바꾸지 않는다.
+현재 dev는 추적된 `config/dev/deployment.json`·`runtime.yaml`의 Strimzi·`network-removed` profile을 사용한다.
+MSK 전용 subnet·SG를 현행으로 되살리지 않으며 SG 범위와 단계별 제거는 [Strimzi 런북](docs/runbooks/dev-strimzi-kafka.md)과 ADR-0049를 따른다.
 
 | 스택 | 주요 리소스 |
 |---|---|
-| `DevNetworkStack` | VPC `10.1.0.0/16`, public 2 AZ·MSK isolated 3 AZ·NAT 0·S3 endpoint, RDS·EKS·MSK·관측 SG 총 9개 및 모든 cross-SG 규칙 |
+| `DevNetworkStack` | VPC `10.1.0.0/16`, public 2 AZ·NAT 0·S3 endpoint, 현재 profile의 RDS·EKS·Strimzi·관측 관련 SG 및 cross-SG 규칙. `network-removed`는 MSK 전용 subnet·SG를 제외 |
 | `DevDataStack` | 비공개 RDS PostgreSQL 16.13 `db.t4g.micro`·gp3 20GB, DB SSM relay·operator, Raw Signal S3 7일, 기본 Secret 11개 + OIDC key 수 |
-| `DevEdgeStack` | 기존 EKS ALB·TG 4개·명시 path/method/OPTIONS·default 404·REGIONAL WAF/로그 |
+| `DevEdgeStack` | 기존 EKS ALB·현재 profile의 TG·명시 path/method/OPTIONS·default 404·REGIONAL WAF/로그. 수집 경로의 ALB target은 Gateway |
 | `DevEksStack` | Auto Mode cluster·node/operator/Pod Identity·SSM relay·로그·runtime output |
 
 | workload | 실행 | 포트 / target |
 |---|---|---|
 | enrollment-api | Helm Deployment | 8080 / NodePort 30080 instance TG |
-| telemetry-ingest | Helm Deployment | 4316 / NodePort 30416 instance TG |
+| telemetry-gateway | Helm Deployment | 8082 / NodePort 30082 instance TG. 공개 수집 요청을 받아 Strimzi Kafka로 전송 |
+| telemetry-ingest | Helm Deployment | 4316 / 내부 ClusterIP, `kafka` 모드·TGB 없음. Strimzi Kafka를 소비해 S3/ClickHouse에 적재 |
 | dashboard-api | Helm Deployment | 8081 / NodePort 30081 instance TG |
 | clickhouse | Helm StatefulSet·독립 PVC | 8123 / 내부 ClusterIP·DB 릴레이에서 현재 Pod IP |
 
@@ -625,7 +659,7 @@ AWS_REGION=ap-northeast-2 npm run synth:dev
 실제 신규 설치·후속 배포는 [EKS 런북](docs/runbooks/dev-eks-manual-deployment.md)을 따른다.
 이미 ECS가 존재하는 환경에서는 먼저 [수동 철거](docs/runbooks/dev-ecs-retirement.md)를 완료한다.
 Gateway를 포함한 네 앱 ARM64 이미지 공급·공유 DB/키 준비와 실제 기능 확인을 합성 성공으로 대신하지 않는다.
-EKS Helm 배포 순서는 기반 구성 → ClickHouse → enrollment → Gateway → ingest → dashboard → 관측이다. Gateway·MSK 전환은 [telemetry 런북](docs/runbooks/dev-telemetry-kafka.md), 관측은 [관측 런북](docs/runbooks/dev-observability.md)을 함께 따른다.
+EKS Helm 배포 순서는 기반 구성 → ClickHouse → enrollment → Gateway → ingest → dashboard → 관측이다. 현재 dev Gateway·Kafka 연결은 [Strimzi 런북](docs/runbooks/dev-strimzi-kafka.md), 관측은 [관측 런북](docs/runbooks/dev-observability.md)을 함께 따른다. 기존 MSK 전환 절차는 [telemetry 런북](docs/runbooks/dev-telemetry-kafka.md)의 역사적·호환 경로다.
 
 ### 운영자 접속 (ADR-0016)
 

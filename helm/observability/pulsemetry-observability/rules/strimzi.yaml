@@ -28,6 +28,25 @@ groups:
         labels: {component: strimzi-exporter, dashboard: pulsemetry-kafka}
       - record: pulsemetry:kafka_messages:rate1m
         expr: sum by (environment, cluster, kafka_cluster, topic) (rate(kafka_server_brokertopicmetrics_messagesinpersec_total{job="strimzi-jmx",topic!=""}[1m]))
+      # 미커밋 offset/lag의 -1은 backlog 0이 아니다. 확인된 lag와 미커밋 수를 나눠 표시한다.
+      - record: pulsemetry:kafka_committed_lag:sum
+        expr: |
+          sum by (environment, cluster, kafka_cluster, consumergroup, topic) (
+            (
+              (kafka_consumergroup_lag{job="strimzi-exporter"} >= 0)
+              and on (environment, cluster, kafka_cluster, job, instance, consumergroup, topic, partition)
+              (kafka_consumergroup_current_offset{job="strimzi-exporter"} >= 0)
+            )
+            and on (environment, cluster, kafka_cluster, job, instance)
+            (up{job="strimzi-exporter"} == 1)
+          )
+      - record: pulsemetry:kafka_uncommitted_partitions:count
+        expr: |
+          sum by (environment, cluster, kafka_cluster, consumergroup, topic) (
+            (kafka_consumergroup_current_offset{job="strimzi-exporter"} < bool 0)
+            and on (environment, cluster, kafka_cluster, job, instance)
+            (up{job="strimzi-exporter"} == 1)
+          )
   - name: pulsemetry.strimzi.alerts
     rules:
       - alert: KafkaJmxTargetSetIncomplete
@@ -91,7 +110,7 @@ groups:
         annotations:
           summary: Kafka broker Pod 3개가 Ready가 아니다
       - alert: KafkaConsumerLagHigh
-        expr: sum by (cluster, kafka_cluster, consumergroup, topic) (kafka_consumergroup_lag{job="strimzi-exporter",consumergroup=~"pulsemetry-dev-telemetry-ingest-(validation|main)",topic=~"pulsemetry-dev-telemetry-ingress-(validation|main)"}) > 1000
+        expr: pulsemetry:kafka_committed_lag:sum{consumergroup=~"pulsemetry-dev-telemetry-ingest-(validation|main)",topic=~"pulsemetry-dev-telemetry-ingress-(validation|main)"} > 1000
         for: 5m
         labels: {severity: warning}
         annotations:

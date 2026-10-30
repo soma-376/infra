@@ -392,6 +392,9 @@ function kafkaProvider(outputs, deploymentProfile) {
   if (deploymentProfile && provider !== deploymentProfile.context.devKafkaProvider) {
     throw new Error('deployment-profile: devKafkaProvider와 KafkaProvider output이 다르다');
   }
+  if (deploymentProfile && outputs.ArchivePrefix !== deploymentProfile.context.devEksArchivePrefix) {
+    throw new Error('deployment-profile: devEksArchivePrefix와 ArchivePrefix output이 다르다');
+  }
   return provider;
 }
 

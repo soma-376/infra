@@ -57,7 +57,7 @@ spec:
           type: group
           name: {{ $group }}
           patternType: literal
-        operations: {{ if eq $role "offset-admin" }}[Describe, Read, Alter]{{ else }}[Describe, Read]{{ end }}
+        operations: [Describe, Read]
         host: "*"
       {{- end }}
 {{ end }}

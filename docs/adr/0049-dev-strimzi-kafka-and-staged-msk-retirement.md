@@ -21,19 +21,56 @@ ADR-0037의 MSK 관측 부분을 대체한다. 기존 HTTP 복구·JWT·Data·pr
   기존 앱·ClickHouse·관측 풀과 PVC는 수정하지 않는다. 단일 AZ 장애 내성은 제공하지 않는다.
 - Operator는 strimzi-system에서 pulsemetry-dev만 감시한다. Kafka/NodePool/Topic/User/앱은 pulsemetry-dev에 둔다.
   기존 CSI 원칙의 예외는 Strimzi가 생성·관리하는 CA/사용자 Kubernetes Secret의 앱 직접 mount뿐이다.
+- apps 노드의 Operator가 Kafka 노드로 사용하는 TCP 9090(controller Admin/quorum 확인)·8443(KafkaAgent 복구 상태 조회)을
+  NetworkStack의 apps SG → Kafka SG 규칙으로 허용한다. 기존 9091(내부 broker)·9093(앱 mTLS)은 유지한다.
+  Strimzi 1.3.0의 `KafkaRoller.adminClient()`는 controller에 `CONTROLPLANE_PORT`로 연결하고,
+  `KafkaQuorumCheck`는 `describeMetadataQuorum()`으로 안전한 재시작 여부를 검사한다.
+  `KafkaRoller`는 준비되지 않은 broker의 복구 상태를 `KafkaAgentClient`로 조회하므로 `KAFKA_AGENT_PORT`도 필요하다.
+  두 포트는 노드 SG와 Strimzi가 생성하는 Operator 전용 NetworkPolicy 양쪽에서 허용되어야 한다.
+  기존 NetworkPolicy 생성 및 앱 listener의 peer 제한은 유지하고 외부 CIDR·9092 listener는 추가하지 않는다.
 - KafkaTopic만 토픽 설정을 관리한다. stage별 mTLS/ACL 사용자와 별도 수동 offset Job을 사용한다.
   broker는 9093 내부 listener만 노출하고 AWS MSK IAM 대신 Kafka ACL로 권한을 분리한다.
+  ingest와 offset-admin의 Group ACL은 모두 `Read, Describe`다. Kafka 4.2.2의 Group은 `Alter`를 지원하지 않으며,
+  `Admin.alterConsumerGroupOffsets`도 일반 commit과 같은 OffsetCommit 요청(Group Read + Topic Read)을 사용한다.
+  별도 offset-admin Secret과 수동 Job은 자격증명·운영 절차를 분리한다. ingest의 정상 commit에 필요한 Read를
+  유지하면서 같은 group의 offset reset만 ACL로 금지한다고 보장하지 않는다. MSK IAM `AlterGroup`과는 다르다.
 - CDK context `devKafkaProvider=msk|strimzi`(생략 msk)와 `devMskRetirementStage=retain|cluster-removed|network-removed`
   (생략 retain)를 도입한다. msk 공급자에서 제거 단계는 거부한다. 전환 중에는 Strimzi와 기존 MSK 리소스를 병존시킨다.
   cluster-removed는 MSK cluster/configuration/log·전용 IAM을 제거하고 subnet/SG를 남긴다.
   실제 MSK 삭제·ENI 해제 확인 뒤 network-removed를 NetworkStack에 적용한다. 최초 삭제 deploy --all은 금지한다.
+  자동 CI/CD가 차단하는 cluster-removed profile을 먼저 머지하지 않는다. 검증한 최신 merged SHA의 profile/runtime을
+  같은 private 폴더에 복사해 원본 해시를 보관하고 단계 값만 바꾼다. 각 단계의 검토된 고정 Assembly로 해당 스택만
+  배포하며 retain 자동 배포와 동시에 실행하지 않는다. 수동 철거가 모두 끝난 뒤 추적 profile을 network-removed로 갱신한다.
 - KafkaProvider/KafkaStage/KafkaTopicName/KafkaConsumerGroupName, EksKafkaNodeSecurityGroupId/EksKafkaAvailabilityZone을 출력한다.
   Strimzi values 생성에는 MSK ARN/bootstrap/list-nodes가 필요 없다. 기존 MSK 입력 검증은 호환 경로에만 남긴다.
+  profile의 공급자와 archive prefix가 배포 output과 다르면 앱·Kafka 준비 values 생성을 모두 거부한다.
 - Secret UID/resourceVersion 해시만 tlsRevision으로 배포 annotation에 공급한다. PKCS12 파일과 password-file을 읽으며
   인증서 원문·비밀번호는 generated YAML에 넣지 않는다. 365일/30일 갱신과 앱 명시적 재배포를 런북에 둔다.
 - 기존 MSK CloudWatch 지표는 Strimzi/JMX/Kafka exporter/Pod/PVC 기반 관측으로 교체한다. 앱 로그 기반 경보는 유지한다.
 - 기존 HTTP 보존 → validation E2E → main 전환 → 30분 안정화 → MSK 삭제 순서다.
   기존 MSK 미확인 데이터 폐기는 사용자가 승인했으며 migration·offset 이관은 하지 않는다.
+- main 전환의 CDK 선행 배포가 아직 validation prefix를 사용하는 HTTP ingest의 쓰기를 끊지 않도록,
+  `devKafkaProvider=strimzi` + `devEksArchivePrefix=eks` + `devMskRetirementStage=retain`에서만
+  ingest의 S3 `PutObject`를 정확히 `eks/*`와 `eks_validation/*` 두 경로에 허용한다.
+  기존 TLS 조건을 유지하고 Get/List/Delete·버킷 전체·임의 prefix는 추가하지 않는다. MSK 공급자와 prod는 확장하지 않는다.
+  두 경로 허용을 먼저 배포·확인한 뒤 validation 입력 중지 및 backlog drain, main dual ingest/Gateway 배포,
+  내부 main 검증, ALB 전환을 순서대로 수행한다. `cluster-removed`부터 임시 validation 권한을 회수하며
+  `network-removed`에서도 `eks/*`만 남긴다. 제거 전 validation writer가 없는지 확인한다.
+- Gateway TG가 listener에 참조되지 않으면 `unused/Target.NotInUse`이며 health check를 시작하지 않는다.
+  내부 main E2E 후 dev의 `strimzi` + `archivePrefix=eks` + `otlpTarget=ingest` 조합에서만 기존 OTLP
+  priority 1 규칙을 ingest weight 100/Gateway weight 0으로 연결한다. 가중치는 고정하고 stickiness를 켜지 않는다.
+  외부 트래픽은 ingest로 유지하고 `ValidationOtlpTarget=ingest`·`ingestMode=dual` 및 나머지 규칙·TG는 보존한다.
+  MSK 공급자·validation stage·prod는 바꾸지 않는다. listener 연결 후 실제 Gateway target healthy를 확인한다.
+- 준비 단계의 health check와 외부 HTTP 연속성을 확인한 뒤 별도 profile 변경으로 `devEksOtlpTarget=gateway`를 적용한다.
+  이때는 기존 단일 Gateway forward action을 사용한다. main prefix·Strimzi·retain·JWT 발급·dual을 유지하며,
+  공개 ALB의 실제 Kafka ACK/consume/commit·S3/ClickHouse 검증 후 별도 runtime 변경으로만 ingest를 `kafka`로 바꾼다.
+  가중치 0 연결만으로 실제 healthy 또는 Kafka 수집 성공을 판정하지 않는다.
+- Kafka 전용 runtime 적용은 실제 ALB가 이미 Gateway를 가리킬 때만 수행한다. Helm은 ingest Service를
+  ClusterIP로 바꾸어 NodePort를 해제하고 HTTP TargetGroupBinding을 제거한다. CDK 소유 ingest TG는 보존한다.
+  HTTP 복구용 main dual values는 현재 main output·이미지 digest·JWT 버전·Strimzi Secret metadata로 새로 생성해
+  비공개로 보관한다. 인증서나 입력이 바뀌면 다시 생성하며, 과거 validation Helm revision을 복구 원본으로 쓰지 않는다.
+  복구는 main dual 수신기/TGB의 직접 서비스·NodePort·Ready·등록 확인 → ALB ingest 연결 → 실제 healthy 확인 순서다.
+  listener에 연결되기 전 ingest TG가 NotInUse이면 healthy를 기다리지 않는다. Kafka 데이터·offset·PVC는 유지한다.
 
 ## Alternatives Considered
 
@@ -50,8 +87,23 @@ MSK 네트워크를 먼저 삭제하면 ENI 종속성으로 실패하므로 제�
 
 Kafka·인증서·PVC의 운영 책임을 맡고 단일 AZ 위험을 감수한다. replica 1/Recreate 앱의 인증서 재배포는 짧은 중단을 낼 수 있다.
 MSK와 임시 병존하는 동안 비용이 중복되며 삭제 후 MSK로 복구하지 않는다.
+main 전환부터 MSK 제거까지 ingest 역할이 두 archive prefix에 쓸 수 있다. 이는 HTTP 연속성을 위한 제한된 중첩이며
+`retain`에 머무르면 권한도 남으므로 MSK 제거 체크리스트에서 회수 완료를 확인한다.
 
 ## Acceptance Criteria
 
 prod/cicd 불변, 기존 Data·JWT·HTTP 보존, 단계별 CloudFormation 참조 안전성, Helm/schema,
 실제 mTLS/ACL·ACK/consume/commit/ClickHouse·인증서 갱신·노드 장애·PVC/offset 보존을 검증한다.
+S3 두 경로 권한의 정확한 공급자·prefix·제거 단계 조건과 TLS/PutObject 제한, 기존 Secret·Pod Identity 보존을 합성 테스트로 고정한다.
+Operator → 각 Kafka Pod의 9090·8443 경로와 quorum 조회·순차 재시작을 확인한다. broker Ready만으로 이 경로의 정상 동작을 판정하지 않는다.
+
+## References
+
+- [AWS ALB target health check의 listener 연결 전제](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/target-group-health-checks.html)
+- [AWS ALB forward action의 0~999 target group weight](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/rule-action-types.html)
+- [Kafka 4.2.2 Group 지원 권한](https://github.com/apache/kafka/blob/4.2.2/server/src/main/java/org/apache/kafka/security/authorizer/AclEntry.java)
+- [Kafka 4.2.2 offset 변경 요청](https://github.com/apache/kafka/blob/4.2.2/clients/src/main/java/org/apache/kafka/clients/admin/internals/AlterConsumerGroupOffsetsHandler.java)
+- [Kafka 4.2 ACL 프로토콜 표](https://kafka.apache.org/42/security/authorization-and-acls/)
+- [Strimzi 1.3.0 KafkaRoller: controller Admin 연결 및 KafkaAgent 복구 상태 조회](https://github.com/strimzi/strimzi-kafka-operator/blob/1.3.0/cluster-operator/src/main/java/io/strimzi/operator/cluster/operator/resource/KafkaRoller.java)
+- [Strimzi 1.3.0 KafkaQuorumCheck: metadata quorum 확인](https://github.com/strimzi/strimzi-kafka-operator/blob/1.3.0/cluster-operator/src/main/java/io/strimzi/operator/cluster/operator/resource/KafkaQuorumCheck.java)
+- [Strimzi 1.3.0 KafkaCluster: CONTROLPLANE_PORT·KAFKA_AGENT_PORT 및 generateNetworkPolicy](https://github.com/strimzi/strimzi-kafka-operator/blob/1.3.0/cluster-operator/src/main/java/io/strimzi/operator/cluster/model/KafkaCluster.java)

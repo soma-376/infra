@@ -173,12 +173,13 @@ export function installDevAppRoutes(
   listener: IApplicationListener,
   targets: DevAppRouteTargets,
   otlpRuleId = 'DevOtlpForward',
+  otlpAction?: ListenerAction,
 ): void {
   // 기존 rule ID를 보존해야 같은 listener의 priority 1을 새 리소스로 중복 생성하지 않는다.
   listener.addAction(otlpRuleId, {
     priority: 1,
     conditions: [ListenerCondition.pathPatterns([...DEV_OTLP_PATHS])],
-    action: ListenerAction.forward([targets.ingest]),
+    action: otlpAction ?? ListenerAction.forward([targets.ingest]),
   });
 
   for (const owner of ['dashboard', 'enrollment'] as const) {

@@ -20,6 +20,20 @@ const read = (file: string): Json => JSON.parse(fs.readFileSync(file, 'utf8'));
 const write = (file: string, value: unknown): void => fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
 const ok = (value: unknown): CommandResult => ({ status: 0, stdout: JSON.stringify(value), stderr: '' });
 
+const nodeFs = require('node:fs'), originalReadFileSync = nodeFs.readFileSync;
+
+// 일반 pipeline fixture는 MSK가 남은 retain baseline이다. 추적 profile의 현재 단계와 분리한다.
+function stage(value: string) {
+  const file = path.join(root, 'config/dev/deployment.json');
+  const profile = JSON.parse(originalReadFileSync(file, 'utf8'));
+  profile.context.devMskRetirementStage = value;
+  const text = JSON.stringify(profile);
+  jest.spyOn(nodeFs, 'readFileSync').mockImplementation((...args: any[]) => {
+    if (args[0] === file) return args[1] ? text : Buffer.from(text);
+    return originalReadFileSync(...args);
+  });
+}
+
 let fixtures: string;
 let assemblyFixture: string;
 let templates: Record<string, Json>;
@@ -48,7 +62,7 @@ beforeAll(() => {
     [name, read(path.join(retiredAssemblyFixture, `${name}.template.json`))]));
 });
 
-beforeEach(() => { workspace = fs.mkdtempSync(path.join(tmpdir(), 'dev-cdk-pipeline-test-')); });
+beforeEach(() => { workspace = fs.mkdtempSync(path.join(tmpdir(), 'dev-cdk-pipeline-test-')); stage('retain'); });
 afterEach(() => { jest.restoreAllMocks(); fs.rmSync(workspace, { recursive: true, force: true }); });
 afterAll(() => { fs.rmSync(fixtures, { recursive: true, force: true }); });
 
@@ -473,17 +487,6 @@ describe('plan부터 승인 후 배포까지', () => {
 
 
 describe('MSK 최초 제거 차단과 철거 후 자동 배포 복구', () => {
-  function stage(value: string) {
-    const file = path.join(root, 'config/dev/deployment.json');
-    const nodeFs = require('node:fs'), original = nodeFs.readFileSync;
-    const profile = JSON.parse(original(file, 'utf8'));
-    profile.context.devMskRetirementStage = value;
-    const text = JSON.stringify(profile);
-    jest.spyOn(nodeFs, 'readFileSync').mockImplementation((...args: any[]) => {
-      if (args[0] === file) return args[1] ? text : Buffer.from(text);
-      return original(...args);
-    });
-  }
   function retiredHarness() {
     stage('network-removed');
     const h = makeHarness();

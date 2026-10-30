@@ -36,6 +36,14 @@
 > PROJ-254의 기존 DB 공개 경로 전환은 [DB 릴레이 런북](dev-database-access.md)을 먼저 따른다.
 > 전체 CDK 배포 전에 ClickHouse TGB를 Helm에서 제거해야 한다. 이후 ClickHouse 공개 ALB ping은 사용하지 않는다.
 
+## 데스크톱 릴리스와 설치 상태 보고
+
+`workloads/enrollment-api.yaml`은 heartbeat 수신을 켜고 보고 주기 1분·재시도 안내 5초·이력 보존 400일을 명시한다.
+backend의 `config/telemetryctl-release.json`이 CLI·GUI 12종과 원본 SHA256SUMS를 고정하며 이미지 빌드에서 검증한다.
+제품 릴리스 게시 후 lock을 갱신한 enrollment 이미지 digest를 배포한다. Pod에 파일을 임시 복사하지 않는다.
+설치 스크립트의 GUI 설치 호출, 6종 GUI 다운로드와 표시 이름, 즉시·매분 heartbeat, GUI 정책 적용 판을 각각 확인한다.
+정책 자동 적용과 기존 GUI 자동 업데이트는 포함하지 않는다([허브 ADR 0027](../../../docs/adr/0027-install-desktop-and-report-policy-status.md)).
+
 ## 1. 실행 범위와 사전 조건
 
 **실행 checkout 조건:** ADR-0035의 EKS 전용 코드와 기존 dashboard·JWT·OIDC·SSM relay 구현을 포함한다.

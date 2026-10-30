@@ -25,6 +25,8 @@ export interface DevEksRuntimeProps {
   readonly oidcClientSecrets?: Readonly<Record<string, ISecret>>;
   readonly rawSignalBucket: IBucket;
   readonly archivePrefix: 'eks_validation' | 'eks';
+  /** Strimzi main/retain 전환 동안 기존 HTTP validation writer를 보존한다. (ADR-0049) */
+  readonly retainValidationArchiveWrite?: boolean;
   /** telemetry 전용 JWT 원본. 개인키는 enrollment만 읽는다. (ADR-0036) */
   readonly telemetryJwtPrivateKeySecret: ISecret;
   readonly telemetryJwtPublicKeysSecret: ISecret;
@@ -56,6 +58,12 @@ export class DevEksRuntime extends Construct {
     // 타입 검사를 우회한 context도 버킷 전체나 잘못된 prefix를 열 수 없다.
     if (!['eks_validation', 'eks'].includes(props.archivePrefix)) {
       throw new Error('EKS archivePrefix는 eks_validation 또는 eks여야 한다.');
+    }
+    if (props.retainValidationArchiveWrite !== undefined && typeof props.retainValidationArchiveWrite !== 'boolean') {
+      throw new Error('retainValidationArchiveWrite는 boolean이어야 한다.');
+    }
+    if (props.retainValidationArchiveWrite && props.archivePrefix !== 'eks') {
+      throw new Error('임시 validation 쓰기 권한은 main archivePrefix에서만 허용한다.');
     }
 
     this.enrollmentRole = this.podRole(
@@ -94,7 +102,10 @@ export class DevEksRuntime extends Construct {
     // grantWrite()는 multipart/삭제 등 불필요한 동작까지 넓히므로 PutObject만 선언한다.
     this.telemetryIngestRole.addToPolicy(new PolicyStatement({
       actions: ['s3:PutObject'],
-      resources: [props.rawSignalBucket.arnForObjects(`${props.archivePrefix}/*`)],
+      resources: [
+        props.rawSignalBucket.arnForObjects(`${props.archivePrefix}/*`),
+        ...(props.retainValidationArchiveWrite ? [props.rawSignalBucket.arnForObjects('eks_validation/*')] : []),
+      ],
       conditions: { Bool: { 'aws:SecureTransport': 'true' } },
     }));
 

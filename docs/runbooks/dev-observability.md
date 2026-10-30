@@ -1,20 +1,71 @@
 # dev EKS 관측·시스템 장애 진단 (PROJ-191)
 
-이 문서는 로컬 구현의 적용·검증 절차다. AWS 배포, 실제 MSK exporter, 로그 배송, 장애 주입과 k6 실행의
-완료 기록은 아니다. [ADR-0037](../adr/0037-dev-observability-and-system-diagnostics.md),
+이 문서는 dev Strimzi 경로의 관측 적용·검증 절차와 확인된 배포 증거를 구분해 관리한다.
+[ADR-0037](../adr/0037-dev-observability-and-system-diagnostics.md),
+[ADR-0049](../adr/0049-dev-strimzi-kafka-and-staged-msk-retirement.md), [Strimzi 런북](dev-strimzi-kafka.md),
 [기존 EKS 런북](dev-eks-manual-deployment.md), [관측 차트 안내](../../helm/observability/README.md)를 함께 따른다.
-전제는 PROJ-245·246 JWT/Gateway/Kafka 변경과 내부 management 9404를 구현한 Backend 이미지다.
+전제는 JWT/Gateway/Kafka·mTLS와 내부 management 9404를 구현한 Backend 이미지다.
 Grafana는 운영자 localhost port-forward로 접속하며 public ALB/Ingress를 추가하지 않는다.
+
+## 현재 판정과 검증 근거
+
+**현재 상태: observability revision 8·Tempo revision 2 적용, G8 API·실제 UI·30분 관찰·종료 후 자원 대조를 통과해 완료조건 검증 PASS. 실제 상태는 각 Jira에서 확인한다.**
+최신 source·release revision·검증 범위와 한계는 [Strimzi 관측 완료 근거](proj191-strimzi-completion.md)에 모은다.
+[infra #87](https://github.com/soma-376/infra/pull/87)은 commit 기준 lag와 미커밋 partition을 분리하고
+Tempo 보존 정책을 scheduler·worker 양쪽에 48h로 반영했다.
+[infra #88](https://github.com/soma-376/infra/pull/88)은 lag Stat 표시와 현재 수집 대상·로그 링크를 정정했다.
+[infra #89](https://github.com/soma-376/infra/pull/89)의 Pipeline 안내문 정정은 2026-10-30 05:29:19 UTC에
+observability revision 8로 적용했다. 최종 source는 `8d230aa1ad77efdd2d6ae907ba1f5be7e1c13239`다.
+05:32 UTC G8 API에서 revision 7과 query·변수·표시 계약이 같고 안내문만 바뀐 것을 확인해 684개 query 대조를 재사용했다.
+05:33 UTC 실제 UI에서 Strimzi 안내문·lag/미커밋·빈 값 표시, 기존 k6 실행 선택과 같은 Kafka 요청의 로그↔trace 왕복을 재확인했다.
+05:34 UTC 자원 대조에서 revision 6 이후 Pod/spec 추가 변경 없음, imageID·PVC/PV·관측 수신 정책 3개 보존을 확인했다.
+최종 30분 관찰은 05:30:52.715–06:00:53.525 UTC, 1,800.808초·31표본으로 PASS했다.
+Gateway ACK·ingest completed는 각각 +499, ClickHouse INSERT success는 +228, Collector sent spans는 +182,
+Fluent Bit의 Loki 전용 전송은 +2,743이었다. 60/60 target UP, 관측된 실패·drop·retry·restart 증가 0이며
+미노출 event counter 3개는 `null / not_emitted`로 구분했다.
+06:01:18 UTC 종료 자원 대조에서도 Pod UID/spec·이미지·PVC/PV와 revision 8 기준 정책 6개·ConfigMap을 보존했다.
+N5의 최초 기준선과 직접 비교한 정책 3개와 종료 비교의 정책 6개는 서로 다른 범위다.
+
+2026-10-29 [PROJ-285](https://team376.atlassian.net/browse/PROJ-285)의 Strimzi target 7개,
+main Gateway ACK→Kafka record→consume/commit→ClickHouse, sampled trace·양 앱 Loki 로그 연결,
+공개 요청 31회의 30분 안정화와 TLS 실패 경보 발생·해제 및 broker 로그 배송은 기존 배포 증거다.
+MSK active scrape·전용 경보 제거 후 최종 profile은 [infra #85](https://github.com/soma-376/infra/pull/85),
+배포는 [CD #40877081590](https://github.com/soma-376/infra/actions/runs/40877081590)에 연결된다.
+철거 후 두 요청은 unsampled이므로 trace 연결 증거는 앞선 sampled 요청을 사용한다.
+
+2026-10-30에는 같은 sampled 요청의 Grafana 로그→Tempo trace→로그 UI 왕복과 최신 N5를 확인했다.
+Gateway·ingest 각각의 Collector 허용 경로, Fluent Bit→Loki·Collector→Tempo 기능 대조,
+허용 포트 5개와 비허용 경로 11개 차단을 확인했고 소유한 probe Job·Pod를 정리했다.
+빈 실패 event counter는 실측 0으로 해석하지 않는다.
+
+보존은 dev의 Loki 72h·Tempo scheduler/worker 48h 설정과 같은 digest의 격리 시험을 구분한다.
+격리 저장소에서 5분 정책으로 축소한 fixture는 만료 전 생존, 자동 chunk/block 삭제,
+같은 저장소 재시작 후 조회 불가와 새 입력 조회를 통과했다. 삭제 직후 Loki cache가 반환한 결과와
+재시작 후 부재를 각각 기록했다. dev 과거 특정 파일의 물리 삭제나 72h/48h 전체 기간 재현은 검증하지 않았다.
+
+[PROJ-255](https://team376.atlassian.net/browse/PROJ-255)·[PROJ-256](https://team376.atlassian.net/browse/PROJ-256)의
+2026-10-26 HTTP/k6·장애 격리·PVC 복구 증거는 해당 범위에서 재사용한다.
+아래 절차를 반복하기 전에 source SHA·image digest·Helm revision의 차이를 먼저 확인한다.
+최신 G8과 배포 후 수동 트래픽 생성 없는 30분 관찰 결과는 완료 근거 문서의 별도 항목에 기록하며,
+기존 31회 요청 결과를 새 관찰 성공으로 대체하지 않는다. ADR-0039의 `Proposed` 상태는 유지한다.
+
+이번 표시 변경의 복구 대상은 `observability` revision 8→7이며 Tempo는 revision 2를 유지한다.
+Strimzi와 `network-removed` profile·PVC·기존 앱 설정을 보존한다. MSK retain 입력으로 재생성하거나
+Tempo worker가 48h로 고쳐지기 전 revision 1로 되돌리지 않는다. 실제 rollback 실행 증거는 아니다.
+revision 6의 중단 관찰과 revision 8 Helm hook 추가로 FAIL한 revision 7 관찰은 최종 관찰과 분리해 기록했다.
+최종 관찰의 표본 범위는 2026-10-30 05:30:53.713–06:00:53.507 UTC이며 이전 실행 시간을 합산하지 않았다.
+완료조건 검증은 PASS이며 실제 상태는 [PROJ-191](https://team376.atlassian.net/browse/PROJ-191)·
+[PROJ-255](https://team376.atlassian.net/browse/PROJ-255)·[PROJ-256](https://team376.atlassian.net/browse/PROJ-256)에서 확인한다.
 
 ## 적용 순서와 입력
 
 1. 기존 EKS 런북의 CDK diff를 검토한다. EKS 관측 SG, Grafana Secret/Pod Identity, 로그 그룹, 진단 S3,
-   MSK Open Monitoring만 의도한 변경인지 확인한다. 기존 MSK broker 수·스토리지·DEFAULT 경보와
-   ClickHouse data PVC를 교체하지 않는다. 실제 적용은 리뷰된 수동 배포 단계에서 한다.
-2. 배포 output에서 `MskClusterArn`을 읽고 `get-bootstrap-brokers`와 `list-nodes`를 각각 JSON으로 저장한다.
-   CLI 기본 pagination을 유지하고 `--no-paginate`/`--max-items`를 사용하지 않는다. 생성기에 기존 입력과
-   `--msk-nodes "$RUN_DIR/msk-nodes.json"`를 전달한다. 조회 명령 전체는 기존 EKS 런북 §2-2에 있다.
-   생성기는 같은 cluster DNS의 실제 broker 3개를 검증한다. bootstrap은 일부 주소만 올 수 있다.
+   Strimzi metrics 접근이 의도한 범위인지 확인한다. 기존 Kafka broker/PVC·ClickHouse data PVC를 교체하지 않는다.
+   이미 적용된 SG·로그 그룹은 검증을 위해 다시 생성하지 않으며 필요한 차이만 배포한다.
+2. 추적 deployment profile/runtime과 실제 CDK output의 `KafkaProvider=strimzi`·stage·topic/group을 대조한다.
+   [Strimzi 런북](dev-strimzi-kafka.md)에 따라 Secret 값 없이 UID/resourceVersion metadata를 조회해
+   `--strimzi-secrets` 입력으로 사용한다. 현재 dev 생성에 `--msk-bootstrap`·`--msk-nodes`를 전달하지 않는다.
+   MSK 호환 경로의 전체 broker 조회 검증은 기존 EKS 런북 §2-2에 보존한다.
 3. `generated/base.yaml`로 platform release를 먼저 갱신한다. `pulsemetry-observability` namespace,
    `gp3-observability` StorageClass, 전용 NodeClass/NodePool이 생성된다. 전용 노드는 ARM64 m7g.large,
    CPU 한도 4, `workload=observability:NoSchedule`이다. 노드와 PVC가 다른 AZ에 묶이지 않았는지 확인한다.
@@ -28,12 +79,13 @@ Grafana는 운영자 localhost port-forward로 접속하며 public ALB/Ingress�
    `generated/observability.yaml`로 설치한다. Events collector는 그 차트의 단일 replica만 실행한다.
 7. Pod/PVC 준비, target UP, 로그 전달, 비밀 권한을 확인한 뒤 부하 baseline을 기록한다.
 
-추가 generated output은 `global.pulsemetry`(환경·클러스터·로그 그룹·broker DNS·topic/group·Secret ARN)와
+추가 generated output은 `global.pulsemetry`(환경·EKS/Kafka 클러스터·공급자·로그 그룹·topic/group·Secret ARN)와
 upstream ServiceMonitor의 cluster/environment relabeling이다. 배포 output을 수동 문자열로 대체하지 않는다.
 별도 k6 인프라는 이번 범위에 없으며 새 환경을 만들 때 같은 관측 차트 입력·대시보드를 재사용한다.
 
 **생성기는 관측을 항상 켠다.** 관측 output(`ObservabilityNodeSecurityGroupId`·`GrafanaAdminSecretArn`·로그 그룹 등)과
-`--msk-nodes`가 없으면 values를 만들지 않는다. 1단계 CDK 배포가 생성기보다 먼저다. opt-in은 두지 않는다.
+공급자별 입력이 없으면 values를 만들지 않는다. Strimzi는 Secret metadata, MSK 호환 경로만 `--msk-nodes`를 요구한다.
+필요한 CDK output을 제공하는 배포가 생성기보다 먼저다. opt-in은 두지 않는다.
 Fluent Bit envelope·관측 로그 그룹도 같은 CDK output에 의존하므로 생성기만 opt-in으로 바꿔도 관측 이전 output을
 지원할 수 없기 때문이다. 9404가 없는 관측 이전 Backend 이미지는 `MANAGEMENT_SERVER_PORT`를 무시하고 그대로 동작한다.
 이때 Gateway/ingest target은 down·미수집으로 남고 `GatewayMetricsUnavailable`·`PipelineMetricsUnavailable`이 울린다.
@@ -61,12 +113,12 @@ safepoint 줄은 부하에 비례해 늘어나므로 dev 상시 운영에서는 
 |---|---|---|
 | Gateway/ingest | ClusterIP `*-metrics:9404/actuator/prometheus` | scrape UP, `environment`·`cluster`·`service` label, business port에서 actuator 접근 차단 |
 | ClickHouse | `clickhouse-metrics:9363/metrics` | native metrics/events/async/errors 노출, 기존 8123 health/적재 정상 |
-| MSK | 실제 broker DNS 3개 × JMX11001(60초)/node11002(10초) | 6 target 발견, broker별 최근 15분 수집 성공률(`pulsemetry:msk_scrape_success:ratio15m`), broker 별 지표 존재 |
-| Kubernetes | kubelet/cAdvisor·kube-state-metrics·node-exporter | 앱/CH/관측 노드 전부 관측, restart/termination reason 지표 |
+| Strimzi Kafka | broker JMX 3개·Kafka exporter 1개(9404), Cluster Operator 1개(8080), Topic/User Operator 각 1개(8080/8081), 10초 scrape | 7 target UP, ISR/min ISR/offline·TLS 실패·commit 기준 lag·CA 만료/갱신 지표 |
+| Kubernetes | kubelet/cAdvisor·kube-state-metrics·node-exporter | 앱/CH/관측/Kafka 노드 전부 관측, broker Pod·PVC 3개와 restart/termination reason 지표 |
 | 앱/CH 로그 | Fluent Bit → `/eks/dev/application` | 원문 `log`와 `kubernetes.*` metadata 동시 존재 |
 | 관측 스택/Fluent Bit 로그 | Fluent Bit → `/eks/dev/observability` | 관측 taint 노드에서도 전송 |
 | Kubernetes Events | 단일 collector → `/eks/dev/events` | 새 Warning 이벤트 수집 및 collector 재시작 후 이어받기 |
-| MSK broker 로그 | MSK → `/aws/vendedlogs/msk/soma-376-dev-telemetry` | 최신 broker 별 INFO/WARN/ERROR 로그 |
+| Kafka broker·Entity Operator 로그 | Fluent Bit → `/eks/dev/application` 및 Loki | `pulsemetry-dev`의 broker·operator Pod별 최신 로그. Cluster Operator의 `strimzi-system` 로그 수집 여부는 별도로 확인 |
 | EKS control plane | EKS → `/aws/eks/<cluster>/cluster` | 기존 5종 export 상태 확인 |
 
 Grafana CloudWatch datasource는 Pod Identity로 허용된 그룹을 읽는다. 앱 로그의 최상위 필드는
@@ -85,10 +137,9 @@ fields @timestamp, kubernetes.pod_name, kubernetes.host, stream, log
 | limit 200
 ```
 
-MSK는 broker 로그 그룹에서 시간 범위를 먼저 좁히고 `@logStream`과 `@message`를 본다. 서비스 재시작·
-컨트롤러 선출·스토리지 오류와 같은 메시지를 broker별 UP/디스크/ISR 지표에 대조한다. MSK 운영 이벤트와
-AWS Health/CloudTrail 조회가 추가로 필요할 수 있다. broker 로그만으로 AWS 내부 장애 원인 전체를 확정하지 않는다.
-MSK INFO를 유지하며 부하 측정 중 DEBUG/TRACE를 켜지 않는다.
+Kafka는 앱 로그 그룹 또는 Loki에서 `pulsemetry-dev`·broker Pod로 시간 범위를 좁힌다. 서비스 재시작·
+컨트롤러 선출·스토리지 오류를 broker별 JMX UP·Pod/PVC·ISR과 대조하고 Operator reconciliation·Kubernetes Events를 확인한다.
+INFO 수준을 유지하며 부하 측정 중 DEBUG/TRACE를 켜지 않는다. 과거 MSK 전용 로그 그룹은 현행 로그 도착 경로가 아니다.
 
 ## 수집 상태와 빈 패널 읽기 (PROJ-255)
 
@@ -97,7 +148,7 @@ MSK INFO를 유지하며 부하 측정 중 DEBUG/TRACE를 켜지 않는다.
 | 상태 | 의미 | 다음 조치 |
 |---|---|---|
 | 정상 | 기대 target이 모두 UP | 패널이 비면 패널 설명의 원인 후보(지표 미적용·필터 불일치·표본 부족)를 본다. 이벤트 없음은 원천 지표를 직접 확인한 뒤에만 판단한다 |
-| 일부 실패 | 일부 target down, MSK는 3개 미만 | 해당 target의 `lastError`와 성공률 확인 |
+| 일부 실패 | 일부 target down, Strimzi broker JMX는 기대 3개 중 일부만 UP | 해당 target의 `lastError`와 성공률 확인 |
 | 전체 실패 | target은 있으나 모두 down | Service·port·NetworkPolicy·SG 확인 |
 | 대상 없음 | target 자체가 없음 | workload 배포·`metrics.enabled`·ServiceMonitor label 확인 |
 | 최근 수신 없음 | k6 표본이 최근 5분에 없음 | 실행 여부·remote-write 경로 확인 |
@@ -107,13 +158,20 @@ MSK INFO를 유지하며 부하 측정 중 DEBUG/TRACE를 켜지 않는다.
 - Pipeline 맨 위 `현재 ingest 모드`가 `http`면 Kafka 소비 패널(Consumer·lag·commit)은 해당 없음이다.
   모드는 telemetry-ingest Pod annotation `pulsemetry.io/ingest-mode`를 ServiceMonitor가 `ingest_mode` label로 옮긴 값이다.
   이 annotation을 처음 적용하면 ingest Pod가 한 번 재생성된다.
-- MSK JMX(11001)는 10초 간격에서 HTTP 429로 broker별 표본 약 1/3을 거부했다(2026-10-23). 60초로 늘린 뒤에도
+- Strimzi exporter UP만으로 main topic/group의 lag가 수집된다고 판단하지 않는다. committed offset이 없는 partition,
+  누락된 lag 시계열, exporter 오류를 실제 backlog 0과 구분한다. consumer fetch position도 committed offset을 대신하지 않는다.
+- `확인된 commit 기준 lag`는 `pulsemetry:kafka_committed_lag:sum`이며 offset·lag가 모두 유효하고 exporter가 UP인
+  partition만 합산한다. 옆 `미커밋 partition 수`(`pulsemetry:kafka_uncommitted_partitions:count`)가 0보다 크면
+  lag는 전체 backlog가 아닌 확인된 부분합이다. 모두 미커밋이거나 group 미생성·수집 실패이면 lag는 빈 값이다.
+  미커밋 수에는 아직 메시지를 받지 않은 partition도 포함되므로 이를 backlog 건수로 읽지 않는다.
+
+**과거 MSK 진단(현행 Strimzi에 적용하지 않음).** MSK JMX(11001)는 10초 간격에서 HTTP 429로 broker별 표본 약 1/3을 거부했다(2026-10-23). 60초로 늘린 뒤에도
   성공률이 1 미만이면 JMX 패널 값은 마지막 성공 표본이다. MSK node exporter는 `node_memory_*`·`node_network_*`를 내지 않아
   메모리·수신량은 CloudWatch `MemoryUsed`·`MemoryFree`·`BytesInPerSec`으로 본다. offline partition은 CloudWatch 값이 기준이다.
 
 ### k6 지표 확인
 
-앱 노드 SG에서 관측 SG로 가는 규칙이 없으므로 클러스터 안 k6는 Prometheus remote-write에 닿지 않는다.
+앱 노드 SG에서 관측 SG의 Prometheus 9090으로 가는 규칙이 없으므로 클러스터 안 k6는 remote-write에 닿지 않는다.
 운영자 PC에서 Prometheus를 port-forward하고 [관측 차트 안내](../../helm/observability/README.md#k6-연결과-로컬-검증)의 명령으로
 짧고 낮은 부하를 보낸다.
 
@@ -125,7 +183,7 @@ kubectl -n pulsemetry-observability port-forward svc/pulsemetry-monitoring-prome
 
 ## PROJ-255 live 적용 순서
 
-변경 단위마다 diff를 남기고 이전 revision·digest로 돌아갈 수 있게 한 뒤 하나씩 적용한다.
+이미 검증한 단계를 재사용하고 남은 차이만 적용한다. 변경 단위마다 diff와 이전 revision·digest를 남긴다.
 
 1. **기준선**: Helm list/values/manifest, Pod imageID, PVC UID·PV·volume ID, target health, Grafana datasource UID를
    접근 제한된 실행 디렉터리에 저장한다. telemetry JWT Secret 값 등록 여부와 ALB 대상·`ingestMode`도 기록한다.
@@ -136,13 +194,15 @@ kubectl -n pulsemetry-observability port-forward svc/pulsemetry-monitoring-prome
 4. **Gateway·ingest(G2)**: 검증한 digest와 generated values로 갱신한다. 9404 target UP과 무트래픽 gauge·counter를 확인한다.
 5. **Fluent Bit(G4)**: static → generated 순서로 갱신한다. 새 로그에 원문 `log`와 `kubernetes.*`가 함께 있는지,
    관측 로그 그룹에 stream이 생기는지 본다. tail DB 첫 도입의 재전송 구간을 기록한다.
-6. **관측 차트(G5·G7)**: 대시보드·rule·MSK 간격을 반영한다. 30분 이상 broker별 성공률과 429 빈도를 기록한다.
+6. **관측 차트(G5·G7)**: Strimzi 대시보드·rule·PodMonitor를 반영한다. MSK active scrape·전용 rule이 없는지 확인하고
+   30분 이상 JMX 3개·exporter·Operator target, ISR·lag·오류·Pod/PVC 자원을 기록한다.
 7. **소량 E2E·k6(G6)**: 내부 Gateway 소량 요청의 publish ACK·소비·commit·ClickHouse 저장을 따로 대조하고 k6 smoke를 보낸다.
 8. **전수 재점검(G8)**: 기준선 패널마다 이전·이후 상태와 남은 조치를 남긴다.
 
 ## PROJ-256 Loki·Tempo·플랫폼 trace 적용 (ADR-0039, Proposed)
 
-PROJ-255 live 적용이 끝난 뒤 진행한다. 각 단계는 diff를 보고 하나씩 적용하며 이전 revision·digest를 기록한다.
+각 단계에 필요한 PROJ-255 선행 항목을 실제 기준선과 대조한다. 이미 적용·검증된 Loki·Tempo·Collector와 HTTP 관측을
+재사용하며 전체 PROJ-255의 재수행을 전제하지 않는다. 각 변경은 diff를 보고 하나씩 적용하며 이전 revision·digest를 기록한다.
 
 | 단계 | 적용 | 확인 |
 |---|---|---|
@@ -170,7 +230,8 @@ PVC는 Retain이라 uninstall·rollback으로 지워지지 않는다.
 - 주소: Loki `pulsemetry-loki.pulsemetry-observability.svc:3100`, Tempo 조회 `:3200`·수신 `:4317`, Collector `pulsemetry-otel-platform.pulsemetry-observability.svc:4318/v1/traces`.
 - Loki label은 `environment, cluster, namespace, service_name, container`다. Pod는 `| json | kubernetes_pod_name=~"..."`로 좁힌다.
   app label이 없는 Pod는 `service_name` 없이 `container`로 찾는다.
-- Loki 도입 전 로그·Kubernetes Events·EKS control-plane·MSK broker 로그는 CloudWatch에만 있다. 과거 로그를 Loki로 옮기지 않는다.
+- Loki 도입 전 로그·Kubernetes Events·EKS control-plane은 CloudWatch 경로를 유지한다. 과거 MSK broker 로그를 Loki로 옮기지 않는다.
+  현재 Strimzi broker의 container 로그는 앱 로그 배송 경로로 CloudWatch·Loki 양쪽에서 확인한다.
 - trace는 sampling(기본 10%)과 보존(48h) 때문에 없을 수 있다. trace 부재만으로 처리 실패를 판단하지 않는다.
 - Loki 수신 상한은 `ingestion_rate_mb: 2`·`ingestion_burst_size_mb: 4`·limit 1Gi다. 이전 8MB/s 상한에서는 초당 약 5MB 지속 수신에 1분 안에 OOM이 났다.
   [용량 증거](../../helm/observability/tests/loki-tempo/capacity-verification.json)(로컬 Docker, Loki CPU 1·memory 1Gi, 대표 로그 label 조합 8개 stream):
@@ -199,15 +260,15 @@ PVC는 Retain이라 uninstall·rollback으로 지워지지 않는다.
 | Collector | 4318 | telemetry-gateway·telemetry-ingest(`pulsemetry-dev`) |
 | Collector | 8888 | Prometheus |
 
-dev NodeClass 셋은 이미 `networkPolicy: DefaultAllow`다(2026-10-25 조회).
-NodeClass는 바꾸지 않는다 — 바꾸면 노드가 교체된다.
+2026-10-25 조회 당시 dev NodeClass 셋은 `networkPolicy: DefaultAllow`였다.
+Strimzi 전환 후에는 Kafka 풀을 포함해 현행 NodeClass를 다시 조회한다. 정책 검증을 위해 NodeClass를 바꾸지 않는다(노드 교체).
 
 **N0 기준선**
 
 ```bash
 kubectl get networkpolicy -A
 kubectl get crd policyendpoints.networking.k8s.aws --ignore-not-found -o name
-kubectl -n kube-system get configmap amazon-vpc-cni --ignore-not-found -o name  # 없어야 한다
+kubectl -n kube-system get configmap amazon-vpc-cni --ignore-not-found -o name
 kubectl get nodeclasses.eks.amazonaws.com -o custom-columns=NAME:.metadata.name,NETPOL:.spec.networkPolicy,LOG:.spec.networkPolicyEventLogs
 kubectl get nodeclaims -o custom-columns=NAME:.metadata.name,CREATED:.metadata.creationTimestamp,DRIFTED:'.status.conditions[?(@.type=="Drifted")].status'
 ```
@@ -219,7 +280,8 @@ CRD 이름이 출력된 경우에만 다음 명령으로 현재 PolicyEndpoint�
 kubectl get policyendpoints.networking.k8s.aws -A
 ```
 
-`amazon-vpc-cni` ConfigMap 조회도 종료 코드 0·빈 출력이어야 미설치 기준선이다. 이름이 나오면 기존 설정과 소유자를 확인하기 전에는 N1로 진행하지 않는다.
+`amazon-vpc-cni` ConfigMap의 종료 코드 0·빈 출력은 최초 설치 전 기준선이다. 이름이 나오면 기존 설정과 소유자를 확인한다.
+기존 controller가 활성화돼 있으면 N1을 재실행하지 않고 현행 정책·PolicyEndpoint를 검증한다.
 각 조회의 `Forbidden`·연결 실패·timeout 등 **0이 아닌 종료 코드는 미설치로 취급하지 않고 중단한다.**
 
 **N1 controller 활성화.** platform release(`pulsemetry-dev-platform`, `kube-system`)의 현재 manifest와 새 렌더를 비교해
@@ -293,6 +355,10 @@ Grafana의 Loki·Tempo datasource health가 OK다. 이것은 포트 시험이 �
 `HELM_BIN=... node scripts/observability-loki-tempo-smoke.mjs --output <새 파일>`
 (chart memory limit 아래 고정 이미지 왕복·예외 내용 삭제·Loki SIGKILL 뒤 WAL 복구·Collector queue·Tempo 재시작, [증거](../../helm/observability/tests/loki-tempo/local-verification.json)).
 smoke는 Fluent Bit 병행 배송·Grafana UI 클릭·실제 앱 요청·NetworkPolicy 강제를 확인하지 않는다. 증거 파일의 `coverage`가 범위다.
+
+보존 만료는 [격리 보존 검증](observability-retention-validation.md)을 함께 수행한다. dev의 Loki 72h·Tempo 48h
+설정·override·삭제 작업 상태와 기존 만료 데이터 조회 결과를 별도로 기록한다. Tempo 3.1은 scheduler뿐 아니라
+실제 삭제 worker의 `block_retention`도 48h여야 한다. 결과의 범위는 **dev 설정·상태 확인 및 동일 버전 격리 환경의 자동 삭제 검증**으로 명시한다.
 수신 상한·장시간 메모리·burst·WAL 복구 부하는 `HELM_BIN=... node scripts/observability-loki-capacity.mjs --output <새 파일>`(약 50분),
 Fluent Bit 병행 배송은 `HELM_BIN=... node scripts/observability-fluent-bit-loki-harness.mjs --output <새 파일>`(CloudWatch는 로컬 대역)이 맡는다.
 
@@ -356,7 +422,7 @@ python3 scripts/observability-log-envelope-smoke.py
 실부하 전에는 수집기 재시작/일시 전송 실패 후
 배송 재개, 긴 stacktrace, ClickHouse 오류, Pod 재시작 이벤트를 검증한다. 원인 확인 없이 OOM이나 노드 손실을
 강제로 유발하지 않는다. 테스트가 끝나도 lag가 0인지 뿐 아니라 마지막 committed offset·처리 결과를 확인한다.
-MSK lag는 group 상태와 committed offset 조건이 있어 미존재를 0으로 채우지 않는다.
+Strimzi lag는 exporter의 main topic/group·partition과 committed offset 조건을 함께 확인하며 미존재를 0으로 채우지 않는다.
 
 ## Auto Mode 노드 진단
 
@@ -405,21 +471,22 @@ Grafana/Prometheus 장애는 앱 실행 경로를 차단하지 않아야 한다.
 image digest와 Helm revision으로 복구하고 CH data PVC, 관측 PVC, Secret과 로그 그룹을 삭제하지 않는다.
 Grafana 비밀번호는 persistent DB 초기화와 회전이 다른 절차이므로 차트 안내를 따른다.
 
-**첫 적용 실측.** 다음 두 값은 로컬에서 정할 수 없어 첫 적용에서 측정하고 실행 기록과 후속 PR로 확정한다.
+**배포 기준선 실측.** 다음 두 값은 실제 endpoint에서 측정한다. 과거 측정값을 현재 버전·부하의 결과로 재사용하지 않는다.
 
 ```text
 # 1) 노드 data volume 경보 대상. 노드마다 쓰기 가능 device가 하나 이상 보여야 한다(Bottlerocket은 /local 등).
 count by (instance, device, mountpoint, fstype) (
   node_filesystem_size_bytes{job="node-exporter"}
     unless on (instance, device, mountpoint) (node_filesystem_readonly{job="node-exporter"} == 1))
-# 2) MSK exporter scrape 비용. 1시간 이상 부하 구간을 포함한다.
-max by (job) (max_over_time(scrape_duration_seconds{job=~"msk-(jmx|node)"}[1h]))
-max by (job) (max_over_time(scrape_samples_scraped{job=~"msk-(jmx|node)"}[1h]))
+# 2) Strimzi exporter/Operator scrape 비용. 성능시험은 1시간 이상 부하 구간을 포함한다.
+max by (job) (max_over_time(scrape_duration_seconds{job=~"strimzi-.*"}[1h]))
+max by (job) (max_over_time(scrape_samples_scraped{job=~"strimzi-.*"}[1h]))
 ```
 
 1)이 비어 있으면 `NodeDataDiskSpaceLow`가 울릴 수 없다. node-exporter의 mount/fs-type 제외 설정을 먼저 고친다.
-2)의 duration이 timeout(JMX 10초, node 5초)의 절반을 넘으면 주기를 늘린다. `sample_limit`·`body_size_limit`은 실측 최대값에
-여유를 둔 값으로 정한다. 응답 크기는 관측 노드에서 broker `:11001/metrics`를 한 번 조회해 bytes를 기록한다.
+2)의 duration이 Strimzi scrape timeout 5초의 절반을 넘으면 응답 크기·원인을 확인한 뒤 주기 조정을 검토한다.
+`sample_limit`·`body_size_limit`을 도입할 때는 실측 최대값에 여유를 둔다. 응답 크기는 관측 경로에서
+broker/exporter `:9404/metrics`와 Operator endpoint를 조회해 bytes를 기록한다.
 
 부하 전 기준선에는 chart/image 버전, 시간대, target 100% UP, broker 3대, Pod/노드 자원, PVC 여유,
 현재 lag/처리량과 Logs Insights 조회를 남긴다. 부하 후에는 수집 공백·drop, 처리량·지연·오류·backlog,
@@ -427,7 +494,7 @@ max by (job) (max_over_time(scrape_samples_scraped{job=~"msk-(jmx|node)"}[1h]))
 
 ## 근거
 
-- [MSK Open Monitoring](https://docs.aws.amazon.com/msk/latest/developerguide/prometheus-metrics.html), [lag 조건](https://docs.aws.amazon.com/msk/latest/developerguide/consumer-lag.html)
-- [MSK broker logging](https://docs.aws.amazon.com/msk/latest/developerguide/msk-logging.html)
+- 현행 [Strimzi 관측 계약과 고정 버전 근거](../../helm/observability/README.md#dev-strimzi-관측-adr-0049--proj-283), [실제 전환 검증 PROJ-285](https://team376.atlassian.net/browse/PROJ-285)
+- 과거 MSK 진단: [Open Monitoring](https://docs.aws.amazon.com/msk/latest/developerguide/prometheus-metrics.html), [lag 조건](https://docs.aws.amazon.com/msk/latest/developerguide/consumer-lag.html), [broker logging](https://docs.aws.amazon.com/msk/latest/developerguide/msk-logging.html)
 - [Fluent Bit tail](https://docs.fluentbit.io/manual/data-pipeline/inputs/tail), [buffer/storage 제한](https://docs.fluentbit.io/manual/administration/buffering-and-storage)
 - [EKS NodeDiagnostic](https://docs.aws.amazon.com/eks/latest/userguide/auto-get-logs.html)
