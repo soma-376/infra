@@ -1,0 +1,88 @@
+# 격리 perf 환경 입력과 실제 상태 확인
+
+PROJ-292는 별도 VPC/EKS/RDS와 Kafka provider를 표현하는 로컬 구현이다. 배포·부하·정리는 **NOT_RUN**이다. 사용자 승인 범위는 1회 총 100,000원, 생성 후 24시간 안에 seed·조회·시험·삭제 완료, 두 경로 합계 10,000요청 이하, 최대 20RPS, 실행당 600초, 시험 추가 저장량 1GiB다. 최대 처리용량 측정은 포함하지 않는다. 이 제한을 실제 실행/정리 gate에 반영하는 PROJ-294 전에는 배포하지 않는다.
+
+공개 경로는 `perf-api.pulsemetry.co.kr`이며 PROJ-293에서 ALB/ACM/WAF를 연결한다. 공유 인증서는 runtime ARN 참조로만 받고 사용자 CNAME 등록을 확인한다. 이 변경의 내부 Service URL을 공개 경로 검증 결과로 취급하지 않는다. seed 초기 기준은 합성 400명/50팀/약 400설치/180일이며 운영 동등성은 별도 판단이다.
+
+## 계약과 소유권
+
+- 원본: telemetry-load-tests `schemas/v2`, `schemas/v3`, `tools/contract.py`.
+- 사본: `test/fixtures/perf-contract-v{2,3}`. SOURCE commit·파일별 SHA-256 검사를 통과해야 한다. 수동 schema 편집 금지.
+- v2 환경 교환 파일은 기존 MSK IAM 9098 의미를 보존한다. v3 request의 `kafka.provider`로 MSK/Strimzi를 구분한다. request/provisional/resolved/lock의 혼합 버전은 거부한다. run manifest/journal/plan/verdict 버전은 이 묶음과 독립적이다.
+- CDK는 perf 전용 AWS 자원, Helm은 노드 배치와 Kafka/앱 CR을 관리한다. `lib/perf`는 `common`만 참조한다.
+- 현재 `Retain`/keep, raw 7일/evidence 90일은 과거 foundation 동작이다. 24시간 수명 보장이 아니며 PROJ-294에서 전용 자원과 bucket versions/multipart, Secret, 로그, CR/PVC/PV/EBS의 제거를 구현해야 한다. 증거는 삭제 전에 로컬에 수집한다.
+
+## 로컬 합성과 입력 준비
+
+```sh
+npm run build
+npx cdk synth --all --no-lookups -c env=perf \
+  -c perfEnvironmentId=perf-example \
+  -c perfProfile=profiles/perf/strimzi-fixed-v1.json -o /tmp/perf-strimzi-synth
+```
+
+`strimzi-fixed-v1`은 현재 dev와 같은 Kafka 4.2.2 이미지, 3개 dual-role broker/controller, mTLS9093, topic 6 partitions/RF3/minISR2를 사용한다. Kafka 전용 m7g.large 3대, 발생기 전용 c7g.large 1대와 앱/CH/관측/system pool을 고정한다. 자원량은 운영 대표성이 입증되지 않은 가설이다. 호환 MSK 합성은 `profiles/perf/fixed-v1.json`으로 선택한다.
+
+ready request에는 해당 profile 파일의 SHA-256, 고정 이미지 digest, 환경 소유 Secret 참조, 배포 `PerfInfraParameters`와 같은 입력을 기록한다. 실제 account ARN, JWT, DB password, private key를 저장소나 결과 문서에 넣지 않는다.
+
+values 생성에 필요한 파일은 ready request, CDK outputs 또는 `describe-stacks`, runtime metadata YAML이다. runtime에는 telemetry JWT VersionId·kid·공개키 파일 맵과 enrollment replica/GC 로그 선택만 둔다. Secret 값은 받지 않는다.
+
+Strimzi는 별도 Secret metadata JSON을 추가한다. 형식은 다음 5개 Secret 각각의 **name/namespace/uid/resourceVersion만** 담은 `{items:[{metadata:{…}}]}`이다.
+
+- `soma-376-perf-telemetry-cluster-ca-cert`
+- `pulsemetry-gateway-perf`, `pulsemetry-ingest-perf`
+- `pulsemetry-topic-admin-perf`, `pulsemetry-offset-admin-perf`
+
+Kubernetes 권한과 대상 환경 확인을 마친 운영자가 metadata만 투영해서 수집한다. `kubectl get secret -o json` 원문을 파일로 저장하거나 전달하지 않는다. metadata가 변경되면 values를 다시 만들어 TLS revision을 갱신한다.
+
+```sh
+npx tsx scripts/perf-values.ts --request request.json --outputs stacks.json \
+  --runtime-values runtime.yaml --strimzi-secrets strimzi-secret-metadata.json \
+  --output-dir /tmp/perf-generated
+```
+
+MSK 호환 경로에서는 `--strimzi-secrets` 대신 `--msk-bootstrap`과 `--msk-nodes`를 사용한다. provider가 다른 입력은 함께 넣을 수 없다. 입력 reference나 profile/hash가 배포 outputs와 다르면 생성하지 않는다.
+
+## 설치 순서와 Strimzi 권한
+
+PROJ-293/294/295/296/297/298 검증 gate 후 설치 순서는 platform → CSI/ASCP → Strimzi operator → Kafka CR → Secret metadata 재수집 → runtime/관측 → CH → enrollment → ingest → gateway다. 공식 operator archive/digest는 `helm/dev/platform/strimzi/SOURCE.json`을 재사용하고 `helm/perf/addons/strimzi-values.yaml`과 `scripts/strimzi-operator-post-render.mjs perf`를 적용한다. operator는 perf namespace만 감시한다. Kafka chart는 `helm/dev/kafka`에 생성된 `kafka-strimzi.yaml`을 적용한다.
+
+KafkaNodePool은 `perf-kafka` 3개 노드에 pod anti-affinity로 분산한다. 100GiB encrypted gp3 PVC 3개와 `deleteClaim:false`를 사용한다. KafkaUser ACL은 gateway topic Write/Describe+cluster IdempotentWrite, ingest/offset-admin topic Read/Describe+group Read/Describe, topic-admin Describe/DescribeConfigs다. 앱/관리 도구에는 CA `ca.p12`/`ca.password`와 해당 user `user.p12`/`user.password`만 mount한다. runner에는 Kafka 인증 자료를 공급하지 않는다.
+
+## provisional와 resolved
+
+```sh
+npx tsx scripts/perf-provisional.ts --request request.json --stacks stacks.json \
+  --deployment-id perf-example-d1 --out provisional.json
+npx tsx scripts/perf-resolve.ts --request request.json --provisional provisional.json \
+  --stacks stacks.json --kubernetes kubernetes-state.json \
+  --strimzi-secrets strimzi-secret-metadata.json --readiness readiness.json \
+  --out resolved.json
+```
+
+`kubernetes-state.json`은 NodePool/Node, 앱 Deployment/StatefulSet, StorageClass/PVC/PV, Kafka/KafkaNodePool/KafkaTopic/KafkaUser의 List를 포함한다. 여러 List 파일은 `--kubernetes`를 반복한다. Secret 원문 항목은 거부한다. resolver는 Ready/observedGeneration, bootstrap identity, mTLS listener, topic 설정, 역할별 ACL, broker nodeIds와 Bound PVC/PV, 요청 자원량·이미지를 대조한다. 부족한 실제 상태를 profile로 채우지 않으며 실패 시 `failed`를 만든다.
+
+readiness 입력은 `checked_at`, `stages`, `smoke_artifact_ids`, `artifacts`, `clickhouse_version`이다. v3 stages는 `kafka_transport`, `secret_supply`, `auth`, `observability`, `storage`; v2는 첫 이름이 `iam_tls`다. 각 stage의 pass는 실제 smoke 증거가 있어야 하며 `clickhouse_version`은 실제 조회값이다. resolver는 증거를 실행하지 않으며 문서의 pass 선언 자체가 실제 성공 증명은 아니다. 파일을 덮어쓰지 않고 바이트 SHA로 request/provisional 연결을 검사한다.
+
+resolved에는 Kubernetes workload UID·배치·자원과 RDS endpoint, Kafka 공급자, ACL/Secret refs/revision, Kafka CR/PVC/PV/EBS 정리 inventory가 남는다. 이 정보는 backend seed target 증거와 runner preflight에서 다시 실제 대상과 대조한다.
+
+## 로컬 검증
+
+```sh
+HELM_BIN=/path/to/helm-3.22.0 KUBECONFORM_BIN=/path/to/kubeconform \
+  PROMTOOL_BIN=/path/to/promtool-3.9.1 npm test -- --runInBand
+```
+
+Helm binary가 없으면 일부 suite는 skip되므로 결과를 전체 통과로 기록하지 않는다. v2/v3 공유 fixture, MSK/Strimzi 합성, provider 혼합 거부, mTLS/ACL/PVC 음성 사례, dev 기본 렌더 회귀를 확인한다. kubeconform의 원격 schema 취득 실패는 테스트 성공으로 바꾸지 않는다.
+
+Strimzi verify Job은 MSK 환경변수를 주입하지 않는다. 현재 generic Prometheus scalar probe 입력은 명시적으로 요구하며 freshness/partition coverage/미커밋 partition의 빈 로그 증명은 PROJ-297 범위다. 해당 작업 전에는 scalar 0을 drain 완료로 해석하지 않는다.
+
+관련 결정: [ADR 0050](../adr/0050-perf-strimzi-provider-and-isolated-capacity.md).
+
+## PROJ-292 검증 기록
+
+- build와 `git diff --check` 통과. v2/v3 SOURCE의 SHA-256 검사 통과; v3 원본 commit은 `65cba77274a1b3a6ffdc8e1c94ac2a32d92f3562`다.
+- 전체 54 suite에서 1,485건 통과, 기존 Loki archive 누락 1건 실패를 확인했다. 저장소 lock의 공식 Loki/Tempo/Collector archive SHA-256을 검증해 준비한 뒤 해당 suite 1건이 통과했다. 이후 최종 provider Job 연결 변경을 포함한 대상 10 suite/196건이 통과했다.
+- dev 기존 34개 Helm 렌더의 SHA-256이 변경 전과 같다. workload/runtime validator는 191 workload resource, 11 platform resource와 248 실패 입력을 통과했다. Strimzi perf operator의 watch namespace와 perf-system 배치를 별도 렌더로 확인했다.
+- prod/dev/cicd/MSK perf/Strimzi perf의 CLI synth를 고정 fixture account/region/AZ와 `--no-lookups`로 통과했다. sandbox의 tsx CLI IPC 제한 때문에 같은 entrypoint를 `node --import tsx`로 실행했다. 실제 AWS 조회/배포 검증이 아니다.
+- Strimzi perf 합성에는 MSK resource가 없고 VPC subnet은 ap-northeast-2a/b/c다. 실제 Kafka/노드는 아직 만들지 않았다.

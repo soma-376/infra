@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "environment-provisional.schema.json",
+  "title": "배포 준비 결과 v3 — infra가 배포 직후 내는 deployment.provisional.json",
+  "description": "deployed_not_ready는 준비 도구가 seed·JWT·smoke를 시작할 수 있다는 뜻이다. 성능 실행 준비 완료가 아니다",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "kind",
+    "status",
+    "request_sha256",
+    "deployment_id",
+    "environment_id",
+    "created_at",
+    "infra",
+    "cleanup_inventory",
+    "errors"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 3
+    },
+    "kind": {
+      "const": "environment-provisional"
+    },
+    "status": {
+      "enum": [
+        "deployed_not_ready",
+        "failed",
+        "partial"
+      ]
+    },
+    "request_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "deployment_id": {
+      "$ref": "common.schema.json#/$defs/slug"
+    },
+    "environment_id": {
+      "$ref": "common.schema.json#/$defs/slug"
+    },
+    "created_at": {
+      "$ref": "common.schema.json#/$defs/utc"
+    },
+    "infra": {
+      "$ref": "common.schema.json#/$defs/infra_source"
+    },
+    "aws": {
+      "type": "object",
+      "required": [
+        "region",
+        "account_ref",
+        "stacks"
+      ],
+      "properties": {
+        "region": {
+          "$ref": "common.schema.json#/$defs/region"
+        },
+        "account_ref": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+        },
+        "stacks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "common.schema.json#/$defs/stack"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "kubernetes": {
+      "type": "object",
+      "required": [
+        "cluster_arn",
+        "cluster_name",
+        "namespaces"
+      ],
+      "properties": {
+        "cluster_arn": {
+          "$ref": "common.schema.json#/$defs/aws_arn"
+        },
+        "cluster_name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$"
+        },
+        "namespaces": {
+          "$ref": "common.schema.json#/$defs/namespaces"
+        }
+      },
+      "additionalProperties": false
+    },
+    "endpoints": {
+      "$ref": "common.schema.json#/$defs/endpoints"
+    },
+    "lock": {
+      "$ref": "common.schema.json#/$defs/lock_location"
+    },
+    "cleanup_inventory": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/inventory_item"
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/error"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "if": {
+    "properties": {
+      "status": {
+        "const": "deployed_not_ready"
+      }
+    }
+  },
+  "then": {
+    "required": [
+      "aws",
+      "kubernetes",
+      "endpoints",
+      "lock"
+    ],
+    "properties": {
+      "cleanup_inventory": {
+        "minItems": 1
+      },
+      "errors": {
+        "maxItems": 0
+      }
+    }
+  },
+  "else": {
+    "properties": {
+      "errors": {
+        "minItems": 1
+      }
+    }
+  }
+}

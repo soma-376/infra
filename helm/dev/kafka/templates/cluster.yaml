@@ -1,4 +1,6 @@
-{{- if ne .Release.Namespace "pulsemetry-dev" }}{{ fail "Kafka namespace는 pulsemetry-dev다" }}{{ end }}
+{{- $perf := eq (.Values.environment | default "dev") "perf" -}}
+{{- $namespace := ternary "pulsemetry-perf" "pulsemetry-dev" $perf -}}
+{{- if ne .Release.Namespace $namespace }}{{ fail "Kafka namespace와 environment가 다르다" }}{{ end }}
 apiVersion: kafka.strimzi.io/v1
 kind: KafkaNodePool
 metadata:
@@ -16,8 +18,8 @@ spec:
     volumes:
       - id: 0
         type: persistent-claim
-        size: 100Gi
-        class: pulsemetry-kafka-gp3
+        size: {{ if $perf }}{{ .Values.volumeGiB }}Gi{{ else }}100Gi{{ end }}
+        class: {{ if $perf }}pulsemetry-perf-kafka-gp3{{ else }}pulsemetry-kafka-gp3{{ end }}
         deleteClaim: false
         kraftMetadata: shared
   resources:
@@ -40,7 +42,7 @@ spec:
               - matchExpressions:
                   - key: karpenter.sh/nodepool
                     operator: In
-                    values: [pulsemetry-dev-kafka]
+                    values: [{{ if $perf }}perf-kafka{{ else }}pulsemetry-dev-kafka{{ end }}]
                   - key: topology.kubernetes.io/zone
                     operator: In
                     values: [{{ .Values.availabilityZone | quote }}]
@@ -118,11 +120,11 @@ spec:
                 - matchExpressions:
                     - key: karpenter.sh/nodepool
                       operator: In
-                      values: [pulsemetry-dev-apps]
+                      values: [{{ if $perf }}perf-system{{ else }}pulsemetry-dev-apps{{ end }}]
   kafkaExporter:
     image: quay.io/strimzi/kafka@sha256:b9b9e37491ce17c1b2722b3668661de91430d9437acf18c5f5bafaef38138652
-    topicRegex: "pulsemetry-dev-telemetry-ingress-(validation|main)"
-    groupRegex: "pulsemetry-dev-telemetry-ingest-(validation|main)"
+    topicRegex: {{ if $perf }}"pulsemetry-perf-telemetry-ingress"{{ else }}"pulsemetry-dev-telemetry-ingress-(validation|main)"{{ end }}
+    groupRegex: {{ if $perf }}"pulsemetry-perf-telemetry-ingest"{{ else }}"pulsemetry-dev-telemetry-ingest-(validation|main)"{{ end }}
     resources:
       requests: {cpu: 100m, memory: 128Mi}
       limits: {memory: 256Mi}
@@ -135,4 +137,4 @@ spec:
                 - matchExpressions:
                     - key: karpenter.sh/nodepool
                       operator: In
-                      values: [pulsemetry-dev-apps]
+                      values: [{{ if $perf }}perf-system{{ else }}pulsemetry-dev-apps{{ end }}]

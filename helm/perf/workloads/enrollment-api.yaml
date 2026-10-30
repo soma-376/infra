@@ -1,0 +1,6 @@
+# perf enrollment은 준비 도구(prepare)의 토큰 발급 전용이다. ClusterIP만 두고 사용자 JWT·OIDC·메일·dashboard가 없다. (ADR-0050)
+# 이미지·replica(0|1)·resources·placement·DB URL은 generated/enrollment-api.yaml이 채운다.
+environment: perf
+workload: enrollment-api
+service:
+  type: ClusterIP

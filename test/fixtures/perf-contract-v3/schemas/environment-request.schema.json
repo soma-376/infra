@@ -1,0 +1,434 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "environment-request.schema.json",
+  "title": "환경 요청 v3 — 실험 작성자가 고정하는 perf 환경 입력",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "kind",
+    "status",
+    "case_id"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 3
+    },
+    "kind": {
+      "const": "environment-request"
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "ready"
+      ]
+    },
+    "case_id": {
+      "$ref": "common.schema.json#/$defs/slug"
+    },
+    "stage": true,
+    "environment": true,
+    "infra": true,
+    "sources": true,
+    "images": true,
+    "capacity": true,
+    "data": true,
+    "limits": true,
+    "usage": true,
+    "observability": true,
+    "secret_references": true,
+    "kafka": true
+  },
+  "additionalProperties": false,
+  "if": {
+    "properties": {
+      "status": {
+        "const": "ready"
+      }
+    }
+  },
+  "then": {
+    "$ref": "#/$defs/ready"
+  },
+  "$defs": {
+    "ready": {
+      "required": [
+        "stage",
+        "environment",
+        "infra",
+        "sources",
+        "images",
+        "capacity",
+        "data",
+        "limits",
+        "usage",
+        "observability",
+        "secret_references",
+        "kafka"
+      ],
+      "properties": {
+        "stage": {
+          "enum": [
+            "m1",
+            "m2",
+            "m3"
+          ]
+        },
+        "environment": {
+          "type": "object",
+          "required": [
+            "environment_id",
+            "purpose",
+            "region",
+            "account_ref"
+          ],
+          "properties": {
+            "environment_id": {
+              "$ref": "common.schema.json#/$defs/slug"
+            },
+            "purpose": {
+              "const": "perf"
+            },
+            "region": {
+              "$ref": "common.schema.json#/$defs/region"
+            },
+            "account_ref": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
+          },
+          "additionalProperties": false
+        },
+        "infra": {
+          "$ref": "common.schema.json#/$defs/infra_source"
+        },
+        "sources": {
+          "type": "object",
+          "required": [
+            "backend_commit",
+            "synthetic_tools_commit"
+          ],
+          "properties": {
+            "backend_commit": {
+              "$ref": "common.schema.json#/$defs/git_commit"
+            },
+            "synthetic_tools_commit": {
+              "$ref": "common.schema.json#/$defs/git_commit"
+            }
+          },
+          "additionalProperties": false
+        },
+        "images": {
+          "type": "object",
+          "required": [
+            "enrollment-api",
+            "telemetry-gateway",
+            "telemetry-ingest",
+            "clickhouse",
+            "k6-runner"
+          ],
+          "propertyNames": {
+            "$ref": "common.schema.json#/$defs/slug"
+          },
+          "additionalProperties": {
+            "$ref": "common.schema.json#/$defs/image_ref"
+          }
+        },
+        "capacity": {
+          "type": "object",
+          "required": [
+            "mode",
+            "node_pools",
+            "workloads"
+          ],
+          "properties": {
+            "mode": {
+              "const": "fixed"
+            },
+            "node_pools": {
+              "type": "object",
+              "minProperties": 1,
+              "propertyNames": {
+                "$ref": "common.schema.json#/$defs/slug"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/node_pool"
+              }
+            },
+            "workloads": {
+              "type": "object",
+              "required": [
+                "enrollment-api",
+                "telemetry-gateway",
+                "telemetry-ingest",
+                "clickhouse"
+              ],
+              "propertyNames": {
+                "$ref": "common.schema.json#/$defs/slug"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/workload"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "dataset_id",
+            "identities_sha256",
+            "corpus_sha256"
+          ],
+          "properties": {
+            "dataset_id": {
+              "$ref": "common.schema.json#/$defs/slug"
+            },
+            "identities_sha256": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            "corpus_sha256": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            "golden_sha256": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            }
+          },
+          "additionalProperties": false
+        },
+        "limits": {
+          "type": "object",
+          "required": [
+            "max_rps",
+            "max_duration_seconds",
+            "max_requests",
+            "max_storage_bytes",
+            "min_free_disk_bytes",
+            "drain_deadline_seconds",
+            "verify_deadline_seconds",
+            "job_active_deadline_seconds"
+          ],
+          "properties": {
+            "max_rps": {
+              "$ref": "common.schema.json#/$defs/positive_number"
+            },
+            "max_duration_seconds": {
+              "$ref": "common.schema.json#/$defs/positive_int"
+            },
+            "max_requests": {
+              "$ref": "common.schema.json#/$defs/positive_int"
+            },
+            "max_storage_bytes": {
+              "$ref": "common.schema.json#/$defs/positive_int"
+            },
+            "min_free_disk_bytes": {
+              "$ref": "common.schema.json#/$defs/count"
+            },
+            "drain_deadline_seconds": {
+              "$ref": "common.schema.json#/$defs/positive_int"
+            },
+            "verify_deadline_seconds": {
+              "$ref": "common.schema.json#/$defs/positive_int"
+            },
+            "job_active_deadline_seconds": {
+              "$ref": "common.schema.json#/$defs/positive_int"
+            }
+          },
+          "additionalProperties": false
+        },
+        "usage": {
+          "type": "object",
+          "required": [
+            "exclusive",
+            "expires_at",
+            "cleanup_owner",
+            "destroy_by",
+            "recovery_time_budget_seconds"
+          ],
+          "properties": {
+            "exclusive": {
+              "const": true
+            },
+            "expires_at": {
+              "$ref": "common.schema.json#/$defs/utc"
+            },
+            "cleanup_owner": {
+              "$ref": "common.schema.json#/$defs/non_empty"
+            },
+            "destroy_by": {
+              "$ref": "common.schema.json#/$defs/utc"
+            },
+            "recovery_time_budget_seconds": {
+              "$ref": "common.schema.json#/$defs/positive_int"
+            }
+          },
+          "additionalProperties": false
+        },
+        "observability": {
+          "type": "object",
+          "required": [
+            "required_signals",
+            "scrape_interval_seconds",
+            "remote_write_interval_seconds",
+            "prometheus_retention_days",
+            "cloudwatch_log_retention_days"
+          ],
+          "properties": {
+            "required_signals": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9._:-]*$"
+              }
+            },
+            "scrape_interval_seconds": {
+              "$ref": "common.schema.json#/$defs/positive_number"
+            },
+            "remote_write_interval_seconds": {
+              "$ref": "common.schema.json#/$defs/positive_number"
+            },
+            "prometheus_retention_days": {
+              "$ref": "common.schema.json#/$defs/positive_int"
+            },
+            "cloudwatch_log_retention_days": {
+              "$ref": "common.schema.json#/$defs/positive_int"
+            }
+          },
+          "additionalProperties": false
+        },
+        "secret_references": {
+          "type": "object",
+          "required": [
+            "telemetry-jwt-private-key",
+            "telemetry-jwt-public-keys",
+            "token-hash-secret",
+            "enrollment-admin-token",
+            "rds-credentials",
+            "grafana-admin",
+            "synthetic-seed-secret"
+          ],
+          "propertyNames": {
+            "$ref": "common.schema.json#/$defs/slug"
+          },
+          "additionalProperties": {
+            "$ref": "common.schema.json#/$defs/secret_ref"
+          }
+        },
+        "kafka": {
+          "type": "object",
+          "required": [
+            "provider"
+          ],
+          "properties": {
+            "provider": {
+              "enum": [
+                "msk",
+                "strimzi"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "if": {
+        "properties": {
+          "stage": {
+            "enum": [
+              "m2",
+              "m3"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "required": [
+              "golden_sha256"
+            ]
+          }
+        }
+      }
+    },
+    "node_pool": {
+      "type": "object",
+      "required": [
+        "role",
+        "instance_type",
+        "nodes",
+        "availability_zone",
+        "capacity_type",
+        "architecture"
+      ],
+      "properties": {
+        "role": {
+          "enum": [
+            "gateway",
+            "pipeline",
+            "clickhouse",
+            "generator",
+            "observability",
+            "system",
+            "kafka"
+          ]
+        },
+        "instance_type": {
+          "$ref": "common.schema.json#/$defs/instance_type"
+        },
+        "nodes": {
+          "$ref": "common.schema.json#/$defs/positive_int"
+        },
+        "availability_zone": {
+          "$ref": "common.schema.json#/$defs/availability_zone"
+        },
+        "capacity_type": {
+          "const": "on-demand"
+        },
+        "architecture": {
+          "const": "arm64"
+        }
+      },
+      "additionalProperties": false
+    },
+    "workload": {
+      "type": "object",
+      "required": [
+        "node_pool",
+        "replicas",
+        "cpu_request_millicores",
+        "memory_request_bytes",
+        "cpu_limit_millicores",
+        "memory_limit_bytes"
+      ],
+      "properties": {
+        "node_pool": {
+          "$ref": "common.schema.json#/$defs/slug"
+        },
+        "replicas": {
+          "$ref": "common.schema.json#/$defs/count"
+        },
+        "cpu_request_millicores": {
+          "$ref": "common.schema.json#/$defs/positive_int"
+        },
+        "memory_request_bytes": {
+          "$ref": "common.schema.json#/$defs/positive_int"
+        },
+        "cpu_limit_millicores": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/positive_int"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "memory_limit_bytes": {
+          "$ref": "common.schema.json#/$defs/positive_int"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
