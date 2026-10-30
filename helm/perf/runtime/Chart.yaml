@@ -1,0 +1,7 @@
+apiVersion: v2
+name: pulsemetry-perf-runtime
+description: perf 앱·준비 Job의 Secrets Manager 참조를 CSI 파일로 연결한다
+type: application
+version: 0.1.0
+appVersion: "1"
+kubeVersion: ">=1.36.0-0 <1.37.0-0"

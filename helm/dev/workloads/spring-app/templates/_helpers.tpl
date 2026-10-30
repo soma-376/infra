@@ -22,9 +22,23 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $_ := required "공식 files/blocked.certs가 없거나 비어 있다" (trim $content) -}}
 {{- $content -}}
 {{- end -}}
+{{- define "pulsemetry.app.perf" -}}{{ if eq (.Values.environment | default "dev") "perf" }}true{{ end }}{{- end -}}
 {{- define "pulsemetry.app.validate" -}}
-{{- if ne .Release.Namespace "pulsemetry-dev" -}}
-{{- fail "namespace는 pulsemetry-dev여야 한다" -}}
+{{- $perf := eq (include "pulsemetry.app.perf" .) "true" -}}
+{{- $namespace := ternary "pulsemetry-perf" "pulsemetry-dev" $perf -}}
+{{- if ne .Release.Namespace $namespace -}}
+{{- fail (printf "namespace는 %s여야 한다" $namespace) -}}
+{{- end -}}
+{{- if $perf -}}
+{{- /* perf에는 ALB·TGB·dashboard·사용자 JWT·OIDC를 설치하지 않는다(PLAN §4.2). 배치는 프로필의 NodePool이 정한다. */ -}}
+{{- if eq .Values.workload "dashboard-api" -}}{{- fail "perf에는 dashboard-api를 설치하지 않는다" -}}{{- end -}}
+{{- if or .Values.targetGroupBindings .Values.nodePort -}}{{- fail "perf에는 TGB·NodePort가 없다" -}}{{- end -}}
+{{- if or .Values.jwt.enabled .Values.userAuth (hasKey .Values "oidc") -}}{{- fail "perf에는 사용자 JWT·OIDC 설정을 공급하지 않는다" -}}{{- end -}}
+{{- if ne .Values.service.type "ClusterIP" -}}{{- fail "perf Service는 ClusterIP다" -}}{{- end -}}
+{{- $_ := required "perf에는 placement.nodePool이 필요하다" (.Values.placement | default dict).nodePool -}}
+{{- if and (ne .Values.workload "enrollment-api") (ne (int .Values.replicaCount) 1) -}}{{- fail "perf에서 replica 0은 enrollment-api만 쓴다" -}}{{- end -}}
+{{- else if .Values.placement -}}
+{{- fail "placement는 perf 전용이다" -}}
 {{- end -}}
 {{- $oidc := .Values.oidc | default (dict "enabled" false) -}}
 {{- $telemetry := .Values.telemetryJwt | default (dict "enabled" false) -}}
@@ -87,7 +101,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if not $telemetry.enabled -}}{{- fail "Gateway에는 telemetry JWT 공개키가 필요하다" -}}{{- end -}}
 {{- if not $kafka.enabled -}}{{- fail "Gateway에는 Kafka 발행 설정이 필요하다" -}}{{- end -}}
 {{- if hasKey $kafka "consumerGroup" -}}{{- fail "Gateway에는 consumer group을 공급하지 않는다" -}}{{- end -}}
-{{- if ne (.Values.service.type | default "NodePort") "NodePort" -}}{{- fail "Gateway Service는 NodePort여야 한다" -}}{{- end -}}
+{{- if and (not $perf) (ne (.Values.service.type | default "NodePort") "NodePort") -}}{{- fail "Gateway Service는 NodePort여야 한다" -}}{{- end -}}
 {{- end -}}
 {{- if and (hasKey .Values "ingestMode") (not $ingest) -}}
 {{- fail "ingestMode는 telemetry-ingest만 사용한다" -}}
@@ -99,7 +113,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if and $kafka.enabled (not $kafka.consumerGroup) -}}{{- fail "ingest Kafka 설정에는 consumer group이 필요하다" -}}{{- end -}}
 {{- if and (eq $mode "kafka") (ne .Values.service.type "ClusterIP") -}}{{- fail "kafka 모드는 외부 OTLP 노출 없이 ClusterIP health Service를 쓴다" -}}{{- end -}}
 {{- end -}}
-{{- if and (eq .Values.service.type "ClusterIP") (not (and $ingest (eq .Values.ingestMode "kafka"))) -}}
+{{- if and (not $perf) (eq .Values.service.type "ClusterIP") (not (and $ingest (eq .Values.ingestMode "kafka"))) -}}
 {{- fail "ClusterIP Service는 telemetry-ingest kafka 모드 전용이다" -}}
 {{- end -}}
 {{- if and (eq .Values.service.type "ClusterIP") .Values.targetGroupBindings -}}
@@ -110,11 +124,11 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 {{- if $kafka.enabled -}}
 {{- if eq ($kafka.security | default "iam") "mtls" -}}
-{{- $stage := trimPrefix "pulsemetry-dev-telemetry-ingress-" $kafka.topic -}}
+{{- $stage := ternary "perf" (trimPrefix "pulsemetry-dev-telemetry-ingress-" $kafka.topic) $perf -}}
 {{- $user := printf "pulsemetry-%s-%s" (ternary "gateway" "ingest" $gateway) $stage -}}
 {{- if ne $kafka.userSecretName $user -}}{{- fail "Kafka TLS Secret은 workload와 stage 전용이어야 한다" -}}{{- end -}}
 {{- else -}}
-{{- $session := printf "pulsemetry-dev-telemetry-%s" (ternary "gateway" "ingest" $gateway) -}}
+{{- $session := printf "pulsemetry-%s-telemetry-%s" (ternary "perf" "dev" $perf) (ternary "gateway" "ingest" $gateway) -}}
 {{- if ne $kafka.iamSessionName $session -}}{{- fail (printf "MSK 세션 이름은 %s여야 한다" $session) -}}{{- end -}}
 {{- end -}}
 {{- end -}}

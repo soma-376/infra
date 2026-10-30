@@ -1,0 +1,4 @@
+# perf ClickHouse는 digest 고정 이미지·프로필 용량을 쓴다. TGB·외부 노출이 없다.
+environment: perf
+observability:
+  enabled: true

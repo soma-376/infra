@@ -1,0 +1,60 @@
+{{- include "perfPlatform.validate" . -}}
+{{- /* perf 볼륨은 환경과 함께 지운다(Delete). 소유 태그로 남은 EBS를 inventory가 찾는다. */ -}}
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: pulsemetry-perf-gp3
+provisioner: ebs.csi.eks.amazonaws.com
+parameters:
+  type: gp3
+  encrypted: "true"
+  iops: {{ .Values.clickhouseStorage.iops | quote }}
+  throughput: {{ .Values.clickhouseStorage.throughputMiBps | quote }}
+  tagSpecification_1: {{ printf "pulsemetry:perf-environment=%s" .Values.environmentId | quote }}
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+allowedTopologies:
+  - matchLabelExpressions:
+      - key: topology.kubernetes.io/zone
+        values: [{{ .Values.availabilityZone | quote }}]
+---
+{{- /* 관측 차트가 쓰는 이름이다(Prometheus·Grafana·Events PVC). */}}
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3-observability
+provisioner: ebs.csi.eks.amazonaws.com
+parameters:
+  type: gp3
+  encrypted: "true"
+  tagSpecification_1: {{ printf "pulsemetry:perf-environment=%s" .Values.environmentId | quote }}
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+allowedTopologies:
+  - matchLabelExpressions:
+      - key: topology.kubernetes.io/zone
+        values: [{{ .Values.availabilityZone | quote }}]
+
+{{- if hasKey .Values.pools "kafka" }}
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: pulsemetry-perf-kafka-gp3
+  annotations:
+    helm.sh/resource-policy: keep
+provisioner: ebs.csi.eks.amazonaws.com
+parameters:
+  type: gp3
+  encrypted: "true"
+  tagSpecification_1: {{ printf "pulsemetry:perf-environment=%s" .Values.environmentId | quote }}
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+allowedTopologies:
+  - matchLabelExpressions:
+      - key: topology.kubernetes.io/zone
+        values: [{{ .Values.availabilityZone | quote }}]
+{{- end }}

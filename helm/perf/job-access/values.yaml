@@ -1,0 +1,3 @@
+# 이 chart는 입력이 없다. release는 app namespace(pulsemetry-perf)에 두어 release 기록 Secret을
+# prepare가 secrets 권한을 갖는 runner namespace 밖에 둔다.
+{}

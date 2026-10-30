@@ -1,0 +1,301 @@
+{
+  "schema_version": 3,
+  "kind": "contract-fixture-cases",
+  "schema_cases": [
+    {
+      "id": "request-strimzi",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-strimzi.json",
+      "shared": true,
+      "errors": []
+    },
+    {
+      "id": "provisional-strimzi",
+      "schema": "environment-provisional",
+      "file": "schema/environment-provisional/provisional-strimzi.json",
+      "shared": true,
+      "errors": []
+    },
+    {
+      "id": "resolved-strimzi",
+      "schema": "environment-resolved",
+      "file": "schema/environment-resolved/resolved-strimzi.json",
+      "shared": true,
+      "errors": []
+    },
+    {
+      "id": "lock-strimzi",
+      "schema": "environment-lock",
+      "file": "schema/environment-lock/lock-strimzi.json",
+      "shared": true,
+      "errors": []
+    },
+    {
+      "id": "resolved-msk",
+      "schema": "environment-resolved",
+      "file": "schema/environment-resolved/resolved-msk.json",
+      "shared": true,
+      "errors": []
+    },
+    {
+      "id": "request-unknown-provider",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-unknown-provider.json",
+      "shared": true,
+      "errors": [
+        [
+          "/kafka/provider",
+          "enum"
+        ]
+      ]
+    },
+    {
+      "id": "request-old-version",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-old-version.json",
+      "shared": true,
+      "errors": [
+        [
+          "/schema_version",
+          "const"
+        ]
+      ]
+    },
+    {
+      "id": "request-missing-provider",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-missing-provider.json",
+      "shared": true,
+      "errors": [
+        [
+          "/kafka",
+          "required"
+        ]
+      ]
+    },
+    {
+      "id": "provisional-http-external",
+      "schema": "environment-provisional",
+      "file": "schema/environment-provisional/provisional-http-external.json",
+      "shared": true,
+      "errors": [
+        [
+          "/endpoints/gateway_https",
+          "pattern"
+        ]
+      ]
+    },
+    {
+      "id": "lock-unknown-state",
+      "schema": "environment-lock",
+      "file": "schema/environment-lock/lock-unknown-state.json",
+      "shared": true,
+      "errors": [
+        [
+          "/state",
+          "enum"
+        ]
+      ]
+    },
+    {
+      "id": "resolved-mixed-msk-field",
+      "schema": "environment-resolved",
+      "file": "schema/environment-resolved/resolved-mixed-msk-field.json",
+      "shared": true,
+      "errors": [
+        [
+          "/kafka",
+          "oneOf"
+        ]
+      ]
+    },
+    {
+      "id": "resolved-unknown-provider",
+      "schema": "environment-resolved",
+      "file": "schema/environment-resolved/resolved-unknown-provider.json",
+      "shared": true,
+      "errors": [
+        [
+          "/kafka",
+          "oneOf"
+        ]
+      ]
+    },
+    {
+      "id": "resolved-plaintext-port",
+      "schema": "environment-resolved",
+      "file": "schema/environment-resolved/resolved-plaintext-port.json",
+      "shared": true,
+      "errors": [
+        [
+          "/kafka",
+          "oneOf"
+        ]
+      ]
+    },
+    {
+      "id": "resolved-iam-auth",
+      "schema": "environment-resolved",
+      "file": "schema/environment-resolved/resolved-iam-auth.json",
+      "shared": true,
+      "errors": [
+        [
+          "/kafka",
+          "oneOf"
+        ]
+      ]
+    },
+    {
+      "id": "resolved-secret-value",
+      "schema": "environment-resolved",
+      "file": "schema/environment-resolved/resolved-secret-value.json",
+      "shared": true,
+      "errors": [
+        [
+          "/kafka",
+          "oneOf"
+        ]
+      ]
+    },
+    {
+      "id": "resolved-secret-wrong-key",
+      "schema": "environment-resolved",
+      "file": "schema/environment-resolved/resolved-secret-wrong-key.json",
+      "shared": true,
+      "errors": [
+        [
+          "/kafka",
+          "oneOf"
+        ]
+      ]
+    },
+    {
+      "id": "resolved-cluster-acl-fake-name",
+      "schema": "environment-resolved",
+      "file": "schema/environment-resolved/resolved-cluster-acl-fake-name.json",
+      "shared": true,
+      "errors": [
+        [
+          "/kafka",
+          "oneOf"
+        ]
+      ]
+    },
+    {
+      "id": "resolved-missing-endpoint",
+      "schema": "environment-resolved",
+      "file": "schema/environment-resolved/resolved-missing-endpoint.json",
+      "shared": true,
+      "errors": [
+        [
+          "/datastores/rds/endpoint",
+          "required"
+        ]
+      ]
+    },
+    {
+      "id": "resolved-transport-not-ready",
+      "schema": "environment-resolved",
+      "file": "schema/environment-resolved/resolved-transport-not-ready.json",
+      "shared": true,
+      "errors": [
+        [
+          "/readiness/stages/kafka_transport",
+          "const"
+        ]
+      ]
+    }
+  ],
+  "bundle_cases": [
+    {
+      "id": "bundle-strimzi",
+      "dir": "bundle/bundle-strimzi",
+      "shared": true,
+      "codes": []
+    },
+    {
+      "id": "bundle-msk",
+      "dir": "bundle/bundle-msk",
+      "shared": true,
+      "codes": []
+    },
+    {
+      "id": "bundle-json-integer-as-float",
+      "dir": "bundle/bundle-json-integer-as-float",
+      "shared": true,
+      "codes": []
+    },
+    {
+      "id": "bundle-provider-mismatch",
+      "dir": "bundle/bundle-provider-mismatch",
+      "shared": true,
+      "codes": [
+        "kafka_provider_mismatch"
+      ]
+    },
+    {
+      "id": "bundle-mixed-version",
+      "dir": "bundle/bundle-mixed-version",
+      "shared": true,
+      "codes": [
+        "environment_schema_version_mismatch"
+      ]
+    },
+    {
+      "id": "bundle-client-duplicate",
+      "dir": "bundle/bundle-client-duplicate",
+      "shared": true,
+      "codes": [
+        "kafka_tls_client_roles_invalid"
+      ]
+    },
+    {
+      "id": "bundle-pvc-missing",
+      "dir": "bundle/bundle-pvc-missing",
+      "shared": true,
+      "codes": [
+        "kafka_pvc_count_mismatch"
+      ]
+    },
+    {
+      "id": "bundle-broker-count",
+      "dir": "bundle/bundle-broker-count",
+      "shared": true,
+      "codes": [
+        "kafka_broker_count_mismatch"
+      ]
+    },
+    {
+      "id": "bundle-replication",
+      "dir": "bundle/bundle-replication",
+      "shared": true,
+      "codes": [
+        "kafka_replication_invalid"
+      ]
+    },
+    {
+      "id": "bundle-replication-as-float",
+      "dir": "bundle/bundle-replication-as-float",
+      "shared": true,
+      "codes": [
+        "kafka_replication_invalid"
+      ]
+    },
+    {
+      "id": "bundle-secret-pair",
+      "dir": "bundle/bundle-secret-pair",
+      "shared": true,
+      "codes": [
+        "kafka_tls_secret_pair_mismatch"
+      ]
+    },
+    {
+      "id": "bundle-bootstrap-namespace",
+      "dir": "bundle/bundle-bootstrap-namespace",
+      "shared": true,
+      "codes": [
+        "kafka_bootstrap_identity_mismatch"
+      ]
+    }
+  ]
+}

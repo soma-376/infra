@@ -1,0 +1,321 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "environment-resolved.schema.json",
+  "title": "환경 확정 결과 v2 — readiness·smoke 뒤 한 번 만드는 불변 environment.resolved.json",
+  "description": "ECS task revision을 K8s 값처럼 채우지 않는다. 아직 만들지 않은 runner Job UID는 observed에 기록한다",
+  "type": "object",
+  "required": ["schema_version", "kind", "status"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "kind": {"const": "environment-resolved"},
+    "status": {"enum": ["not_deployed", "ready", "failed", "partial"]},
+    "request_sha256": true,
+    "provisional_sha256": true,
+    "deployment_id": true,
+    "environment_id": true,
+    "created_at": true,
+    "infra": true,
+    "aws": true,
+    "kubernetes": true,
+    "kafka": true,
+    "datastores": true,
+    "endpoints": true,
+    "access": true,
+    "lock": true,
+    "observability": true,
+    "readiness": true,
+    "cleanup_inventory": true,
+    "artifacts": true,
+    "errors": true
+  },
+  "additionalProperties": false,
+  "if": {"properties": {"status": {"const": "not_deployed"}}},
+  "then": true,
+  "else": {
+    "allOf": [
+      {"$ref": "#/$defs/typed"},
+      {
+        "if": {"properties": {"status": {"const": "ready"}}},
+        "then": {
+          "required": [
+            "request_sha256", "provisional_sha256", "deployment_id", "environment_id", "created_at", "infra", "aws",
+            "kubernetes", "kafka", "datastores", "endpoints", "access", "lock", "observability", "readiness",
+            "cleanup_inventory", "artifacts", "errors"
+          ],
+          "properties": {
+            "cleanup_inventory": {"minItems": 1},
+            "errors": {"maxItems": 0}
+          }
+        },
+        "else": {
+          "required": ["request_sha256", "deployment_id", "environment_id", "created_at", "cleanup_inventory", "errors"],
+          "properties": {"errors": {"minItems": 1}}
+        }
+      }
+    ]
+  },
+  "$defs": {
+    "typed": {
+      "properties": {
+        "request_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "provisional_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "deployment_id": {"$ref": "common.schema.json#/$defs/slug"},
+        "environment_id": {"$ref": "common.schema.json#/$defs/slug"},
+        "created_at": {"$ref": "common.schema.json#/$defs/utc"},
+        "infra": {"$ref": "common.schema.json#/$defs/infra_source"},
+        "aws": {
+          "type": "object",
+          "required": ["region", "account_ref", "stacks"],
+          "properties": {
+            "region": {"$ref": "common.schema.json#/$defs/region"},
+            "account_ref": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"},
+            "stacks": {"type": "array", "minItems": 1, "items": {"$ref": "common.schema.json#/$defs/stack"}}
+          },
+          "additionalProperties": false
+        },
+        "kubernetes": {
+          "type": "object",
+          "required": ["cluster_arn", "cluster_name", "kubernetes_version", "namespaces", "node_pools", "workloads"],
+          "properties": {
+            "cluster_arn": {"$ref": "common.schema.json#/$defs/aws_arn"},
+            "cluster_name": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$"},
+            "kubernetes_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+$"},
+            "namespaces": {"$ref": "common.schema.json#/$defs/namespaces"},
+            "node_pools": {
+              "type": "object",
+              "minProperties": 1,
+              "propertyNames": {"$ref": "common.schema.json#/$defs/slug"},
+              "additionalProperties": {"$ref": "#/$defs/node_pool"}
+            },
+            "workloads": {
+              "type": "object",
+              "required": ["enrollment-api", "telemetry-gateway", "telemetry-ingest", "clickhouse"],
+              "propertyNames": {"$ref": "common.schema.json#/$defs/slug"},
+              "additionalProperties": {"$ref": "#/$defs/workload"}
+            }
+          },
+          "additionalProperties": false
+        },
+        "kafka": {
+          "type": "object",
+          "required": [
+            "cluster_arn", "kafka_version", "broker_count", "broker_instance_type", "broker_volume_gib", "auth",
+            "bootstrap_port", "topic", "partitions", "replication_factor", "min_insync_replicas", "retention_ms",
+            "max_message_bytes", "consumer_group"
+          ],
+          "properties": {
+            "cluster_arn": {"$ref": "common.schema.json#/$defs/aws_arn"},
+            "kafka_version": {"$ref": "common.schema.json#/$defs/non_empty"},
+            "broker_count": {"$ref": "common.schema.json#/$defs/positive_int"},
+            "broker_instance_type": {"type": "string", "pattern": "^kafka\\.[a-z0-9]+\\.[a-z0-9]+$"},
+            "broker_volume_gib": {"$ref": "common.schema.json#/$defs/positive_int"},
+            "auth": {"const": "iam-tls"},
+            "bootstrap_port": {"const": 9098},
+            "topic": {"$ref": "common.schema.json#/$defs/non_empty"},
+            "partitions": {"$ref": "common.schema.json#/$defs/positive_int"},
+            "replication_factor": {"$ref": "common.schema.json#/$defs/positive_int"},
+            "min_insync_replicas": {"$ref": "common.schema.json#/$defs/positive_int"},
+            "retention_ms": {"$ref": "common.schema.json#/$defs/positive_int"},
+            "max_message_bytes": {"$ref": "common.schema.json#/$defs/positive_int"},
+            "consumer_group": {"$ref": "common.schema.json#/$defs/non_empty"}
+          },
+          "additionalProperties": false
+        },
+        "datastores": {
+          "type": "object",
+          "required": ["rds", "clickhouse", "raw_signal_bucket", "evidence_bucket"],
+          "properties": {
+            "rds": {
+              "type": "object",
+              "required": [
+                "arn", "engine", "engine_version", "instance_class", "storage_gib", "multi_az", "enrollment_session"
+              ],
+              "properties": {
+                "arn": {"$ref": "common.schema.json#/$defs/aws_arn"},
+                "engine": {"const": "postgres"},
+                "engine_version": {"$ref": "common.schema.json#/$defs/non_empty"},
+                "instance_class": {"type": "string", "pattern": "^db\\.[a-z0-9]+\\.[a-z0-9]+$"},
+                "storage_gib": {"$ref": "common.schema.json#/$defs/positive_int"},
+                "multi_az": {"type": "boolean"},
+                "enrollment_session": {
+                  "description": "pg_stat_activity에서 enrollment 세션을 가려내는 수단(PLAN §5 발급과 인계 4단계)",
+                  "type": "object",
+                  "required": ["method", "value"],
+                  "properties": {
+                    "method": {"enum": ["dedicated-user", "application-name"]},
+                    "value": {"$ref": "common.schema.json#/$defs/non_empty"}
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            },
+            "clickhouse": {
+              "type": "object",
+              "required": ["image", "version", "pvc"],
+              "properties": {
+                "image": {"$ref": "common.schema.json#/$defs/image_ref"},
+                "version": {"$ref": "common.schema.json#/$defs/non_empty"},
+                "pvc": {
+                  "type": "object",
+                  "required": ["name", "storage_class", "size_bytes", "volume_id", "iops", "throughput_mibps"],
+                  "properties": {
+                    "name": {"$ref": "common.schema.json#/$defs/slug"},
+                    "storage_class": {"$ref": "common.schema.json#/$defs/slug"},
+                    "size_bytes": {"$ref": "common.schema.json#/$defs/positive_int"},
+                    "volume_id": {"type": "string", "pattern": "^vol-[0-9a-f]{8,17}$"},
+                    "iops": {"$ref": "common.schema.json#/$defs/positive_int"},
+                    "throughput_mibps": {"$ref": "common.schema.json#/$defs/positive_int"}
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            },
+            "raw_signal_bucket": {"$ref": "#/$defs/bucket"},
+            "evidence_bucket": {"$ref": "#/$defs/bucket"}
+          },
+          "additionalProperties": false
+        },
+        "endpoints": {"$ref": "common.schema.json#/$defs/endpoints"},
+        "access": {
+          "type": "object",
+          "required": ["operator_role_ref", "verifier_role_ref", "runner_service_account", "grafana"],
+          "properties": {
+            "operator_role_ref": {"$ref": "common.schema.json#/$defs/non_empty"},
+            "verifier_role_ref": {"$ref": "common.schema.json#/$defs/non_empty"},
+            "runner_service_account": {"$ref": "common.schema.json#/$defs/slug"},
+            "grafana": {
+              "type": "object",
+              "required": ["namespace", "service", "admin_secret_ref"],
+              "properties": {
+                "namespace": {"$ref": "common.schema.json#/$defs/slug"},
+                "service": {"$ref": "common.schema.json#/$defs/slug"},
+                "admin_secret_ref": {"$ref": "common.schema.json#/$defs/secret_ref"}
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "lock": {"$ref": "common.schema.json#/$defs/lock_location"},
+        "observability": {
+          "type": "object",
+          "required": [
+            "prometheus_retention_days", "prometheus_retention_bytes", "cloudwatch_log_retention_days",
+            "scrape_interval_seconds"
+          ],
+          "properties": {
+            "prometheus_retention_days": {"$ref": "common.schema.json#/$defs/positive_int"},
+            "prometheus_retention_bytes": {"$ref": "common.schema.json#/$defs/positive_int"},
+            "cloudwatch_log_retention_days": {"$ref": "common.schema.json#/$defs/positive_int"},
+            "scrape_interval_seconds": {"$ref": "common.schema.json#/$defs/positive_number"}
+          },
+          "additionalProperties": false
+        },
+        "readiness": {
+          "description": "PLAN §4.3 6단계 smoke 순서. ready면 다섯 단계가 모두 pass다",
+          "type": "object",
+          "required": ["checked_at", "stages", "smoke_artifact_ids"],
+          "properties": {
+            "checked_at": {"$ref": "common.schema.json#/$defs/utc"},
+            "stages": {
+              "type": "object",
+              "required": ["iam_tls", "secret_supply", "auth", "observability", "storage"],
+              "properties": {
+                "iam_tls": {"$ref": "#/$defs/stage_result"},
+                "secret_supply": {"$ref": "#/$defs/stage_result"},
+                "auth": {"$ref": "#/$defs/stage_result"},
+                "observability": {"$ref": "#/$defs/stage_result"},
+                "storage": {"$ref": "#/$defs/stage_result"}
+              },
+              "additionalProperties": false
+            },
+            "smoke_artifact_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/non_empty"}}
+          },
+          "additionalProperties": false
+        },
+        "cleanup_inventory": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/inventory_item"}},
+        "artifacts": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/artifact"}},
+        "errors": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/error"}}
+      },
+      "if": {"properties": {"status": {"const": "ready"}}},
+      "then": {
+        "properties": {
+          "readiness": {
+            "properties": {
+              "stages": {"properties": {
+                "iam_tls": {"const": "pass"}, "secret_supply": {"const": "pass"}, "auth": {"const": "pass"},
+                "observability": {"const": "pass"}, "storage": {"const": "pass"}
+              }},
+              "smoke_artifact_ids": {"minItems": 1}
+            }
+          }
+        }
+      }
+    },
+    "stage_result": {"enum": ["pass", "fail", "not_run"]},
+    "bucket": {
+      "type": "object",
+      "required": ["arn", "prefix", "retention_days"],
+      "properties": {
+        "arn": {"$ref": "common.schema.json#/$defs/aws_arn"},
+        "prefix": {"type": "string", "pattern": "^([A-Za-z0-9!_.*'()-]+/)*$"},
+        "retention_days": {"$ref": "common.schema.json#/$defs/positive_int"}
+      },
+      "additionalProperties": false
+    },
+    "node_pool": {
+      "type": "object",
+      "required": [
+        "role", "node_pool_name", "node_class_name", "instance_type", "nodes", "availability_zone", "capacity_type",
+        "architecture", "disruption_budget_nodes", "taint"
+      ],
+      "properties": {
+        "role": {"enum": ["gateway", "pipeline", "clickhouse", "generator", "observability", "system"]},
+        "node_pool_name": {"$ref": "common.schema.json#/$defs/slug"},
+        "node_class_name": {"$ref": "common.schema.json#/$defs/slug"},
+        "instance_type": {"$ref": "common.schema.json#/$defs/instance_type"},
+        "nodes": {"$ref": "common.schema.json#/$defs/positive_int"},
+        "availability_zone": {"$ref": "common.schema.json#/$defs/availability_zone"},
+        "capacity_type": {"const": "on-demand"},
+        "architecture": {"const": "arm64"},
+        "disruption_budget_nodes": {"type": "string", "pattern": "^[0-9]+%?$"},
+        "taint": {"type": ["string", "null"], "pattern": "^[a-z0-9./-]+(=[A-Za-z0-9._-]*)?:(NoSchedule|NoExecute|PreferNoSchedule)$"}
+      },
+      "additionalProperties": false
+    },
+    "workload": {
+      "type": "object",
+      "required": ["kind", "namespace", "name", "uid", "generation", "replicas", "image", "node_pool", "resources", "settings"],
+      "properties": {
+        "kind": {"enum": ["Deployment", "StatefulSet"]},
+        "namespace": {"$ref": "common.schema.json#/$defs/slug"},
+        "name": {"$ref": "common.schema.json#/$defs/slug"},
+        "uid": {"$ref": "common.schema.json#/$defs/uuid"},
+        "generation": {"$ref": "common.schema.json#/$defs/positive_int"},
+        "replicas": {"$ref": "common.schema.json#/$defs/count"},
+        "image": {"$ref": "common.schema.json#/$defs/image_ref"},
+        "node_pool": {"$ref": "common.schema.json#/$defs/slug"},
+        "resources": {
+          "type": "object",
+          "required": ["cpu_request_millicores", "memory_request_bytes", "cpu_limit_millicores", "memory_limit_bytes"],
+          "properties": {
+            "cpu_request_millicores": {"$ref": "common.schema.json#/$defs/positive_int"},
+            "memory_request_bytes": {"$ref": "common.schema.json#/$defs/positive_int"},
+            "cpu_limit_millicores": {"anyOf": [{"$ref": "common.schema.json#/$defs/positive_int"}, {"type": "null"}]},
+            "memory_limit_bytes": {"$ref": "common.schema.json#/$defs/positive_int"}
+          },
+          "additionalProperties": false
+        },
+        "settings": {
+          "description": "JVM·consumer concurrency 등 비교에 영향을 주는 비밀 아닌 설정. 키는 프로필이 정한다",
+          "type": "object",
+          "propertyNames": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$"},
+          "additionalProperties": {"type": ["string", "number", "boolean"]}
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

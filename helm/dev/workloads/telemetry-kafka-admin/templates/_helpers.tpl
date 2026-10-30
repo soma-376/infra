@@ -5,9 +5,11 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: pulsemetry
 {{- end -}}
 {{- define "kafkaAdmin.validate" -}}
-{{- if ne .Release.Namespace "pulsemetry-dev" -}}{{- fail "namespace는 pulsemetry-dev여야 한다" -}}{{- end -}}
-{{- if ne .Values.topic (printf "pulsemetry-dev-telemetry-ingress-%s" .Values.stage) -}}{{- fail "topic은 stage와 같은 ingress 이름이어야 한다" -}}{{- end -}}
-{{- if ne .Values.consumerGroup (printf "pulsemetry-dev-telemetry-ingest-%s" .Values.stage) -}}{{- fail "consumer group은 stage와 같은 ingest 이름이어야 한다" -}}{{- end -}}
+{{- $perf := eq (.Values.environment | default "dev") "perf" -}}
+{{- $namespace := ternary "pulsemetry-perf" "pulsemetry-dev" $perf -}}
+{{- if ne .Release.Namespace $namespace -}}{{- fail "namespace는 pulsemetry-dev여야 한다" -}}{{- end -}}
+{{- if ne .Values.topic (ternary "pulsemetry-perf-telemetry-ingress" (printf "pulsemetry-dev-telemetry-ingress-%s" .Values.stage) $perf) -}}{{- fail "topic은 stage와 같은 ingress 이름이어야 한다" -}}{{- end -}}
+{{- if ne .Values.consumerGroup (ternary "pulsemetry-perf-telemetry-ingest" (printf "pulsemetry-dev-telemetry-ingest-%s" .Values.stage) $perf) -}}{{- fail "consumer group은 stage와 같은 ingest 이름이어야 한다" -}}{{- end -}}
 {{- if eq .Values.provider "strimzi" -}}
 {{- if .Values.topicInit.enabled -}}{{- fail "Strimzi topic은 KafkaTopic이 소유하며 init Job은 금지한다" -}}{{- end -}}
 {{- if ne .Values.tls.userSecretName (printf "pulsemetry-offset-admin-%s" .Values.stage) -}}{{- fail "offset TLS Secret의 stage가 다르다" -}}{{- end -}}
@@ -38,7 +40,7 @@ securityContext:
     type: RuntimeDefault
 nodeSelector:
   kubernetes.io/arch: arm64
-  karpenter.sh/nodepool: pulsemetry-dev-apps
+  karpenter.sh/nodepool: {{ if eq ($root.Values.environment | default "dev") "perf" }}perf-system{{ else }}pulsemetry-dev-apps{{ end }}
 initContainers:
   - name: fetch-msk-iam-auth
     image: {{ printf "%s@%s" $root.Values.image.repository $root.Values.image.digest | quote }}

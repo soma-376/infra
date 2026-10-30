@@ -2,3 +2,6 @@
 clusterName: soma-376-dev-telemetry
 stage: validation
 availabilityZone: ""
+
+# 생략하면 dev 입력·렌더를 유지한다.
+environment: dev

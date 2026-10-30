@@ -1,0 +1,6 @@
+# 렌더링할 Job 하나: seed | prepare | sentinel | runner | verify
+job: ""
+# 아래 키는 load-tests `perf job-values`가 만든다(telemetry-load-tests docs/contracts/perf-jobs.md). 이름을 바꾸지 않는다.
+# run·images·namespaces·objects·jobs·endpoints·evidenceUri·rawArchiveUri·environmentId·cluster·enrollment·deadlines·runner·tools
+# infra는 scripts/perf-values.ts가 CDK output·프로필로 만든 generated/jobs.yaml이다. 두 입력이 어긋나면 렌더링을 거부한다.
+infra: {}

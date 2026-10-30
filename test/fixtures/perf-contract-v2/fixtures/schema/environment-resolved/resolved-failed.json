@@ -1,0 +1,45 @@
+{
+  "schema_version": 2,
+  "kind": "environment-resolved",
+  "status": "failed",
+  "request_sha256": "c1e53612b5d0f1dce3f8a9a5e59777456d08f720f5e086b3105dc276a4a2d6f2",
+  "deployment_id": "perf-20261101-a-d1",
+  "environment_id": "perf-20261101-a",
+  "created_at": "2026-11-01T02:00:00Z",
+  "cleanup_inventory": [
+    {
+      "resource_type": "AWS::CloudFormation::Stack",
+      "identifier": "arn:aws:cloudformation:ap-northeast-2:111122223333:stack/soma-376-perf-network/0d5e7a10-1b2c-4d3e-8f90-a1b2c3d4e5f6",
+      "owner_tag": "pulsemetry:perf-environment=perf-20261101-a",
+      "retain": false,
+      "reason": null
+    },
+    {
+      "resource_type": "AWS::CloudFormation::Stack",
+      "identifier": "arn:aws:cloudformation:ap-northeast-2:111122223333:stack/soma-376-perf-data/0d5e7a10-1b2c-4d3e-8f90-a1b2c3d4e5f6",
+      "owner_tag": "pulsemetry:perf-environment=perf-20261101-a",
+      "retain": false,
+      "reason": null
+    },
+    {
+      "resource_type": "AWS::CloudFormation::Stack",
+      "identifier": "arn:aws:cloudformation:ap-northeast-2:111122223333:stack/soma-376-perf-eks/0d5e7a10-1b2c-4d3e-8f90-a1b2c3d4e5f6",
+      "owner_tag": "pulsemetry:perf-environment=perf-20261101-a",
+      "retain": false,
+      "reason": null
+    },
+    {
+      "resource_type": "AWS::S3::Bucket",
+      "identifier": "arn:aws:s3:::soma-376-perf-evidence",
+      "owner_tag": "pulsemetry:perf-evidence",
+      "retain": true,
+      "reason": "실행 증거 90일 보존. 환경 삭제와 수명을 분리한다"
+    }
+  ],
+  "errors": [
+    {
+      "code": "smoke.storage",
+      "message": "3-signal CH 대조 실패"
+    }
+  ]
+}

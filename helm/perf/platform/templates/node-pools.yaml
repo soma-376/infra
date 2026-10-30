@@ -1,0 +1,74 @@
+{{- include "perfPlatform.validate" . -}}
+{{- /*
+pool마다 NodeClass(공통 SG + pool SG)와 고정 용량 NodePool을 둔다. replicas가 노드 수를 고정하고
+limits.nodes는 교체 중 임시 노드 하나를 허용한다. 측정 Pod는 nodeSelector·toleration으로 자기 pool에만 간다.
+https://docs.aws.amazon.com/eks/latest/userguide/auto-static-capacity.html
+*/ -}}
+{{- $ids := list "gateway" "pipeline" "clickhouse" "generator" "observability" "system" -}}
+{{- if hasKey .Values.pools "kafka" }}{{ $ids = append $ids "kafka" }}{{ end -}}
+{{- range $id := $ids }}
+{{- $pool := index $.Values.pools $id }}
+---
+apiVersion: eks.amazonaws.com/v1
+kind: NodeClass
+metadata:
+  name: perf-{{ $id }}
+spec:
+  role: {{ $.Values.nodeRoleName | quote }}
+  subnetSelectorTerms:
+    {{- range $.Values.subnetIds }}
+    - id: {{ . | quote }}
+    {{- end }}
+  securityGroupSelectorTerms:
+    - id: {{ $.Values.nodeSecurityGroupId | quote }}
+    - id: {{ $pool.securityGroupId | quote }}
+  advancedNetworking:
+    associatePublicIPAddress: false
+  ephemeralStorage:
+    size: {{ printf "%dGi" (int $pool.ephemeralStorageGiB) | quote }}
+  tags:
+    pulsemetry:perf-environment: {{ $.Values.environmentId | quote }}
+    pulsemetry:perf-pool: {{ $id | quote }}
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: perf-{{ $id }}
+spec:
+  replicas: {{ $pool.nodes }}
+  template:
+    metadata:
+      labels:
+        pulsemetry.io/workload: {{ $id }}
+        pulsemetry.io/perf-pool: {{ $id }}
+    spec:
+      nodeClassRef:
+        group: eks.amazonaws.com
+        kind: NodeClass
+        name: perf-{{ $id }}
+      {{- if $pool.dedicated }}
+      taints:
+        - key: workload
+          value: {{ $id }}
+          effect: NoSchedule
+      {{- end }}
+      expireAfter: 336h
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: [arm64]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: [on-demand]
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: [{{ $pool.instanceType | quote }}]
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: [{{ $.Values.availabilityZone | quote }}]
+  limits:
+    nodes: {{ add $pool.nodes 1 }}
+  disruption:
+    budgets:
+      - nodes: {{ $.Values.disruptionBudgetNodes | quote }}
+{{- end }}

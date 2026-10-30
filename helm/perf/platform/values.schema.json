@@ -1,0 +1,157 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "environmentId",
+    "nodeRoleName",
+    "availabilityZone",
+    "subnetIds",
+    "nodeSecurityGroupId",
+    "pools",
+    "clickhouseStorage",
+    "disruptionBudgetNodes"
+  ],
+  "properties": {
+    "environmentId": {
+      "type": "string",
+      "pattern": "^perf-[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?$"
+    },
+    "nodeRoleName": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_+=,.@-]{1,64}$"
+    },
+    "availabilityZone": {
+      "enum": [
+        "ap-northeast-2a",
+        "ap-northeast-2b",
+        "ap-northeast-2c"
+      ]
+    },
+    "subnetIds": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^subnet-[a-f0-9]{8,17}$"
+      }
+    },
+    "nodeSecurityGroupId": {
+      "type": "string",
+      "pattern": "^sg-[a-f0-9]{8,17}$"
+    },
+    "pools": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gateway",
+        "pipeline",
+        "clickhouse",
+        "generator",
+        "observability",
+        "system"
+      ],
+      "properties": {
+        "gateway": {
+          "$ref": "#/definitions/pool"
+        },
+        "pipeline": {
+          "$ref": "#/definitions/pool"
+        },
+        "clickhouse": {
+          "$ref": "#/definitions/pool"
+        },
+        "generator": {
+          "$ref": "#/definitions/pool"
+        },
+        "observability": {
+          "$ref": "#/definitions/pool"
+        },
+        "system": {
+          "$ref": "#/definitions/pool"
+        },
+        "kafka": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/pool"
+            },
+            {
+              "properties": {
+                "nodes": {
+                  "const": 3
+                },
+                "instanceType": {
+                  "const": "m7g.large"
+                },
+                "dedicated": {
+                  "const": true
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "clickhouseStorage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "iops",
+        "throughputMiBps"
+      ],
+      "properties": {
+        "iops": {
+          "type": "integer",
+          "minimum": 3000,
+          "maximum": 16000
+        },
+        "throughputMiBps": {
+          "type": "integer",
+          "minimum": 125,
+          "maximum": 1000
+        }
+      }
+    },
+    "disruptionBudgetNodes": {
+      "type": "string",
+      "pattern": "^[0-9]+%?$"
+    }
+  },
+  "definitions": {
+    "pool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "securityGroupId",
+        "instanceType",
+        "nodes",
+        "dedicated",
+        "ephemeralStorageGiB"
+      ],
+      "properties": {
+        "securityGroupId": {
+          "type": "string",
+          "pattern": "^sg-[a-f0-9]{8,17}$"
+        },
+        "instanceType": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*g[a-z0-9]*\\.[a-z0-9]+$"
+        },
+        "nodes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "dedicated": {
+          "type": "boolean"
+        },
+        "ephemeralStorageGiB": {
+          "type": "integer",
+          "minimum": 20,
+          "maximum": 500
+        }
+      }
+    }
+  }
+}

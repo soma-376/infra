@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["region", "secrets", "telemetryJwt"],
+  "properties": {
+    "region": {"const": "ap-northeast-2"},
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dbArn", "tokenHashArn", "adminApiTokenArn", "telemetryJwtPrivateKeyArn", "telemetryJwtPublicKeysArn", "syntheticSeedArn", "seedDbArn", "verifyDbArn"],
+      "properties": {
+        "dbArn": {"$ref": "#/definitions/arn"},
+        "tokenHashArn": {"$ref": "#/definitions/arn"},
+        "adminApiTokenArn": {"$ref": "#/definitions/arn"},
+        "telemetryJwtPrivateKeyArn": {"$ref": "#/definitions/arn"},
+        "telemetryJwtPublicKeysArn": {"$ref": "#/definitions/arn"},
+        "syntheticSeedArn": {"$ref": "#/definitions/arn"},
+        "seedDbArn": {"$ref": "#/definitions/arn"},
+        "verifyDbArn": {"$ref": "#/definitions/arn"}
+      }
+    },
+    "telemetryJwt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["privateVersionId", "publicVersionId", "activeKid", "publicKeys"],
+      "properties": {
+        "privateVersionId": {"type": "string", "pattern": "^[A-Za-z0-9-]{32,64}$"},
+        "publicVersionId": {"type": "string", "pattern": "^[A-Za-z0-9-]{32,64}$"},
+        "activeKid": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^\\[\\]\\x00-\\x1f\\x7f]+$"},
+        "publicKeys": {
+          "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["kid", "alias"],
+            "properties": {
+              "kid": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^\\[\\]\\x00-\\x1f\\x7f]+$"},
+              "alias": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*\\.pem$"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "arn": {"type": "string", "pattern": "^arn:aws:secretsmanager:ap-northeast-2:[0-9]{12}:secret:soma-376/perf/perf-[a-z0-9-]+/[a-z0-9/-]+-[A-Za-z0-9]{6}$"}
+  }
+}

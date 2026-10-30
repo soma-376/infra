@@ -1,3 +1,5 @@
+import { loadPerfConfig } from '../lib/perf/config';
+import { PerfStacks, synthPerf } from '../lib/perf/app';
 import { DevEksStack } from '../lib/dev/eks-stack';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -123,3 +125,26 @@ export const MODE_A_EDGE: EdgeConfig = {
   domainName: 'example.com',
   cognitoDomainPrefix: 'test-prefix',
 };
+
+export interface BuiltPerfApp extends PerfStacks {
+  app: App;
+}
+
+/** 테스트 perf 환경 ID. 계약 fixture와 같은 형식이다. */
+export const PERF_TEST_ENVIRONMENT_ID = 'perf-20261101-a';
+
+/**
+ * 고정 env로 perf 스택을 조립하는 테스트 팩토리. `context`는 CLI의 `-c key=value`와 같은 자리이며
+ * `perfEnvironmentId`는 기본값을 넣는다. 스택 조립은 bin/infra.ts와 같은 `synthPerf`를 거친다.
+ */
+export function buildPerfApp(
+  context: Record<string, unknown> = {},
+): BuiltPerfApp {
+  const app = new App({ context: { ...loadCdkContext(), perfEnvironmentId: PERF_TEST_ENVIRONMENT_ID, ...context } });
+  const stacks = synthPerf(app, {
+    env: TEST_ENV,
+    config: loadPerfConfig(app),
+  });
+
+  return { app, ...stacks };
+}

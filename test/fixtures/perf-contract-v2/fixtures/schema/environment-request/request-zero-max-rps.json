@@ -1,0 +1,195 @@
+{
+  "schema_version": 2,
+  "kind": "environment-request",
+  "status": "ready",
+  "case_id": "fixed",
+  "stage": "m1",
+  "environment": {
+    "environment_id": "perf-20261101-a",
+    "purpose": "perf",
+    "region": "ap-northeast-2",
+    "account_ref": "perf-account"
+  },
+  "infra": {
+    "repository": "soma-376/infra",
+    "commit": "f6509b626be2d3ccac752616cd9132d8c49b1e26",
+    "profile": "profiles/perf/fixed-v1.json",
+    "profile_sha256": "3a645f01441b0f9441885c4921c6f5728b5b8e6ecceff6098e52f2cd33e5a405",
+    "parameters": {
+      "environmentId": "perf-20261101-a",
+      "natGateways": 1
+    }
+  },
+  "sources": {
+    "backend_commit": "fb46cfdab7610f1367aa21ae4d3f085a5d627125",
+    "synthetic_tools_commit": "7248f9c6c772accc1ec2d0c46bab84e8dcee4dc3"
+  },
+  "images": {
+    "enrollment-api": "111122223333.dkr.ecr.ap-northeast-2.amazonaws.com/pulsemetry/enrollment-api@sha256:af523d140294eda376acf5cc074fb0663d4781a03528c9568e1c9838b83af946",
+    "telemetry-gateway": "111122223333.dkr.ecr.ap-northeast-2.amazonaws.com/pulsemetry/telemetry-gateway@sha256:63b9d5eb970c2dfff41d0b604abeda7441450c6f186f1267681e7e23ba842beb",
+    "telemetry-ingest": "111122223333.dkr.ecr.ap-northeast-2.amazonaws.com/pulsemetry/telemetry-ingest@sha256:4ffc4d7f26c02ed8b7e2b4b333506e6df5935a1afacb3c71c9cb91ff41497a36",
+    "clickhouse": "docker.io/clickhouse/clickhouse-server@sha256:af0b1d17249b4285622407a766b53156ac972e2ecaf682cfff6264f670ceb1b0",
+    "k6-runner": "111122223333.dkr.ecr.ap-northeast-2.amazonaws.com/pulsemetry/k6-runner@sha256:632eb9e53fb55a14e63f986cfc39d14052e13ea9b767d0875cb21a3d8da8cfe1"
+  },
+  "capacity": {
+    "mode": "fixed",
+    "node_pools": {
+      "gateway": {
+        "role": "gateway",
+        "instance_type": "m7g.large",
+        "nodes": 1,
+        "availability_zone": "ap-northeast-2a",
+        "capacity_type": "on-demand",
+        "architecture": "arm64"
+      },
+      "pipeline": {
+        "role": "pipeline",
+        "instance_type": "m7g.large",
+        "nodes": 1,
+        "availability_zone": "ap-northeast-2a",
+        "capacity_type": "on-demand",
+        "architecture": "arm64"
+      },
+      "clickhouse": {
+        "role": "clickhouse",
+        "instance_type": "r7g.large",
+        "nodes": 1,
+        "availability_zone": "ap-northeast-2a",
+        "capacity_type": "on-demand",
+        "architecture": "arm64"
+      },
+      "generator": {
+        "role": "generator",
+        "instance_type": "c7g.large",
+        "nodes": 1,
+        "availability_zone": "ap-northeast-2a",
+        "capacity_type": "on-demand",
+        "architecture": "arm64"
+      },
+      "observability": {
+        "role": "observability",
+        "instance_type": "m7g.large",
+        "nodes": 1,
+        "availability_zone": "ap-northeast-2a",
+        "capacity_type": "on-demand",
+        "architecture": "arm64"
+      },
+      "system": {
+        "role": "system",
+        "instance_type": "t4g.medium",
+        "nodes": 1,
+        "availability_zone": "ap-northeast-2a",
+        "capacity_type": "on-demand",
+        "architecture": "arm64"
+      }
+    },
+    "workloads": {
+      "telemetry-gateway": {
+        "node_pool": "gateway",
+        "replicas": 1,
+        "cpu_request_millicores": 1500,
+        "memory_request_bytes": 4294967296,
+        "cpu_limit_millicores": null,
+        "memory_limit_bytes": 4294967296
+      },
+      "telemetry-ingest": {
+        "node_pool": "pipeline",
+        "replicas": 1,
+        "cpu_request_millicores": 1500,
+        "memory_request_bytes": 4294967296,
+        "cpu_limit_millicores": null,
+        "memory_limit_bytes": 4294967296
+      },
+      "clickhouse": {
+        "node_pool": "clickhouse",
+        "replicas": 1,
+        "cpu_request_millicores": 1500,
+        "memory_request_bytes": 12884901888,
+        "cpu_limit_millicores": null,
+        "memory_limit_bytes": 12884901888
+      },
+      "enrollment-api": {
+        "node_pool": "system",
+        "replicas": 1,
+        "cpu_request_millicores": 500,
+        "memory_request_bytes": 1073741824,
+        "cpu_limit_millicores": null,
+        "memory_limit_bytes": 1073741824
+      }
+    }
+  },
+  "data": {
+    "dataset_id": "perf-10x10",
+    "identities_sha256": "13c7351360f0032d02f4aafa524e669afec7079584fd02a2a6f7171f5abf365d",
+    "corpus_sha256": "6b17b8fcc411a533c822a5117e33cf73fa6766739d7d36ac86dc4bea883af4fe"
+  },
+  "limits": {
+    "max_rps": 0,
+    "max_duration_seconds": 900,
+    "max_requests": 18000,
+    "max_storage_bytes": 2147483648,
+    "min_free_disk_bytes": 10737418240,
+    "drain_deadline_seconds": 900,
+    "verify_deadline_seconds": 1800,
+    "job_active_deadline_seconds": 1500
+  },
+  "usage": {
+    "exclusive": true,
+    "expires_at": "2026-11-01T12:00:00Z",
+    "cleanup_owner": "perf-operator",
+    "destroy_by": "2026-11-01T14:00:00Z",
+    "recovery_time_budget_seconds": 3600
+  },
+  "observability": {
+    "required_signals": [
+      "k6",
+      "gateway",
+      "msk",
+      "pipeline",
+      "clickhouse",
+      "kubernetes",
+      "cloudwatch-logs"
+    ],
+    "scrape_interval_seconds": 10,
+    "remote_write_interval_seconds": 5,
+    "prometheus_retention_days": 7,
+    "cloudwatch_log_retention_days": 14
+  },
+  "secret_references": {
+    "telemetry-jwt-private-key": {
+      "provider": "aws-secretsmanager",
+      "name": "soma-376/perf/telemetry-jwt/private-key",
+      "key": null
+    },
+    "telemetry-jwt-public-keys": {
+      "provider": "aws-secretsmanager",
+      "name": "soma-376/perf/telemetry-jwt/public-keys",
+      "key": null
+    },
+    "token-hash-secret": {
+      "provider": "aws-secretsmanager",
+      "name": "soma-376/perf/enrollment/token-hash-secret",
+      "key": null
+    },
+    "enrollment-admin-token": {
+      "provider": "aws-secretsmanager",
+      "name": "soma-376/perf/enrollment/admin-token",
+      "key": null
+    },
+    "rds-credentials": {
+      "provider": "aws-secretsmanager",
+      "name": "soma-376/perf/rds/master",
+      "key": null
+    },
+    "grafana-admin": {
+      "provider": "aws-secretsmanager",
+      "name": "soma-376/perf/grafana/admin",
+      "key": null
+    },
+    "synthetic-seed-secret": {
+      "provider": "aws-secretsmanager",
+      "name": "soma-376/perf/synthetic/seed-secret",
+      "key": null
+    }
+  }
+}
