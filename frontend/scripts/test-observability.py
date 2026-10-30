@@ -84,6 +84,8 @@ with tempfile.TemporaryDirectory(prefix='proj260-observability-') as directory:
     instance_file = temp / 'instance-id'
     instance_file.write_text('i-0123456789abcdef0\n')
     dev_host['volumes'].append({'type': 'bind', 'source': str(instance_file), 'target': '/host/instance-id', 'read_only': True})
+    # 실제 ECS 태스크와 동일하게 실행 호스트의 AZ 매핑을 전달한다.
+    dev_host['environment']['HOST_AZ_MAP'] = 'i-0123456789abcdef0:ap-northeast-2a'
     dev_host['environment']['ALLOY_CONFIG'] = (ROOT / 'observability/host-agent/config.alloy').read_text()
     dev_host['entrypoint'] = ['/bin/sh', '-ec']
     # Compose의 $ 보간을 피하고 태스크 정의와 같은 시작 스크립트를 실행한다.
@@ -147,8 +149,8 @@ with tempfile.TemporaryDirectory(prefix='proj260-observability-') as directory:
         post('traces', {'resourceSpans': [{'resource': {'attributes': attrs}, 'scopeSpans': [{'spans': [{'traceId': '12345678901234567890123456789012', 'spanId': '1234567890123456', 'name': 'proj260-stack-validation', 'kind': 2, 'startTimeUnixNano': str(now - 1000000), 'endTimeUnixNano': str(now), 'status': {'code': 1}}]}]}]})
         eventually(lambda: metric('proj260_validation{deployment_environment_name="dev"}'))
         eventually(lambda: metric('up{job="frontend-host",host_role="observability"}')[0]['value'][1] == '1')
-        eventually(lambda: metric('up{job="frontend-host",host_role="frontend-dev",environment="dev",instance="i-0123456789abcdef0"}')[0]['value'][1] == '1')
-        eventually(lambda: metric('node_memory_MemTotal_bytes{job="frontend-host",host_role="frontend-dev",environment="dev",instance="i-0123456789abcdef0"}'))
+        eventually(lambda: metric('up{job="frontend-host",host_role="frontend-dev",environment="dev",instance="i-0123456789abcdef0",availability_zone="ap-northeast-2a"}')[0]['value'][1] == '1')
+        eventually(lambda: metric('node_memory_MemTotal_bytes{job="frontend-host",host_role="frontend-dev",environment="dev",instance="i-0123456789abcdef0",availability_zone="ap-northeast-2a"}'))
         eventually(logs)
         eventually(trace)
         print('PASS: 인증, 데이터 소스, OS 대시보드, metrics/logs/traces와 dev 라벨', flush=True)
@@ -160,5 +162,9 @@ with tempfile.TemporaryDirectory(prefix='proj260-observability-') as directory:
         eventually(logs)
         eventually(trace)
         print('PASS: 컨테이너 재시작 후 로그인과 저장 데이터 유지', flush=True)
+    except Exception:
+        # 수신 실패 시 정리 전에 수집기의 기동 오류를 남긴다.
+        subprocess.run([*compose, 'logs', '--no-color', '--tail', '80', 'dev-host'], check=False)
+        raise
     finally:
         run(*compose, 'down', '--volumes', '--remove-orphans', stdout=subprocess.DEVNULL)
