@@ -83,8 +83,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "100 * (1 - avg by (instance, environment, host_role) (rate(node_cpu_seconds_total{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",mode=\"idle\"}[$__rate_interval])))",
-          "legendFormat": "{{instance}}",
+          "expr": "100 * (1 - avg by (instance, environment, host_role, availability_zone) (rate(node_cpu_seconds_total{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",mode=\"idle\"}[$__rate_interval])))",
+          "legendFormat": "{{availability_zone}} · {{instance}}",
           "refId": "A"
         }
       ],
@@ -144,7 +144,7 @@
             "uid": "prometheus"
           },
           "expr": "100 * (1 - node_memory_MemAvailable_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\"} / node_memory_MemTotal_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\"})",
-          "legendFormat": "{{instance}}",
+          "legendFormat": "{{availability_zone}} · {{instance}}",
           "refId": "A"
         }
       ],
@@ -194,7 +194,7 @@
             "uid": "prometheus"
           },
           "expr": "node_memory_MemAvailable_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\"}",
-          "legendFormat": "{{instance}}",
+          "legendFormat": "{{availability_zone}} · {{instance}}",
           "refId": "A"
         }
       ],
@@ -254,7 +254,7 @@
             "uid": "prometheus"
           },
           "expr": "100 * (1 - node_filesystem_avail_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",fstype!~\"tmpfs|overlay|squashfs|ramfs|rpc_pipefs\",mountpoint!~\"/host/root.*\"} / node_filesystem_size_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",fstype!~\"tmpfs|overlay|squashfs|ramfs|rpc_pipefs\",mountpoint!~\"/host/root.*\"})",
-          "legendFormat": "{{instance}} {{mountpoint}}",
+          "legendFormat": "{{availability_zone}} · {{instance}} · {{mountpoint}}",
           "refId": "A"
         }
       ],
@@ -304,7 +304,7 @@
             "uid": "prometheus"
           },
           "expr": "node_filesystem_avail_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",fstype!~\"tmpfs|overlay|squashfs|ramfs|rpc_pipefs\",mountpoint!~\"/host/root.*\"}",
-          "legendFormat": "{{instance}} {{mountpoint}}",
+          "legendFormat": "{{availability_zone}} · {{instance}} · {{mountpoint}}",
           "refId": "A"
         }
       ],
@@ -354,7 +354,7 @@
             "uid": "prometheus"
           },
           "expr": "up{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\"}",
-          "legendFormat": "{{instance}}",
+          "legendFormat": "{{availability_zone}} · {{instance}}",
           "refId": "A"
         }
       ],
@@ -395,12 +395,13 @@
       "id": 17,
       "targets": [
         {
-          "expr": "count(present_over_time(node_memory_MemTotal_bytes{job=\"frontend-host\",instance=\"i-069f59e2280925158\"}[5m])) or vector(0)",
+          "expr": "count by (availability_zone, instance) (present_over_time(node_memory_MemTotal_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\"}[5m]))",
           "instant": true,
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{availability_zone}} · {{instance}}"
         }
       ],
-      "title": "dev 프론트 EC2 · 최근 5분 수신 여부",
+      "title": "dev EC2별 · 최근 5분 수신 여부 (미수신=No data)",
       "type": "stat"
     },
     {

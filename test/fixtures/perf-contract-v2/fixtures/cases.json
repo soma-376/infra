@@ -1,0 +1,494 @@
+{
+  "schema_version": 2,
+  "kind": "contract-fixture-cases",
+  "schema_cases": [
+    {
+      "id": "request-draft-template",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-draft-template.json",
+      "shared": true,
+      "errors": []
+    },
+    {
+      "id": "request-ready-m1",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-ready-m1.json",
+      "shared": true,
+      "errors": []
+    },
+    {
+      "id": "request-ready-m2",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-ready-m2.json",
+      "shared": true,
+      "errors": []
+    },
+    {
+      "id": "request-integer-written-as-float",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-integer-written-as-float.json",
+      "shared": true,
+      "errors": []
+    },
+    {
+      "id": "request-unknown-top-level",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-unknown-top-level.json",
+      "shared": true,
+      "errors": [
+        [
+          "/notes",
+          "additionalProperties"
+        ]
+      ]
+    },
+    {
+      "id": "request-ready-missing-limits",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-ready-missing-limits.json",
+      "shared": true,
+      "errors": [
+        [
+          "/limits",
+          "required"
+        ]
+      ]
+    },
+    {
+      "id": "request-image-tag-only",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-image-tag-only.json",
+      "shared": true,
+      "errors": [
+        [
+          "/images/enrollment-api",
+          "pattern"
+        ]
+      ]
+    },
+    {
+      "id": "request-m2-without-golden",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-m2-without-golden.json",
+      "shared": true,
+      "errors": [
+        [
+          "/data/golden_sha256",
+          "required"
+        ]
+      ]
+    },
+    {
+      "id": "request-shared-environment",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-shared-environment.json",
+      "shared": true,
+      "errors": [
+        [
+          "/usage/exclusive",
+          "const"
+        ]
+      ]
+    },
+    {
+      "id": "request-zero-max-rps",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-zero-max-rps.json",
+      "shared": true,
+      "errors": [
+        [
+          "/limits/max_rps",
+          "exclusiveMinimum"
+        ]
+      ]
+    },
+    {
+      "id": "request-secret-value-field",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-secret-value-field.json",
+      "shared": true,
+      "errors": [
+        [
+          "/secret_references/grafana-admin/value",
+          "additionalProperties"
+        ]
+      ]
+    },
+    {
+      "id": "request-autoscaling-mode",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-autoscaling-mode.json",
+      "shared": true,
+      "errors": [
+        [
+          "/capacity/mode",
+          "const"
+        ]
+      ]
+    },
+    {
+      "id": "request-missing-secret-reference",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-missing-secret-reference.json",
+      "shared": true,
+      "errors": [
+        [
+          "/secret_references/token-hash-secret",
+          "required"
+        ]
+      ]
+    },
+    {
+      "id": "request-schema-v1",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-schema-v1.json",
+      "shared": true,
+      "errors": [
+        [
+          "/schema_version",
+          "const"
+        ]
+      ]
+    },
+    {
+      "id": "request-amd64-pool",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-amd64-pool.json",
+      "shared": true,
+      "errors": [
+        [
+          "/capacity/node_pools/gateway/architecture",
+          "const"
+        ]
+      ]
+    },
+    {
+      "id": "request-fractional-count",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-fractional-count.json",
+      "shared": true,
+      "errors": [
+        [
+          "/capacity/node_pools/gateway/nodes",
+          "type"
+        ]
+      ]
+    },
+    {
+      "id": "request-boolean-count",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-boolean-count.json",
+      "shared": true,
+      "errors": [
+        [
+          "/capacity/workloads/telemetry-gateway/replicas",
+          "type"
+        ]
+      ]
+    },
+    {
+      "id": "request-local-offset-time",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-local-offset-time.json",
+      "shared": true,
+      "errors": [
+        [
+          "/usage/expires_at",
+          "pattern"
+        ]
+      ]
+    },
+    {
+      "id": "request-trailing-newline-id",
+      "schema": "environment-request",
+      "file": "schema/environment-request/request-trailing-newline-id.json",
+      "shared": true,
+      "errors": [
+        [
+          "/environment/environment_id",
+          "pattern"
+        ]
+      ]
+    },
+    {
+      "id": "provisional-deployed-not-ready",
+      "schema": "environment-provisional",
+      "file": "schema/environment-provisional/provisional-deployed-not-ready.json",
+      "shared": true,
+      "errors": []
+    },
+    {
+      "id": "provisional-failed",
+      "schema": "environment-provisional",
+      "file": "schema/environment-provisional/provisional-failed.json",
+      "shared": true,
+      "errors": []
+    },
+    {
+      "id": "provisional-ready-with-errors",
+      "schema": "environment-provisional",
+      "file": "schema/environment-provisional/provisional-ready-with-errors.json",
+      "shared": true,
+      "errors": [
+        [
+          "/errors",
+          "maxItems"
+        ]
+      ]
+    },
+    {
+      "id": "provisional-failed-without-error",
+      "schema": "environment-provisional",
+      "file": "schema/environment-provisional/provisional-failed-without-error.json",
+      "shared": true,
+      "errors": [
+        [
+          "/errors",
+          "minItems"
+        ]
+      ]
+    },
+    {
+      "id": "provisional-missing-endpoints",
+      "schema": "environment-provisional",
+      "file": "schema/environment-provisional/provisional-missing-endpoints.json",
+      "shared": true,
+      "errors": [
+        [
+          "/endpoints",
+          "required"
+        ]
+      ]
+    },
+    {
+      "id": "provisional-endpoint-userinfo",
+      "schema": "environment-provisional",
+      "file": "schema/environment-provisional/provisional-endpoint-userinfo.json",
+      "shared": true,
+      "errors": [
+        [
+          "/endpoints/gateway",
+          "pattern"
+        ]
+      ]
+    },
+    {
+      "id": "provisional-endpoint-query",
+      "schema": "environment-provisional",
+      "file": "schema/environment-provisional/provisional-endpoint-query.json",
+      "shared": true,
+      "errors": [
+        [
+          "/endpoints/clickhouse_http",
+          "pattern"
+        ]
+      ]
+    },
+    {
+      "id": "provisional-retained-without-reason",
+      "schema": "environment-provisional",
+      "file": "schema/environment-provisional/provisional-retained-without-reason.json",
+      "shared": true,
+      "errors": [
+        [
+          "/cleanup_inventory/3/reason",
+          "type"
+        ]
+      ]
+    },
+    {
+      "id": "resolved-not-deployed-template",
+      "schema": "environment-resolved",
+      "file": "schema/environment-resolved/resolved-not-deployed-template.json",
+      "shared": true,
+      "errors": []
+    },
+    {
+      "id": "resolved-ready",
+      "schema": "environment-resolved",
+      "file": "schema/environment-resolved/resolved-ready.json",
+      "shared": true,
+      "errors": []
+    },
+    {
+      "id": "resolved-failed",
+      "schema": "environment-resolved",
+      "file": "schema/environment-resolved/resolved-failed.json",
+      "shared": true,
+      "errors": []
+    },
+    {
+      "id": "resolved-ready-failed-stage",
+      "schema": "environment-resolved",
+      "file": "schema/environment-resolved/resolved-ready-failed-stage.json",
+      "shared": true,
+      "errors": [
+        [
+          "/readiness/stages/auth",
+          "const"
+        ]
+      ]
+    },
+    {
+      "id": "resolved-ready-missing-kafka",
+      "schema": "environment-resolved",
+      "file": "schema/environment-resolved/resolved-ready-missing-kafka.json",
+      "shared": true,
+      "errors": [
+        [
+          "/kafka",
+          "required"
+        ]
+      ]
+    },
+    {
+      "id": "resolved-ecs-revision-field",
+      "schema": "environment-resolved",
+      "file": "schema/environment-resolved/resolved-ecs-revision-field.json",
+      "shared": true,
+      "errors": [
+        [
+          "/kubernetes/workloads/telemetry-gateway/task_definition_revision",
+          "additionalProperties"
+        ]
+      ]
+    },
+    {
+      "id": "resolved-plaintext-kafka-port",
+      "schema": "environment-resolved",
+      "file": "schema/environment-resolved/resolved-plaintext-kafka-port.json",
+      "shared": true,
+      "errors": [
+        [
+          "/kafka/bootstrap_port",
+          "const"
+        ]
+      ]
+    },
+    {
+      "id": "resolved-missing-session-identification",
+      "schema": "environment-resolved",
+      "file": "schema/environment-resolved/resolved-missing-session-identification.json",
+      "shared": true,
+      "errors": [
+        [
+          "/datastores/rds/enrollment_session",
+          "required"
+        ]
+      ]
+    },
+    {
+      "id": "resolved-template-unknown-key",
+      "schema": "environment-resolved",
+      "file": "schema/environment-resolved/resolved-template-unknown-key.json",
+      "shared": true,
+      "errors": [
+        [
+          "/services",
+          "additionalProperties"
+        ]
+      ]
+    },
+    {
+      "id": "resolved-ready-without-smoke-evidence",
+      "schema": "environment-resolved",
+      "file": "schema/environment-resolved/resolved-ready-without-smoke-evidence.json",
+      "shared": true,
+      "errors": [
+        [
+          "/readiness/smoke_artifact_ids",
+          "minItems"
+        ]
+      ]
+    },
+    {
+      "id": "lock-held",
+      "schema": "environment-lock",
+      "file": "schema/environment-lock/lock-held.json",
+      "shared": true,
+      "errors": []
+    },
+    {
+      "id": "lock-missing-deadline",
+      "schema": "environment-lock",
+      "file": "schema/environment-lock/lock-missing-deadline.json",
+      "shared": true,
+      "errors": [
+        [
+          "/job_deadline_at",
+          "required"
+        ]
+      ]
+    },
+    {
+      "id": "lock-unknown-state",
+      "schema": "environment-lock",
+      "file": "schema/environment-lock/lock-unknown-state.json",
+      "shared": true,
+      "errors": [
+        [
+          "/state",
+          "enum"
+        ]
+      ]
+    }
+  ],
+  "bundle_cases": [
+    {
+      "id": "bundle-ok",
+      "dir": "bundle/bundle-ok",
+      "shared": true,
+      "codes": []
+    },
+    {
+      "id": "bundle-request-reformatted",
+      "dir": "bundle/bundle-request-reformatted",
+      "shared": true,
+      "codes": [
+        "request_sha256_mismatch:provisional",
+        "request_sha256_mismatch:resolved"
+      ]
+    },
+    {
+      "id": "bundle-image-drift",
+      "dir": "bundle/bundle-image-drift",
+      "shared": true,
+      "codes": [
+        "image_mismatch:telemetry-gateway"
+      ]
+    },
+    {
+      "id": "bundle-capacity-drift",
+      "dir": "bundle/bundle-capacity-drift",
+      "shared": true,
+      "codes": [
+        "node_pool_mismatch:gateway:nodes"
+      ]
+    },
+    {
+      "id": "bundle-lock-other-environment",
+      "dir": "bundle/bundle-lock-other-environment",
+      "shared": true,
+      "codes": [
+        "environment_id_mismatch:lock"
+      ]
+    },
+    {
+      "id": "bundle-secret-literal",
+      "dir": "bundle/bundle-secret-literal",
+      "shared": true,
+      "codes": [
+        "secret_literal:resolved"
+      ]
+    },
+    {
+      "id": "bundle-provisional-failed",
+      "dir": "bundle/bundle-provisional-failed",
+      "shared": true,
+      "codes": [
+        "provisional_not_ready",
+        "provisional_sha256_mismatch"
+      ]
+    }
+  ]
+}

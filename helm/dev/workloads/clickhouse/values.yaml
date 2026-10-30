@@ -1,3 +1,5 @@
+# dev(기본) 또는 perf. perf는 image digest·NodePool·StorageClass·용량을 values로 받는다. (ADR-0038)
+environment: dev
 replicaCount: 1
 # DevEksStack의 첫 번째 AZ output을 전달한다. 실제 EBS 복원도 같은 AZ에서 수행한다.
 availabilityZone: ""

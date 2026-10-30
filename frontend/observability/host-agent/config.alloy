@@ -28,6 +28,10 @@ prometheus.relabel "host" {
     replacement = sys.env("HOST_INSTANCE_ID")
   }
   rule {
+    target_label = "availability_zone"
+    replacement = sys.env("HOST_AVAILABILITY_ZONE")
+  }
+  rule {
     target_label = "environment"
     replacement = sys.env("HOST_ENVIRONMENT")
   }

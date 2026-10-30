@@ -1,0 +1,147 @@
+name: Frontend Terraform Bootstrap
+
+on:
+  workflow_call:
+    inputs:
+      apply:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# bootstrap은 dev/prod 공통 state다. PR/배포 모두 같은 잠금을 사용한다.
+concurrency:
+  group: frontend-bootstrap-state
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: frontend-bootstrap-plan
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      changed: ${{ steps.plan.outputs.changed }}
+      digest: ${{ steps.plan.outputs.digest }}
+    env:
+      TF_IN_AUTOMATION: 'true'
+      AWS_EC2_METADATA_DISABLED: 'true'
+      TF_VAR_aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+      TF_VAR_github_subject_prefix: ${{ vars.TF_GITHUB_SUBJECT_PREFIX }}
+      TF_VAR_frontend_github_subject_prefix: ${{ vars.TF_FRONTEND_GITHUB_SUBJECT_PREFIX }}
+      STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      ROLE_ARN: ${{ vars.TF_PLAN_ROLE_ARN }}
+    defaults:
+      run:
+        working-directory: frontend/bootstrap
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: 1.13.5
+          terraform_wrapper: false
+      - name: 입력과 S3 backend 준비
+        run: |
+          test -n "$TF_VAR_aws_account_id"
+          test -n "$TF_VAR_github_subject_prefix"
+          test -n "$TF_VAR_frontend_github_subject_prefix"
+          test -n "$STATE_BUCKET"
+          test -n "$ROLE_ARN"
+          cp backend.tf.example backend.tf
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c # v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ap-northeast-2
+          allowed-account-ids: ${{ env.TF_VAR_aws_account_id }}
+          role-session-name: frontend-bootstrap-${{ github.run_id }}
+      - name: 기존 bootstrap state 연결
+        run: |
+          terraform init -input=false -lockfile=readonly \
+            -backend-config="bucket=$STATE_BUCKET" \
+            -backend-config="allowed_account_ids=[\"$TF_VAR_aws_account_id\"]"
+      - name: bootstrap 계획 확인
+        id: plan
+        run: |
+          set +e
+          terraform plan -input=false -lock-timeout=5m -detailed-exitcode -out=bootstrap.tfplan
+          result=$?
+          set -e
+          if [ "$result" -ne 0 ] && [ "$result" -ne 2 ]; then exit "$result"; fi
+          echo "changed=$([ "$result" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          digest=$(terraform show -json bootstrap.tfplan | python3 ../scripts/bootstrap-plan-digest.py)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          printf 'Bootstrap plan SHA256: `%s`\n' "$digest" >> "$GITHUB_STEP_SUMMARY"
+      - name: 계획 제거
+        if: always()
+        run: rm -f bootstrap.tfplan
+
+  apply:
+    needs: plan
+    if: inputs.apply && github.ref == 'refs/heads/develop' && github.event_name != 'pull_request' && needs.plan.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: frontend-bootstrap-apply
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TF_IN_AUTOMATION: 'true'
+      AWS_EC2_METADATA_DISABLED: 'true'
+      TF_VAR_aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+      TF_VAR_github_subject_prefix: ${{ vars.TF_GITHUB_SUBJECT_PREFIX }}
+      TF_VAR_frontend_github_subject_prefix: ${{ vars.TF_FRONTEND_GITHUB_SUBJECT_PREFIX }}
+      STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      ROLE_ARN: ${{ vars.TF_APPLY_ROLE_ARN }}
+      APPROVED_DIGEST: ${{ needs.plan.outputs.digest }}
+    defaults:
+      run:
+        working-directory: frontend/bootstrap
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: 1.13.5
+          terraform_wrapper: false
+      - name: 입력과 S3 backend 준비
+        run: |
+          test -n "$TF_VAR_aws_account_id"
+          test -n "$TF_VAR_github_subject_prefix"
+          test -n "$TF_VAR_frontend_github_subject_prefix"
+          test -n "$STATE_BUCKET"
+          test -n "$ROLE_ARN"
+          cp backend.tf.example backend.tf
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c # v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ap-northeast-2
+          allowed-account-ids: ${{ env.TF_VAR_aws_account_id }}
+          role-session-name: frontend-bootstrap-${{ github.run_id }}
+      - name: 기존 bootstrap state 연결
+        run: |
+          terraform init -input=false -lockfile=readonly \
+            -backend-config="bucket=$STATE_BUCKET" \
+            -backend-config="allowed_account_ids=[\"$TF_VAR_aws_account_id\"]"
+      - name: 최신 커밋과 승인한 계획 재검증
+        run: |
+          test "$(git ls-remote origin refs/heads/develop | cut -f1)" = "$GITHUB_SHA"
+          terraform plan -input=false -lock-timeout=5m -out=bootstrap.tfplan
+          actual=$(terraform show -json bootstrap.tfplan | python3 ../scripts/bootstrap-plan-digest.py)
+          if [ "$actual" != "$APPROVED_DIGEST" ]; then
+            echo '승인 대기 중 계획 또는 state가 달라졌습니다. 새 실행에서 계획을 다시 확인하세요.' >&2
+            exit 1
+          fi
+      - name: 검증한 계획 적용
+        run: |
+          test "$(git ls-remote origin refs/heads/develop | cut -f1)" = "$GITHUB_SHA"
+          terraform apply -input=false -lock-timeout=5m bootstrap.tfplan
+      - name: 계획 제거
+        if: always()
+        run: rm -f bootstrap.tfplan

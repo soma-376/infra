@@ -147,9 +147,33 @@
                     "minLength": 1
                   },
                   "environment": {
-                    "const": "dev"
+                    "enum": [
+                      "dev",
+                      "perf"
+                    ]
                   }
-                }
+                },
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "environment": {
+                          "const": "perf"
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "targetNamespace": {
+                          "const": "pulsemetry-perf"
+                        },
+                        "kafkaClusterName": {
+                          "const": "soma-376-perf-telemetry"
+                        }
+                      }
+                    }
+                  }
+                ]
               }
             }
           ]

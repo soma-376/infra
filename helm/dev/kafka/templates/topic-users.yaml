@@ -1,7 +1,9 @@
-{{- range $stage := list "validation" "main" }}
+{{- $perf := eq (.Values.environment | default "dev") "perf" -}}
+{{- $stages := ternary (list "perf") (list "validation" "main") $perf -}}
+{{- range $stage := $stages }}
 ---
-{{- $topic := printf "pulsemetry-dev-telemetry-ingress-%s" $stage -}}
-{{- $group := printf "pulsemetry-dev-telemetry-ingest-%s" $stage -}}
+{{- $topic := ternary "pulsemetry-perf-telemetry-ingress" (printf "pulsemetry-dev-telemetry-ingress-%s" $stage) $perf -}}
+{{- $group := ternary "pulsemetry-perf-telemetry-ingest" (printf "pulsemetry-dev-telemetry-ingest-%s" $stage) $perf -}}
 apiVersion: kafka.strimzi.io/v1
 kind: KafkaTopic
 metadata:

@@ -32,7 +32,11 @@ spec:
       automountServiceAccountToken: false
       nodeSelector:
         kubernetes.io/arch: arm64
+        {{- if eq (include "pulsemetry.clickhouse.perf" .) "true" }}
+        karpenter.sh/nodepool: perf-clickhouse
+        {{- else }}
         karpenter.sh/nodepool: pulsemetry-dev-clickhouse
+        {{- end }}
         topology.kubernetes.io/zone: {{ .Values.availabilityZone | quote }}
       tolerations:
         - key: workload
@@ -42,7 +46,11 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: clickhouse
+          {{- if eq (include "pulsemetry.clickhouse.perf" .) "true" }}
+          image: {{ printf "%s@%s" .Values.image.repository .Values.image.digest | quote }}
+          {{- else }}
           image: clickhouse/clickhouse-server:24.8-alpine{{ if .Values.imageDigest }}@{{ .Values.imageDigest }}{{ end }}
+          {{- end }}
           imagePullPolicy: IfNotPresent
           env:
             - name: CLICKHOUSE_DB

@@ -16,8 +16,8 @@
 BFF 단일 프로세스에 맞춰 서비스 desired=1/min=0/max=100이다. 앱 이미지 게시·자동 배포는 [허브 ADR 0022](https://github.com/soma-376/docs/blob/main/adr/0022-frontend-ecs-image-delivery.md)를 따른다. 자동 배포 활성 환경은 deploy 태그를 사용하며 task definition은 계속 Terraform이 소유한다.
 기존 CDK 전용 테스트 규칙은 그대로 유지하고, 새 Terraform은 fmt·validate·mock test로 검증한다.
 기존 CDK 리소스를 Terraform에 import하거나 같은 리소스를 두 도구가 수정하지 않는다.
-실제 apply는 리뷰·머지 후 보호된 CI에서 수행한다. 최초 bootstrap과 이후 bootstrap 변경은 관리자 작업이다.
-다음 미사용 ADR은 **0050**다.
+실제 apply는 리뷰·머지 후 보호된 CI에서 수행한다. 최초 bootstrap CI 역할 준비는 관리자 작업이다. 이후 bootstrap 변경은 ADR-0050에 따라 develop에서 전용 plan/apply 역할과 Environment 승인을 거친다.
+다음 미사용 ADR은 **0051**다.
 
 [ADR-0044](docs/adr/0044-dev-waf-cli-oidc-loopback-query-exception.md)에 따라 정확한 CLI OIDC authorize GET과
 검증된 loopback query에만 SSRF·RFI 두 label의 후속 Block을 제외한다.
@@ -783,3 +783,14 @@ Template.fromStack(edge).hasResourceProperties('AWS::ElasticLoadBalancingV2::Lis
 - PR 대상 브랜치는 `develop`이다. `.github/workflows/pull_request_auto_fill.yml`이 브랜치명에서 Jira 키를 파싱해 제목을 재작성하고 본문에 링크를 넣는다. (`feature`는 `feat`으로 정규화된다.)
 - 브랜치명이 위 규칙에 맞지 않으면(타입 접두사 누락 등) `pull_request_auto_fill.yml`의 Jira 키 파싱이 실패해 제목이 재작성되지 않는다. PR을 올리기 전에 브랜치명을 규칙에 맞춘다. (브랜치가 origin보다 얼마나 앞서는지는 금방 낡으므로 여기 적지 않는다 — `git log --oneline origin/main..HEAD`로 확인한다.)
 - 문서와 코드 주석은 한국어로 작성한다.
+
+
+## perf 환경 (PROJ-292)
+
+- 결정은 [ADR 0050](docs/adr/0050-perf-strimzi-provider-and-isolated-capacity.md), 입력·실제 상태 확인은 [perf 런북](docs/runbooks/perf-environment.md)을 따른다. 현재 배포·부하·정리는 NOT_RUN이다.
+- `lib/perf → lib/common` 단방향. `-c env=perf -c perfEnvironmentId=perf-… -c perfProfile=profiles/perf/strimzi-fixed-v1.json`으로 명시한다. MSK fixed-v1은 과거 v2 호환용이다.
+- canonical v2/v3 환경 계약은 load-tests 소유이며 shared export/SOURCE hash를 검사한다. v2 원본은 바꾸지 않는다. request/provisional/resolved/lock만 동일 버전을 강제한다.
+- Kafka Secret 원문 입력 금지. CA/4 역할 사용자 metadata만 받고 PKCS12 참조와 revision을 기록한다. Kafka CR/ACL/PVC 실측이 부족하면 resolved ready를 만들지 않는다.
+- 공유 dev workload/Kafka chart 기본 렌더는 유지한다. perf에만 namespace·고정 전용 pool·topic/group을 바꾼다. 스택 테스트는 `buildPerfApp()` 팩토리를 사용한다.
+- 승인 상한은 100,000원·24시간 내 생성/seed/시험/삭제, 총 10,000요청·20RPS·실행당 600초·추가 저장 1GiB다. PROJ-294의 budget/cleanup gate 전 배포 금지; Retain은 정리 완료가 아니다.
+- 후속 별도 PR: PROJ-293 공개 HTTPS/WAF, PROJ-294 실행 예산/24시간 정리, PROJ-295 합성 데이터, PROJ-296 발생기 관측, PROJ-297 Strimzi drain 증거, PROJ-298 외부 API/DB 기준선.

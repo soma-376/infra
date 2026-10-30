@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "kind": "perf-profile",
+  "id": "fixed-v1",
+  "status": "hypothesis",
+  "note": "스케줄링과 발생기 보정을 시작할 가설이다. 처리량 보장이 아니며 비용·쿼터·여유 자원 확인 전에는 ready 프로필이 아니다(PLAN §4.1)",
+  "region": "ap-northeast-2",
+  "availability_zone": "ap-northeast-2a",
+  "kubernetes_version": "1.36",
+  "network": {
+    "vpc_cidr": "10.2.0.0/16",
+    "nat_gateways": 1
+  },
+  "node_pools": {
+    "gateway": {
+      "role": "gateway",
+      "instance_type": "m7g.large",
+      "nodes": 1,
+      "capacity_type": "on-demand",
+      "architecture": "arm64",
+      "dedicated": true,
+      "ephemeral_storage_gib": 40
+    },
+    "pipeline": {
+      "role": "pipeline",
+      "instance_type": "m7g.large",
+      "nodes": 1,
+      "capacity_type": "on-demand",
+      "architecture": "arm64",
+      "dedicated": true,
+      "ephemeral_storage_gib": 40
+    },
+    "clickhouse": {
+      "role": "clickhouse",
+      "instance_type": "r7g.large",
+      "nodes": 1,
+      "capacity_type": "on-demand",
+      "architecture": "arm64",
+      "dedicated": true,
+      "ephemeral_storage_gib": 40
+    },
+    "generator": {
+      "role": "generator",
+      "instance_type": "c7g.large",
+      "nodes": 1,
+      "capacity_type": "on-demand",
+      "architecture": "arm64",
+      "dedicated": true,
+      "ephemeral_storage_gib": 80
+    },
+    "observability": {
+      "role": "observability",
+      "instance_type": "m7g.large",
+      "nodes": 1,
+      "capacity_type": "on-demand",
+      "architecture": "arm64",
+      "dedicated": true,
+      "ephemeral_storage_gib": 80
+    },
+    "system": {
+      "role": "system",
+      "instance_type": "m7g.large",
+      "nodes": 1,
+      "capacity_type": "on-demand",
+      "architecture": "arm64",
+      "dedicated": false,
+      "ephemeral_storage_gib": 80
+    }
+  },
+  "workloads": {
+    "telemetry-gateway": {
+      "node_pool": "gateway",
+      "replicas": 1,
+      "cpu_request_millicores": 1500,
+      "memory_request_bytes": 4294967296,
+      "cpu_limit_millicores": null,
+      "memory_limit_bytes": 4294967296
+    },
+    "telemetry-ingest": {
+      "node_pool": "pipeline",
+      "replicas": 1,
+      "cpu_request_millicores": 1500,
+      "memory_request_bytes": 4294967296,
+      "cpu_limit_millicores": null,
+      "memory_limit_bytes": 4294967296
+    },
+    "clickhouse": {
+      "node_pool": "clickhouse",
+      "replicas": 1,
+      "cpu_request_millicores": 1500,
+      "memory_request_bytes": 12884901888,
+      "cpu_limit_millicores": null,
+      "memory_limit_bytes": 12884901888
+    },
+    "enrollment-api": {
+      "node_pool": "system",
+      "replicas": 1,
+      "cpu_request_millicores": 500,
+      "memory_request_bytes": 1073741824,
+      "cpu_limit_millicores": null,
+      "memory_limit_bytes": 1073741824
+    }
+  },
+  "jobs": {
+    "seed": {"node_pool": "system", "cpu_request_millicores": 250, "memory_request_bytes": 536870912, "memory_limit_bytes": 1073741824},
+    "prepare": {"node_pool": "system", "cpu_request_millicores": 250, "memory_request_bytes": 536870912, "memory_limit_bytes": 1073741824},
+    "smoke": {"node_pool": "system", "cpu_request_millicores": 250, "memory_request_bytes": 536870912, "memory_limit_bytes": 1073741824},
+    "sentinel": {"node_pool": "system", "cpu_request_millicores": 250, "memory_request_bytes": 268435456, "memory_limit_bytes": 536870912},
+    "runner": {"node_pool": "generator", "cpu_request_millicores": 1500, "memory_request_bytes": 2147483648, "memory_limit_bytes": 2147483648},
+    "verify": {"node_pool": "system", "cpu_request_millicores": 500, "memory_request_bytes": 2147483648, "memory_limit_bytes": 2147483648}
+  },
+  "clickhouse": {
+    "storage_class": "pulsemetry-perf-gp3",
+    "volume_gib": 100,
+    "iops": 3000,
+    "throughput_mibps": 125
+  },
+  "rds": {
+    "engine_version": "16.13",
+    "instance_class": "db.t4g.medium",
+    "storage_gib": 20,
+    "multi_az": false
+  },
+  "msk": {
+    "kafka_version": "3.9.x.kraft",
+    "broker_count": 3,
+    "instance_type": "kafka.m7g.large",
+    "volume_gib": 100,
+    "partitions": 6,
+    "replication_factor": 3,
+    "min_insync_replicas": 2,
+    "retention_hours": 72,
+    "max_message_bytes": 13631488
+  },
+  "retention": {
+    "evidence_days": 90,
+    "raw_signal_days": 7,
+    "prometheus_days": 7,
+    "prometheus_bytes": 20000000000,
+    "cloudwatch_log_days": 14
+  },
+  "observability": {
+    "scrape_interval_seconds": 10
+  }
+}

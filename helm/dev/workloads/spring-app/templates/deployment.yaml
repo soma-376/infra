@@ -99,7 +99,18 @@ spec:
         fsGroup: 10001
       nodeSelector:
         kubernetes.io/arch: arm64
+        {{- if eq (include "pulsemetry.app.perf" .) "true" }}
+        karpenter.sh/nodepool: {{ .Values.placement.nodePool | quote }}
+      {{- with .Values.placement.taint }}
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: {{ . | quote }}
+          effect: NoSchedule
+      {{- end }}
+        {{- else }}
         karpenter.sh/nodepool: pulsemetry-dev-apps
+        {{- end }}
       terminationGracePeriodSeconds: {{ include "pulsemetry.app.grace" . }}
       {{- if $mounts }}
       initContainers:

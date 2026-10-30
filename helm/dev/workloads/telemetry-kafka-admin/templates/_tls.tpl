@@ -12,7 +12,7 @@ securityContext:
   seccompProfile: {type: RuntimeDefault}
 nodeSelector:
   kubernetes.io/arch: arm64
-  karpenter.sh/nodepool: pulsemetry-dev-apps
+  karpenter.sh/nodepool: {{ if eq ($root.Values.environment | default "dev") "perf" }}perf-system{{ else }}pulsemetry-dev-apps{{ end }}
 containers:
   - name: {{ .container }}
     image: quay.io/strimzi/kafka@sha256:b9b9e37491ce17c1b2722b3668661de91430d9437acf18c5f5bafaef38138652

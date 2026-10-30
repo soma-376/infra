@@ -7,6 +7,9 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/name: clickhouse
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
+{{- define "pulsemetry.clickhouse.perf" -}}{{ if eq (.Values.environment | default "dev") "perf" }}true{{ end }}{{- end -}}
 {{- define "pulsemetry.clickhouse.validate" -}}
-{{- if ne .Release.Namespace "pulsemetry-dev" -}}{{- fail "namespace는 pulsemetry-dev여야 한다" -}}{{- end -}}
+{{- $perf := eq (include "pulsemetry.clickhouse.perf" .) "true" -}}
+{{- $namespace := ternary "pulsemetry-perf" "pulsemetry-dev" $perf -}}
+{{- if ne .Release.Namespace $namespace -}}{{- fail (printf "namespace는 %s여야 한다" $namespace) -}}{{- end -}}
 {{- end -}}

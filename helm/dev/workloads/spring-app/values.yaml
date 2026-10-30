@@ -1,4 +1,6 @@
 # workload별 values와 immutable 이미지 digest를 함께 전달한다.
+# dev(기본) 또는 perf. perf는 namespace·NodePool·Service·MSK 이름 계약이 다르다. (ADR-0038)
+environment: dev
 workload: ""
 replicaCount: 1
 image:

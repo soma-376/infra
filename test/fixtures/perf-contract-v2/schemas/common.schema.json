@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "common.schema.json",
+  "title": "v2 계약 공통 정의",
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "git_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "utc": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$"},
+    "slug": {"type": "string", "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"},
+    "uuid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+    "non_empty": {"type": "string", "minLength": 1},
+    "count": {"type": "integer", "minimum": 0},
+    "positive_int": {"type": "integer", "minimum": 1},
+    "positive_number": {"type": "number", "exclusiveMinimum": 0},
+    "region": {"type": "string", "pattern": "^[a-z]{2}-[a-z]+-[0-9]$"},
+    "availability_zone": {"type": "string", "pattern": "^[a-z]{2}-[a-z]+-[0-9][a-z]$"},
+    "instance_type": {"type": "string", "pattern": "^[a-z][a-z0-9-]*\\.[a-z0-9]+$"},
+    "aws_arn": {"type": "string", "pattern": "^arn:aws[a-z-]*:[a-z0-9-]+:[a-z0-9-]*:([0-9]{12})?:[!-~]+$"},
+    "image_ref": {
+      "description": "registry/repository@sha256:digest. tag만 있는 참조는 거부한다",
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?/[a-z0-9]([a-z0-9._/-]*[a-z0-9])?@sha256:[0-9a-f]{64}$"
+    },
+    "url": {
+      "description": "userinfo·query·fragment가 없는 http(s) 주소. token을 URL에 싣지 않는다",
+      "type": "string",
+      "pattern": "^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~%/-]*)?$"
+    },
+    "secret_ref": {
+      "description": "비밀의 위치만 가리킨다. 값 필드는 두지 않는다",
+      "type": "object",
+      "required": ["provider", "name", "key"],
+      "properties": {
+        "provider": {"enum": ["aws-secretsmanager", "kubernetes-secret", "local-file"]},
+        "name": {"type": "string", "pattern": "^[A-Za-z0-9/_+=.@:-]{1,512}$"},
+        "key": {"type": ["string", "null"], "pattern": "^[A-Za-z0-9_.-]{1,253}$"}
+      },
+      "additionalProperties": false
+    },
+    "artifact": {
+      "type": "object",
+      "required": ["id", "role", "uri", "sha256", "bytes", "media_type", "retained_until"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
+        "role": {"enum": [
+          "deploy-log", "cdk-diff", "smoke", "handoff", "journal", "k6-summary", "k6-console", "prometheus-export",
+          "cloudwatch-export", "k8s-state", "kafka-state", "verification", "report", "other"
+        ]},
+        "uri": {"$ref": "#/$defs/non_empty"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"$ref": "#/$defs/count"},
+        "media_type": {"type": "string", "pattern": "^[a-z]+/[a-z0-9.+-]+$"},
+        "retained_until": {"anyOf": [{"$ref": "#/$defs/utc"}, {"type": "null"}]}
+      },
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]*$"},
+        "message": {"$ref": "#/$defs/non_empty"}
+      },
+      "additionalProperties": false
+    },
+    "inventory_item": {
+      "description": "정리 대상 또는 보존 자원. 소유 태그로 다른 환경 자원과 구분한다",
+      "type": "object",
+      "required": ["resource_type", "identifier", "owner_tag", "retain", "reason"],
+      "properties": {
+        "resource_type": {"$ref": "#/$defs/non_empty"},
+        "identifier": {"$ref": "#/$defs/non_empty"},
+        "owner_tag": {"$ref": "#/$defs/non_empty"},
+        "retain": {"type": "boolean"},
+        "reason": {"type": ["string", "null"], "minLength": 1}
+      },
+      "additionalProperties": false,
+      "if": {"properties": {"retain": {"const": true}}},
+      "then": {"properties": {"reason": {"type": "string"}}}
+    },
+    "infra_source": {
+      "type": "object",
+      "required": ["repository", "commit", "profile", "profile_sha256", "parameters"],
+      "properties": {
+        "repository": {"const": "soma-376/infra"},
+        "commit": {"$ref": "#/$defs/git_commit"},
+        "profile": {"type": "string", "pattern": "^profiles/perf/[a-z0-9-]+\\.json$"},
+        "profile_sha256": {"$ref": "#/$defs/sha256"},
+        "parameters": {
+          "type": "object",
+          "propertyNames": {"type": "string", "pattern": "^[a-z][a-zA-Z0-9_.]*$"},
+          "additionalProperties": {"type": ["string", "number", "boolean"]}
+        }
+      },
+      "additionalProperties": false
+    },
+    "lock_location": {
+      "type": "object",
+      "required": ["namespace", "configmap_name"],
+      "properties": {
+        "namespace": {"$ref": "#/$defs/slug"},
+        "configmap_name": {"$ref": "#/$defs/slug"}
+      },
+      "additionalProperties": false
+    },
+    "stack": {
+      "type": "object",
+      "required": ["name", "arn"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9-]{0,127}$"},
+        "arn": {"$ref": "#/$defs/aws_arn"}
+      },
+      "additionalProperties": false
+    },
+    "namespaces": {
+      "type": "object",
+      "required": ["app", "observability", "runner"],
+      "properties": {
+        "app": {"$ref": "#/$defs/slug"},
+        "observability": {"$ref": "#/$defs/slug"},
+        "runner": {"$ref": "#/$defs/slug"}
+      },
+      "additionalProperties": false
+    },
+    "endpoints": {
+      "description": "gateway만 부하 전송 대상이다. enrollment는 준비 도구 전용이다",
+      "type": "object",
+      "required": ["gateway", "enrollment", "clickhouse_http", "prometheus_remote_write"],
+      "properties": {
+        "gateway": {"$ref": "#/$defs/url"},
+        "enrollment": {"$ref": "#/$defs/url"},
+        "clickhouse_http": {"$ref": "#/$defs/url"},
+        "prometheus_remote_write": {"$ref": "#/$defs/url"}
+      },
+      "additionalProperties": false
+    },
+    "lifecycle_state": {"enum": [
+      "DRAFT", "PREPARED", "PREFLIGHT_PASSED", "RUNNING", "DRAINING", "VERIFYING", "FINALIZED", "CLEANED", "ABORTED"
+    ]},
+    "verdict_status": {"enum": ["PASS", "FAIL", "INCONCLUSIVE", "NOT_RUN"]},
+    "judgement_profile": {"enum": ["default", "strict"]},
+    "correctness_scope": {"enum": ["clickhouse-logical-full", "archive-full"]},
+    "analysis": {
+      "type": "object",
+      "required": ["revision", "created_at", "tool_commit", "input_artifact_sha256", "supersedes", "correction_reason"],
+      "properties": {
+        "revision": {"anyOf": [{"$ref": "#/$defs/count"}, {"type": "null"}]},
+        "created_at": {"anyOf": [{"$ref": "#/$defs/utc"}, {"type": "null"}]},
+        "tool_commit": {"anyOf": [{"$ref": "#/$defs/git_commit"}, {"type": "null"}]},
+        "input_artifact_sha256": {"type": "array", "items": {"$ref": "#/$defs/sha256"}, "uniqueItems": true},
+        "supersedes": {"type": ["string", "null"], "minLength": 1},
+        "correction_reason": {"type": ["string", "null"], "minLength": 1}
+      },
+      "additionalProperties": false
+    }
+  }
+}

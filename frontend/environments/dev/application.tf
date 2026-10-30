@@ -17,7 +17,7 @@ module "application" {
   environment        = "dev"
   aws_account_id     = var.aws_account_id
   vpc_id             = module.network.vpc_id
-  public_subnet_ids  = values(module.network.public_subnet_ids)
+  public_subnet_ids  = [module.network.public_subnet_ids["ap-northeast-2a"], module.network.public_subnet_ids["ap-northeast-2c"]]
   private_subnet_ids = values(module.network.private_subnet_ids)
   runtime            = var.runtime
   telemetry          = var.frontend_telemetry_enabled ? { endpoint = module.observability[0].otlp_endpoint } : null

@@ -1,0 +1,65 @@
+{{- include "perfRuntime.validate" . -}}
+{{- /*
+runner namespace: seed·prepare Job의 PG*·SYNTHETIC_SEED_SECRET 파일과 prepare의 JWT 공개키 하나.
+Kubernetes Secret으로 복제하지 않는다. Job은 파일을 읽어 perf-jobs.md의 환경 변수로 넘긴다.
+CSI driver가 fsGroup을 보장하지 않으므로 읽을 파일은 0444다(helm/dev/runtime/README.md).
+*/ -}}
+{{- range $job := list "seed" "prepare" }}
+---
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: perf-{{ $job }}
+  namespace: pulsemetry-perf-runner
+  labels:
+    app.kubernetes.io/name: perf-{{ $job }}
+    {{- include "perfRuntime.labels" $ | nindent 4 }}
+spec:
+  provider: aws
+  parameters:
+    region: {{ $.Values.region | quote }}
+    usePodIdentity: "true"
+    preferredAddressType: ipv4
+    objects: |
+      - objectName: {{ ternary $.Values.secrets.seedDbArn $.Values.secrets.verifyDbArn (eq $job "seed") | quote }}
+        objectType: secretsmanager
+        objectAlias: _source_db_json
+        filePermission: "0400"
+        jmesPath:
+          - path: username
+            objectAlias: PGUSER
+            filePermission: "0444"
+          - path: password
+            objectAlias: PGPASSWORD
+            filePermission: "0444"
+      - objectName: {{ $.Values.secrets.syntheticSeedArn | quote }}
+        objectType: secretsmanager
+        objectAlias: SYNTHETIC_SEED_SECRET
+        filePermission: "0444"
+{{- end }}
+---
+{{- /* prepare는 active kid의 공개키 PEM 하나만 받는다. 개인키 원본은 참조하지 않는다. */}}
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: perf-prepare-jwt
+  namespace: pulsemetry-perf-runner
+  labels:
+    app.kubernetes.io/name: perf-prepare
+    {{- include "perfRuntime.labels" . | nindent 4 }}
+spec:
+  provider: aws
+  parameters:
+    region: {{ .Values.region | quote }}
+    usePodIdentity: "true"
+    preferredAddressType: ipv4
+    objects: |
+      - objectName: {{ .Values.secrets.telemetryJwtPublicKeysArn | quote }}
+        objectType: secretsmanager
+        objectVersion: {{ .Values.telemetryJwt.publicVersionId | quote }}
+        objectAlias: _source_telemetry_public_keys_json
+        filePermission: "0400"
+        jmesPath:
+          - path: {{ .Values.telemetryJwt.activeKid | toJson | quote }}
+            objectAlias: telemetry-jwt-public.pem
+            filePermission: "0444"

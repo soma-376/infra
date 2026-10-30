@@ -165,7 +165,7 @@ suite('Strimzi 관측 계약', () => {
     ['global.pulsemetry.kafkaClusterName=', 'Kafka 이름 누락'],
     ['global.pulsemetry.kafkaProvider=unknown', '알 수 없는 공급자'],
     ['global.pulsemetry.kafkaProvider=msk', 'MSK 전환 시 cluster/broker DNS 입력 누락'],
-    ['global.pulsemetry.environment=perf', 'dev 전용 Strimzi 범위'],
+    ['global.pulsemetry.environment=perf', 'perf 환경과 dev Kafka namespace/cluster 혼합'],
   ])('%s: %s는 시작 전에 거부한다', (override) => {
     const result = spawnSync(process.env.HELM_BIN!, ['template', 'observability', chart, '-n', 'pulsemetry-observability', '-f', fixture, '--set', override], { encoding: 'utf8', timeout: 120_000 });
     expect(result.status).not.toBe(0);
