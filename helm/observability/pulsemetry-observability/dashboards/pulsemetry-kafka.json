@@ -459,7 +459,7 @@
     },
     {
       "id": 6,
-      "type": "timeseries",
+      "type": "stat",
       "title": "확인된 commit 기준 lag",
       "description": "미커밋 partition을 제외한 commit 기준 offset lag(record 수)다. 옆 미커밋 수가 0이 아니면 전체 backlog를 뜻하지 않는다. 모두 미커밋·group 미생성·수집 실패는 빈 값이며 0으로 바꾸지 않는다. http 모드에서는 해당 없다.",
       "datasource": {
@@ -474,27 +474,34 @@
             "type": "prometheus",
             "uid": "pulsemetry-prometheus"
           },
-          "legendFormat": "{{consumergroup}} {{topic}}"
+          "legendFormat": "{{consumergroup}} {{topic}}",
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "noValue": "미수집 · targets/labels 확인",
-          "custom": {
-            "spanNulls": false
+          "decimals": 0,
+          "noValue": "미수집",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
           }
         },
         "overrides": []
       },
       "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom"
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "tooltip": {
-          "mode": "multi"
-        }
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
       },
       "gridPos": {
         "x": 12,
@@ -958,7 +965,8 @@
           },
           "expr": "pulsemetry:kafka_uncommitted_partitions:count{topic=\"$topic\",consumergroup=\"$consumer_group\",cluster=\"$cluster\",kafka_cluster=\"$kafka_cluster\"}",
           "instant": true,
-          "legendFormat": "uncommitted partitions"
+          "legendFormat": "uncommitted partitions",
+          "range": false
         }
       ],
       "fieldConfig": {

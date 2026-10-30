@@ -1,0 +1,26 @@
+{
+  "uid": "pulsemetry-msk",
+  "title": "Pulsemetry · MSK 전환 전 이력 안내",
+  "description": "MSK에서 Strimzi로 전환한 dev의 이전 대시보드 주소 안내다. 현재 MSK 지표를 조회하지 않는다.",
+  "tags": ["pulsemetry-history", "PROJ-191"],
+  "timezone": "utc",
+  "editable": false,
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "",
+  "time": {"from": "now-30m", "to": "now"},
+  "templating": {"list": []},
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "dev Kafka는 Strimzi로 전환됐습니다",
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 8},
+      "options": {
+        "mode": "markdown",
+        "content": "현재 dev Kafka의 상태·commit 기준 lag·미커밋 partition 수는 [Strimzi Kafka 대시보드](/d/pulsemetry-kafka)에서 확인합니다.\n\n이 주소는 MSK 전환 전 대시보드의 안내로 보존합니다. 현재 수집 상태나 Kafka 정상 여부를 판정하는 화면이 아닙니다. 저장된 과거 Prometheus 표본은 삭제하지 않습니다.\n\n전환·검증 기록: [PROJ-285](https://team376.atlassian.net/browse/PROJ-285), [infra #85](https://github.com/soma-376/infra/pull/85)."
+      }
+    }
+  ]
+}
