@@ -7,22 +7,55 @@
 전제는 JWT/Gateway/Kafka·mTLS와 내부 management 9404를 구현한 Backend 이미지다.
 Grafana는 운영자 localhost port-forward로 접속하며 public ALB/Ingress를 추가하지 않는다.
 
-## 확인된 기준선과 남은 완료 검증
+## 현재 판정과 검증 근거
 
-2026-10-29 [PROJ-285](https://team376.atlassian.net/browse/PROJ-285)의 실제 검증에서 Strimzi target 7개,
+**현재 상태: observability revision 8·Tempo revision 2 적용, G8 API·실제 UI·30분 관찰·종료 후 자원 대조를 통과해 완료조건 검증 PASS. 실제 상태는 각 Jira에서 확인한다.**
+최신 source·release revision·검증 범위와 한계는 [Strimzi 관측 완료 근거](proj191-strimzi-completion.md)에 모은다.
+[infra #87](https://github.com/soma-376/infra/pull/87)은 commit 기준 lag와 미커밋 partition을 분리하고
+Tempo 보존 정책을 scheduler·worker 양쪽에 48h로 반영했다.
+[infra #88](https://github.com/soma-376/infra/pull/88)은 lag Stat 표시와 현재 수집 대상·로그 링크를 정정했다.
+[infra #89](https://github.com/soma-376/infra/pull/89)의 Pipeline 안내문 정정은 2026-10-30 05:29:19 UTC에
+observability revision 8로 적용했다. 최종 source는 `8d230aa1ad77efdd2d6ae907ba1f5be7e1c13239`다.
+05:32 UTC G8 API에서 revision 7과 query·변수·표시 계약이 같고 안내문만 바뀐 것을 확인해 684개 query 대조를 재사용했다.
+05:33 UTC 실제 UI에서 Strimzi 안내문·lag/미커밋·빈 값 표시, 기존 k6 실행 선택과 같은 Kafka 요청의 로그↔trace 왕복을 재확인했다.
+05:34 UTC 자원 대조에서 revision 6 이후 Pod/spec 추가 변경 없음, imageID·PVC/PV·관측 수신 정책 3개 보존을 확인했다.
+최종 30분 관찰은 05:30:52.715–06:00:53.525 UTC, 1,800.808초·31표본으로 PASS했다.
+Gateway ACK·ingest completed는 각각 +499, ClickHouse INSERT success는 +228, Collector sent spans는 +182,
+Fluent Bit의 Loki 전용 전송은 +2,743이었다. 60/60 target UP, 관측된 실패·drop·retry·restart 증가 0이며
+미노출 event counter 3개는 `null / not_emitted`로 구분했다.
+06:01:18 UTC 종료 자원 대조에서도 Pod UID/spec·이미지·PVC/PV와 revision 8 기준 정책 6개·ConfigMap을 보존했다.
+N5의 최초 기준선과 직접 비교한 정책 3개와 종료 비교의 정책 6개는 서로 다른 범위다.
+
+2026-10-29 [PROJ-285](https://team376.atlassian.net/browse/PROJ-285)의 Strimzi target 7개,
 main Gateway ACK→Kafka record→consume/commit→ClickHouse, sampled trace·양 앱 Loki 로그 연결,
-30분 안정화 및 의도한 TLS 실패 경보 발생·해제와 broker 로그 배송을 확인했다.
-MSK active scrape·전용 경보 제거 후 최종 추적 profile은 [infra #85](https://github.com/soma-376/infra/pull/85),
+공개 요청 31회의 30분 안정화와 TLS 실패 경보 발생·해제 및 broker 로그 배송은 기존 배포 증거다.
+MSK active scrape·전용 경보 제거 후 최종 profile은 [infra #85](https://github.com/soma-376/infra/pull/85),
 배포는 [CD #40877081590](https://github.com/soma-376/infra/actions/runs/40877081590)에 연결된다.
 철거 후 두 요청은 unsampled이므로 trace 연결 증거는 앞선 sampled 요청을 사용한다.
 
+2026-10-30에는 같은 sampled 요청의 Grafana 로그→Tempo trace→로그 UI 왕복과 최신 N5를 확인했다.
+Gateway·ingest 각각의 Collector 허용 경로, Fluent Bit→Loki·Collector→Tempo 기능 대조,
+허용 포트 5개와 비허용 경로 11개 차단을 확인했고 소유한 probe Job·Pod를 정리했다.
+빈 실패 event counter는 실측 0으로 해석하지 않는다.
+
+보존은 dev의 Loki 72h·Tempo scheduler/worker 48h 설정과 같은 digest의 격리 시험을 구분한다.
+격리 저장소에서 5분 정책으로 축소한 fixture는 만료 전 생존, 자동 chunk/block 삭제,
+같은 저장소 재시작 후 조회 불가와 새 입력 조회를 통과했다. 삭제 직후 Loki cache가 반환한 결과와
+재시작 후 부재를 각각 기록했다. dev 과거 특정 파일의 물리 삭제나 72h/48h 전체 기간 재현은 검증하지 않았다.
+
 [PROJ-255](https://team376.atlassian.net/browse/PROJ-255)·[PROJ-256](https://team376.atlassian.net/browse/PROJ-256)의
-2026-10-26 HTTP/k6·Loki·Tempo·장애 격리·PVC 복구 증거도 해당 범위에서 재사용한다.
-아래 절차를 처음부터 재실행하지 말고 현재 source SHA·image digest·Helm revision과 기준선의 차이를 먼저 확인한다.
-Strimzi 전환 증거와 별도로 최신 lag 수집 판정, Grafana 패널 전수·실제 Kafka 로그↔trace UI 왕복,
-Gateway·ingest 각각의 N5 허용 대조, Loki 72h·Tempo 48h 만료 삭제를 확인해야 세 티켓의 완료를 판정할 수 있다.
-이번 완료 작업의 새 검증 결과는 실행 시각·배포 revision·판정·한계를 포함해 각 티켓에 추가한다.
-이 절은 새 실행의 성공을 미리 선언하지 않으며 ADR-0039의 `Proposed` 상태도 바꾸지 않는다.
+2026-10-26 HTTP/k6·장애 격리·PVC 복구 증거는 해당 범위에서 재사용한다.
+아래 절차를 반복하기 전에 source SHA·image digest·Helm revision의 차이를 먼저 확인한다.
+최신 G8과 배포 후 수동 트래픽 생성 없는 30분 관찰 결과는 완료 근거 문서의 별도 항목에 기록하며,
+기존 31회 요청 결과를 새 관찰 성공으로 대체하지 않는다. ADR-0039의 `Proposed` 상태는 유지한다.
+
+이번 표시 변경의 복구 대상은 `observability` revision 8→7이며 Tempo는 revision 2를 유지한다.
+Strimzi와 `network-removed` profile·PVC·기존 앱 설정을 보존한다. MSK retain 입력으로 재생성하거나
+Tempo worker가 48h로 고쳐지기 전 revision 1로 되돌리지 않는다. 실제 rollback 실행 증거는 아니다.
+revision 6의 중단 관찰과 revision 8 Helm hook 추가로 FAIL한 revision 7 관찰은 최종 관찰과 분리해 기록했다.
+최종 관찰의 표본 범위는 2026-10-30 05:30:53.713–06:00:53.507 UTC이며 이전 실행 시간을 합산하지 않았다.
+완료조건 검증은 PASS이며 실제 상태는 [PROJ-191](https://team376.atlassian.net/browse/PROJ-191)·
+[PROJ-255](https://team376.atlassian.net/browse/PROJ-255)·[PROJ-256](https://team376.atlassian.net/browse/PROJ-256)에서 확인한다.
 
 ## 적용 순서와 입력
 
