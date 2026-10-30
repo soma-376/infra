@@ -471,7 +471,7 @@
       },
       "id": 18,
       "options": {
-        "content": "현재 앱은 2a에서 한 개만 실행됩니다. Node 지표에는 AZ·EC2 라벨이 없어 상단 OS 필터가 적용되지 않습니다. service_instance_id는 프로세스 시작마다 바뀌는 ID입니다. RSS는 프로세스 상주 메모리, 힙 사용 비율은 확보한 힙 대비 비율이며 컨테이너 한도 대비 비율이 아닙니다.",
+        "content": "앱 배치는 ECS 태스크 목록에서 확인합니다. Node 지표에는 AZ·EC2 라벨이 없어 상단 OS 필터가 적용되지 않습니다. service_instance_id는 프로세스 시작마다 바뀌는 ID입니다. RSS는 프로세스 상주 메모리, 힙 사용 비율은 확보한 힙 대비 비율이며 컨테이너 한도 대비 비율이 아닙니다.",
         "mode": "markdown"
       },
       "title": "dev Node.js · 프로세스별 자원",
