@@ -61,7 +61,7 @@
 {{- $volumes = list $inputs $identities $bundle
   (dict "name" "out" "mountPath" "/out" "emptyDir" (dict "sizeLimit" $v.runner.outputSizeLimit)) -}}
 {{- else if eq $job "verify" -}}
-{{- /* Kafka lag은 CloudWatch AWS/Kafka SumOffsetLag(DEFAULT 모니터링)으로 읽는다. 이름은 이 환경의 MSK·Consumer 계약이다. */ -}}
+{{- /* 공급자별 drain 입력. Strimzi는 합계 scalar 대신 partition·원천 표본 시각을 검증한다. */ -}}
 {{- $env = concat $env (list
   (dict "name" "CLICKHOUSE_URL" "value" $v.endpoints.clickhouse)
   (dict "name" "PROMETHEUS_URL" "value" $v.endpoints.prometheus)
@@ -73,8 +73,15 @@
 {{- if $infra.msk -}}
 {{- $env = concat $env (list (dict "name" "MSK_CLUSTER_NAME" "value" $infra.msk.clusterName) (dict "name" "KAFKA_CONSUMER_GROUP" "value" $infra.msk.consumerGroup) (dict "name" "KAFKA_TOPIC" "value" $infra.msk.topic)) -}}
 {{- else -}}
-{{- $_ := required "Strimzi verify에는 공급자별 lag 검증 입력이 필요하다(PROJ-297)" $v.tools.kafkaLagQuery -}}
-{{- $env = concat $env (list (dict "name" "KAFKA_PROVIDER" "value" "strimzi") (dict "name" "KAFKA_CONSUMER_GROUP" "value" $infra.kafka.consumerGroup) (dict "name" "KAFKA_TOPIC" "value" $infra.kafka.topic)) -}}
+{{- if $v.tools.kafkaLagQuery -}}{{- include "perfJobs.fail" "Strimzi verify에는 scalar kafkaLagQuery를 지정할 수 없다" -}}{{- end -}}
+{{- $env = concat $env (list
+  (dict "name" "KAFKA_PROVIDER" "value" "strimzi")
+  (dict "name" "KAFKA_METRICS_ENVIRONMENT" "value" "perf")
+  (dict "name" "KAFKA_CLUSTER_NAME" "value" $infra.kafka.clusterName)
+  (dict "name" "KAFKA_NAMESPACE" "value" $infra.kafka.namespace)
+  (dict "name" "KAFKA_PARTITIONS" "value" $infra.kafka.partitions)
+  (dict "name" "KAFKA_CONSUMER_GROUP" "value" $infra.kafka.consumerGroup)
+  (dict "name" "KAFKA_TOPIC" "value" $infra.kafka.topic)) -}}
 {{- end -}}
 {{- /* 선택 입력은 값이 있을 때만 넘긴다. 도구 기본값을 chart가 대신 정하지 않는다. */ -}}
 {{- range $item := list (list "KAFKA_LAG_QUERY" $v.tools.kafkaLagQuery) (list "DRAIN_POLL_SECONDS" $v.tools.drainPollSeconds) (list "VERIFY_POLL_DEADLINE_SECONDS" $v.deadlines.verifyPollDeadlineSeconds) (list "TOOL_COMMIT" $v.tools.toolCommit) -}}
