@@ -96,8 +96,16 @@ Strimzi suite는 MSK 입력 없는 렌더, 공급자/범위 오류 거부, 4개 
 2026-10-29 [PROJ-285](https://team376.atlassian.net/browse/PROJ-285)에는 target 7개, main ACK→consume→commit→ClickHouse,
 sampled trace·로그 연결, 30분 안정화, TLS 실패 경보 발생·해제와 broker 로그 배송의 실제 증거가 있다.
 MSK active scrape·전용 경보 제거 후 최종 profile은 [infra #85](https://github.com/soma-376/infra/pull/85)에 반영됐다.
-이 기록은 해당 시점·시험 부하에 한정한다. PROJ-255·256의 최신 패널/N5/UI 왕복·보존 만료 삭제 결과는
-[관측 런북의 완료 검증](../../docs/runbooks/dev-observability.md#확인된-기준선과-남은-완료-검증)에서 별도로 관리한다.
+이 기록은 해당 시점·시험 부하에 한정한다. 2026-10-30에는 최신 N5, 실제 Kafka 요청의 로그↔trace UI 왕복,
+동일 digest의 격리 보존 삭제·재시작 비복원·새 입력을 확인했다. dev 정책은 Loki 72h·Tempo 48h이고
+격리 시험은 5분으로 축소했으므로 dev 특정 파일 삭제나 전체 보존 기간 재현을 뜻하지 않는다.
+최종 source·Helm revision·G8·배포 후 30분 판정은
+[Strimzi 관측 완료 근거](../../docs/runbooks/proj191-strimzi-completion.md)에 기록한다.
+observability revision 8·Tempo revision 2와 G8 API·실제 UI 대조는 확인됐다. query·변수·표시 계약이 같음을 대조해
+revision 7의 684개 query 검증을 재사용한다. revision 8의 imageID·PVC/PV·관측 수신 정책 3개 보존도 확인했고
+30분 관찰·Jira 판정은 아직 대기 중이다.
+표시 rollback은 observability 8→7 범위이며 Tempo 2·현재 Strimzi·`network-removed` profile을 유지한다. 재검증 절차는
+[관측 런북](../../docs/runbooks/dev-observability.md#현재-판정과-검증-근거)을 따른다.
 
 공식 근거: [1.3.0 KafkaExporter](https://github.com/strimzi/strimzi-kafka-operator/blob/1.3.0/cluster-operator/src/main/java/io/strimzi/operator/cluster/model/KafkaExporter.java),
 [metrics 포트](https://github.com/strimzi/strimzi-kafka-operator/blob/1.3.0/cluster-operator/src/main/java/io/strimzi/operator/cluster/model/metrics/MetricsModel.java),
