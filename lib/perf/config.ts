@@ -1,3 +1,4 @@
+import { loadPerfEdgeConfig, PerfEdgeConfig, PERF_GATEWAY_HTTPS } from './edge-config';
 import { resolve } from 'node:path';
 import { App } from 'aws-cdk-lib/core';
 import { LoadedPerfProfile, PerfPoolId, loadPerfProfile, kafkaProfile } from './profile';
@@ -26,6 +27,7 @@ export const PERF_STACK_IDS = {
   network: 'PerfNetworkStack',
   data: 'PerfDataStack',
   eks: 'PerfEksStack',
+  edge: 'PerfEdgeStack',
 } as const;
 
 export const PERF_EKS_CLUSTER_NAME = 'soma-376-perf-eks';
@@ -128,6 +130,7 @@ export function perfSecretName(environmentId: string, name: string): string {
 export interface PerfConfig {
   /** 계약 `environment.environment_id`. 소유 태그·Secret 이름에 들어간다. */
   readonly environmentId: string;
+  readonly edge?: PerfEdgeConfig;
   readonly profile: LoadedPerfProfile;
   /** 프로필 기본값을 덮어쓴 배포 입력. 계약 `infra.parameters`에 그대로 기록한다. */
   readonly natGateways: number;
@@ -160,6 +163,7 @@ export function loadPerfConfig(app: App, repositoryRoot = resolve(__dirname, '..
   if (profile.profile.kafka_provider === 'strimzi' && app.node.tryGetContext('perfMskBrokerVolumeGiB') !== undefined) throw new Error('Strimzi 프로필은 perfMskBrokerVolumeGiB를 받지 않는다');
   return {
     environmentId,
+    edge: loadPerfEdgeConfig(app),
     profile,
     natGateways: contextInteger(app, 'perfNatGateways', profile.profile.network.nat_gateways, 1, 3),
     mskBrokerVolumeGiB: contextInteger(app, 'perfMskBrokerVolumeGiB', kafkaProfile(profile.profile).volume_gib, 1, 16_384),
@@ -170,6 +174,7 @@ export function loadPerfConfig(app: App, repositoryRoot = resolve(__dirname, '..
 export function perfInfraParameters(config: PerfConfig): Record<string, string | number> {
   return {
     environmentId: config.environmentId,
+    ...(config.edge ? { certificateArn: config.edge.certificateArn, gatewayHttps: PERF_GATEWAY_HTTPS } : {}),
     natGateways: config.natGateways,
     ...(config.profile.profile.kafka_provider === 'strimzi' ? { kafkaProvider: 'strimzi', kafkaVolumeGiB: config.profile.profile.strimzi!.volume_gib } : { mskBrokerVolumeGiB: config.mskBrokerVolumeGiB }),
     clickhouseVolumeGiB: config.profile.profile.clickhouse.volume_gib,

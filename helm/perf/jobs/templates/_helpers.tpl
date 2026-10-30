@@ -46,7 +46,14 @@
 {{- if not (and $v.run $v.run.runId $v.run.experimentId) -}}{{- include "perfJobs.fail" "run.experimentId·run.runId가 필요하다" -}}{{- end -}}
 {{- if ne $v.evidenceUri (printf "%s%s/%s/" $evidence $v.run.experimentId $v.run.runId) -}}{{- include "perfJobs.fail" (printf "evidenceUri는 %s<experiment>/<run>/이다" $evidence) -}}{{- end -}}
 {{- end -}}
-{{- range $key := list "gateway" "enrollment" "clickhouse" "prometheus" "remoteWrite" -}}
+{{- $ingress := $v.ingressPath | default "internal" -}}
+{{- $gateway := $infra.endpoints.gateway -}}
+{{- if eq $ingress "alb_https" -}}
+{{- if ne (int $v.contractVersion) 3 -}}{{- include "perfJobs.fail" "공개 HTTPS 경로에는 v3 Job 입력이 필요하다" -}}{{- end -}}
+{{- $gateway = required "공개 HTTPS 경로가 배포되지 않았다" $infra.endpoints.gatewayHttps -}}
+{{- end -}}
+{{- if ne $v.endpoints.gateway $gateway -}}{{- include "perfJobs.fail" "선택한 ingressPath의 gateway endpoint와 다르다" -}}{{- end -}}
+{{- range $key := list "enrollment" "clickhouse" "prometheus" "remoteWrite" -}}
 {{- if ne (index $v.endpoints $key) (index $infra.endpoints $key) -}}{{- include "perfJobs.fail" (printf "endpoints.%s가 이 환경의 Service 주소와 다르다" $key) -}}{{- end -}}
 {{- end -}}
 {{- if and (eq $v.job "verify") (ne $v.rawArchiveUri $infra.rawArchiveUri) -}}{{- include "perfJobs.fail" "rawArchiveUri가 이 환경의 raw prefix와 다르다" -}}{{- end -}}

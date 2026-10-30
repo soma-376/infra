@@ -106,6 +106,22 @@ suite('perf Helm chart', () => {
     rejects('helm/perf/jobs', 'pulsemetry-perf-runner', [file, jobValues({ contractVersion: 3, kafka: infra.kafka })], ['job=verify']);
   });
 
+  test('ingressPath는 선택한 배포 origin만 runner에 전달하고 내부 fallback을 하지 않는다', () => {
+    const infra = (load(readFileSync(generated('jobs.yaml'), 'utf8')) as any).infra;
+    infra.contractVersion = 3; infra.msk.partitions = 6;
+    infra.endpoints.gatewayHttps = 'https://perf-api.pulsemetry.co.kr';
+    const kafka = { ...infra.msk, provider: 'msk' };
+    const file = join(directory, 'https-infra.yaml'); writeFileSync(file, dump({ infra }));
+    const selected = jobValues({ contractVersion: 3, kafka, ingressPath: 'alb_https', endpoints: { ...infra.endpoints, gatewayHttps: undefined, gateway: infra.endpoints.gatewayHttps } });
+    const job = render('runner', 'helm/perf/jobs', 'pulsemetry-perf-runner', [file, selected], ['job=runner'])[0];
+    expect(job.spec.template.spec.containers[0].env).toContainEqual({ name: 'GATEWAY_ENDPOINT', value: 'https://perf-api.pulsemetry.co.kr' });
+    expect(job.spec.template.spec.containers[0].env).toContainEqual({ name: 'INGRESS_PATH', value: 'alb_https' });
+    rejects('helm/perf/jobs', 'pulsemetry-perf-runner', [file, selected], ['job=runner', 'ingressPath=internal']);
+    rejects('helm/perf/jobs', 'pulsemetry-perf-runner', [file, selected], ['job=runner', 'endpoints.gateway=https://unexpected.example']);
+    rejects('helm/perf/jobs', 'pulsemetry-perf-runner', [file, selected], ['job=runner', 'infra.endpoints.gatewayHttps=null']);
+    rejects('helm/perf/jobs', 'pulsemetry-perf-runner', [generated('jobs.yaml'), jobValues({ ingressPath: 'alb_https' })], ['job=runner']);
+  });
+
   test('platform: namespace 4개, StorageClass, pool마다 NodeClass·고정 용량 NodePool', () => {
     const documents = render('perf-platform', 'helm/perf/platform', 'default', [generated('platform.yaml')]);
     schema(documents);

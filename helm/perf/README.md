@@ -1,10 +1,10 @@
 # perf Helm 구성
 
 perf 전용 EKS(`soma-376-perf-eks`)에 설치하는 Kubernetes 선언이다. AWS 자원은 CDK `-c env=perf`가,
-노드 생성·교체는 Auto Mode가, 아래 release는 Helm이 소유한다. ALB·LBC·TargetGroupBinding·dashboard·
-사용자 JWT·OIDC는 설치하지 않는다(PLAN §4.2). 배포·실행 절차는 [perf 환경 런북](../../docs/runbooks/perf-environment.md)을 따른다.
+노드 생성·교체는 Auto Mode가, 아래 release는 Helm이 소유한다. runtime 인증서 입력이 있으면
+ADR-0051의 HTTPS ALB·LBC·Gateway TGB를 추가한다. dashboard·사용자 JWT·OIDC는 설치하지 않는다. 배포·실행 절차는 [perf 환경 런북](../../docs/runbooks/perf-environment.md)을 따른다.
 
-> Strimzi 설치와 v3 입력은 [현재 런북](../../docs/runbooks/perf-environment.md)을 먼저 따른다. 아래 MSK 설명은 v2 호환 경로이며 공개 경로·실행 예산·24시간 정리 구현 완료를 뜻하지 않는다.
+> Strimzi 설치와 v3 입력은 [현재 런북](../../docs/runbooks/perf-environment.md)을 먼저 따른다. 아래 MSK 설명은 v2 호환 경로이며 공개 경로의 실제 성공·실행 예산·24시간 정리 검증 완료를 뜻하지 않는다.
 
 ## values의 출처
 
@@ -39,7 +39,7 @@ CSI·ASCP·Fluent Bit chart archive와 SHA256은 [`helm/dev/runtime/versions.jso
 CH `/ping` → enrollment 기동·Flyway → topic 관리 Job → Consumer(DDL 소유자) → Gateway 순서는 PLAN §4.3 5단계다.
 
 공유 workload chart(`helm/dev/workloads/*`)는 `environment: perf`일 때만 perf namespace·NodePool·ClusterIP·
-perf MSK 이름을 쓴다. 기본값 dev의 렌더 결과는 바꾸지 않는다(ADR-0050).
+perf Kafka 이름을 쓴다. Gateway만 선택적 NodePort/TGB를 지원하며 내부 Service 주소는 같다. 기본값 dev의 렌더 결과는 바꾸지 않는다(ADR-0050).
 
 ## NodePool
 

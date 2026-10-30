@@ -403,6 +403,9 @@
             },
             "remoteWrite": {
               "type": "string"
+            },
+            "gatewayHttps": {
+              "const": "https://perf-api.pulsemetry.co.kr"
             }
           }
         },
@@ -629,6 +632,12 @@
             }
           }
         }
+      ]
+    },
+    "ingressPath": {
+      "enum": [
+        "internal",
+        "alb_https"
       ]
     }
   },

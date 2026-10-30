@@ -1,3 +1,4 @@
+import { PERF_GATEWAY_HTTPS, PERF_GATEWAY_NODE_PORT } from './edge-config';
 import { PERF_STRIMZI, PerfStrimziMetadata } from './strimzi';
 import { JsonObject, PerfOutputs, PerfRuntimeInput, fail, isObject, requiredOutput } from './deploy-inputs';
 import {
@@ -59,6 +60,9 @@ export function checkDeployment(outputs: PerfOutputs, profile: LoadedPerfProfile
   const infra = isObject(request.infra) ? request.infra : {};
   if (infra.profile !== profile.path || infra.profile_sha256 !== profile.sha256) fail('request infra.profile·profile_sha256이 입력 프로필과 다르다');
   const deployed = JSON.parse(requiredOutput(outputs, 'PerfInfraParameters'));
+  const expectsHttps = typeof deployed.certificateArn === 'string';
+  if (expectsHttps !== Boolean(outputs.values.GatewayHttpsUrl)) fail('공개 Gateway 배포 입력과 Edge output 유무가 다르다');
+  if (expectsHttps && (request.schema_version !== 3 || outputs.values.GatewayHttpsUrl !== PERF_GATEWAY_HTTPS || outputs.values.PerfCertificateArn !== deployed.certificateArn || deployed.gatewayHttps !== PERF_GATEWAY_HTTPS)) fail('공개 Gateway의 v3·인증서·HTTPS output이 배포 입력과 다르다');
   if (JSON.stringify(sortKeys(infra.parameters)) !== JSON.stringify(sortKeys(deployed))) fail('request infra.parameters가 배포 입력과 다르다');
   const clusterName = requiredOutput(outputs, 'EksClusterName');
   if (clusterName !== PERF_EKS_CLUSTER_NAME) fail(`EksClusterName은 ${PERF_EKS_CLUSTER_NAME}이어야 한다`);
@@ -119,6 +123,8 @@ export function generatePerfValues(input: PerfValuesInput): Record<string, Recor
   const { outputs, profile, request, runtime } = input;
   const deployment = checkDeployment(outputs, profile, request);
   const p = profile.profile;
+  const httpsGateway = outputs.values.GatewayHttpsUrl !== undefined;
+  if (httpsGateway && (request.schema_version !== 3 || outputs.values.GatewayHttpsUrl !== PERF_GATEWAY_HTTPS)) fail('공개 Gateway는 v3와 고정 HTTPS origin을 요구한다');
   const strimzi = p.kafka_provider === 'strimzi';
   if (strimzi && (!input.strimziMetadata || input.bootstrapServers || input.mskBrokers)) fail('Strimzi에는 metadata만 공급하며 MSK 입력은 금지한다');
   if (!strimzi && (!input.bootstrapServers || !input.mskBrokers || input.strimziMetadata)) fail('MSK에는 bootstrap·nodes가 필요하며 Strimzi metadata는 금지한다');
@@ -215,7 +221,9 @@ export function generatePerfValues(input: PerfValuesInput): Record<string, Recor
         PULSEMETRY_CLICKHOUSE_URL: PERF_ENDPOINTS.clickhouse, PULSEMETRY_CLICKHOUSE_DATABASE: 'default',
       },
     },
+    ...(httpsGateway ? { 'lbc.yaml': { clusterName: deployment.clusterName, region: 'ap-northeast-2', vpcId: out('EksVpcId') } } : {}),
     'telemetry-gateway.yaml': {
+      ...(httpsGateway ? { service: { type: 'NodePort' }, nodePort: PERF_GATEWAY_NODE_PORT, vpcId: out('EksVpcId'), targetGroupBindings: [{ stage: 'perf', targetGroupARN: out('PerfGatewayTargetGroupArn'), confirmExclusiveOwnership: true }] } : {}),
       image: appImages['telemetry-gateway'], resources: resources(profile, 'telemetry-gateway'), placement: placement(profile, 'telemetry-gateway'), ...jvm,
       telemetryJwt: telemetryJwt('telemetry-gateway'), kafka: kafka('gateway'),
       env: { AWS_REGION: 'ap-northeast-2', PULSEMETRY_OBSERVABILITY_ENVIRONMENT: 'perf' },
@@ -252,7 +260,7 @@ export function generatePerfValues(input: PerfValuesInput): Record<string, Recor
         region: 'ap-northeast-2', environmentId: deployment.environmentId, cluster: deployment.clusterName,
         namespaces: { app: PERF_NAMESPACES.app, runner: PERF_NAMESPACES.runner },
         evidenceBucket, evidencePrefix: PERF_EVIDENCE_PREFIX, rawArchiveUri: `s3://${rawBucket}/${PERF_ARCHIVE_PREFIX}/`,
-        endpoints: { ...PERF_ENDPOINTS }, database: { host: dbEndpoint, port: PERF_PORTS.postgres, name: 'controlplane' },
+        endpoints: { ...PERF_ENDPOINTS, ...(httpsGateway ? { gatewayHttps: PERF_GATEWAY_HTTPS } : {}) }, database: { host: dbEndpoint, port: PERF_PORTS.postgres, name: 'controlplane' },
         telemetryJwtActiveKid: telemetry.activeKid,
         // verify가 CloudWatch SumOffsetLag(Cluster Name·Consumer Group·Topic)로 drain을 확인한다.
         ...(strimzi ? { kafka: { provider: 'strimzi', clusterName: PERF_STRIMZI.cluster, namespace: PERF_STRIMZI.namespace, partitions: profile.profile.strimzi!.partitions, consumerGroup: PERF_MSK.consumerGroup, topic: PERF_MSK.topic } } : { msk: { ...(request.schema_version === 3 ? { partitions: p.msk!.partitions } : {}), clusterName: PERF_MSK.clusterName, consumerGroup: PERF_MSK.consumerGroup, topic: PERF_MSK.topic } }),

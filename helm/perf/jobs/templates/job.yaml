@@ -55,6 +55,7 @@
 {{- with $v.tools.sentinelIdleSeconds -}}{{- $env = append $env (dict "name" "SENTINEL_IDLE_SECONDS" "value" .) -}}{{- end -}}
 {{- $volumes = list $inputs $identities -}}
 {{- else if $runner -}}
+{{- $env = append $env (dict "name" "INGRESS_PATH" "value" ($v.ingressPath | default "internal")) -}}
 {{- /* k6 REST API는 recovery gate만 Pod 안에서 쓴다. Service·외부 listener를 만들지 않는다. */ -}}
 {{- $env = concat $env (list (dict "name" "GATEWAY_ENDPOINT" "value" $v.endpoints.gateway) (dict "name" "REMOTE_WRITE_URL" "value" $v.endpoints.remoteWrite) (dict "name" "TESTID" "value" $v.run.testid) (dict "name" "K6_REST_ADDRESS" "value" "127.0.0.1:6565")) -}}
 {{- $volumes = list $inputs $identities $bundle
