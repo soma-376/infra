@@ -18,6 +18,9 @@ data:
       {{- $dashboard := $json | fromJson }}
       {{- $additionalPanels := list }}
       {{- range $panel := $dashboard.panels }}
+        {{- if and (eq $dashboard.uid "pulsemetry-pipeline") (eq $panel.type "text") }}
+          {{- $_ := set $panel.options "content" ($panel.options.content | replace "Commit 기준 lag(CloudWatch SumOffsetLag)는 commit된 offset이 있고 consumer group이 STABLE·EMPTY일 때만 나옵니다." "확인된 commit 기준 lag는 commit offset이 확인된 partition의 lag 합계입니다. 미커밋 partition 수를 함께 확인하며, 미커밋 수가 0이 아니면 전체 backlog를 뜻하지 않습니다. 모두 미커밋이거나 수집 실패이면 lag는 빈 값이며 0으로 바꾸지 않습니다.") }}
+        {{- end }}
         {{- range $target := $panel.targets }}
           {{- if $target.expr }}
             {{- $_ := set $target "expr" ($target.expr | replace "job!=\"msk-node\"," "") }}
