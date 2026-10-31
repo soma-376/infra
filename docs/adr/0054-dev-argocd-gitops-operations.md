@@ -8,7 +8,7 @@ Accepted (PROJ-280 설계 채택; chart·workflow·Argo 설치·기존 release �
 일반 배포 주체와 Argo 제외 결정을 부분 대체한다. CDK의 AWS 소유권, Auto Mode의 노드 관리,
 ARM64·스토리지·Secret·private API 경계는 유지한다. [ADR 0049](0049-dev-strimzi-kafka-and-staged-msk-retirement.md)의
 Strimzi 토폴로지·KafkaTopic 소유권·인증서 명시적 재배포도 유지하고 그 적용 주체만 인계 후 Argo로 바꾼다.
-레포 간 계약은 [허브 ADR 0030](https://github.com/soma-376/docs/blob/main/adr/0030-dev-gitops-delivery.md)과
+레포 간 계약은 [허브 ADR 0031](https://github.com/soma-376/docs/blob/main/adr/0031-dev-gitops-delivery.md)과
 [generated-values 계약](https://github.com/soma-376/docs/blob/main/contracts/generated-values-sync.md)이 소유한다.
 PROJ-277의 private 사본 공급·사용 절차 위에 이 결정을 쌓는다. 입력·생성기 소유권과 접근 제한은 계승하고,
 인계된 대상의 수동 게시·Helm 적용 경로는 검증한 C/V/B/P 승격·Argo 적용으로 확장한다.
