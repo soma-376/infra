@@ -5,6 +5,11 @@ PROJ-282 / 구현 PROJ-283 / 실제 검증 PROJ-285. [ADR-0049](../adr/0049-dev-
 이 런북의 배포 명령은 운영 절차이며 코드·렌더링 테스트 통과만으로 실제 접속이나 전환 성공을 판정하지 않는다.
 기존 MSK용 [이전 런북](dev-telemetry-kafka.md)의 IAM·topic-init 절차는 `msk` 호환 경로에만 적용한다.
 
+Argo 도입·인계는 [ADR 0054](../adr/0054-dev-argocd-gitops-operations.md)·[Argo 운영 런북](dev-argocd-operations.md)을 따른다.
+아래 Helm 명령은 인계 전 경로다. 인계 후에는 같은 고정 chart·post-render·metadata를 Git으로 공급하고 Argo로 적용한다.
+offset reset·인증서 교체·HTTP 복구 전에 상위/하위 self-heal과 이미지 승격을 중지한다. 수동 관리 Job은 자동 sync하지 않는다.
+기존 Strimzi 전환 완료가 Argo 인계 완료를 뜻하지 않으며 KafkaTopic 소유·PVC·offset·명시적 인증서 재배포 조건은 유지한다.
+
 ## 1. 고정 계약과 선행 확인
 
 | 항목 | 계약 |

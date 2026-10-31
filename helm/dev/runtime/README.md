@@ -51,6 +51,9 @@ PROJ-231은 runtime-config release에 SPC 다섯 개를 만든다(PROJ-246의 te
 CDK output이 ARN·RDS endpoint·NodePort·TG를 소유하고 추가 YAML은 JWT VersionId·kid/alias와
 운영값을 소유한다. 생성 후에는 추가 입력을 Helm에 다시 중첩하거나 `--set-json`으로 재정의하지 않는다.
 
+아래 생성 예시는 과거 MSK 공급자 경로다. 현재 dev Strimzi에서는 [Strimzi 런북](../../../docs/runbooks/dev-strimzi-kafka.md)의
+현재 profile·output·Secret metadata 입력을 사용하고 `--msk-bootstrap`·`--msk-nodes`를 전달하지 않는다.
+
 ```bash
 node scripts/eks-values.mjs \
   --outputs /secure/cdk-outputs.json \
@@ -77,19 +80,23 @@ Fluent Bit의 Loki 병행 출력은 정적 values 다음에 `fluent-bit-loki-val
 ### 생성된 values의 private 동기화 사본
 
 [infra-generated-values](https://github.com/soma-376/infra-generated-values)는 생성된 values의 접근 제한
-사본만 보관한다. 입력·생성기·chart·배포 절차의 원본은 infra에 있으며, 변경은 원본 수정 → 재생성 →
-검증 → 단방향 복사로 반영한다. 사본 직접 편집이나 infra로의 역방향 동기화는 하지 않는다.
+사본과 GitOps 도입 후 배포 revision을 보관한다. PROJ-277의 사본 공급 절차를 계승하며 입력·생성기·chart는 infra가 소유한다.
+설정 변경은 원본 수정 → 재생성 → 검증으로 반영한다. 직접 편집이나 infra로의 역방향 동기화는 하지 않는다.
+GitOps 도입 후에는 Image Updater가 `candidate/dev`의 네 앱 `image.ref`만 변경하고 publisher가 완료 묶음을 검증·승격한다.
 
-[공급 계약(변경 중)](https://github.com/soma-376/docs/blob/399b652ee28d9541e428fee3a74fb59d0505c44f/contracts/generated-values-sync.md)이
+[공급 계약](https://github.com/soma-376/docs/blob/main/contracts/generated-values-sync.md)이
 허용 파일과 소유권을 정하고, [EKS 런북의 동기화 절차](../../../docs/runbooks/dev-eks-manual-deployment.md#2-2-1-generated-values의-private-사본-동기화)가
-실행 방법을 제공한다. 한 번 생성한 YAML 12개를 `dev/generated/`에, 대응하는 infra 전체 commit SHA를
+인계 전 실행 방법을 제공한다. 현재 Strimzi에서 한 번 생성한 YAML 13개(`kafka-strimzi.yaml` 포함)를 `dev/generated/`에, 대응하는 infra 전체 commit SHA를
 `dev/infra-commit.txt`에 함께 저장한다. `$RUN_DIR` 전체, Secret 원문, kubeconfig, AWS 조회 원본과
 검증 증거는 복사하지 않는다. SHA는 생성기·chart revision을 식별하며 전체 운영 입력의 재현성을 보장하지 않는다.
+인계 후에는 [Argo 운영 런북](../../../docs/runbooks/dev-argocd-operations.md)의 불변 snapshot V와
+chart C·완료 묶음 B를 별도 배포 commit P로 선택한다. 수동 복사 블록으로 GitOps 파일을 덮어쓰지 않는다.
 
 private checkout을 만들기 전에 `umask 077`을 적용한다. 사본을 사용할 때는 같은 사본 commit의 전체 묶음을
 가져와 infra SHA를 확인하고, 로컬 디렉터리 `0700`·
 파일 `0600`을 다시 적용한다. Git은 이 권한을 보존하지 않는다. runtime과 앱 YAML을 서로 다른 사본
-revision에서 섞지 않으며 기존 수동 설치·키 교체·Kafka 관리 Job 실행 순서를 그대로 따른다.
+revision에서 섞지 않는다. 인계 전 수동 설치와 별도 키 교체·Kafka 관리 Job 순서를 유지하고,
+인계 후에는 필요한 self-heal·이미지 승격 중지를 확인한 뒤 해당 운영 절차를 수행한다.
 사본 push 성공은 Argo CD 연결·sync, 배포 또는 기능 검증 완료를 뜻하지 않는다.
 
 ### JWT 파일 공급과 교체

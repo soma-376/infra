@@ -7,6 +7,10 @@ Accepted (PROJ-259·270·271·272; 코드·문서·로컬 검증 범위이며 AW
 ADR-0024의 앱 배포 역할 4개는 유지한다. 이 결정은 infra 저장소의 dev CloudFormation 역할 두 개와
 승인 절차를 더한다. 앱 이미지 공급·수동 Helm 배포·prod·frontend Terraform 계약은 바꾸지 않는다.
 
+후속 [ADR 0054](0054-dev-argocd-gitops-operations.md)는 인계된 Kubernetes 선언의 적용을 Argo로 넘긴다.
+이 ADR의 고정 Assembly·승인·AWS 배포 경계는 유지한다. generated 생성·V/P 게시와 Argo 적용은 별도
+후속 공급 경로이며, 현재 CloudFormation workflow가 Helm이나 generated 게시를 수행한다는 뜻이 아니다.
+
 ## Context
 
 dev 배포 입력은 ADR-0040에 따라 추적된 `config/dev/deployment.json`을 사용한다. 기존

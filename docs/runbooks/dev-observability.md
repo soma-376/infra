@@ -7,6 +7,10 @@
 전제는 JWT/Gateway/Kafka·mTLS와 내부 management 9404를 구현한 Backend 이미지다.
 Grafana는 운영자 localhost port-forward로 접속하며 public ALB/Ingress를 추가하지 않는다.
 
+Argo 도입 후 release 인계·변경·복구는 [Argo 운영 런북](dev-argocd-operations.md)을 따른다.
+아래 Helm 명령은 인계 전 또는 Argo 중지를 확인한 비상 복구 경로다. 관측의 기존 배포·검증 결과와
+ADR 0039의 Proposed 상태는 유지하며, Argo 설치·인계 완료 여부는 별도 증거로 판정한다.
+
 ## 현재 판정과 검증 근거
 
 **현재 상태: observability revision 8·Tempo revision 2 적용, G8 API·실제 UI·30분 관찰·종료 후 자원 대조를 통과해 완료조건 검증 PASS. 실제 상태는 각 Jira에서 확인한다.**

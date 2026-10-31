@@ -12,3 +12,7 @@ Helm **3.22.0**으로 실행한다. upstream chart는 감시 목록에 operator 
 Strimzi CRD는 cluster scope다. 기존 Strimzi 설치가 있으면 CRD 버전·소유 release·RBAC 충돌을 먼저 조사한다.
 Helm의 CRD 자동 업그레이드에 의존하지 않는다. 이번 초기 설치는 vendor의 CRD를 사용하며
 다음 버전 변경은 공식 upgrade 절차와 검증된 Kafka 버전 조합을 별도 검토한다.
+
+[ADR 0054](../../../../docs/adr/0054-dev-argocd-gitops-operations.md)의 Argo 인계 이후에는 전용 CMP가
+같은 vendor·Helm 3.22.0·post-render 검증을 수행한다. 이 문서 추가로 CMP가 구현되거나 인계가 완료된 것은 아니다.
+실제 인계 전에는 위 Helm 경로를 유지하며 renderer를 생략한 native Helm Application으로 대체하지 않는다.
