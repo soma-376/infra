@@ -2,9 +2,14 @@
 
 ## Status
 
+Accepted — 부분 대체: [ADR 0054](0054-dev-argocd-gitops-operations.md)가 인계된 dev 리소스의
+일반 배포 주체와 Argo 제외 결정을 대체한다. CDK/Helm 선언/Auto Mode의 소유권, ARM64·스토리지·
+Secret·private API 경계는 유지한다. 실제 인계 전에는 기존 수동 Helm 절차를 사용한다.
+
 [ADR-0035](0035-dev-backend-eks-only.md)가 dev 백엔드의 ECS 실행·병행 유지·입력·배포 권한 가정을 부분 대체한다. prod·frontend Terraform과 이 문서의 나머지 계약은 유지한다. 아래 ECS 구성은 당시 결정 기록이다.
 
-Accepted (구현·로컬 검증 대상, AWS 배포 증거 대기; JWT Secret 참조 목록은 [ADR-0030](0030-dev-user-jwt-keys-from-secrets-manager.md)이 부분 대체)
+이 ADR 도입 당시 범위는 구현·로컬 검증이며 AWS 배포 증거는 별도다. JWT Secret 참조 목록은
+[ADR-0030](0030-dev-user-jwt-keys-from-secrets-manager.md)이 부분 대체한다.
 
 [ADR-0035](0035-dev-msk-isolated-subnets-under-eks-stack.md)와 [ADR-0036](0036-dev-telemetry-gateway-workload-and-msk-iam.md)이
 DevEksStack에 MSK·telemetry 관측 리소스를, workload에 telemetry-gateway와 ingest Kafka 모드를 추가한다.
@@ -79,7 +84,8 @@ Helm release 복구, ALB 트래픽 복구, DB/PVC 데이터 복구는 서로 다
 ## Constraints
 
 - 앱 설정·DDL·인증 계약과 backend 소스/이미지를 바꾸지 않는다. enrollment 준비 확인 후 ingest를 배포한다.
-- 수동 Helm 배포만 준비한다. GitHub Actions EKS 배포 자동화·ArgoCD는 포함하지 않는다.
+- 이 ADR 도입 당시에는 수동 Helm만 준비했다. 이후 Argo 적용·인계는 [ADR 0054](0054-dev-argocd-gitops-operations.md)를
+  따르며, 인계 전에는 수동 Helm을 유지한다. 기존 CloudFormation CI가 Kubernetes를 배포하지 않는다.
 - PROJ-206~212는 구현·문서·로컬 검증·커밋 범위다. AWS 배포, 데이터 이관, Canary, ECS 제거, HTTPS 전체 CLI E2E는 실행하지 않는다. 기존 HTTP ALB는 HTTPS endpoint 계약의 대체가 아니다.
 
 ## Alternatives Considered

@@ -89,11 +89,14 @@ Fluent Bit의 Loki 병행 출력은 정적 values 다음에 `fluent-bit-loki-val
 실행 방법을 제공한다. 한 번 생성한 Strimzi YAML 13개(`kafka-strimzi.yaml` 포함)를 `dev/generated/`에, 대응하는 infra 전체 commit SHA를
 `dev/infra-commit.txt`에 함께 저장한다. `$RUN_DIR` 전체, Secret 원문, kubeconfig, AWS 조회 원본과
 검증 증거는 복사하지 않는다. SHA는 생성기·chart revision을 식별하며 전체 운영 입력의 재현성을 보장하지 않는다.
+인계 후에는 [Argo 운영 런북](../../../docs/runbooks/dev-argocd-operations.md)의 불변 snapshot V와
+chart C·완료 묶음 B를 별도 배포 commit P로 선택한다. 수동 복사 블록으로 GitOps 파일을 덮어쓰지 않는다.
 
 private checkout을 만들기 전에 `umask 077`을 적용한다. 사본을 사용할 때는 같은 사본 commit의 전체 묶음을
 가져와 infra SHA를 확인하고, 로컬 디렉터리 `0700`·
 파일 `0600`을 다시 적용한다. Git은 이 권한을 보존하지 않는다. runtime과 앱 YAML을 서로 다른 사본
-revision에서 섞지 않으며 기존 수동 설치·키 교체·Kafka 관리 Job 실행 순서를 그대로 따른다.
+revision에서 섞지 않는다. 인계 전 수동 설치와 별도 키 교체·Kafka 관리 Job 순서를 유지하고,
+인계 후에는 필요한 self-heal·이미지 승격 중지를 확인한 뒤 해당 운영 절차를 수행한다.
 사본 push 성공은 Argo CD 연결·sync, 배포 또는 기능 검증 완료를 뜻하지 않는다.
 
 ### JWT 파일 공급과 교체

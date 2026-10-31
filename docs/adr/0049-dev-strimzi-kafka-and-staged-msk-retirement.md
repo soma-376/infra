@@ -7,6 +7,10 @@ ADR-0035(MSK isolated subnet)의 공급자 결정, ADR-0036의 MSK IAM·topic-in
 ADR-0037의 MSK 관측 부분을 대체한다. 기존 HTTP 복구·JWT·Data·prod 경계는 유지한다.
 크로스레포 계약은 허브 ADR 0026과 `contracts/telemetry-kafka.md`가 소유한다.
 
+[ADR 0054](0054-dev-argocd-gitops-operations.md)가 인계 이후 Helm 선언의 적용 주체를 Argo로 부분 대체한다.
+Operator post-render 검증·토폴로지·KafkaTopic 단독 소유·ACL·인증서 명시적 재배포·데이터/복구 경계는 유지한다.
+인계 전에는 아래 Helm 절차를 사용하며 실제 Strimzi·관측 완료 근거는 [완료 기록](../runbooks/proj191-strimzi-completion.md)에 있다.
+
 ## Context
 
 샌드박스 제공 측에서 MSK 사용 불가를 확인했다. 동일한 복제·보존·크기 계약을
