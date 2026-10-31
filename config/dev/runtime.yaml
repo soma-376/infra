@@ -11,6 +11,7 @@ userAuth:
     - https://pulsemetry-dev.kro.kr
     - http://localhost:3000
   allowedRedirectUris:
+    - http://localhost:3000/auth/callback
     - https://dev.pulsemetry.co.kr/auth/callback
     - https://pulsemetry-dev.kro.kr/auth/callback
   audience: pulsemetry-dev

@@ -20,6 +20,17 @@ function build(keys: string[]) {
 }
 
 describe('EKS OIDC runtime 입력', () => {
+  test('추적 dev runtime은 고정 로컬 웹과 기존 HTTPS callback을 함께 보존한다', () => {
+    const input = load(readFileSync(join(__dirname, '../../config/dev/runtime.yaml'), 'utf8'));
+    const parsed = parseRuntimeInputs(input);
+    expect(parsed.userAuth.allowedRedirectUris).toEqual([
+      'http://localhost:3000/auth/callback',
+      'https://dev.pulsemetry.co.kr/auth/callback',
+      'https://pulsemetry-dev.kro.kr/auth/callback',
+    ]);
+    expect(parsed.oidc.callbackBaseUrl).toBe('https://api-dev.pulsemetry.co.kr');
+    expect(parsed.oidc.failureRedirectUri).toBe('https://dev.pulsemetry.co.kr/auth/callback');
+  });
   test('기존 입력은 OIDC 없이 유지하고 활성 입력을 정렬·기본값 처리한다', () => {
     expect(parseRuntimeInputs(fixture()).oidc).toBeUndefined();
     const parsed = parseRuntimeInputs(active());

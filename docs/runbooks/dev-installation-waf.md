@@ -76,3 +76,18 @@ JSON parser fallback이나 escape 변환은 사용하지 않는다.
 먼저 그 기능을 포함하지 않은 검증된 enrollment 이미지로 되돌린 뒤 이전 정책 commit의 DevEdgeStack만
 동일 profile로 배포한다. ALB/association·나머지 정책을 삭제하거나 rate 규칙을 임시 비활성화하지 않는다.
 배포 후 경로 분류·정상 요청·차단 회복을 재확인한다.
+
+## 로컬 웹 OIDC 콜백 (PROJ-305·ADR 0054)
+
+- `http://localhost:3000/auth/callback`만 웹 예외다. 다른 포트와 `127.0.0.1` 별칭은 포함하지 않는다.
+- PR 검증은 합성 statement와 runtime parser까지만 입증한다. 실제 차단 규칙은 보호된 WAF 로그의
+  action·terminating rule·label로 확인하고 query·쿠키·code·token은 출력하지 않는다.
+- 배포 전 합성 Rules로 `CheckCapacity`를 수행한다. DevEdgeStack의 WAF 변경과 추적
+  `config/dev/runtime.yaml`을 사용하는 enrollment runtime Helm 변경을 모두 반영해야 한다.
+  CDK 배포만으로 Helm ConfigMap이 갱신됐다고 판단하지 않는다. Helm은 기존 수동 배포 런북을 따른다.
+- 프론트의 API origin 두 개는 dev API, BFF_ORIGIN은 `http://localhost:3000`으로 두고 새 로그인을 시작한다.
+  Cognito 자체 callback은 기존 dev API 주소다. Cognito client에 localhost를 등록하는 변경은 필요하지 않다.
+- 정상 브라우저에서 authorize → Cognito → dev API → localhost callback → BFF 세션 조회를 확인한다.
+  기존 CLI·HTTPS 웹 로그인의 회귀도 확인한다. 주소의 port/path/host 변형, 중복 파라미터와 다른 공격 label은
+  예외가 아니며 정상 형식의 요청도 다른 WAF 판정과 backend 인증 검증을 계속 받는다.
+- 복구는 이 PR의 WAF 조건과 runtime callback 추가를 함께 되돌려 각각 재배포한다. 기존 HTTPS 웹과 CLI는 유지한다.
