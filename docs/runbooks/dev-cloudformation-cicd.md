@@ -4,6 +4,10 @@
 PROJ-271은 역할을, PROJ-272는 workflow와 검증 스크립트를 순서대로 구현한다. 이번 작업은
 로컬 검증·커밋까지이며 아래 관리자 설정과 AWS 배포는 수행하지 않는다.
 
+[Argo 운영 런북](dev-argocd-operations.md)은 후속 Kubernetes 적용 경로다. 이 workflow의 승인된 Assembly 배포와
+generated snapshot/배포 revision 게시, Argo sync는 서로 다른 단계다. 현재 workflow에는 generated 게시나 Helm 적용이 없으며,
+후속 공급 경로를 구현해도 이 문서의 AWS 승인·최신 SHA·baseline·artifact 검증을 생략하지 않는다.
+
 ## 1. 대상과 선행조건
 
 - 대상은 `ap-northeast-2`의 기존 `DevNetworkStack`, `DevDataStack`, `DevEdgeStack`, `DevEksStack`이다.
