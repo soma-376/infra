@@ -23,10 +23,13 @@ describe('EKS OIDC runtime 입력', () => {
   test('추적 dev runtime은 고정 로컬 웹과 기존 HTTPS callback을 함께 보존한다', () => {
     const input = load(readFileSync(join(__dirname, '../../config/dev/runtime.yaml'), 'utf8'));
     const parsed = parseRuntimeInputs(input);
+    expect(parsed.userAuth.allowedOrigins).toEqual([
+      'https://dev.pulsemetry.co.kr',
+      'http://localhost:3000',
+    ]);
     expect(parsed.userAuth.allowedRedirectUris).toEqual([
       'http://localhost:3000/auth/callback',
       'https://dev.pulsemetry.co.kr/auth/callback',
-      'https://pulsemetry-dev.kro.kr/auth/callback',
     ]);
     expect(parsed.oidc.callbackBaseUrl).toBe('https://api-dev.pulsemetry.co.kr');
     expect(parsed.oidc.failureRedirectUri).toBe('https://dev.pulsemetry.co.kr/auth/callback');
