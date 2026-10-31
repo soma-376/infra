@@ -214,6 +214,13 @@ npx cdk --app "$RUN_DIR/before-access-change/cdk.out" deploy DevNetworkStack \
 기존 EKS는 §2-1 전환을 완료한 뒤 전체 배포를 진행한다. 신규 EKS는 아래 전체 배포가 클러스터·릴레이를
 처음 생성한다. 어느 경우든 EKS API는 private 전용이며 SSM 접속 준비가 검증되기 전에는 접근을 보장하지 않는다.
 
+**private 사본을 사용하는 경우** §2를 시작하기 전에 private commit 하나와 그 `dev/infra-commit.txt`에
+대응하는 infra revision을 선택한다. private checkout을 만들기 전에 `umask 077`을 적용하고, 선택한
+infra checkout에서 §2의 `$RUN_DIR`·context·환경변수를 준비한다. 아래 블록에서 전체 `npm run values:dev`
+명령만 생략한다(`--msk-nodes` 줄까지 포함). 기존 output 조회, `EKS_*` 변수 설정, SSM Online 확인은
+모두 실행한다. 이어서 §2-2-1을 건너뛰고 **같은 `$RUN_DIR`과 Bash 환경**으로 §2-2-2를 실행한다.
+이 경우에도 기존 CloudFormation 배포와 이후 접속·설치 절차의 실행 조건은 바뀌지 않는다.
+
 ```bash
 npx cdk deploy --all "${EKS_CONTEXT[@]}" --outputs-file "$RUN_DIR/cdk-outputs.json"
 for stack in DevEksStack DevEdgeStack DevDataStack; do
@@ -254,6 +261,180 @@ jq -e 'length == 1 and .[0].PingStatus == "Online"' "$RUN_DIR/relay-ssm-status.j
 `relay-ssm-status.json`의 AgentVersion도 3.1.1374.0 이상인지 확인한다. Online이 아니면 인스턴스 역할,
 SSM Agent 기동, public IPv4·Internet Gateway 경로, 443 아웃바운드를 점검한다. 이 조회는 operator 역할의
 권한에 포함되지 않는다. 생성기는 리소스 참조만 읽고 AWS·Secrets Manager를 호출하지 않는다.
+
+### 2-2-1. generated values의 private 사본 동기화
+
+[공급 계약(변경 중)](https://github.com/soma-376/docs/blob/399b652ee28d9541e428fee3a74fb59d0505c44f/contracts/generated-values-sync.md)에 따라
+[infra-generated-values](https://github.com/soma-376/infra-generated-values)의 `dev/generated/`에는 생성된
+values 사본만 둔다. 입력·생성기·chart·배포는 infra가 소유한다. 값을 바꾸려면 infra 원본을 수정하고
+같은 입력 묶음으로 재생성한다. 사본 직접 편집·역방향 동기화는 하지 않는다.
+
+앞 절의 생성이 성공하고 생성 결과·이미지 digest·고정 Secret 버전을 검토한 뒤, infra 루트의 **Bash**에서
+아래 블록을 실행한다. `$VALUES_REPO`는 접근 권한을 가진 private 레포의 깨끗한 로컬 checkout이다.
+private checkout을 만들기 전에 `umask 077`을 적용한다. 블록은 Git 루트를 확인한 즉시 checkout 디렉터리를
+`0700`으로 제한하므로 뒤의 SHA·파일 검증이 실패해도 다른 로컬 사용자의 디렉터리 접근은 차단한다.
+`$RUN_DIR/infra-commit.txt`를 기록한 후 입력·생성기·chart를 수정했다면 기록만 고치지 말고 해당 revision으로
+처음부터 다시 생성한다. 생성 디렉터리를 실행 간 재사용하지 않는다. SHA는 생성기·chart revision을 식별할 뿐,
+live AWS 조회와 외부 입력까지 재현한다는 증거는 아니다.
+
+<!-- generated-values-sync:start -->
+```bash
+(
+set -euo pipefail
+: "${RUN_DIR:?같은 실행에서 생성한 결과 디렉터리 절대 경로}"
+: "${VALUES_REPO:?infra-generated-values checkout 절대 경로}"
+test "$(git -C "$VALUES_REPO" rev-parse --show-toplevel)" = "$(cd "$VALUES_REPO" && pwd -P)"
+chmod 700 "$VALUES_REPO"
+GENERATED_VALUES_FILES=(
+  base.yaml lbc.yaml runtime.yaml enrollment-api.yaml telemetry-ingest.yaml
+  telemetry-gateway.yaml telemetry-kafka-admin.yaml dashboard-api.yaml
+  clickhouse.yaml fluent-bit.yaml ascp.yaml observability.yaml
+)
+test -f "$RUN_DIR/infra-commit.txt"
+test ! -L "$RUN_DIR/infra-commit.txt"
+test "$(cat "$RUN_DIR/infra-commit.txt")" = "$(git rev-parse HEAD)"
+test -z "$(git status --porcelain --untracked-files=all -- config scripts lib bin helm package.json package-lock.json cdk.json)"
+test -z "$(git -C "$VALUES_REPO" status --porcelain --untracked-files=all)"
+test -d "$RUN_DIR/generated"
+test ! -L "$RUN_DIR/generated"
+test ! -L "$VALUES_REPO/dev"
+test ! -L "$VALUES_REPO/dev/generated"
+test ! -L "$VALUES_REPO/dev/infra-commit.txt"
+
+# 누락·빈 파일·symlink와 허용목록 밖 파일을 복사 전에 거부한다.
+for file in "${GENERATED_VALUES_FILES[@]}"; do
+  test -s "$RUN_DIR/generated/$file"
+  test -f "$RUN_DIR/generated/$file"
+  test ! -L "$RUN_DIR/generated/$file"
+done
+shopt -s nullglob dotglob
+for entry in "$VALUES_REPO/dev"/*; do
+  case "${entry##*/}" in
+    generated|infra-commit.txt) ;;
+    *) printf '허용하지 않은 dev 항목: %s\n' "${entry##*/}" >&2; exit 1 ;;
+  esac
+done
+for directory in "$RUN_DIR/generated" "$VALUES_REPO/dev/generated"; do
+  for entry in "$directory"/*; do
+    name=${entry##*/}
+    case " ${GENERATED_VALUES_FILES[*]} " in
+      *" $name "*)
+        test -f "$entry"
+        test ! -L "$entry"
+        ;;
+      *) printf '허용하지 않은 generated 항목: %s\n' "$name" >&2; exit 1 ;;
+    esac
+  done
+done
+if test -e "$VALUES_REPO/dev/infra-commit.txt"; then
+  test -f "$VALUES_REPO/dev/infra-commit.txt"
+fi
+
+umask 077
+mkdir -p "$VALUES_REPO/dev/generated"
+chmod 700 "$VALUES_REPO" "$VALUES_REPO/dev" "$VALUES_REPO/dev/generated"
+SYNC_PATHS=(dev/infra-commit.txt)
+for file in "${GENERATED_VALUES_FILES[@]}"; do
+  install -m 600 "$RUN_DIR/generated/$file" "$VALUES_REPO/dev/generated/$file"
+  cmp -s "$RUN_DIR/generated/$file" "$VALUES_REPO/dev/generated/$file"
+  SYNC_PATHS+=("dev/generated/$file")
+done
+install -m 600 "$RUN_DIR/infra-commit.txt" "$VALUES_REPO/dev/infra-commit.txt"
+cmp -s "$RUN_DIR/infra-commit.txt" "$VALUES_REPO/dev/infra-commit.txt"
+git -C "$VALUES_REPO" add -- "${SYNC_PATHS[@]}"
+git -C "$VALUES_REPO" diff --cached --check
+git -C "$VALUES_REPO" diff --cached --stat
+)
+```
+<!-- generated-values-sync:end -->
+
+실패하면 commit·push하지 않는다. 복사 도중 실패한 경우 staged/unstaged 사본을 확인하고 같은 검증된
+입력 묶음으로 다시 준비한다. 이전 사본과 새 사본을 부분 commit하지 않는다. 생성 디렉터리에 새로운 파일이
+추가되면 허용목록을 임의로 넓히지 말고 허브 계약과 생성기 변경을 먼저 리뷰한다.
+
+운영자는 private checkout의 staged diff에서 YAML 12개와 `dev/infra-commit.txt` 이외의 변경이 없고
+Secret 원문이 없는지 검토한다. AWS 조회 JSON·kubeconfig·로그·이미지 조회 산출물·검증 증거는 private 레포에도
+올리지 않는다. `git add .`나 `$RUN_DIR` 전체 복사는 사용하지 않는다. 검토된 전체 묶음은 해당 운영 티켓의
+커밋 한 개로 게시한다. private 레포의 기본 브랜치는 `main`이며 commit·push는 운영자가 명시적으로 수행한다.
+실제 values 최초 게시와 Argo CD 인증·연결·Application·자동 sync 설정은 이 문서 변경의 완료 범위가 아니다.
+
+### 2-2-2. private 사본을 기존 수동 배포에 사용
+
+§2-2의 사본 사용 분기에 따라 미리 선택한 private **commit 하나**와 대응 infra checkout을 사용한다.
+private checkout은 생성 전 `umask 077`을 적용하고, 파일 확인 전에 Git 루트와 디렉터리 접근 권한을 확인한다.
+§2에서 준비한 **같은 `$RUN_DIR`과 환경변수**를 유지한 채, §2-2의 output 조회·`EKS_*` 설정·SSM Online
+확인까지 완료한 infra 루트에서 아래 블록을 실행한다. 별도의 새 `$RUN_DIR`이나 새 shell로 넘어가지 않는다.
+SHA가 다르면 멈추고 올바른 revision을 확보한다. SHA 기록을 현재 HEAD로 덮어쓰지 않는다.
+`$RUN_DIR/generated`는 §2에서 만든 빈 디렉터리여야 하며, 기존 생성 결과와 섞지 않는다.
+
+<!-- generated-values-use:start -->
+```bash
+(
+set -euo pipefail
+: "${RUN_DIR:?이번 수동 배포의 실행 디렉터리 절대 경로}"
+: "${VALUES_REPO:?선택한 private commit의 깨끗한 checkout 절대 경로}"
+test "$(git -C "$VALUES_REPO" rev-parse --show-toplevel)" = "$(cd "$VALUES_REPO" && pwd -P)"
+chmod 700 "$VALUES_REPO"
+GENERATED_VALUES_FILES=(
+  base.yaml lbc.yaml runtime.yaml enrollment-api.yaml telemetry-ingest.yaml
+  telemetry-gateway.yaml telemetry-kafka-admin.yaml dashboard-api.yaml
+  clickhouse.yaml fluent-bit.yaml ascp.yaml observability.yaml
+)
+test -z "$(git -C "$VALUES_REPO" status --porcelain --untracked-files=all)"
+test -z "$(git status --porcelain --untracked-files=all -- config scripts lib bin helm package.json package-lock.json cdk.json)"
+test -f "$VALUES_REPO/dev/infra-commit.txt"
+test ! -L "$VALUES_REPO/dev/infra-commit.txt"
+test "$(cat "$VALUES_REPO/dev/infra-commit.txt")" = "$(git rev-parse HEAD)"
+test -d "$VALUES_REPO/dev/generated"
+test ! -L "$VALUES_REPO/dev"
+test ! -L "$VALUES_REPO/dev/generated"
+test ! -L "$RUN_DIR"
+test ! -L "$RUN_DIR/generated"
+test ! -L "$RUN_DIR/infra-commit.txt"
+if test -e "$RUN_DIR/infra-commit.txt"; then
+  test -f "$RUN_DIR/infra-commit.txt"
+fi
+for file in "${GENERATED_VALUES_FILES[@]}"; do
+  test -f "$VALUES_REPO/dev/generated/$file"
+  test -s "$VALUES_REPO/dev/generated/$file"
+  test ! -L "$VALUES_REPO/dev/generated/$file"
+done
+shopt -s nullglob dotglob
+for entry in "$VALUES_REPO/dev"/*; do
+  case "${entry##*/}" in
+    generated|infra-commit.txt) ;;
+    *) printf '허용하지 않은 dev 항목: %s\n' "${entry##*/}" >&2; exit 1 ;;
+  esac
+done
+for entry in "$VALUES_REPO/dev/generated"/*; do
+  name=${entry##*/}
+  case " ${GENERATED_VALUES_FILES[*]} " in
+    *" $name "*) ;;
+    *) printf '허용하지 않은 generated 항목: %s\n' "$name" >&2; exit 1 ;;
+  esac
+done
+existing=("$RUN_DIR/generated"/*)
+test "${#existing[@]}" -eq 0
+umask 077
+mkdir -p "$RUN_DIR/generated"
+chmod 700 "$VALUES_REPO" "$VALUES_REPO/dev" "$VALUES_REPO/dev/generated" "$RUN_DIR" "$RUN_DIR/generated"
+chmod 600 "$VALUES_REPO/dev/infra-commit.txt"
+for file in "${GENERATED_VALUES_FILES[@]}"; do
+  chmod 600 "$VALUES_REPO/dev/generated/$file"
+  install -m 600 "$VALUES_REPO/dev/generated/$file" "$RUN_DIR/generated/$file"
+  cmp -s "$VALUES_REPO/dev/generated/$file" "$RUN_DIR/generated/$file"
+done
+install -m 600 "$VALUES_REPO/dev/infra-commit.txt" "$RUN_DIR/infra-commit.txt"
+)
+```
+<!-- generated-values-use:end -->
+
+Git checkout은 `0600`을 보존하지 않으므로 위 권한 복구를 생략하지 않는다. 사본을 가져온 뒤에는
+동일 infra revision의 정적 values·chart와 조합한다. §2-2에서 준비한 `$RUN_DIR`·`EKS_*` 변수를 유지하여
+§2-3의 접속 준비와 §3 이후 수동 설치·검증 순서를 따른다.
+JWT verifier → signer 순서와 Kafka 관리 Job의 별도 실행 절차도 유지한다. 사본을 읽었다는 이유로
+`telemetry-kafka-admin.yaml`을 자동 실행하지 않는다. private push·Argo CD sync 여부와 실제 배포·기능 검증
+결과는 별도 기록하며, private 레포의 commit만으로 배포 성공을 판정하지 않는다.
 
 ### 2-3. 로컬 operator 프로필·터널·kubeconfig
 
