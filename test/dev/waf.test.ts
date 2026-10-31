@@ -558,6 +558,7 @@ describe('dev ALB WAF 정책 합성', () => {
     });
 
     test.each([
+      'http://localhost:3000/auth/callback',
       'https://127.0.0.1:54610/callback', 'HTTP://127.0.0.1:54610/callback',
       'http://localhost:54610/callback', 'http://127.1:54610/callback',
       'http://169.254.169.254:80/callback', 'http://2130706433:54610/callback',
@@ -653,12 +654,13 @@ describe('dev ALB WAF 정책 합성', () => {
     }
   });
 
-  describe('정상 CLI loopback authorize의 두 query label 예외', () => {
+  describe.each(['http://127.0.0.1:54610/callback', 'http://localhost:3000/auth/callback'])(
+    '정상 CLI·로컬 웹 authorize의 두 query label 예외: %s', redirectUri => {
     const uri = '/api/v1/auth/oidc/authorize';
     const exceptions = [QUERY_RULES[0][1], QUERY_RULES[3][1]];
     const parameters = {
       tenant_id: '00000000-0000-4000-8000-000000000001',
-      redirect_uri: 'http://127.0.0.1:54610/callback',
+      redirect_uri: redirectUri,
       state: 's'.repeat(32),
       code_challenge: 'c'.repeat(43),
       code_challenge_method: 'S256',
@@ -669,6 +671,7 @@ describe('dev ALB WAF 정책 합성', () => {
     );
 
     test.each([
+      'http://localhost:3000/auth/callback',
       'http://127.0.0.1:1/callback',
       'http://127.0.0.1:65535/callback',
       'http://127.0.0.1:00054610/callback',
@@ -689,6 +692,13 @@ describe('dev ALB WAF 정책 합성', () => {
     });
 
     test.each([
+      'http://localhost:3001/auth/callback', 'http://localhost:03000/auth/callback',
+      'https://localhost:3000/auth/callback', 'http://LOCALHOST:3000/auth/callback',
+      'http://localhost:3000/callback', 'http://localhost:3000/auth/callback/',
+      'http://localhost:3000/auth/callback?x=1', 'http://localhost:3000/auth/callback#x',
+      'http://localhost:3000/auth/callback\n', 'http://user@localhost:3000/auth/callback',
+      'http://localhost.evil.test:3000/auth/callback', 'http://127.0.0.1:3000/auth/callback',
+      'http://localhost:3000/auth/x/../callback', 'http://localhost:3000/auth/%63allback',
       'https://127.0.0.1:54610/callback', 'HTTP://127.0.0.1:54610/callback',
       'http://localhost:54610/callback', 'http://127.1:54610/callback',
       'http://2130706433:54610/callback', 'http://169.254.169.254:80/callback',

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — PROJ-269 실제 검증에서 확인한 오탐 수정. ADR 0027의 query 후속 Block 중 아래 두 label의 조건만 부분 대체한다. 실제 배포·정상 인증·공격 차단 증거는 별도다.
+Accepted — PROJ-269 실제 검증에서 확인한 오탐 수정. ADR 0027의 query 후속 Block 중 아래 두 label의 조건만 부분 대체한다. 실제 배포·정상 인증·공격 차단 증거는 별도다. [ADR 0054](0054-dev-local-web-oidc-callback.md)가 고정 로컬 웹 콜백을 query 예외에 추가하며 나머지 조건은 유지한다.
 
 ## Context
 

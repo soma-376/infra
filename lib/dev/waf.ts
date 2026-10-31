@@ -66,8 +66,8 @@ const CONTENT_RULES = {
   },
 } as const;
 
-// 정상 CLI loopback redirect에서 실제로 관측한 두 오탐만 좁힌다. (ADR-0044)
-const CLI_OIDC_QUERY_LABELS = [
+// 정상 CLI loopback과 고정 로컬 웹 callback의 두 query label만 좁힌다. (ADR-0044·0054)
+const OIDC_QUERY_LABELS = [
   `${CONTENT_RULES.common.prefix}EC2MetaDataSSRF_QueryArguments`,
   `${CONTENT_RULES.common.prefix}GenericRFI_QueryArguments`,
 ] as const;
@@ -276,16 +276,16 @@ function buildRules(): CfnWebACL.RuleProperty[] {
       ])]),
       { block: {} },
     ),
-    // query는 앱 경로에서 Block한다. 정상 CLI의 두 loopback 오탐만 제외하며
-    // 다른 query label이 함께 있으면 계속 Block한다. (ADR-0044)
+    // query는 앱 경로에서 Block한다. 정상 CLI·고정 로컬 웹의 두 loopback 오탐만 제외하며
+    // 다른 query label이 함께 있으면 계속 Block한다. (ADR-0044·0054)
     actionRule(
       'AppQueryLabelBlock',
       100,
       and([app, or([
         ...Object.values(CONTENT_RULES).flatMap(group => group.query
           .map(([, suffix]) => `${group.prefix}${suffix}`))
-          .filter(key => !CLI_OIDC_QUERY_LABELS.some(exception => exception === key)).map(label),
-        and([or(CLI_OIDC_QUERY_LABELS.map(label)), not(validCliOidcLoopback())]),
+          .filter(key => !OIDC_QUERY_LABELS.some(exception => exception === key)).map(label),
+        and([or(OIDC_QUERY_LABELS.map(label)), not(validOidcLoopback())]),
       ])]),
       { block: {} },
     ),
@@ -345,7 +345,7 @@ function validCliTokenBody(): Statement {
  * query 전체 decode가 encoded &를 가짜 구분자로 만들지 못하게 원문 %26은 닫는다.
  * PCRE의 \A·\z는 마지막 개행 앞을 허용하는 $와 달리 문자열 전체 경계를 고정한다.
  */
-function validCliOidcLoopback(): Statement {
+function validOidcLoopback(): Statement {
   const query = (regexString: string): Statement => ({ regexMatchStatement: {
     regexString, fieldToMatch: { queryString: {} },
     textTransformations: [{ priority: 0, type: 'URL_DECODE' }],
@@ -364,7 +364,7 @@ function validCliOidcLoopback(): Statement {
     not({ byteMatchStatement: { fieldToMatch: { queryString: {} }, positionalConstraint: 'CONTAINS',
       searchString: '%26', textTransformations: [{ priority: 0, type: 'NONE' }] } }),
     parameter('tenant_id', '[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}'),
-    parameter('redirect_uri', CLI_LOOPBACK_REDIRECT),
+    parameter('redirect_uri', `(?:${CLI_LOOPBACK_REDIRECT}|http://localhost:3000/auth/callback)`),
     maxLength('redirect_uri', 256),
     parameter('state', '[A-Za-z0-9._~-]{16,256}'),
     parameter('code_challenge', '[A-Za-z0-9_-]{43}'),
