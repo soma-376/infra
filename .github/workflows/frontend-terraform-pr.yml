@@ -41,6 +41,16 @@ jobs:
     with:
       apply: false
 
+  shared:
+    needs: validate
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/frontend-terraform-shared.yml
+    with:
+      apply: false
+
   plan:
     needs: validate
     # fork PR에는 AWS 역할과 상태 접근권한을 주지 않는다.

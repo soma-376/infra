@@ -14,11 +14,11 @@ variable "peers" {
     route_table_ids   = set(string)
   }))
   validation {
-    condition     = toset(keys(var.peers)) == toset(["dev", "prod"]) && alltrue([for peer in var.peers : length(peer.route_table_ids) > 0])
-    error_message = "dev/prod 두 환경에 VPC, BFF SG와 한 개 이상의 route table이 필요합니다."
+    condition     = contains(keys(var.peers), "dev") && alltrue([for env in keys(var.peers) : contains(["dev", "prod"], env)]) && alltrue([for peer in var.peers : length(peer.route_table_ids) > 0])
+    error_message = "dev는 필수이고 prod는 선택입니다. 각 환경에 VPC·BFF SG·route table이 필요합니다."
   }
   validation {
-    condition     = length(distinct([for peer in var.peers : peer.vpc_id])) == 2
+    condition     = length(distinct([for peer in var.peers : peer.vpc_id])) == length(var.peers)
     error_message = "dev/prod는 서로 다른 VPC여야 합니다."
   }
 }

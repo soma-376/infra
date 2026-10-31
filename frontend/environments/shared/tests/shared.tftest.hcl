@@ -125,3 +125,18 @@ run "reject_unbounded_compute" {
   variables { max_ecpu_per_second = 100000 }
   expect_failures = [var.max_ecpu_per_second]
 }
+run "dev_before_prod_ready" {
+  command = plan
+  variables {
+    peers = {
+      dev = {
+        vpc_id          = "vpc-00000000000000001", security_group_id = "sg-00000000000000001"
+        route_table_ids = ["rtb-00000000000000001"]
+      }
+    }
+  }
+  assert {
+    condition     = length(aws_vpc_peering_connection.app) == 1 && length(aws_elasticache_user.bff) == 2
+    error_message = "prod 미준비 시 dev 연결만 생성하되 두 환경 사용자 분리는 유지합니다."
+  }
+}

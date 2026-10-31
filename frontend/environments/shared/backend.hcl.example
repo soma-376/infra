@@ -1,2 +1,2 @@
-bucket              = "<공유 전용으로 준비한 상태 버킷>"
+bucket              = "<기존 bootstrap 상태 버킷>"
 allowed_account_ids = ["<AWS 계정 ID>"]

@@ -2,7 +2,7 @@
 
 dev/prod가 하나의 ElastiCache Serverless for Valkey를 공유하는 **배포 전 구성**이다.
 근거: [ADR 0055](../../../docs/adr/0055-shared-frontend-valkey-foundation.md).
-기존 프론트 BFF는 아직 이 저장소를 사용하지 않는다. 이 root는 자동 apply workflow에 연결하지 않았다.
+기존 프론트 BFF는 아직 이 저장소를 사용하지 않는다. develop 머지 후 bootstrap → dev → shared plan/apply 순서로 실행한다. 실제 배포 성공은 Actions와 AWS 리소스로 확인한다.
 
 ## 리소스와 소유권
 
@@ -24,11 +24,22 @@ dev는 BFF EC2의 public route table, prod는 BFF가 배치되는 두 private ro
 입력한 SG/route table이 해당 VPC 소유인지 plan에서 검사한다. 실제 BFF가 그 SG와 경로를 사용하는지는 배포 전 확인한다.
 두 환경이 동일 계정·리전에 있고 VPC DNS가 켜져 있어야 한다. NACL·조직 정책·기존 다른 VPC와의 CIDR 충돌도 실제 plan에서 확인한다.
 
-공유 전용 S3 state 버킷과 읽기/쓰기 역할은 **별도 준비 대상**이다. 현재 bootstrap은 이 버킷을 만들지 않는다.
-버전 관리·공개 차단·TLS 강제·암호화·삭제 보호·native state lock을 적용한다.
-기존 dev/prod 역할에 공유 상태나 IAM 변경 권한을 주지 않는다. 공유 역할은 dev/prod 상태 전체를 읽을 필요 없이 비밀 없는 ID 입력을 사용한다.
-shared plan/apply CI는 보호된 Environment와 동일 SHA/plan 승인 절차를 갖춘 후 추가한다.
-저장소 규칙상 실제 apply는 리뷰·머지 후 보호된 CI에서 수행하며, 로컬 관리자 apply를 우회 경로로 사용하지 않는다.
+기존 bootstrap S3 버킷의 `shared-valkey/terraform.tfstate` key를 사용한다. 버킷의 버전 관리·공개 차단·TLS 강제·암호화·삭제 보호를 재사용한다.
+bootstrap이 `soma-376-frontend-shared-plan/apply` 역할을 생성한다. shared 역할은 자기 state key와 잠금 파일만 읽으며 bootstrap/dev/prod state 본문에 접근하지 않는다.
+shared plan은 조회와 잠금만, apply는 shared 캐시·네트워크 및 명시된 기존 frontend peer 자원에만 쓰기를 허용한다. 기존 route table 권한은 목적지별 IAM 제한이 아니므로 승인된 Terraform 계획과 peer 누락 방어도 함께 사용한다.
+
+`.github/workflows/frontend-terraform-shared.yml`은 이미 설정된 `frontend-bootstrap-plan/apply` GitHub Environment의 계정 ID·상태 버킷·승인 조건을 사용한다.
+새 GitHub Variables를 수동 등록하지 않는다. OIDC subject는 bootstrap과 같은 승인 경계이며 역할 이름과 AWS 권한은 별도다. 이를 별도 조직/관리자 보안 경계라고 해석하지 않는다.
+기존 bootstrap이 새 역할·정책을 만든 후 shared 단계가 실행된다. 최초 PR에서는 역할이 없으면 AWS shared plan만 명시적으로 보류하며, 머지 후 실행에서는 역할 부재를 오류로 처리한다.
+
+`shared-peers.py`가 기존 frontend 소유 태그와 정확한 이름으로 VPC·BFF SG·route table을 조회해 임시 입력을 생성한다. dev는 필수다.
+prod VPC 또는 BFF SG가 아직 없으면 dev만 연결하며, prod 준비 후 develop의 `Frontend Terraform Apply`를 workflow_dispatch로 다시 실행한다.
+이미 state에 기록된 peer가 조회에서 누락되면 자동 제거하지 않고 실패한다. 중복 VPC/SG, 불완전한 경로도 실패한다. 처음부터 두 환경이 준비되어 있으면 둘 다 연결한다.
+main 배포에서 오래된 공유 코드를 적용하지 않도록 shared 자동 apply는 develop에만 연결한다.
+
+plan과 apply는 같은 SHA의 별도 job이며, 승인 후 실제 입력을 다시 조회하고 전체 계획 해시를 비교한다. 변경되었거나 develop 최신 SHA가 아니면 중단한다.
+shared workflow는 전용 concurrency와 S3 state lock을 사용한다. 계획·state·임시 입력을 artifact로 업로드하지 않는다.
+GitHub 환경 승인이 설정되어 있으면 머지만으로 즉시 생성되는 것은 아니며 승인 후 apply까지 성공해야 한다.
 
 로컬 검증 (AWS 자격증명 불필요):
 
@@ -38,7 +49,7 @@ terraform validate
 terraform test
 ```
 
-리뷰용 실제 plan은 위 보호된 상태/역할 준비 후 `backend.hcl.example`과 동일 형식의 별도 파일로 init한다.
+리뷰용 실제 plan은 위 workflow에서 실행한다. 수동 검토 시 `backend.hcl.example`의 bucket에는 기존 bootstrap 상태 버킷을 사용한다.
 backend key는 `shared-valkey/terraform.tfstate`이며 dev/prod의 `network/terraform.tfstate`와 다르다.
 실제 ID, account ID, tfvars, plan, state는 커밋하지 않는다.
 
