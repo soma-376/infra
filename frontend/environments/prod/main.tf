@@ -25,12 +25,14 @@ module "network" {
 
 output "network" {
   value = {
-    vpc_id               = module.network.vpc_id
-    vpc_cidr             = module.network.vpc_cidr
-    public_subnet_ids    = module.network.public_subnet_ids
-    private_subnet_ids   = module.network.private_subnet_ids
-    public_subnet_cidrs  = module.network.public_subnet_cidrs
-    private_subnet_cidrs = module.network.private_subnet_cidrs
-    nat_gateway_id       = module.network.nat_gateway_id
+    vpc_id                  = module.network.vpc_id
+    vpc_cidr                = module.network.vpc_cidr
+    public_subnet_ids       = module.network.public_subnet_ids
+    private_subnet_ids      = module.network.private_subnet_ids
+    public_subnet_cidrs     = module.network.public_subnet_cidrs
+    private_subnet_cidrs    = module.network.private_subnet_cidrs
+    public_route_table_id   = module.network.public_route_table_id
+    private_route_table_ids = module.network.private_route_table_ids
+    nat_gateway_id          = module.network.nat_gateway_id
   }
 }

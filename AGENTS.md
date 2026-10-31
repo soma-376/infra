@@ -24,6 +24,13 @@ prod는 BFF 단일 프로세스 desired=1/min=0/max=100을 유지한다. dev는 
 [ADR-0045](docs/adr/0045-dev-waf-cli-token-body-exception.md)는 정확한 CLI token POST의 1KB 이하 원문 JSON
 세 필드를 검증한 경우에만 두 Body label을 제외한다. 다른 탐지·rate·로그 보호는 유지한다.
 
+## 공유 프론트 Valkey 기반 (배포 전)
+
+[ADR 0055](docs/adr/0055-shared-frontend-valkey-foundation.md)와 [구성 안내](frontend/environments/shared/README.md)를 따른다.
+shared root가 별도 VPC·dev/prod 피어링·왕복 경로·SG 규칙·캐시·IAM 사용자/태스크 역할을 소유한다.
+기존 환경 root에 같은 경로/SG 규칙을 중복 정의하지 않는다. shared backend/보호된 CI는 별도 준비하며 기존 runtime 역할을 재사용하지 않는다.
+BFF 코드·쿠키 계약·ECS task 역할 연결은 변경하지 않았다. 공유 세션 전환 시 허브 ADR 0009·웹 인증 계약 개정이 먼저다.
+
 ## PROJ-282 dev Strimzi 전환
 
 [ADR-0049](docs/adr/0049-dev-strimzi-kafka-and-staged-msk-retirement.md)와
