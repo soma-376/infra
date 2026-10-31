@@ -32,6 +32,7 @@ frontend/
   modules/application/ ALB·기존 인증서 연결·SG·로그·ECS·개발 EC2
   environments/dev/    개발 root / 독립 backend
   environments/prod/   운영 root / 독립 backend
+  environments/shared/ 공유 Valkey 기반 / 독립 backend (배포 전 구성)
   scripts/check.sh     AWS 자격증명 없는 검증
 ```
 
@@ -296,3 +297,8 @@ ECS circuit breaker/events와 실제 task digest를 확인한다. runner 소실 
 `modules/observability`와 dev의 `observability.auto.tfvars.json`이 관측 수신 기반을 정의한다.
 관리자 bootstrap의 전용 profile/배포 권한을 먼저 반영한 뒤 기존 dev CI에서 생성한다.
 실제 apply와 앱 연결은 별도 단계다. [생성 항목·머지 동작·운영 절차](modules/observability/README.md)를 따른다.
+
+## 공유 Valkey 기반
+
+[공유 Valkey 구성](environments/shared/README.md)은 dev/prod 공용 캐시와 피어링·IAM 사용자를 정의한다.
+로컬 검증 대상이며 기존 자동 apply에 포함되지 않는다. BFF 연결·공유 상태/CI 준비는 별도다.
