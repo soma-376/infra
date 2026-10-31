@@ -76,7 +76,9 @@ backlog 건수가 아니다. `KafkaConsumerLagHigh`도 같은 확인된 lag를 �
 [Strimzi 런북](../../docs/runbooks/dev-strimzi-kafka.md)의 인증서 절차에서 함께 확인한다.
 Strimzi 1.2에서 제거된 `strimzi_resource_state`는 사용하지 않는다.
 
-갱신 후에는 Secret UID/resourceVersion에서 `kafka.tlsRevision`을 재생성하고 기존 Helm 배포를 실행한다.
+갱신 후에는 Secret UID/resourceVersion에서 `kafka.tlsRevision`을 재생성하고 명시적으로 재배포한다.
+Argo 인계 전에는 기존 Helm을, 인계 후에는 [Argo 운영 런북](../../docs/runbooks/dev-argocd-operations.md)의
+Git 공급·승격·sync 경로를 사용한다. 두 관리 주체가 같은 release를 동시에 변경하지 않는다.
 실제 Pod template/Pod annotation이 새 revision과 일치하며 Gateway ACK→소비→commit→ClickHouse의
 새 요청과 로그/trace 연결이 성공했는지 확인해 PROJ-285에 증거를 남긴다. `Kafka`·`KafkaTopic`·`KafkaUser`의
 Ready/observedGeneration도 대조한다. 현재 앱 replica 1/Recreate이므로 이 재배포에 짧은 중단이 생길 수 있다.
