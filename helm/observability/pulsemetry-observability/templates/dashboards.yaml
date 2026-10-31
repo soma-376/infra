@@ -4,8 +4,63 @@ metadata:
   name: pulsemetry-dashboards
   namespace: {{ .Release.Namespace }}
 data:
+{{- $p := .Values.global.pulsemetry }}
+{{- $strimzi := eq $p.kafkaProvider "strimzi" }}
 {{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
+{{- if not (and (not $strimzi) (eq (base $path) "pulsemetry-kafka.json")) }}
   {{ base $path }}: |-
-    {{- /* JSON 내의 Grafana {{label}}과 Helm 템플릿을 섞지 않는다. */}}
-    {{- $.Files.Get $path | replace "__AWS_REGION__" $.Values.global.pulsemetry.region | replace "__ENVIRONMENT__" $.Values.global.pulsemetry.environment | replace "__TARGET_NAMESPACE__" $.Values.global.pulsemetry.targetNamespace | replace "__CLUSTER_NAME__" $.Values.global.pulsemetry.clusterName | replace "__MSK_CLUSTER__" $.Values.global.pulsemetry.mskClusterName | replace "__TOPIC__" $.Values.global.pulsemetry.topic | replace "__CONSUMER_GROUP__" $.Values.global.pulsemetry.consumerGroup | replace "__CONTROL_PLANE_LOG_GROUP__" $.Values.global.pulsemetry.controlPlaneLogGroup | replace "__APPLICATION_LOG_GROUP__" $.Values.global.pulsemetry.applicationLogGroup | replace "__BROKER_LOG_GROUP__" $.Values.global.pulsemetry.brokerLogGroup | replace "__OBSERVABILITY_LOG_GROUP__" $.Values.global.pulsemetry.observabilityLogGroup | replace "__EVENTS_LOG_GROUP__" $.Values.global.pulsemetry.kubernetesEventsLogGroup | nindent 4 }}
+    {{- $json := $.Files.Get $path }}
+    {{- if and $strimzi (eq (base $path) "pulsemetry-msk.json") }}
+      {{- /* disableDeletion으로 보존된 같은 UID를 쿼리 없는 전환 이력 안내로 갱신한다. */}}
+      {{- $json = $.Files.Get "history/pulsemetry-msk.json" }}
+    {{- end }}
+    {{- if $strimzi }}
+      {{- $dashboard := $json | fromJson }}
+      {{- $additionalPanels := list }}
+      {{- range $panel := $dashboard.panels }}
+        {{- if and (eq $dashboard.uid "pulsemetry-pipeline") (eq $panel.type "text") }}
+          {{- $_ := set $panel.options "content" ($panel.options.content | replace "Commit 기준 lag(CloudWatch SumOffsetLag)는 commit된 offset이 있고 consumer group이 STABLE·EMPTY일 때만 나옵니다." "확인된 commit 기준 lag는 commit offset이 확인된 partition의 lag 합계입니다. 미커밋 partition 수를 함께 확인하며, 미커밋 수가 0이 아니면 전체 backlog를 뜻하지 않습니다. 모두 미커밋이거나 수집 실패이면 lag는 빈 값이며 0으로 바꾸지 않습니다.") }}
+        {{- end }}
+        {{- range $target := $panel.targets }}
+          {{- if $target.expr }}
+            {{- $_ := set $target "expr" ($target.expr | replace "job!=\"msk-node\"," "") }}
+            {{- if or (contains "pulsemetry:collection_success:ratio" $target.expr) (contains "pulsemetry:collection_last_success:timestamp" $target.expr) }}
+              {{- /* 과거 표본은 유지하되 현재 구성요소와 일치하는 행만 상태표에 합친다. */}}
+              {{- $_ := set $target "expr" (printf "(%s) and on (component, dashboard) pulsemetry:collection_state" $target.expr) }}
+            {{- end }}
+          {{- end }}
+          {{- if eq ($target.namespace | default "") "AWS/Kafka" }}
+            {{- /* 공통 Overview/Pipeline의 MSK lag 패널을 같은 위치에서 교체한다. */}}
+            {{- $datasource := dict "type" "prometheus" "uid" "pulsemetry-prometheus" }}
+            {{- $_ := set $panel "datasource" $datasource }}
+            {{- $_ := set $panel "title" "확인된 commit 기준 lag" }}
+            {{- $_ := set $panel "type" "stat" }}
+            {{- $_ := set $panel "description" "미커밋 partition을 제외한 commit 기준 offset lag(record 수)다. 옆 미커밋 수가 0이 아니면 전체 backlog를 뜻하지 않는다. 모두 미커밋·group 미생성·수집 실패는 빈 값이며 0으로 바꾸지 않는다. ingest http 모드에서는 해당 없다." }}
+            {{- $_ := set $panel "targets" (list (dict "refId" "A" "datasource" $datasource "expr" "pulsemetry:kafka_committed_lag:sum{cluster=\"$cluster\",kafka_cluster=\"$kafka_cluster\",topic=\"$topic\",consumergroup=\"$consumer_group\"}" "instant" true "range" false "legendFormat" "committed lag")) }}
+            {{- $_ := set $panel "fieldConfig" (dict "defaults" (dict "unit" "short" "decimals" 0 "noValue" "미수집" "color" (dict "mode" "fixed" "fixedColor" "blue")) "overrides" list) }}
+            {{- $_ := set $panel "options" (dict "reduceOptions" (dict "calcs" (list "lastNotNull") "fields" "" "values" false) "colorMode" "value" "graphMode" "none" "textMode" "auto") }}
+            {{- $_ := set $panel.gridPos "w" 8 }}
+            {{- $additionalPanels = append $additionalPanels (dict
+              "id" 12 "type" "stat" "title" "미커밋 partition 수"
+              "description" "commit offset이 없는 partition 수다. 빈 partition도 포함하므로 backlog 건수가 아니다. 관측된 모든 partition이 커밋됐을 때만 0이며 group 미생성·수집 실패는 미수집이다."
+              "datasource" $datasource
+              "gridPos" (dict "x" (add $panel.gridPos.x 8) "y" $panel.gridPos.y "w" 4 "h" 8)
+              "targets" (list (dict "refId" "A" "datasource" $datasource "expr" "pulsemetry:kafka_uncommitted_partitions:count{cluster=\"$cluster\",kafka_cluster=\"$kafka_cluster\",topic=\"$topic\",consumergroup=\"$consumer_group\"}" "instant" true "range" false "legendFormat" "uncommitted partitions"))
+              "fieldConfig" (dict "defaults" (dict "unit" "short" "decimals" 0 "noValue" "미수집" "color" (dict "mode" "fixed" "fixedColor" "blue")) "overrides" list)
+              "options" (dict "reduceOptions" (dict "calcs" (list "lastNotNull") "fields" "" "values" false) "colorMode" "value" "graphMode" "none" "textMode" "auto")
+            ) }}
+          {{- end }}
+          {{- if has "__BROKER_LOG_GROUP__" ($target.logGroupNames | default list) }}
+            {{- $_ := set $panel "title" "Kafka broker Pod 로그" }}
+            {{- $_ := set $target "logGroupNames" (list $p.applicationLogGroup) }}
+            {{- $_ := set $target "expression" (printf "fields @timestamp, @message | filter kubernetes.namespace_name = '%s' and kubernetes.pod_name like /^%s-dual-role-[0-9]+$/ | sort @timestamp desc | limit 100" $p.targetNamespace $p.kafkaClusterName) }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+      {{- $_ := set $dashboard "panels" (concat $dashboard.panels $additionalPanels) }}
+      {{- $json = $dashboard | toPrettyJson | replace "msk_cluster" "kafka_cluster" | replace "msk-jmx|msk-node" "strimzi-jmx|strimzi-exporter" | replace "MSK record" "Kafka record" | replace "MSK broker 로그" "Kafka broker Pod 로그" }}
+    {{- end }}
+    {{- /* Grafana {{label}}를 Helm tpl로 평가하지 않는다. 비밀 원문은 들어가지 않는다. */}}
+    {{- $json | replace "__AWS_REGION__" $p.region | replace "__ENVIRONMENT__" $p.environment | replace "__TARGET_NAMESPACE__" $p.targetNamespace | replace "__CLUSTER_NAME__" $p.clusterName | replace "__MSK_CLUSTER__" (ternary $p.kafkaClusterName $p.mskClusterName $strimzi) | replace "__KAFKA_CLUSTER__" $p.kafkaClusterName | replace "__TOPIC__" $p.topic | replace "__CONSUMER_GROUP__" $p.consumerGroup | replace "__CONTROL_PLANE_LOG_GROUP__" $p.controlPlaneLogGroup | replace "__APPLICATION_LOG_GROUP__" $p.applicationLogGroup | replace "__BROKER_LOG_GROUP__" ($p.brokerLogGroup | default "") | replace "__OBSERVABILITY_LOG_GROUP__" $p.observabilityLogGroup | replace "__EVENTS_LOG_GROUP__" $p.kubernetesEventsLogGroup | nindent 4 }}
+{{- end }}
 {{- end }}

@@ -1,6 +1,6 @@
 import { CfnOutput, Tags } from 'aws-cdk-lib/core';
 import { ISecurityGroup, IVpc, SubnetType } from 'aws-cdk-lib/aws-ec2';
-import { ApplicationLoadBalancer, ApplicationProtocol, ApplicationTargetGroup, TargetType } from 'aws-cdk-lib/aws-elasticloadbalancingv2';
+import { ApplicationLoadBalancer, ApplicationProtocol, ApplicationTargetGroup, ListenerAction, TargetType } from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import { CfnWebACLAssociation } from 'aws-cdk-lib/aws-wafv2';
 import { Construct } from 'constructs';
 import { DEV_DEREGISTRATION_DELAY } from './config';
@@ -16,6 +16,8 @@ export interface DevEksValidationEdgeProps extends DevAppListenerOptions {
   readonly publicBaseUrl?: string;
   /** 기본 ingest. gateway는 priority 1 OTLP 규칙의 대상만 바꾼다. (ADR-0036) */
   readonly otlpTarget?: DevEksOtlpTarget;
+  /** app 조립이 Strimzi main/ingest 조건에서만 공급한다. Gateway 트래픽 비중은 0이다. */
+  readonly prepareGateway?: boolean;
 }
 
 /** EKS 단독 전환 뒤에도 기존 검증 경로의 construct ID·TG 이름·output을 보존한다. */
@@ -40,12 +42,15 @@ export class DevEksValidationEdge extends Construct {
     const ingest = tg('IngestTg', 'ingest', DEV_EKS_NODE_PORTS.ingest, '/api/v1/healthz', TargetType.INSTANCE);
     const enrollment = tg('EnrollmentTg', 'enroll', DEV_EKS_NODE_PORTS.enrollment, '/api/v1/healthz', TargetType.INSTANCE);
     const dashboard = tg('DashboardTg', 'dashboard', DEV_EKS_NODE_PORTS.dashboard, '/api/v1/healthz', TargetType.INSTANCE);
-    // Gateway TG는 대상과 무관하게 항상 둔다. TGB가 미리 node를 등록하고 전환은 규칙 대상만 바꾼다.
+    // TGB의 node 등록만으로 health check가 시작되지는 않는다. 준비 단계에서 listener에 weight 0으로 연결한다.
     const gateway = tg('GatewayTg', 'gateway', DEV_EKS_NODE_PORTS.gateway, '/api/v1/healthz', TargetType.INSTANCE);
     const otlpTarget = props.otlpTarget ?? 'ingest';
     const http = addDevAppListener(alb, 'Http', props);
     // EKS는 기존 path/method/preflight 계약을 서로 독립된 TG에 연결한다. OTLP 규칙 ID는 대상과 무관하다.
-    installDevAppRoutes(this, http, { enrollment, dashboard, ingest: otlpTarget === 'gateway' ? gateway : ingest }, 'Otlp');
+    const preparation = props.prepareGateway && otlpTarget === 'ingest'
+      ? ListenerAction.weightedForward([{ targetGroup: ingest, weight: 100 }, { targetGroup: gateway, weight: 0 }])
+      : undefined;
+    installDevAppRoutes(this, http, { enrollment, dashboard, ingest: otlpTarget === 'gateway' ? gateway : ingest }, 'Otlp', preparation);
     new CfnWebACLAssociation(this, 'WafAssociation', { resourceArn: alb.loadBalancerArn, webAclArn: props.webAclArn });
     for (const [name, value] of Object.entries({
       ValidationAlbArn: alb.loadBalancerArn,

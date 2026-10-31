@@ -1,0 +1,1351 @@
+{
+  "editable": true,
+  "panels": [
+    {
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "id": 1,
+      "options": {
+        "content": "dev EC2 OS → Node 프로세스 → 요청·에러 → 로그·트레이스 순서로 확인합니다. **No data는 사용량 0이 아니라 해당 지표가 없는 상태입니다.** OS와 앱 OTel은 별도 수집 경로입니다.\n\n상단 AZ·EC2 필터는 호스트 OS 지표에만 적용됩니다. Node·컨테이너·요청은 서버 계측입니다. 브라우저 LCP·INP·CLS는 아직 수집하지 않습니다. 이벤트 루프·힙 상세·컨테이너 메모리 신규 지표는 SDK 배포 후 표시됩니다.",
+        "mode": "markdown"
+      },
+      "title": "대시보드 안내 · 측정 범위와 단위",
+      "type": "text"
+    },
+    {
+      "id": 100,
+      "type": "row",
+      "title": "호스트 EC2 · CPU",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 4
+      },
+      "id": 10,
+      "options": {
+        "content": "AZ와 EC2 필터는 이 OS 영역에만 적용됩니다. 범례는 가용영역 · EC2 ID입니다. OS 수치는 호스트 전체이며 Node 프로세스 수치와 별개입니다.",
+        "mode": "markdown"
+      },
+      "title": "dev EC2 · AZ별 OS 자원",
+      "type": "text"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 12,
+        "h": 7
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "100 * (1 - avg by (instance, environment, host_role, availability_zone) (rate(node_cpu_seconds_total{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone=~\"$az\",instance=~\"$instance\",mode=\"idle\"}[$__rate_interval])))",
+          "legendFormat": "{{availability_zone}} · {{instance}}",
+          "refId": "A"
+        }
+      ],
+      "title": "EC2 CPU 사용률 · 전체 코어 평균 (%)",
+      "type": "timeseries"
+    },
+    {
+      "id": 101,
+      "type": "row",
+      "title": "호스트 EC2 · 메모리",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 12,
+        "h": 7
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "100 * (1 - node_memory_MemAvailable_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone=~\"$az\",instance=~\"$instance\"} / node_memory_MemTotal_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone=~\"$az\",instance=~\"$instance\"})",
+          "legendFormat": "{{availability_zone}} · {{instance}}",
+          "refId": "A"
+        }
+      ],
+      "title": "EC2 메모리 사용률 · 가용 메모리 기준 (%)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 17,
+        "w": 12,
+        "h": 7
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "node_memory_MemAvailable_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone=~\"$az\",instance=~\"$instance\"}",
+          "legendFormat": "{{availability_zone}} · {{instance}}",
+          "refId": "A"
+        }
+      ],
+      "title": "EC2 메모리 · 가용 용량",
+      "type": "timeseries"
+    },
+    {
+      "id": 102,
+      "type": "row",
+      "title": "호스트 EC2 · 디스크",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 12,
+        "h": 7
+      },
+      "id": 14,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "100 * (1 - node_filesystem_avail_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone=~\"$az\",instance=~\"$instance\",fstype!~\"tmpfs|overlay|squashfs|ramfs|rpc_pipefs\",mountpoint!~\"/host/root.*\"} / node_filesystem_size_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone=~\"$az\",instance=~\"$instance\",fstype!~\"tmpfs|overlay|squashfs|ramfs|rpc_pipefs\",mountpoint!~\"/host/root.*\"})",
+          "legendFormat": "{{availability_zone}} · {{instance}} · {{mountpoint}}",
+          "refId": "A"
+        }
+      ],
+      "title": "EC2 디스크 사용률 · 마운트별 (%)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 25,
+        "w": 12,
+        "h": 7
+      },
+      "id": 15,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "node_filesystem_avail_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone=~\"$az\",instance=~\"$instance\",fstype!~\"tmpfs|overlay|squashfs|ramfs|rpc_pipefs\",mountpoint!~\"/host/root.*\"}",
+          "legendFormat": "{{availability_zone}} · {{instance}} · {{mountpoint}}",
+          "refId": "A"
+        }
+      ],
+      "title": "EC2 디스크 · 마운트별 가용 용량",
+      "type": "timeseries"
+    },
+    {
+      "id": 103,
+      "type": "row",
+      "title": "서버 컨테이너 · 메모리",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "프론트 SDK 배포 후 ECS 컨테이너 stats에서 수집합니다. 사용량은 캐시를 포함한 원시 값으로 RSS·힙과 다릅니다. 한도는 고정 512MiB 선이 아닌 실제 값입니다. 로컬 ECS 정보 없음·수집 실패는 No data입니다. OS AZ 필터는 적용되지 않습니다.",
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 33,
+        "w": 12,
+        "h": 7
+      },
+      "id": 29,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(container_memory_usage_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\"}) and on(service_instance_id) (frontend_container_collection_success{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\"} == 1)",
+          "legendFormat": "사용량 · {{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "(container_memory_limit_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\"}) and on(service_instance_id) (frontend_container_collection_success{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\"} == 1)",
+          "legendFormat": "한도 · {{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
+          "range": true
+        }
+      ],
+      "title": "컨테이너 메모리 · 사용량 / 실제 한도",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "프론트 SDK 배포 후 ECS 컨테이너 stats에서 수집합니다. 사용량은 캐시를 포함한 원시 값으로 RSS·힙과 다릅니다. 한도는 고정 512MiB 선이 아닌 실제 값입니다. 로컬 ECS 정보 없음·수집 실패는 No data입니다. OS AZ 필터는 적용되지 않습니다.",
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 33,
+        "w": 12,
+        "h": 7
+      },
+      "id": 30,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(100 * container_memory_usage_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\"} / container_memory_limit_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\"}) and on(service_instance_id) (frontend_container_collection_success{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\"} == 1)",
+          "legendFormat": "사용률 · {{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
+          "range": true
+        }
+      ],
+      "title": "컨테이너 메모리 사용률 · 실제 한도 대비 (%)",
+      "type": "timeseries"
+    },
+    {
+      "id": 104,
+      "type": "row",
+      "title": "서버 Node.js · CPU",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "gridPos": {
+        "x": 0,
+        "y": 41,
+        "w": 24,
+        "h": 4
+      },
+      "id": 18,
+      "options": {
+        "content": "Node·컨테이너 지표는 앱 AZ·ECS 태스크 필터로 선택합니다. 범례는 AZ · 태스크 ID · 프로세스 ID 순서입니다. EC2·OS 필터와 별개이며 요청·로그 패널에는 앱 필터가 적용되지 않습니다. 메타데이터 미수집·이전 데이터는 앱 필터 All에서 확인할 수 있습니다. service_instance_id는 Node 시작마다 바뀝니다. 힙 비율은 컨테이너 한도 대비 비율이 아닙니다.",
+        "mode": "markdown"
+      },
+      "title": "dev Node.js · 프로세스별 자원",
+      "type": "text"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "프론트 Node.js 프로세스의 최근 1분 CPU 사용률. user+system CPU 초 / 경과 초. 여러 스레드가 코어를 쓰면 100%를 넘을 수 있습니다. 컴퓨터/EC2 전체 및 컨테이너 할당량 대비 사용률이 아닙니다.",
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 45,
+        "w": 12,
+        "h": 7
+      },
+      "id": 22,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(frontend_node_cpu_time_seconds_total{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\"}[1m])",
+          "instant": false,
+          "legendFormat": "{{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Node.js CPU 사용률 · 1코어 기준 (%)",
+      "type": "timeseries"
+    },
+    {
+      "id": 105,
+      "type": "row",
+      "title": "서버 Node.js · 메모리",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 52,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "프로세스가 차지하는 물리 메모리. 브라우저 메모리가 아닙니다.",
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 53,
+        "w": 12,
+        "h": 7
+      },
+      "id": 23,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\",kind=~\"rss\"}",
+          "legendFormat": "{{kind}} · {{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Node.js 메모리 · 상주 메모리 (RSS)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "heapUsed: 사용 중인 JS 힙. heapTotal: 현재 확보한 힙이며 최대 한도가 아닙니다.",
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 53,
+        "w": 12,
+        "h": 7
+      },
+      "id": 24,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\",kind=~\"heapUsed|heapTotal\"}",
+          "legendFormat": "{{kind}} · {{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Node.js JS 힙 · 사용량 / 확보 용량",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "external은 V8이 관리하는 JavaScript 객체에 연결된 C++ 메모리입니다. ArrayBuffers는 external에 포함되므로 더하지 않습니다. 네이티브 메모리 전체를 의미하지 않습니다.",
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 60,
+        "w": 12,
+        "h": 7
+      },
+      "id": 25,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\",kind=~\"external|arrayBuffers\"}",
+          "legendFormat": "{{kind}} · {{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Node.js 외부 메모리 · external / ArrayBuffers",
+      "type": "timeseries"
+    },
+    {
+      "id": 106,
+      "type": "row",
+      "title": "서버 Node.js · 이벤트 루프",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 67,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "서버 Node.js 이벤트 루프의 직전 수집 이후 통계입니다(기본 약 5초). 표본 간격은 20ms이며 정상 상태에서도 이 간격 부근 값이 나올 수 있습니다. 브라우저 INP나 선택 기간 전체 p95가 아닙니다. SDK 배포 후 수신됩니다.",
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 68,
+        "w": 12,
+        "h": 7
+      },
+      "id": 32,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "1000 * nodejs_eventloop_lag_p95_seconds{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\"}",
+          "legendFormat": "{{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
+          "refId": "A",
+          "range": true
+        }
+      ],
+      "title": "이벤트 루프 지연 p95 · 수집 구간 (ms)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "서버 Node.js 이벤트 루프의 직전 수집 이후 통계입니다(기본 약 5초). 표본 간격은 20ms이며 정상 상태에서도 이 간격 부근 값이 나올 수 있습니다. 브라우저 INP나 선택 기간 전체 p95가 아닙니다. SDK 배포 후 수신됩니다.",
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 68,
+        "w": 12,
+        "h": 7
+      },
+      "id": 33,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "1000 * nodejs_eventloop_lag_max_seconds{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\"}",
+          "legendFormat": "{{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
+          "refId": "A",
+          "range": true
+        }
+      ],
+      "title": "이벤트 루프 지연 최대 · 수집 구간 (ms)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "직전 수집 이후 이벤트 루프가 활동한 시간 비율입니다. CPU 사용률·브라우저 INP와 다릅니다. SDK 배포 후 수신됩니다.",
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 75,
+        "w": 12,
+        "h": 7
+      },
+      "id": 34,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "nodejs_eventloop_utilization{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\"}",
+          "legendFormat": "{{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
+          "refId": "A",
+          "range": true
+        }
+      ],
+      "title": "이벤트 루프 사용률 · 수집 구간 (%)",
+      "type": "timeseries"
+    },
+    {
+      "id": 107,
+      "type": "row",
+      "title": "서버 Node.js · 힙 상세",
+      "collapsed": true,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "V8 영역별 바이트 통계입니다. 가용 용량은 컨테이너의 남은 RAM이 아닙니다. SDK 배포 후 수신됩니다.",
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 83,
+            "w": 12,
+            "h": 7
+          },
+          "id": 35,
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "expr": "frontend_node_heap_space_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\",kind=\"used\"}",
+              "legendFormat": "{{space}} · {{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
+              "refId": "A",
+              "range": true
+            }
+          ],
+          "title": "JS 힙 영역별 사용량",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "V8 영역별 바이트 통계입니다. 가용 용량은 컨테이너의 남은 RAM이 아닙니다. SDK 배포 후 수신됩니다.",
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 83,
+            "w": 12,
+            "h": 7
+          },
+          "id": 36,
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "expr": "frontend_node_heap_space_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\",kind=\"total\"}",
+              "legendFormat": "{{space}} · {{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
+              "refId": "A",
+              "range": true
+            }
+          ],
+          "title": "JS 힙 영역별 확보 용량",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "V8 영역별 바이트 통계입니다. 가용 용량은 컨테이너의 남은 RAM이 아닙니다. SDK 배포 후 수신됩니다.",
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 90,
+            "w": 12,
+            "h": 7
+          },
+          "id": 37,
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "expr": "frontend_node_heap_space_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\",kind=\"available\"}",
+              "legendFormat": "{{space}} · {{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
+              "refId": "A",
+              "range": true
+            }
+          ],
+          "title": "JS 힙 영역별 가용 용량",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "V8 최대 힙 제한이나 컨테이너 RAM 대비 사용률이 아닙니다. GC에 따라 변동하므로 누수 여부는 안정화 여부와 함께 판단합니다.",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 90,
+            "w": 12,
+            "h": 7
+          },
+          "id": 26,
+          "targets": [
+            {
+              "expr": "100 * frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\",kind=\"heapUsed\"} / ignoring(kind) frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\",aws_ecs_task_id=~\"$task\",kind=\"heapTotal\"}",
+              "legendFormat": "{{cloud_availability_zone}} · {{aws_ecs_task_id}} · {{service_instance_id}}",
+              "refId": "A"
+            }
+          ],
+          "title": "상세 · JS 힙 점유율 (컨테이너 한도 아님)",
+          "type": "timeseries"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 82,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 108,
+      "type": "row",
+      "title": "서버 요청 · 성능과 오류",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 83,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Next.js 요청 span 기준. Prometheus increase 추정치이며 첫 수집 이전 요청은 빠질 수 있습니다. 페이지/RSC/API 요청을 포함하며 방문자 수가 아닙니다. 정적 파일 등 Next 계측을 거치지 않는 요청은 제외됩니다.",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 84,
+        "w": 12,
+        "h": 7
+      },
+      "id": 19,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(frontend_http_server_duration_seconds_count{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"}[$__range]))",
+          "instant": true,
+          "legendFormat": "요청 수 · 선택 기간 (추정)",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "프론트 서버 계측 요청 수 · 선택 기간 추정값",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "최근 5분 요청 중 HTTP 500–599 응답 비율. 4xx는 제외합니다. 요청이 없는 구간은 비율을 계산할 수 없어 No data/빈 구간으로 표시합니다.",
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 84,
+        "w": 12,
+        "h": 7
+      },
+      "id": 20,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "(sum(rate(frontend_http_server_duration_seconds_count{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",http_response_status_code=~\"5..\"}[5m])) or (0 * sum(rate(frontend_http_server_duration_seconds_count{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"}[5m])))) / (sum(rate(frontend_http_server_duration_seconds_count{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"}[5m])) > 0)",
+          "instant": false,
+          "legendFormat": "서버 에러율 · 5xx (5분)",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "프론트 서버 HTTP 5xx 비율 · 최근 5분 (%)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "최근 5분 완료된 Next.js 요청 span 시간의 95백분위 추정값. 95%의 요청이 이 시간 이내입니다. 개발 컴파일 시간이 포함될 수 있고 브라우저 전체 로딩 시간은 아닙니다. 요청이 없으면 빈 구간입니다.",
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 91,
+        "w": 12,
+        "h": 7
+      },
+      "id": 21,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(frontend_http_server_duration_seconds_bucket{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"}[5m])))",
+          "instant": false,
+          "legendFormat": "응답 시간 p95 · 5분",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "프론트 서버 응답 시간 p95 · 최근 5분",
+      "type": "timeseries"
+    },
+    {
+      "gridPos": {
+        "x": 0,
+        "y": 98,
+        "w": 24,
+        "h": 4
+      },
+      "id": 27,
+      "options": {
+        "content": "Explore → Tempo에서 다음 TraceQL로 검색합니다.\n```traceql\n{ resource.service.name = \"pulsemetry-frontend\" && resource.deployment.environment.name = \"dev\" }\n```\n프론트에서 /login 등의 요청을 만든 뒤 확인합니다. Trace를 통해 BFF 처리와 하위 API 호출 시간을 나눠 봅니다.",
+        "mode": "markdown"
+      },
+      "title": "요청 추적 안내 · Tempo",
+      "type": "text"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "서버 console.error 및 Next.js 요청 오류. 오류가 없으면 No data가 정상입니다. 로그를 펼치면 stack trace와 trace_id를 확인할 수 있습니다.",
+      "gridPos": {
+        "x": 0,
+        "y": 102,
+        "w": 24,
+        "h": 9
+      },
+      "id": 28,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "{service_name=\"pulsemetry-frontend\", deployment_environment_name=\"dev\"} | severity_text=~\"ERROR|FATAL\"",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "프론트 서버 오류 로그 · ERROR / FATAL",
+      "type": "logs"
+    },
+    {
+      "id": 109,
+      "type": "row",
+      "title": "관측 · 수집 상태",
+      "collapsed": true,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 112,
+            "w": 12,
+            "h": 7
+          },
+          "id": 16,
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "up{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone=~\"$az\",instance=~\"$instance\"}",
+              "legendFormat": "{{availability_zone}} · {{instance}}",
+              "refId": "A"
+            }
+          ],
+          "title": "EC2 OS 수집 성공 여부 · 1=성공 / 0=실패",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [],
+              "unit": "s",
+              "noValue": "미수신"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 112,
+            "w": 12,
+            "h": 7
+          },
+          "id": 17,
+          "targets": [
+            {
+              "expr": "time() - timestamp(node_memory_MemTotal_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone=~\"$az\",instance=~\"$instance\"})",
+              "instant": true,
+              "refId": "A",
+              "legendFormat": "{{availability_zone}} · {{instance}}",
+              "range": false
+            }
+          ],
+          "title": "EC2 OS 지표 · 마지막 수신 후 경과 시간",
+          "type": "stat",
+          "description": "Prometheus에서 조회되는 최신 OS 샘플의 경과 시간입니다. 오래된 샘플이 조회 범위를 벗어나면 No data가 됩니다. No data를 정상으로 해석하지 마세요."
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 111,
+        "w": 24,
+        "h": 1
+      }
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 39,
+  "tags": [
+    "pulsemetry",
+    "dev",
+    "frontend"
+  ],
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "Pulsemetry · Dev Frontend",
+  "uid": "pulsemetry-dev-overview",
+  "version": 1,
+  "description": "dev EC2 전체 자원과 Node 프로세스, 요청 및 오류를 함께 확인합니다.",
+  "links": [
+    {
+      "title": "Pulsemetry · Observability Server",
+      "type": "link",
+      "url": "/d/pulsemetry-frontend-hosts",
+      "includeVars": false,
+      "keepTime": true,
+      "targetBlank": false
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "az",
+        "label": "AZ · OS만",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(node_memory_MemTotal_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone!=\"\"}, availability_zone)",
+        "definition": "label_values(node_memory_MemTotal_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone!=\"\"}, availability_zone)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": []
+      },
+      {
+        "name": "instance",
+        "label": "EC2 · OS만",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(node_memory_MemTotal_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone=~\"$az\"}, instance)",
+        "definition": "label_values(node_memory_MemTotal_bytes{job=\"frontend-host\",environment=\"dev\",host_role=\"frontend-dev\",availability_zone=~\"$az\"}, instance)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": []
+      },
+      {
+        "name": "app_az",
+        "label": "AZ · Node/컨테이너",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"}, cloud_availability_zone)",
+        "definition": "label_values(frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\"}, cloud_availability_zone)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": []
+      },
+      {
+        "name": "task",
+        "label": "태스크 · Node/컨테이너",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\"}, aws_ecs_task_id)",
+        "definition": "label_values(frontend_node_memory_bytes{service_name=\"pulsemetry-frontend\",deployment_environment_name=\"dev\",cloud_availability_zone=~\"$app_az\"}, aws_ecs_task_id)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": []
+      }
+    ]
+  }
+}

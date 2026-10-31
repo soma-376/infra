@@ -18,7 +18,7 @@ prometheus.scrape "host" {
 }
 
 prometheus.relabel "host" {
-  forward_to = [prometheus.remote_write.host.receiver]
+  forward_to = [otelcol.receiver.prometheus.host.receiver]
   rule {
     target_label = "job"
     replacement = "frontend-host"
@@ -26,6 +26,10 @@ prometheus.relabel "host" {
   rule {
     target_label = "instance"
     replacement = sys.env("HOST_INSTANCE_ID")
+  }
+  rule {
+    target_label = "availability_zone"
+    replacement = sys.env("HOST_AVAILABILITY_ZONE")
   }
   rule {
     target_label = "environment"
@@ -37,8 +41,14 @@ prometheus.relabel "host" {
   }
 }
 
-prometheus.remote_write "host" {
-  endpoint {
-    url = sys.env("PROMETHEUS_REMOTE_WRITE_URL")
+// 앱과 같은 사설 OTLP HTTP 경로를 사용한다. Prometheus 9090은 외부에 열지 않는다.
+otelcol.receiver.prometheus "host" {
+  output {
+    metrics = [otelcol.exporter.otlphttp.host.input]
+  }
+}
+otelcol.exporter.otlphttp "host" {
+  client {
+    endpoint = sys.env("OTEL_EXPORTER_OTLP_ENDPOINT")
   }
 }

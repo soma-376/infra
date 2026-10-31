@@ -22,8 +22,8 @@ telemetryJwt:
     - alias: telemetry-primary.pem
       kid: telemetry-2026-10-25-1b6e697f
   publicVersionId: 4f27b05d-09f8-46b6-96b9-136e4428e674
-  issueEnabled: false
-ingestMode: http
+  issueEnabled: true
+ingestMode: kafka
 dashboard:
   managementEnabled: true
   mailEnabled: true

@@ -1,0 +1,21 @@
+#!/bin/bash
+set -euo pipefail
+# 동시 갱신을 방지한다. 앱 컨테이너는 변경하지 않는다.
+exec 9>/var/lock/pulsemetry-host-agent-install.lock
+flock -w 600 9
+staging=$(mktemp -d)
+trap 'rm -rf "$staging"' EXIT
+printf '%s' '${installer}' | base64 -d > "$staging/install-dev.sh"
+printf '%s' '${config}' | base64 -d > "$staging/config.alloy"
+# IMDSv2로 실행 호스트 ID를 읽어 EC2 교체 후에도 올바르게 라벨링한다.
+token=$(curl --fail --silent --show-error --max-time 10 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' http://169.254.169.254/latest/api/token)
+instance_id=$(curl --fail --silent --show-error --max-time 10 -H "X-aws-ec2-metadata-token: $token" http://169.254.169.254/latest/meta-data/instance-id)
+# 새 EC2의 Docker 기동을 기다린다. ECS 서비스는 중지하지 않는다.
+for attempt in $(seq 1 60); do
+  if docker info >/dev/null 2>&1; then break; fi
+  sleep 5
+done
+docker info >/dev/null
+bash "$staging/install-dev.sh" '${endpoint}' "$instance_id"
+sleep 5
+test "$(docker inspect --format '{{.State.Running}}' pulsemetry-dev-host-agent)" = true

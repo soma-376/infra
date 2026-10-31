@@ -1,0 +1,17 @@
+{
+  "schema_version": 2,
+  "kind": "environment-request",
+  "status": "draft",
+  "case_id": "fixed",
+  "stage": null,
+  "environment": null,
+  "infra": null,
+  "sources": null,
+  "images": {},
+  "capacity": null,
+  "data": null,
+  "limits": null,
+  "usage": null,
+  "observability": null,
+  "secret_references": {}
+}

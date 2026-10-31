@@ -3,7 +3,14 @@ on:
   pull_request:
     paths:
       - 'frontend/modules/observability/**'
+      - 'frontend/observability/dashboards/**'
+      - 'frontend/observability/host-agent/**'
+      - 'frontend/observability/faro/**'
+      - 'frontend/environments/dev/faro.tf'
+      - 'frontend/scripts/test-faro.py'
+      - 'frontend/environments/dev/host-agent*.tf'
       - 'frontend/scripts/test-observability.py'
+      - 'frontend/scripts/test-host-agent.py'
       - '.github/workflows/frontend-observability-check.yml'
   workflow_dispatch:
 permissions:
@@ -16,5 +23,10 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - name: 호스트 설치·ECS 전환 정리 검증 (AWS 인증 없음)
+        run: python3 frontend/scripts/test-host-agent.py
       - name: 격리된 관측 스택 검증 (AWS 인증 없음)
         run: python3 frontend/scripts/test-observability.py
+
+      - name: Faro 수신·Loki 조회 검증
+        run: python3 frontend/scripts/test-faro.py

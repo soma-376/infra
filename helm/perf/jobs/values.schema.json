@@ -1,0 +1,1002 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "job",
+    "infra",
+    "images",
+    "namespaces",
+    "objects",
+    "endpoints",
+    "evidenceUri",
+    "environmentId",
+    "cluster"
+  ],
+  "properties": {
+    "job": {
+      "enum": [
+        "seed",
+        "prepare",
+        "smoke",
+        "sentinel",
+        "runner",
+        "verify"
+      ]
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "experimentId",
+        "runId",
+        "testid",
+        "epochId"
+      ],
+      "properties": {
+        "experimentId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+        },
+        "runId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+        },
+        "testid": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}/[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+        },
+        "epochId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "images": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "k6Runner",
+        "perfTools"
+      ],
+      "properties": {
+        "k6Runner": {
+          "$ref": "#/definitions/image"
+        },
+        "perfTools": {
+          "$ref": "#/definitions/image"
+        }
+      }
+    },
+    "namespaces": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "app",
+        "runner"
+      ],
+      "properties": {
+        "app": {
+          "const": "pulsemetry-perf"
+        },
+        "runner": {
+          "const": "pulsemetry-perf-runner"
+        }
+      }
+    },
+    "objects": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identitiesConfigMap",
+        "seedConfigMap"
+      ],
+      "properties": {
+        "inputsConfigMap": {
+          "$ref": "#/definitions/name"
+        },
+        "identitiesConfigMap": {
+          "const": "perf-identities"
+        },
+        "seedConfigMap": {
+          "const": "perf-seed-config"
+        },
+        "bundleSecret": {
+          "$ref": "#/definitions/name"
+        },
+        "generatorPolicyConfigMap": {
+          "$ref": "#/definitions/name"
+        }
+      }
+    },
+    "jobs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prepare": {
+          "$ref": "#/definitions/name"
+        },
+        "sentinel": {
+          "$ref": "#/definitions/name"
+        },
+        "runner": {
+          "$ref": "#/definitions/name"
+        },
+        "verify": {
+          "$ref": "#/definitions/name"
+        },
+        "smoke": {
+          "$ref": "#/definitions/name"
+        }
+      }
+    },
+    "endpoints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gateway",
+        "enrollment",
+        "clickhouse",
+        "prometheus",
+        "remoteWrite"
+      ],
+      "properties": {
+        "gateway": {
+          "$ref": "#/definitions/url"
+        },
+        "enrollment": {
+          "$ref": "#/definitions/url"
+        },
+        "clickhouse": {
+          "$ref": "#/definitions/url"
+        },
+        "prometheus": {
+          "$ref": "#/definitions/url"
+        },
+        "remoteWrite": {
+          "$ref": "#/definitions/url"
+        }
+      }
+    },
+    "evidenceUri": {
+      "type": "string",
+      "pattern": "^s3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]/([A-Za-z0-9_.-]+/)+$"
+    },
+    "rawArchiveUri": {
+      "type": "string",
+      "pattern": "^s3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]/([A-Za-z0-9_.-]+/)*$"
+    },
+    "environmentId": {
+      "type": "string",
+      "pattern": "^perf-[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?$"
+    },
+    "cluster": {
+      "type": "string",
+      "minLength": 1
+    },
+    "enrollment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deployment",
+        "sessionMethod",
+        "sessionValue",
+        "jwtKid"
+      ],
+      "properties": {
+        "deployment": {
+          "type": "string"
+        },
+        "sessionMethod": {
+          "enum": [
+            "dedicated-user",
+            "application-name"
+          ]
+        },
+        "sessionValue": {
+          "type": "string",
+          "minLength": 1
+        },
+        "jwtKid": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "publicKeySecretRef": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "provider",
+            "name",
+            "key"
+          ],
+          "properties": {
+            "provider": {
+              "enum": [
+                "aws-secretsmanager",
+                "kubernetes-secret",
+                "local-file"
+              ]
+            },
+            "name": {
+              "type": "string"
+            },
+            "key": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "deadlines": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runnerActiveDeadlineSeconds": {
+          "$ref": "#/definitions/seconds"
+        },
+        "gracefulStopSeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "terminationGracePeriodSeconds": {
+          "$ref": "#/definitions/seconds"
+        },
+        "prepareActiveDeadlineSeconds": {
+          "$ref": "#/definitions/seconds"
+        },
+        "verifyActiveDeadlineSeconds": {
+          "$ref": "#/definitions/seconds"
+        },
+        "sentinelActiveDeadlineSeconds": {
+          "$ref": "#/definitions/seconds"
+        },
+        "sentinelDeadlineSeconds": {
+          "$ref": "#/definitions/seconds"
+        },
+        "drainDeadlineSeconds": {
+          "$ref": "#/definitions/seconds"
+        },
+        "requiredLifetimeSeconds": {
+          "$ref": "#/definitions/seconds"
+        },
+        "verifyPollDeadlineSeconds": {
+          "$ref": "#/definitions/seconds"
+        },
+        "smokeActiveDeadlineSeconds": {
+          "$ref": "#/definitions/seconds"
+        }
+      }
+    },
+    "runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outputSizeLimit"
+      ],
+      "properties": {
+        "outputSizeLimit": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*(Mi|Gi)$"
+        },
+        "remoteWritePushInterval": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*s$"
+        },
+        "journalBytesEstimate": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "clockSkewBoundMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "archiveSample": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "kafkaLagQuery": {
+          "type": "string",
+          "minLength": 1
+        },
+        "drainPollSeconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "sentinelPollSeconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "sentinelIdleSeconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "toolCommit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "infra": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "region",
+        "environmentId",
+        "cluster",
+        "namespaces",
+        "evidenceBucket",
+        "evidencePrefix",
+        "rawArchiveUri",
+        "endpoints",
+        "database",
+        "telemetryJwtActiveKid",
+        "imageRepositories",
+        "jobs"
+      ],
+      "properties": {
+        "region": {
+          "const": "ap-northeast-2"
+        },
+        "environmentId": {
+          "type": "string"
+        },
+        "cluster": {
+          "type": "string"
+        },
+        "namespaces": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "app",
+            "runner"
+          ],
+          "properties": {
+            "app": {
+              "type": "string"
+            },
+            "runner": {
+              "type": "string"
+            }
+          }
+        },
+        "evidenceBucket": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+        },
+        "evidencePrefix": {
+          "const": "runs/"
+        },
+        "rawArchiveUri": {
+          "type": "string"
+        },
+        "endpoints": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "gateway",
+            "enrollment",
+            "clickhouse",
+            "prometheus",
+            "remoteWrite"
+          ],
+          "properties": {
+            "gateway": {
+              "type": "string"
+            },
+            "enrollment": {
+              "type": "string"
+            },
+            "clickhouse": {
+              "type": "string"
+            },
+            "prometheus": {
+              "type": "string"
+            },
+            "remoteWrite": {
+              "type": "string"
+            },
+            "gatewayHttps": {
+              "const": "https://perf-api.pulsemetry.co.kr"
+            }
+          }
+        },
+        "database": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "host",
+            "port",
+            "name"
+          ],
+          "properties": {
+            "host": {
+              "type": "string",
+              "pattern": "^[a-z0-9.-]+$"
+            },
+            "port": {
+              "const": 5432
+            },
+            "name": {
+              "const": "controlplane"
+            }
+          }
+        },
+        "telemetryJwtActiveKid": {
+          "type": "string",
+          "minLength": 1
+        },
+        "imageRepositories": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "k6Runner",
+            "perfTools"
+          ],
+          "properties": {
+            "k6Runner": {
+              "type": "string",
+              "pattern": "^[0-9]{12}\\.dkr\\.ecr\\.ap-northeast-2\\.amazonaws\\.com/soma-376/perf-k6-runner$"
+            },
+            "perfTools": {
+              "type": "string",
+              "pattern": "^[0-9]{12}\\.dkr\\.ecr\\.ap-northeast-2\\.amazonaws\\.com/soma-376/perf-tools$"
+            }
+          }
+        },
+        "jobs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "seed",
+            "prepare",
+            "smoke",
+            "sentinel",
+            "runner",
+            "verify"
+          ],
+          "properties": {
+            "seed": {
+              "$ref": "#/definitions/jobSpec"
+            },
+            "prepare": {
+              "$ref": "#/definitions/jobSpec"
+            },
+            "sentinel": {
+              "$ref": "#/definitions/jobSpec"
+            },
+            "runner": {
+              "$ref": "#/definitions/jobSpec"
+            },
+            "verify": {
+              "$ref": "#/definitions/jobSpec"
+            },
+            "smoke": {
+              "$ref": "#/definitions/jobSpec"
+            }
+          }
+        },
+        "msk": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "clusterName",
+            "consumerGroup",
+            "topic"
+          ],
+          "properties": {
+            "clusterName": {
+              "const": "soma-376-perf-telemetry"
+            },
+            "consumerGroup": {
+              "const": "pulsemetry-perf-telemetry-ingest"
+            },
+            "topic": {
+              "const": "pulsemetry-perf-telemetry-ingress"
+            },
+            "partitions": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "kafka": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "clusterName",
+            "consumerGroup",
+            "topic",
+            "provider",
+            "namespace",
+            "partitions"
+          ],
+          "properties": {
+            "clusterName": {
+              "const": "soma-376-perf-telemetry"
+            },
+            "consumerGroup": {
+              "const": "pulsemetry-perf-telemetry-ingest"
+            },
+            "topic": {
+              "const": "pulsemetry-perf-telemetry-ingress"
+            },
+            "provider": {
+              "const": "strimzi"
+            },
+            "namespace": {
+              "const": "pulsemetry-perf"
+            },
+            "partitions": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "contractVersion": {
+          "const": 3
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "msk"
+          ],
+          "not": {
+            "required": [
+              "kafka"
+            ]
+          }
+        },
+        {
+          "required": [
+            "kafka"
+          ],
+          "not": {
+            "required": [
+              "msk"
+            ]
+          }
+        }
+      ]
+    },
+    "previousEvidenceUri": {
+      "type": "string",
+      "pattern": "^s3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]/([A-Za-z0-9_.-]+/)+$"
+    },
+    "contractVersion": {
+      "const": 3
+    },
+    "kafka": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "clusterName",
+        "topic",
+        "consumerGroup",
+        "partitions"
+      ],
+      "properties": {
+        "provider": {
+          "enum": [
+            "msk",
+            "strimzi"
+          ]
+        },
+        "clusterName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "namespace": {
+          "const": "pulsemetry-perf"
+        },
+        "topic": {
+          "const": "pulsemetry-perf-telemetry-ingress"
+        },
+        "consumerGroup": {
+          "const": "pulsemetry-perf-telemetry-ingest"
+        },
+        "partitions": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "provider": {
+                "const": "strimzi"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "namespace"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "namespace"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "ingressPath": {
+      "enum": [
+        "internal",
+        "alb_https"
+      ]
+    },
+    "bootstrapMode": {
+      "type": "boolean"
+    },
+    "pathPair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pairId",
+        "sha256",
+        "evidenceUri",
+        "smokeRequestReserve",
+        "smokeSlotStart"
+      ],
+      "properties": {
+        "pairId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "evidenceUri": {
+          "type": "string",
+          "pattern": "^s3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]/([A-Za-z0-9_.-]+/)+$"
+        },
+        "smokeRequestReserve": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "smokeSlotStart": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        }
+      }
+    },
+    "bootstrap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestSha256",
+        "provisionalSha256",
+        "metadataSha256",
+        "evidenceUri",
+        "smokeRequestReserve",
+        "smokeSlotStart"
+      ],
+      "properties": {
+        "requestSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "provisionalSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "metadataSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "evidenceUri": {
+          "type": "string",
+          "pattern": "^s3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]/([A-Za-z0-9_.-]+/)+$"
+        },
+        "smokeRequestReserve": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "smokeSlotStart": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "job": {
+            "const": "seed"
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "required": [
+            "run"
+          ]
+        }
+      },
+      "else": {
+        "required": [
+          "run",
+          "tools"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "job": {
+            "enum": [
+              "sentinel",
+              "runner",
+              "verify"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "objects": {
+            "required": [
+              "inputsConfigMap"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "job": {
+            "const": "prepare"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "enrollment",
+          "deadlines"
+        ],
+        "properties": {
+          "enrollment": {
+            "properties": {
+              "jwtKid": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "deadlines": {
+            "required": [
+              "prepareActiveDeadlineSeconds",
+              "requiredLifetimeSeconds"
+            ]
+          },
+          "tools": {
+            "required": [
+              "clockSkewBoundMs"
+            ]
+          },
+          "objects": {
+            "required": [
+              "bundleSecret"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "job": {
+            "const": "sentinel"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "deadlines": {
+            "required": [
+              "sentinelActiveDeadlineSeconds"
+            ]
+          }
+        },
+        "required": [
+          "deadlines"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "job": {
+            "const": "runner"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "runner",
+          "deadlines"
+        ],
+        "properties": {
+          "objects": {
+            "required": [
+              "bundleSecret"
+            ]
+          },
+          "deadlines": {
+            "required": [
+              "runnerActiveDeadlineSeconds",
+              "gracefulStopSeconds",
+              "terminationGracePeriodSeconds"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "job": {
+            "const": "verify"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "rawArchiveUri",
+          "deadlines"
+        ],
+        "properties": {
+          "deadlines": {
+            "required": [
+              "verifyActiveDeadlineSeconds",
+              "drainDeadlineSeconds"
+            ]
+          },
+          "tools": {
+            "required": [
+              "clockSkewBoundMs"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "job": {
+            "const": "smoke"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "objects": {
+            "required": [
+              "bundleSecret"
+            ]
+          },
+          "tools": {
+            "required": [
+              "clockSkewBoundMs"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "contractVersion"
+        ]
+      },
+      "then": {
+        "required": [
+          "kafka"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "kafka"
+          ]
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "image": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9.-]+(:[0-9]+)?/[a-z0-9/_.-]+@sha256:[a-f0-9]{64}$"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    "url": {
+      "type": "string",
+      "pattern": "^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~%/-]*)?$"
+    },
+    "seconds": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "jobSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "serviceAccount",
+        "nodePool",
+        "taint",
+        "cpu",
+        "memory",
+        "memoryLimit"
+      ],
+      "properties": {
+        "serviceAccount": {
+          "enum": [
+            "perf-seed",
+            "perf-prepare",
+            "perf-smoke",
+            "perf-sentinel",
+            "k6-runner",
+            "perf-verify"
+          ]
+        },
+        "nodePool": {
+          "enum": [
+            "perf-system",
+            "perf-generator"
+          ]
+        },
+        "taint": {
+          "enum": [
+            "generator",
+            null
+          ]
+        },
+        "cpu": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*m?$"
+        },
+        "memory": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*(Mi|Gi)$"
+        },
+        "memoryLimit": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*(Mi|Gi)$"
+        },
+        "activeDeadlineSeconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}

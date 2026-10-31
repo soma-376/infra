@@ -1,0 +1,7 @@
+# Gateway는 DB·HMAC configtree 없이 telemetry 공개키와 Kafka 발행 설정만 받는다(ADR-0036). 기본 perf는 ClusterIP 8082이며 HTTPS Edge 생성 시 generated values가 NodePort/TGB를 추가한다.
+environment: perf
+workload: telemetry-gateway
+service:
+  type: ClusterIP
+metrics:
+  enabled: true

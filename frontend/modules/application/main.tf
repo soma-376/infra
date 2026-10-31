@@ -84,9 +84,9 @@ resource "aws_lb_target_group" "frontend" {
   protocol             = "HTTP"
   deregistration_delay = 30
   health_check {
-    path                = "/login"
+    path                = "/health"
     matcher             = "200"
-    interval            = 30
+    interval            = 15
     timeout             = 5
     healthy_threshold   = 2
     unhealthy_threshold = 3
@@ -136,7 +136,7 @@ resource "aws_ecs_task_definition" "frontend" {
   requires_compatibilities = [local.is_dev ? "EC2" : "FARGATE"]
   network_mode             = local.is_dev ? "bridge" : "awsvpc"
   cpu                      = "512"
-  memory                   = "1024"
+  memory                   = local.is_dev ? "512" : "1024"
   execution_role_arn       = local.execution_role_arn
   runtime_platform {
     operating_system_family = "LINUX"
@@ -148,17 +148,25 @@ resource "aws_ecs_task_definition" "frontend" {
     versionConsistency = "enabled"
     essential          = true
     cpu                = 512
-    memory             = 1024
+    memory             = local.is_dev ? 512 : 1024
     portMappings       = [{ containerPort = 3000, hostPort = 3000, protocol = "tcp" }]
     stopTimeout        = 30
-    environment = [
+    environment = concat([
       { name = "NODE_ENV", value = "production" },
       { name = "PORT", value = "3000" },
       { name = "HOSTNAME", value = "0.0.0.0" },
       { name = "BFF_ORIGIN", value = "https://${var.runtime.domain_name}" },
       { name = "ENROLLMENT_API_URL", value = var.runtime.enrollment_api_url },
       { name = "DASHBOARD_API_URL", value = var.runtime.dashboard_api_url }
-    ]
+      ], var.telemetry == null ? [] : [
+      { name = "OTEL_SDK_DISABLED", value = "false" },
+      { name = "OTEL_DEPLOYMENT_ENVIRONMENT", value = var.environment },
+      { name = "OTEL_SERVICE_NAME", value = "pulsemetry-frontend" },
+      { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = var.telemetry.endpoint },
+      { name = "RUM_ENABLED", value = "true" },
+      { name = "RUM_ENVIRONMENT", value = var.environment },
+      { name = "FARO_COLLECTOR_URL", value = "${replace(var.telemetry.endpoint, ":4318", ":12347")}/collect" }
+    ])
     secrets = [{ name = "BFF_SESSION_KEYS", valueFrom = data.aws_secretsmanager_secret.bff.arn }]
     logConfiguration = {
       logDriver = "awslogs"
@@ -190,10 +198,11 @@ data "aws_ami" "dev" {
   }
 }
 resource "aws_instance" "dev" {
-  count                       = local.is_dev ? 1 : 0
+  # [0] 주소와 설정은 유지하고 [1]에 2c 호스트를 추가한다.
+  count                       = local.is_dev ? 2 : 0
   ami                         = data.aws_ami.dev[0].id
   instance_type               = "t4g.small"
-  subnet_id                   = var.public_subnet_ids[0]
+  subnet_id                   = var.public_subnet_ids[count.index]
   associate_public_ip_address = true
   vpc_security_group_ids      = [aws_security_group.app.id]
   iam_instance_profile        = "${local.name}-instance"
@@ -253,14 +262,28 @@ resource "aws_ecs_service" "frontend" {
   task_definition                    = aws_ecs_task_definition.frontend.arn
   launch_type                        = local.is_dev ? "EC2" : "FARGATE"
   platform_version                   = local.is_dev ? null : "1.4.0"
-  desired_count                      = 1
-  deployment_minimum_healthy_percent = 0
+  desired_count                      = local.is_dev ? 2 : 1
+  deployment_minimum_healthy_percent = local.is_dev ? 50 : 0
   deployment_maximum_percent         = 100
   health_check_grace_period_seconds  = 120
   wait_for_steady_state              = true
   deployment_circuit_breaker {
     enable   = true
     rollback = true
+  }
+  # dev 선행 검증: 두 EC2에 한 개씩 배치한다. 인증 동시성은 후속 검증 대상이다.
+  dynamic "placement_constraints" {
+    for_each = local.is_dev ? [true] : []
+    content {
+      type = "distinctInstance"
+    }
+  }
+  dynamic "ordered_placement_strategy" {
+    for_each = local.is_dev ? [true] : []
+    content {
+      type  = "spread"
+      field = "attribute:ecs.availability-zone"
+    }
   }
   dynamic "network_configuration" {
     for_each = local.is_dev ? [] : [true]

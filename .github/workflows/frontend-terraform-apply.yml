@@ -1,10 +1,14 @@
 name: Frontend Terraform Apply
 
 on:
+  workflow_dispatch:
   push:
     branches: [develop, main]
     paths:
       - 'frontend/**'
+      - '!frontend/observability/dashboards/**'
+      - '!frontend/scripts/deploy-dashboards.py'
+      - '!frontend/scripts/test-dashboards.py'
       - '.github/workflows/frontend-terraform-*.yml'
 
 permissions:
@@ -29,8 +33,21 @@ jobs:
           terraform_wrapper: false
       - run: bash frontend/scripts/check.sh
 
-  apply:
+  bootstrap:
     needs: validate
+    if: github.ref == 'refs/heads/develop'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/frontend-terraform-bootstrap.yml
+    with:
+      apply: true
+
+  apply:
+    needs: [validate, bootstrap]
+    if: >-
+      always() && !cancelled() && needs.validate.result == 'success' &&
+      (needs.bootstrap.result == 'success' || (github.ref == 'refs/heads/main' && needs.bootstrap.result == 'skipped'))
     runs-on: ubuntu-latest
     timeout-minutes: 75
     # 이 Environment에서 승인과 허용 브랜치를 강제한다.
@@ -80,3 +97,13 @@ jobs:
       - name: 로컬 계획 제거
         if: always()
         run: rm -f frontend.tfplan
+
+  dashboards:
+    needs: apply
+    if: github.ref == 'refs/heads/develop'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/frontend-dashboards.yml
+    with:
+      after_apply: true

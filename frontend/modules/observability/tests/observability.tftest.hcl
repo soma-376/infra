@@ -30,7 +30,7 @@ run "isolated_host_and_durable_storage" {
   }
   assert {
     condition     = aws_instance.this.iam_instance_profile == "soma-376-frontend-observability" && aws_vpc_security_group_egress_rule.https.to_port == 443 && aws_instance.this.user_data_replace_on_change
-    error_message = "전용 profile·HTTPS egress·설정 변경 시 교체를 보존해야 합니다."
+    error_message = "전용 profile·HTTPS egress·명시적 교체 설정을 보존해야 합니다."
   }
   assert {
     condition     = strcontains(local.boot, "RequiresMountsFor=/srv/pulsemetry-observability") && strcontains(local.boot, "mountpoint -q /srv/pulsemetry-observability") && strcontains(local.boot, "nvme-Amazon_Elastic_Block_Store_") && strcontains(local.boot, "sha256sum -c -") && !strcontains(local.boot, "mkfs.xfs -f")
@@ -39,6 +39,13 @@ run "isolated_host_and_durable_storage" {
   assert {
     condition     = length(base64gzip(local.boot)) <= 21844
     error_message = "EC2 user data 크기 제한을 지켜야 합니다."
+  }
+}
+run "dashboards_not_in_bootstrap" {
+  command = plan
+  assert {
+    condition     = !contains(keys(local.files), "hosts.json") && !strcontains(local.boot, "pulsemetry-dev-overview") && strcontains(file("${path.module}/files/compose.yaml"), "/srv/pulsemetry-observability/dashboards:/etc/grafana/dashboards:ro")
+    error_message = "대시보드 JSON을 user data에서 분리하고 EBS 디렉터리를 마운트해야 합니다."
   }
 }
 run "wrong_vpc_rejected" {

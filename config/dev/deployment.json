@@ -15,7 +15,9 @@
     "devOidcClientKeys": ["cognito-a", "cognito-b"],
     "devAllowedCidr": "0.0.0.0/0",
     "devHttpRedirectEnabled": true,
-    "devEksArchivePrefix": "eks_validation",
-    "devEksOtlpTarget": "ingest"
+    "devEksArchivePrefix": "eks",
+    "devEksOtlpTarget": "gateway",
+    "devKafkaProvider": "strimzi",
+    "devMskRetirementStage": "network-removed"
   }
 }

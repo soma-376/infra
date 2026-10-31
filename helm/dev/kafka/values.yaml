@@ -1,0 +1,7 @@
+# ADR-0049. 공급자/이미지/배치/보존 계약은 임의 override하지 않는다.
+clusterName: soma-376-dev-telemetry
+stage: validation
+availabilityZone: ""
+
+# 생략하면 dev 입력·렌더를 유지한다.
+environment: dev

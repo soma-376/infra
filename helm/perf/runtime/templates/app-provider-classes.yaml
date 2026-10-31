@@ -1,0 +1,81 @@
+{{- include "perfRuntime.validate" . -}}
+{{- /* app namespace: dev runtime chart와 같은 SPC 이름·파일 이름을 써서 공유 spring-app chart가 그대로 읽는다. */ -}}
+{{- range $app := list "enrollment-api" "telemetry-ingest" }}
+---
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: {{ $app }}-runtime
+  namespace: pulsemetry-perf
+  labels:
+    app.kubernetes.io/name: {{ $app }}
+    {{- include "perfRuntime.labels" $ | nindent 4 }}
+spec:
+  provider: aws
+  parameters:
+    region: {{ $.Values.region | quote }}
+    usePodIdentity: "true"
+    preferredAddressType: ipv4
+    objects: |
+      - objectName: {{ $.Values.secrets.dbArn | quote }}
+        objectType: secretsmanager
+        objectAlias: _source_db_json
+        filePermission: "0400"
+        jmesPath:
+          - path: username
+            objectAlias: PULSEMETRY_DB_USERNAME
+            filePermission: "0444"
+          - path: password
+            objectAlias: PULSEMETRY_DB_PASSWORD
+            filePermission: "0444"
+      - objectName: {{ $.Values.secrets.tokenHashArn | quote }}
+        objectType: secretsmanager
+        objectAlias: PULSEMETRY_TOKEN_HASH_SECRET
+        filePermission: "0444"
+{{- if eq $app "enrollment-api" }}
+      - objectName: {{ $.Values.secrets.adminApiTokenArn | quote }}
+        objectType: secretsmanager
+        objectAlias: _source_admin_json
+        filePermission: "0400"
+        jmesPath:
+          - path: token
+            objectAlias: PULSEMETRY_ADMIN_API_TOKEN
+            filePermission: "0444"
+{{- end }}
+{{- end }}
+{{- range $app := list "enrollment-api" "telemetry-gateway" "telemetry-ingest" }}
+---
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: {{ $app }}-telemetry-jwt
+  namespace: pulsemetry-perf
+  labels:
+    app.kubernetes.io/name: {{ $app }}
+    {{- include "perfRuntime.labels" $ | nindent 4 }}
+spec:
+  provider: aws
+  parameters:
+    region: {{ $.Values.region | quote }}
+    usePodIdentity: "true"
+    preferredAddressType: ipv4
+    objects: |
+{{- if eq $app "enrollment-api" }}
+      - objectName: {{ $.Values.secrets.telemetryJwtPrivateKeyArn | quote }}
+        objectType: secretsmanager
+        objectVersion: {{ $.Values.telemetryJwt.privateVersionId | quote }}
+        objectAlias: private.pem
+        filePermission: "0444"
+{{- end }}
+      - objectName: {{ $.Values.secrets.telemetryJwtPublicKeysArn | quote }}
+        objectType: secretsmanager
+        objectVersion: {{ $.Values.telemetryJwt.publicVersionId | quote }}
+        objectAlias: _source_telemetry_public_keys_json
+        filePermission: "0400"
+        jmesPath:
+{{- range $.Values.telemetryJwt.publicKeys }}
+          - path: {{ .kid | toJson | quote }}
+            objectAlias: {{ .alias | quote }}
+            filePermission: "0444"
+{{- end }}
+{{- end }}

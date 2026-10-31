@@ -44,27 +44,34 @@
 | 0032 | [dev OIDC client secret은 CDK 원본의 고정 버전을 ECS와 EKS에 공급](0032-dev-oidc-client-secret-runtime-supply.md) | Accepted (선택적 localhost HTTP 허용 입력 포함; 로컬 구현·검증, AWS 배포·값 등록·Cognito 로그인 증거 별도); dev ECS 제거는 [ADR 0035](0035-dev-backend-eks-only.md)로 부분 대체 |
 | 0033 | [dev ALB는 외부 ACM 인증서를 context로 참조해 선택적으로 HTTPS를 제공](0033-dev-alb-https-with-external-acm.md) | Accepted (로컬 구현·검증; AWS 배포·TLS·애플리케이션 E2E 증거 별도); dev ECS 제거는 [ADR 0035](0035-dev-backend-eks-only.md)로 부분 대체; DB 공개 접근 관련 부분은 [ADR 0038](0038-dev-databases-private-access-via-ssm-relay.md)로 대체 — ADR-0040이 공개 URL·추가 인증서 결정을 부분 대체 |
 | 0034 | [dev EKS API는 SSM 릴레이 터널을 통해 private endpoint로 접근](0034-dev-eks-private-api-via-ssm-relay.md) | Accepted (로컬 구현·검증 대상; AWS 배포·SSM·Kubernetes 접속 증거 별도) |
-| 0035 (MSK) | [dev EKS 경로의 MSK는 전용 3 AZ isolated subnet과 DevEksStack 하위 리소스로 둔다](0035-dev-msk-isolated-subnets-under-eks-stack.md) | Accepted (PROJ-246 로컬 구현·검증 대상; AWS 배포·MSK 접속 증거 별도) |
-| 0036 (telemetry Gateway) | [telemetry Gateway는 Pod Identity와 workload별 MSK 전용 역할로 dev EKS에 배포하고 OTLP 대상은 context로 전환한다](0036-dev-telemetry-gateway-workload-and-msk-iam.md) | Accepted (PROJ-246 로컬 구현·검증 대상; AWS 배포·MSK IAM·ALB 전환 증거 별도) |
-| 0037 | [dev EKS 관측은 독립 노드의 Prometheus·Grafana와 CloudWatch 시스템 로그를 사용한다](0037-dev-observability-and-system-diagnostics.md) | Accepted (PROJ-191 로컬 구현; 0028의 NodePool·로그 수집 범위 부분 대체; 실환경 검증 별도; Loki·Tempo·tracing 제외는 0039(Proposed)가 개정 제안) |
+| 0035 (MSK) | [dev EKS 경로의 MSK는 전용 3 AZ isolated subnet과 DevEksStack 하위 리소스로 둔다](0035-dev-msk-isolated-subnets-under-eks-stack.md) | Accepted (PROJ-246 로컬 구현·검증 대상; AWS 배포·MSK 접속 증거 별도); dev Kafka 부분 대체: [ADR 0049](0049-dev-strimzi-kafka-and-staged-msk-retirement.md) |
+| 0036 (telemetry Gateway) | [telemetry Gateway는 Pod Identity와 workload별 MSK 전용 역할로 dev EKS에 배포하고 OTLP 대상은 context로 전환한다](0036-dev-telemetry-gateway-workload-and-msk-iam.md) | Accepted (PROJ-246 로컬 구현·검증 대상; AWS 배포·MSK IAM·ALB 전환 증거 별도); dev Kafka 부분 대체: [ADR 0049](0049-dev-strimzi-kafka-and-staged-msk-retirement.md) |
+| 0037 | [dev EKS 관측은 독립 노드의 Prometheus·Grafana와 CloudWatch 시스템 로그를 사용한다](0037-dev-observability-and-system-diagnostics.md) | Accepted (PROJ-191 로컬 구현; 0028의 NodePool·로그 수집 범위 부분 대체; 실환경 검증 별도; Loki·Tempo·tracing 제외는 0039(Proposed)가 개정 제안); dev Kafka 부분 대체: [ADR 0049](0049-dev-strimzi-kafka-and-staged-msk-retirement.md) |
 | 0035 (dev EKS 전용) | [dev 백엔드의 ECS를 제거하고 기존 EKS를 단독 실행 환경으로 사용](0035-dev-backend-eks-only.md) | Accepted (PROJ-248 코드·문서·로컬 검증; 실제 철거·Snapshot·기능 검증 별도); DB 공개 접근 관련 부분은 [ADR 0038](0038-dev-databases-private-access-via-ssm-relay.md)로 대체 |
 | 0036 (JVM 차단 목록) | [dev JVM의 임시 인증서 차단 목록을 Helm ConfigMap으로 공급한다](0036-dev-jvm-blocked-certs-configmap.md) | Accepted (PROJ-253 임시 대응; Gateway 포함 네 앱, 실제 배포 별도, 패치 이미지 검증 후 제거) |
 | 0038 | [dev 데이터베이스는 공개 접근을 차단하고 별도 SSM 릴레이로 접속한다](0038-dev-databases-private-access-via-ssm-relay.md) | Accepted (PROJ-254 로컬 구현·검증; 실제 배포·접속 확인 별도) |
 | 0039 | [dev EKS 관측에 Loki·Tempo·플랫폼 trace Collector를 독립 release로 더하고 CloudWatch 로그와 병행한다](0039-dev-loki-tempo-and-platform-trace-collector.md) | Proposed (PROJ-256; 채택 시 0037의 Loki·Tempo·분산 tracing 제외를 대체) |
 | 0040 | [dev 공개 origin과 추가 인증서를 배포 입력으로 보존한다](0040-dev-public-origin-and-additional-certificates.md) | Accepted (추적 profile·runtime·DB TLS 연결) |
 | 0041 | [dev dashboard 조회 권한 복구는 검증된 명시 허용목록으로 분리한다](0041-dev-dashboard-read-grants-repair.md) | Accepted (PROJ-262 수동 복구 준비·로컬 검증; dev 적용 별도 승인) |
-| 0042 | [프론트 관측 스택을 전용 EC2와 영구 EBS에 배포한다](0042-frontend-observability-ec2.md) | Accepted (IaC 구현; 실제 배포·앱 연결 별도) |
-
+| 0042 | [프론트 관측 스택을 전용 EC2와 영구 EBS에 배포한다](0042-frontend-observability-ec2.md) | Accepted (대시보드 독립 배포 개정; 전환 적용 대기) |
 | 0043 | [dev 초대 메일은 SES와 EKS 전용 암호화 키 원본으로 보낸다](0043-dev-invitation-mail-via-ses-and-csi.md) | Accepted — SES identity 권한은 [ADR 0047](0047-dev-ses-fixed-sender-identity-authorization.md)로 대체; 원본·공급·고정 발신 주소 유지 |
 | 0044 | [정상 CLI OIDC loopback 요청에만 두 query 탐지의 후속 차단 예외를 둔다](0044-dev-waf-cli-oidc-loopback-query-exception.md) | Accepted (ADR 0027의 두 query label 조건 부분 대체; 실제 배포 검증 별도) |
 | 0045 | [정상 CLI 토큰 교환 본문에만 두 탐지의 후속 차단 예외를 둔다](0045-dev-waf-cli-token-body-exception.md) | Accepted (ADR 0027의 두 Body label 조건 부분 대체; 실제 배포 검증 별도) |
 | 0046 | [dev SES 수신 identity 권한은 승인 태그와 고정 발신 주소로 제한한다](0046-dev-ses-tagged-recipient-authorization.md) | Superseded by [ADR 0047](0047-dev-ses-fixed-sender-identity-authorization.md) |
 | 0047 | [dev SES identity 권한은 실행 계정·리전과 고정 발신 주소로 제한한다](0047-dev-ses-fixed-sender-identity-authorization.md) | Accepted (ADR 0046 대체; 실제 정상 초대 수신·설치 검증 별도) |
 | 0048 | [dev CloudFormation은 고정한 합성 결과를 승인한 뒤 GitHub Actions로 배포한다](0048-dev-cloudformation-cicd.md) | Accepted (PROJ-259·270·271·272; develop 수동 재계획 포함; 로컬 구현·검증, 관리자 설정·실제 배포 별도) |
+| 0049 | [dev Kafka는 Strimzi로 관리하고 MSK는 검증 후 단계적으로 제거한다](0049-dev-strimzi-kafka-and-staged-msk-retirement.md) | Accepted (Operator 통신·main 전환 S3 임시 중첩·Group ACL 의미 포함; 배포 검증 별도) |
+
+| 0050 | [격리 perf 환경의 공급자별 Kafka와 고정 Strimzi 용량](0050-perf-strimzi-provider-and-isolated-capacity.md) | Accepted (로컬 구현; 배포 NOT_RUN) |
+| 0051 | [perf 내부 Service와 공개 HTTPS는 같은 Gateway를 사용한다](0051-perf-https-edge-to-shared-gateway.md) | Accepted (로컬 구현; 실제 HTTPS 검증 NOT_RUN) |
+
+| 0052 | [perf 예산과 독립 정리 보호](0052-perf-budget-and-independent-cleanup.md) | Accepted (로컬 구현; 실제 정리 검증 별도) |
+
+| 0053 | [dev 프론트 두 앱을 인증 동시성 검증에 앞서 배치한다](0053-frontend-dev-two-apps-before-auth-validation.md) | Accepted (PROJ-243; 배포 검증 별도) |
 
 병행 작업에서 사용한 `0035`·`0036`은 각각 파일명·제목·링크를 보존한다. 번호만으로 대상을 식별하지 않는다.
 
-새 ADR을 작성할 때는 다음 미사용 번호(`0049-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
+새 ADR을 작성할 때는 다음 미사용 번호(`0054-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
 
 섹션 순서는 다음과 같다. 괄호로 표시한 것은 내용이 있을 때만 둔다.
 

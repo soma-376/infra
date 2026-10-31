@@ -9,7 +9,7 @@ CDK는 기존·dashboard 전용 Secrets Manager ARN·Pod Identity 역할·associ
 | fluent-bit | pulsemetry-dev-logs | fluent-bit | 0.58.3 (image 5.1.3) |
 | runtime-config | pulsemetry-dev | `chart/` | 0.1.0 |
 
-`versions.json`은 공개 chart index와 tgz를 대조한 URL·SHA256이다. 별도 CSI release를 설치하고 ASCP의 driver dependency를 꺼서 `^1` 범위가 설치 버전을 바꾸지 않게 한다. Auto Mode 제공 Pod Identity Agent·EBS·네트워크 구성요소는 설치하지 않는다. CSI·ASCP·Fluent Bit은 앱·ClickHouse·관측 ARM64 NodePool 모두에 배치한다.
+`versions.json`은 공개 chart index와 tgz를 대조한 URL·SHA256이다. 별도 CSI release를 설치하고 ASCP의 driver dependency를 꺼서 `^1` 범위가 설치 버전을 바꾸지 않게 한다. Auto Mode 제공 Pod Identity Agent·EBS·네트워크 구성요소는 설치하지 않는다. CSI·ASCP는 앱·ClickHouse·관측 ARM64 NodePool에 배치하고, Fluent Bit은 전용 Kafka 노드까지 포함한다. Kafka 인증서는 Kubernetes Secret mount이므로 Kafka 노드에 CSI·ASCP를 추가하지 않는다.
 
 Spring 앱은 UID/GID 10001로 `configtree:/mnt/secrets-store/`를 읽는다. PULSEMETRY 파일은 Pod 전용 readOnly CSI volume의 `0444` 파일로 만들며, Secret 읽기 권한은 namespace·ServiceAccount·cluster별 Pod Identity로 제한한다. driver 1.6.1의 CSIDriver는 fsGroupPolicy를 명시하지 않으므로 `0440`과 fsGroup만으로 읽기 권한이 생긴다고 가정하지 않는다. 앱 chart의 initContainer가 같은 UID로 필수 파일의 존재·읽기 가능·비어 있지 않음을 검사한다. 실제 CSI mount·Pod Identity·UID 권한은 배포 후 검증 대상이다.
 

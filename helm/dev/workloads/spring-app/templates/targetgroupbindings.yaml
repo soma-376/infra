@@ -17,5 +17,5 @@ spec:
   nodeSelector:
     matchLabels:
       kubernetes.io/arch: arm64
-      karpenter.sh/nodepool: pulsemetry-dev-apps
+      karpenter.sh/nodepool: {{ if eq ($.Values.environment | default "dev") "perf" }}perf-gateway{{ else }}pulsemetry-dev-apps{{ end }}
 {{- end }}

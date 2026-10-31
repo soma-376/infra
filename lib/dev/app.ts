@@ -51,6 +51,8 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     env,
     allowedCidrs: config.allowedCidrs,
     eksHttpsEnabled: config.edge.eksCertificateArn !== undefined,
+    kafkaProvider: config.eks.kafkaProvider,
+    mskRetirementStage: config.eks.mskRetirementStage,
   });
 
   const data = new DevDataStack(app, 'DevDataStack', {
@@ -67,6 +69,8 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     vpc: network.vpc,
     eksValidationAlbSecurityGroup: network.eksValidationAlbSecurityGroup,
     eksOtlpTarget: config.eks.otlpTarget,
+    // listener 참조가 있어야 Gateway TG health check가 시작된다. 외부 수집은 ingest에 유지한다. (ADR-0049)
+    eksPrepareGateway: config.eks.kafkaProvider === 'strimzi' && config.eks.archivePrefix === 'eks' && config.eks.otlpTarget === 'ingest',
     dbEndpoint: data.dbEndpoint,
     dbSecretArn: data.dbSecretArn,
     tokenHashSecretArn: data.tokenHashSecretArn,
@@ -95,6 +99,7 @@ export function synthDev(app: App, props: SynthDevProps): DevStacks {
     relaySecurityGroup: network.eksRelaySecurityGroup,
     observabilityNodeSecurityGroup: network.eksObservabilityNodeSecurityGroup,
     mskSubnets: network.mskSubnets, mskSecurityGroup: network.mskSecurityGroup,
+    kafkaNodeSecurityGroup: network.eksKafkaNodeSecurityGroup,
   });
 
   return { network, data, edge, eks };

@@ -1,0 +1,28 @@
+name: pulsemetry-faro
+services:
+  faro:
+    image: grafana/alloy:v1.21.2@sha256:89a5a320168387336b9ac3c850609c3ba7757eadd4ae5f1d819deb35e9854b18
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    mem_limit: 192m
+    cpus: 0.5
+    command: [run, --server.http.listen-addr=0.0.0.0:12345, --storage.path=/tmp/alloy, /etc/alloy/config.alloy]
+    ports:
+      - "${HOST_PRIVATE_IP:?required}:12347:12347"
+      - "127.0.0.1:12348:12345"
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+    networks: [observability]
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
+networks:
+  observability:
+    external: true
+    name: pulsemetry-observability_default

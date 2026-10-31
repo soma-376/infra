@@ -1,0 +1,212 @@
+{{- include "perfJobs.validate" . -}}
+{{- $v := .Values -}}
+{{- $infra := $v.infra -}}
+{{- $job := $v.job -}}
+{{- $spec := index $infra.jobs $job -}}
+{{- $runner := eq $job "runner" -}}
+{{- $name := include "perfJobs.name" (dict "root" .) -}}
+{{- /* 공통 환경 변수(perf-jobs.md §2). seed에는 run이 없다. */ -}}
+{{- $env := list (dict "name" "EVIDENCE_URI" "value" $v.evidenceUri) (dict "name" "ENVIRONMENT_ID" "value" $v.environmentId) (dict "name" "CLUSTER" "value" $v.cluster) (dict "name" "AWS_REGION" "value" $infra.region) -}}
+{{- if ne $job "seed" -}}
+{{- $env = concat (list (dict "name" "RUN_ID" "value" $v.run.runId) (dict "name" "EXPERIMENT_ID" "value" $v.run.experimentId)) $env -}}
+{{- end -}}
+{{- $database := list (dict "name" "PGHOST" "value" $infra.database.host) (dict "name" "PGPORT" "value" $infra.database.port) (dict "name" "PGDATABASE" "value" $infra.database.name) (dict "name" "PGSSLMODE" "value" "require") -}}
+{{- $mounts := list -}}
+{{- $volumes := list -}}
+{{- $identities := dict "name" "identities" "mountPath" "/identities" "configMap" (dict "name" $v.objects.identitiesConfigMap "items" (list (dict "key" "identities.json" "path" "identities.json"))) -}}
+{{- $inputs := dict "name" "inputs" "mountPath" "/inputs" "configMap" (dict "name" $v.objects.inputsConfigMap "items" (list (dict "key" "run-plan.json" "path" "run-plan.json"))) -}}
+{{- $bundle := dict "name" "bundle" "mountPath" "/secret" "secret" (dict "secretName" ($v.objects.bundleSecret | default "") "defaultMode" 256 "items" (list (dict "key" "bundle.json" "path" "bundle.json"))) -}}
+{{- $secrets := dict "name" "secrets" "mountPath" "/mnt/secrets" "csi" (dict "driver" "secrets-store.csi.k8s.io" "readOnly" true "volumeAttributes" (dict "secretProviderClass" (printf "perf-%s" $job))) -}}
+{{- if eq $job "seed" -}}
+{{- $env = concat $env $database (list
+  (dict "name" "SEED_CONFIG" "value" "/config/seed.json")
+  (dict "name" "IDENTITIES_NAMESPACE" "value" $v.namespaces.runner)
+  (dict "name" "IDENTITIES_CONFIGMAP" "value" $v.objects.identitiesConfigMap)) -}}
+{{- $volumes = list (dict "name" "config" "mountPath" "/config" "configMap" (dict "name" $v.objects.seedConfigMap "items" (list (dict "key" "seed.json" "path" "seed.json")))) $secrets -}}
+{{- else if eq $job "prepare" -}}
+{{- $env = concat $env $database (list
+  (dict "name" "ENROLLMENT_URL" "value" $v.endpoints.enrollment)
+  (dict "name" "ENROLLMENT_NAMESPACE" "value" $v.namespaces.app)
+  (dict "name" "ENROLLMENT_DEPLOYMENT" "value" $v.enrollment.deployment)
+  (dict "name" "JWT_KID" "value" $v.enrollment.jwtKid)
+  (dict "name" "SESSION_METHOD" "value" $v.enrollment.sessionMethod)
+  (dict "name" "SESSION_VALUE" "value" $v.enrollment.sessionValue)
+  (dict "name" "EPOCH_ID" "value" $v.run.epochId)
+  (dict "name" "REQUIRED_LIFETIME_SECONDS" "value" $v.deadlines.requiredLifetimeSeconds)
+  (dict "name" "CLOCK_SKEW_BOUND_MS" "value" $v.tools.clockSkewBoundMs)
+  (dict "name" "JWT_PUBLIC_KEY" "value" "/keys/telemetry-jwt-public.pem")
+  (dict "name" "BUNDLE_NAMESPACE" "value" $v.namespaces.runner)
+  (dict "name" "BUNDLE_SECRET" "value" $v.objects.bundleSecret)) -}}
+{{- /* run values 파일 하나를 모든 run Job에 같이 쓴다. 이전 run 경로는 prepare만 env로 받는다(회전 경계 확인). */ -}}
+{{- with $v.previousEvidenceUri -}}
+{{- $env = append $env (dict "name" "PREVIOUS_EVIDENCE_URI" "value" .) -}}
+{{- end -}}
+{{- $volumes = list $identities (dict "name" "keys" "mountPath" "/keys" "csi" (dict "driver" "secrets-store.csi.k8s.io" "readOnly" true "volumeAttributes" (dict "secretProviderClass" "perf-prepare-jwt"))) $secrets -}}
+{{- else if eq $job "smoke" -}}
+{{- /* readiness smoke: golden 6종을 Gateway로 보내고 CH를 전수 대조한다(PLAN §4.3 6단계 auth·storage). */ -}}
+{{- $env = concat $env (list (dict "name" "GATEWAY_ENDPOINT" "value" $v.endpoints.gateway) (dict "name" "CLICKHOUSE_URL" "value" $v.endpoints.clickhouse) (dict "name" "CLOCK_SKEW_BOUND_MS" "value" $v.tools.clockSkewBoundMs)) -}}
+{{- $volumes = list $identities $bundle -}}
+{{- if eq (int $v.contractVersion) 3 -}}
+{{- if $v.bootstrapMode -}}
+{{- $env = concat $env (list
+  (dict "name" "BOOTSTRAP_EVIDENCE_URI" "value" $v.bootstrap.evidenceUri)
+  (dict "name" "BOOTSTRAP_REQUEST_SHA256" "value" $v.bootstrap.requestSha256)
+  (dict "name" "BOOTSTRAP_PROVISIONAL_SHA256" "value" $v.bootstrap.provisionalSha256)
+  (dict "name" "BOOTSTRAP_SMOKE_REQUEST_RESERVE" "value" $v.bootstrap.smokeRequestReserve)
+  (dict "name" "BOOTSTRAP_SMOKE_SLOT_START" "value" $v.bootstrap.smokeSlotStart)) -}}
+{{- else -}}
+{{- $env = concat $env (list
+  (dict "name" "PAIR_EVIDENCE_URI" "value" $v.pathPair.evidenceUri)
+  (dict "name" "PAIR_SHA256" "value" $v.pathPair.sha256)
+  (dict "name" "SMOKE_REQUEST_RESERVE" "value" $v.pathPair.smokeRequestReserve)
+  (dict "name" "SMOKE_SLOT_START" "value" $v.pathPair.smokeSlotStart)) -}}
+{{- end -}}
+{{- end -}}
+{{- else if eq $job "sentinel" -}}
+{{- /* 도구가 deadline 전에 sentinel.json을 올리도록 Job deadline보다 120초 먼저 끝낸다. 값이 따로 오면 그 값을 쓴다. */ -}}
+{{- $sentinel := $v.deadlines.sentinelDeadlineSeconds | default (sub (int $v.deadlines.sentinelActiveDeadlineSeconds) 120) -}}
+{{- if lt (int $sentinel) 60 -}}{{- include "perfJobs.fail" "SENTINEL_DEADLINE_SECONDS는 60초 이상이어야 한다" -}}{{- end -}}
+{{- $env = concat $env (list (dict "name" "CLICKHOUSE_URL" "value" $v.endpoints.clickhouse) (dict "name" "SENTINEL_DEADLINE_SECONDS" "value" $sentinel)) -}}
+{{- with $v.tools.sentinelPollSeconds -}}{{- $env = append $env (dict "name" "SENTINEL_POLL_SECONDS" "value" .) -}}{{- end -}}
+{{- with $v.tools.sentinelIdleSeconds -}}{{- $env = append $env (dict "name" "SENTINEL_IDLE_SECONDS" "value" .) -}}{{- end -}}
+{{- $volumes = list $inputs $identities -}}
+{{- else if $runner -}}
+{{- $env = append $env (dict "name" "INGRESS_PATH" "value" ($v.ingressPath | default "internal")) -}}
+{{- /* k6 REST API는 recovery gate만 Pod 안에서 쓴다. Service·외부 listener를 만들지 않는다. */ -}}
+{{- $env = concat $env (list (dict "name" "GATEWAY_ENDPOINT" "value" $v.endpoints.gateway) (dict "name" "REMOTE_WRITE_URL" "value" $v.endpoints.remoteWrite) (dict "name" "TESTID" "value" $v.run.testid) (dict "name" "K6_REST_ADDRESS" "value" "127.0.0.1:6565")) -}}
+{{- $volumes = list $inputs $identities $bundle
+  (dict "name" "out" "mountPath" "/out" "emptyDir" (dict "sizeLimit" $v.runner.outputSizeLimit)) -}}
+{{- if eq (int $v.contractVersion) 3 -}}
+{{- $env = concat $env (list
+  (dict "name" "ENVIRONMENT" "value" "perf")
+  (dict "name" "PROMETHEUS_URL" "value" $v.endpoints.prometheus)
+  (dict "name" "GENERATOR_POLICY" "value" "/generator-policy/generator-policy.json")
+  (dict "name" "POD_NAME" "fieldPath" "metadata.name")
+  (dict "name" "POD_NAMESPACE" "fieldPath" "metadata.namespace")
+  (dict "name" "NODE_NAME" "fieldPath" "spec.nodeName")) -}}
+{{- $volumes = append $volumes (dict "name" "generator-policy" "mountPath" "/generator-policy" "configMap" (dict "name" $v.objects.generatorPolicyConfigMap "items" (list (dict "key" "generator-policy.json" "path" "generator-policy.json")))) -}}
+{{- end -}}
+{{- else if eq $job "verify" -}}
+{{- /* 공급자별 drain 입력. Strimzi는 합계 scalar 대신 partition·원천 표본 시각을 검증한다. */ -}}
+{{- $env = concat $env (list
+  (dict "name" "CLICKHOUSE_URL" "value" $v.endpoints.clickhouse)
+  (dict "name" "PROMETHEUS_URL" "value" $v.endpoints.prometheus)
+  (dict "name" "RAW_ARCHIVE_URI" "value" $v.rawArchiveUri)
+  (dict "name" "DRAIN_DEADLINE_SECONDS" "value" $v.deadlines.drainDeadlineSeconds)
+  (dict "name" "CLOCK_SKEW_BOUND_MS" "value" $v.tools.clockSkewBoundMs)
+  (dict "name" "ARCHIVE_SAMPLE" "value" ($v.tools.archiveSample | default 20))
+  ) -}}
+{{- if $infra.msk -}}
+{{- $env = concat $env (list (dict "name" "MSK_CLUSTER_NAME" "value" $infra.msk.clusterName) (dict "name" "KAFKA_CONSUMER_GROUP" "value" $infra.msk.consumerGroup) (dict "name" "KAFKA_TOPIC" "value" $infra.msk.topic)) -}}
+{{- else -}}
+{{- if $v.tools.kafkaLagQuery -}}{{- include "perfJobs.fail" "Strimzi verify에는 scalar kafkaLagQuery를 지정할 수 없다" -}}{{- end -}}
+{{- $env = concat $env (list
+  (dict "name" "KAFKA_PROVIDER" "value" "strimzi")
+  (dict "name" "KAFKA_METRICS_ENVIRONMENT" "value" "perf")
+  (dict "name" "KAFKA_CLUSTER_NAME" "value" $infra.kafka.clusterName)
+  (dict "name" "KAFKA_NAMESPACE" "value" $infra.kafka.namespace)
+  (dict "name" "KAFKA_PARTITIONS" "value" $infra.kafka.partitions)
+  (dict "name" "KAFKA_CONSUMER_GROUP" "value" $infra.kafka.consumerGroup)
+  (dict "name" "KAFKA_TOPIC" "value" $infra.kafka.topic)) -}}
+{{- end -}}
+{{- /* 선택 입력은 값이 있을 때만 넘긴다. 도구 기본값을 chart가 대신 정하지 않는다. */ -}}
+{{- range $item := list (list "KAFKA_LAG_QUERY" $v.tools.kafkaLagQuery) (list "DRAIN_POLL_SECONDS" $v.tools.drainPollSeconds) (list "VERIFY_POLL_DEADLINE_SECONDS" $v.deadlines.verifyPollDeadlineSeconds) (list "TOOL_COMMIT" $v.tools.toolCommit) -}}
+{{- if index $item 1 -}}{{- $env = append $env (dict "name" (index $item 0) "value" (index $item 1)) -}}{{- end -}}
+{{- end -}}
+{{- $volumes = list $inputs $identities -}}
+{{- end -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: pulsemetry
+    pulsemetry.io/perf-job: {{ $job }}
+    pulsemetry.io/perf-environment: {{ $v.environmentId | quote }}
+    {{- if ne $job "seed" }}
+    pulsemetry.io/run-id: {{ regexReplaceAll "[^A-Za-z0-9_.-]" $v.run.runId "-" | trunc 63 | quote }}
+    {{- end }}
+  {{- if ne $job "seed" }}
+  annotations:
+    pulsemetry.io/testid: {{ $v.run.testid | quote }}
+  {{- end }}
+spec:
+  # 실패한 Job을 재시도하지 않는다. 재실행은 새 run ID다(perf-jobs.md §2).
+  backoffLimit: 0
+  activeDeadlineSeconds: {{ include "perfJobs.deadline" . }}
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: pulsemetry
+        pulsemetry.io/perf-job: {{ $job }}
+    spec:
+      serviceAccountName: {{ $spec.serviceAccount }}
+      automountServiceAccountToken: {{ has $job (list "seed" "prepare") }}
+      restartPolicy: Never
+      {{- if $runner }}
+      terminationGracePeriodSeconds: {{ int $v.deadlines.terminationGracePeriodSeconds }}
+      {{- end }}
+      # 이미지가 숫자 UID의 non-root USER를 선언해야 한다. Secret volume은 fsGroup으로 읽는다.
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      nodeSelector:
+        kubernetes.io/arch: arm64
+        karpenter.sh/nodepool: {{ $spec.nodePool | quote }}
+      {{- with $spec.taint }}
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: {{ . | quote }}
+          effect: NoSchedule
+      {{- end }}
+      containers:
+        - name: {{ $job }}
+          image: {{ ternary $v.images.k6Runner $v.images.perfTools $runner | quote }}
+          imagePullPolicy: IfNotPresent
+          {{- if has $job (list "seed" "prepare") }}
+          # 비밀은 CSI 파일에서 읽어 perf-jobs.md의 환경 변수로 넘긴다. 셸 추적을 켜지 않는다.
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              PGUSER="$(cat /mnt/secrets/PGUSER)"
+              PGPASSWORD="$(cat /mnt/secrets/PGPASSWORD)"
+              SYNTHETIC_SEED_SECRET="$(cat /mnt/secrets/SYNTHETIC_SEED_SECRET)"
+              export PGUSER PGPASSWORD SYNTHETIC_SEED_SECRET
+              exec /opt/perf/bin/perf {{ $job }}
+          {{- else }}
+          command: ["/opt/perf/bin/perf"]
+          args: [{{ ternary "run-job" $job $runner | quote }}]
+          {{- end }}
+          env:
+            - name: HOME
+              value: /tmp
+            {{- range $env }}
+            {{- include "perfJobs.envVar" . | nindent 12 }}
+            {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: {{ $spec.cpu | quote }}
+              memory: {{ $spec.memory | quote }}
+            limits:
+              memory: {{ $spec.memoryLimit | quote }}
+          volumeMounts:
+            {{- range $volumes }}
+            - name: {{ .name }}
+              mountPath: {{ .mountPath }}
+              readOnly: {{ ne .name "out" }}
+            {{- end }}
+      volumes:
+        {{- range $volumes }}
+        - name: {{ .name }}
+          {{- $source := omit . "name" "mountPath" }}
+          {{- toYaml $source | nindent 10 }}
+        {{- end }}

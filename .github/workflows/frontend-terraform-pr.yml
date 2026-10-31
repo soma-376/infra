@@ -5,6 +5,9 @@ on:
     branches: [develop, main]
     paths:
       - 'frontend/**'
+      - '!frontend/observability/dashboards/**'
+      - '!frontend/scripts/deploy-dashboards.py'
+      - '!frontend/scripts/test-dashboards.py'
       - '.github/workflows/frontend-terraform-*.yml'
 
 permissions:
@@ -27,6 +30,16 @@ jobs:
           terraform_version: 1.13.5
           terraform_wrapper: false
       - run: bash frontend/scripts/check.sh
+
+  bootstrap:
+    needs: validate
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/frontend-terraform-bootstrap.yml
+    with:
+      apply: false
 
   plan:
     needs: validate

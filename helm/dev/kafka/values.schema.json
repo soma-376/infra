@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "oneOf": [
+    {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clusterName",
+        "stage",
+        "availabilityZone"
+      ],
+      "properties": {
+        "clusterName": {
+          "const": "soma-376-dev-telemetry"
+        },
+        "stage": {
+          "enum": [
+            "validation",
+            "main"
+          ]
+        },
+        "availabilityZone": {
+          "type": "string",
+          "pattern": "^ap-northeast-2[a-z]$"
+        },
+        "environment": {
+          "const": "dev"
+        }
+      }
+    },
+    {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clusterName",
+        "stage",
+        "availabilityZone",
+        "environment",
+        "volumeGiB"
+      ],
+      "properties": {
+        "clusterName": {
+          "const": "soma-376-perf-telemetry"
+        },
+        "stage": {
+          "const": "perf"
+        },
+        "availabilityZone": {
+          "type": "string",
+          "pattern": "^ap-northeast-2[a-z]$"
+        },
+        "environment": {
+          "const": "perf"
+        },
+        "volumeGiB": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16384
+        }
+      }
+    }
+  ]
+}

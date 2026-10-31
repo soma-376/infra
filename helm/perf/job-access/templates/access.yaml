@@ -1,0 +1,80 @@
+{{- if ne .Release.Namespace "pulsemetry-perf" -}}{{- fail "job-access release는 pulsemetry-perf에 둔다(release Secret을 runner namespace 밖에 둔다)" -}}{{- end -}}
+{{- /*
+ServiceAccount 이름은 CDK Pod Identity association과 같다(lib/perf/config.ts PERF_SERVICE_ACCOUNTS).
+Kubernetes API를 쓰는 seed·prepare만 token을 받는다. smoke·sentinel·runner·verify는 RBAC가 없다.
+*/ -}}
+{{- range $account := list "perf-seed" "perf-prepare" "perf-smoke" "perf-sentinel" "k6-runner" "perf-verify" }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $account }}
+  namespace: pulsemetry-perf-runner
+  labels:
+    app.kubernetes.io/part-of: pulsemetry
+    app.kubernetes.io/name: {{ $account }}
+automountServiceAccountToken: {{ has $account (list "perf-seed" "perf-prepare") }}
+{{- end }}
+---
+# seed: 신원 ConfigMap(perf-identities)을 만들고 읽는다.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: perf-seed
+  namespace: pulsemetry-perf-runner
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [perf-identities, perf-seed-config]
+    verbs: [get]
+---
+# prepare: run bundle Secret을 만들고 지운다. 이름이 run마다 달라 resourceNames로 줄이지 못한다.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: perf-prepare
+  namespace: pulsemetry-perf-runner
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create, get, delete]
+---
+# prepare: enrollment Pod 종료를 확인하고 enrollment-api만 scale한다(PLAN §5 발급과 인계).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: perf-prepare
+  namespace: pulsemetry-perf
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get]
+  - apiGroups: [apps]
+    resources: [deployments/scale]
+    resourceNames: [enrollment-api]
+    verbs: [get, patch]
+{{- range $binding := list (dict "name" "perf-seed" "namespace" "pulsemetry-perf-runner") (dict "name" "perf-prepare" "namespace" "pulsemetry-perf-runner") (dict "name" "perf-prepare" "namespace" "pulsemetry-perf") }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $binding.name }}
+  namespace: {{ $binding.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $binding.name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $binding.name }}
+    namespace: pulsemetry-perf-runner
+{{- end }}

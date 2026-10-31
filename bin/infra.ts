@@ -1,3 +1,5 @@
+import { loadPerfConfig } from '../lib/perf/config';
+import { synthPerf } from '../lib/perf/app';
 import { App } from 'aws-cdk-lib/core';
 import { loadConfig } from '../lib/prod/config';
 import { synthProd } from '../lib/prod/app';
@@ -33,6 +35,8 @@ if (envName === 'prod') {
   // 배포 역할 스택만 조립한다. dev/prod 4-스택은 여기 없다 - IAM 변경과 앱 인프라
   // 변경이 같은 `cdk deploy` 에 섞이지 않게 하는 것이 이 분리의 목적이다. (ADR-0024 1번)
   synthCicd(app, { env, config: loadCicdConfig(app) });
+} else if (envName === 'perf') {
+  synthPerf(app, { env, config: loadPerfConfig(app) });
 } else {
-  throw new Error(`알 수 없는 env 컨텍스트: ${envName} (dev | prod | cicd)`);
+  throw new Error(`알 수 없는 env 컨텍스트: ${envName} (dev | prod | cicd | perf)`);
 }

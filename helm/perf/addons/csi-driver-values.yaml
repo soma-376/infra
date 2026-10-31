@@ -1,0 +1,35 @@
+# perf: helm/dev/runtime과 같은 고정 chart 1.6.1이다. Kubernetes Secret 복제·회전은 끈다.
+# CSI mount가 있는 pool(gateway·pipeline·observability·system)에만 둔다. ClickHouse·generator 노드에는 두지 않는다.
+syncSecret:
+  enabled: false
+enableSecretRotation: false
+tokenRequests:
+  - audience: sts.amazonaws.com
+  - audience: pods.eks.amazonaws.com
+linux:
+  enabled: true
+  image:
+    tag: v1.6.1
+  crds:
+    enabled: true
+    image:
+      tag: v1.6.1
+  nodeSelector:
+    kubernetes.io/arch: arm64
+  tolerations:
+    - key: workload
+      operator: Equal
+      value: gateway
+      effect: NoSchedule
+    - key: workload
+      operator: Equal
+      value: pipeline
+      effect: NoSchedule
+    - key: workload
+      operator: Equal
+      value: observability
+      effect: NoSchedule
+    - key: CriticalAddonsOnly
+      operator: Exists
+windows:
+  enabled: false

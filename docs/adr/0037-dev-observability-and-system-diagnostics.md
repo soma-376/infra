@@ -2,6 +2,8 @@
 
 ## Status
 
+부분 대체: dev Strimzi 공급자·mTLS·토픽 소유·관측 및 단계적 MSK 제거는 [ADR-0049](0049-dev-strimzi-kafka-and-staged-msk-retirement.md)를 따른다. 기존 HTTP·JWT·Data·prod 경계는 유지한다.
+
 Accepted (PROJ-191; 사용자 승인 설계의 로컬 구현. AWS 배포·실부하·장애 검증은 별도).
 ADR-0035의 관측 범위를 확장한다. MSK DEFAULT CloudWatch 경보와 broker 설정은 유지한다.
 Loki·Tempo·분산 tracing 제외 결정은 [ADR-0039](0039-dev-loki-tempo-and-platform-trace-collector.md)(Proposed)가 개정을 제안한다. 채택 전까지는 이 문서가 기준이다.

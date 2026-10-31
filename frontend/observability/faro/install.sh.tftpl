@@ -1,0 +1,50 @@
+#!/bin/bash
+set -euo pipefail
+exec 9>/var/lock/pulsemetry-faro.lock
+flock -x 9
+mountpoint -q /srv/pulsemetry-observability
+docker network inspect pulsemetry-observability_default >/dev/null
+root=/opt/pulsemetry-faro
+install -d -m 0755 "$root"
+cd "$root"
+backup=$(mktemp -d)
+trap 'rm -rf "$backup"' EXIT
+for file in compose.yaml config.alloy .env; do
+  if test -f "$file"; then cp "$file" "$backup/$file"; fi
+done
+printf '%s' '${compose}' | base64 -d > compose.yaml
+printf '%s' '${config}' | base64 -d > config.alloy
+grep '^HOST_PRIVATE_IP=' /opt/pulsemetry-observability/.env > .env
+chmod 0600 .env
+chmod 0644 compose.yaml config.alloy
+rollback() {
+  if test -f "$backup/compose.yaml"; then
+    for file in compose.yaml config.alloy .env; do
+      test ! -f "$backup/$file" || cp "$backup/$file" "$file"
+    done
+    docker compose up -d --force-recreate || true
+  else
+    docker compose down || true
+  fi
+}
+if ! (docker compose config --quiet && docker compose run --rm --no-deps faro validate /etc/alloy/config.alloy && docker compose up -d --force-recreate); then
+  rollback
+  exit 1
+fi
+if ! python3 - <<'PY'
+import time, urllib.request
+for attempt in range(60):
+    try:
+        with urllib.request.urlopen('http://127.0.0.1:12348/-/ready', timeout=2) as response:
+            if response.status == 200:
+                break
+    except Exception:
+        pass
+    time.sleep(2)
+else:
+    raise SystemExit('Faro readiness timeout')
+PY
+then
+  rollback
+  exit 1
+fi

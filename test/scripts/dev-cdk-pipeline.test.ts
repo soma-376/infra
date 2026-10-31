@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { buildDevApp, TEST_ENV } from '../helpers';
 
 const {
-  REGION, REPOSITORY, STACKS, sha256, validateAssembly, assertTemplate, context, createPipeline,
+  REGION, REPOSITORY, STACKS, sha256, canonical, inventory, validateAssembly, assertTemplate, assertAutomaticRetirement, context, createPipeline,
 } = require('../../scripts/dev-cdk-pipeline.cjs');
 
 type Json = Record<string, any>;
@@ -20,9 +20,25 @@ const read = (file: string): Json => JSON.parse(fs.readFileSync(file, 'utf8'));
 const write = (file: string, value: unknown): void => fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
 const ok = (value: unknown): CommandResult => ({ status: 0, stdout: JSON.stringify(value), stderr: '' });
 
+const nodeFs = require('node:fs'), originalReadFileSync = nodeFs.readFileSync;
+
+// 일반 pipeline fixture는 MSK가 남은 retain baseline이다. 추적 profile의 현재 단계와 분리한다.
+function stage(value: string) {
+  const file = path.join(root, 'config/dev/deployment.json');
+  const profile = JSON.parse(originalReadFileSync(file, 'utf8'));
+  profile.context.devMskRetirementStage = value;
+  const text = JSON.stringify(profile);
+  jest.spyOn(nodeFs, 'readFileSync').mockImplementation((...args: any[]) => {
+    if (args[0] === file) return args[1] ? text : Buffer.from(text);
+    return originalReadFileSync(...args);
+  });
+}
+
 let fixtures: string;
 let assemblyFixture: string;
 let templates: Record<string, Json>;
+let retiredAssemblyFixture: string;
+let retiredTemplates: Record<string, Json>;
 let workspace: string;
 
 beforeAll(() => {
@@ -36,10 +52,18 @@ beforeAll(() => {
   fs.cpSync(built.app.synth().directory, assemblyFixture, { recursive: true });
   templates = Object.fromEntries(STACKS.map((name: string) =>
     [name, read(path.join(assemblyFixture, `${name}.template.json`))]));
+  retiredAssemblyFixture = path.join(fixtures, 'retired-assembly');
+  const retired = buildDevApp({ devKafkaProvider: 'strimzi', devMskRetirementStage: 'network-removed',
+    [`availability-zones:account=${TEST_ENV.account}:region=${TEST_ENV.region}`]:
+      ['ap-northeast-2a', 'ap-northeast-2b', 'ap-northeast-2c', 'ap-northeast-2d'],
+  });
+  fs.cpSync(retired.app.synth().directory, retiredAssemblyFixture, { recursive: true });
+  retiredTemplates = Object.fromEntries(STACKS.map((name: string) =>
+    [name, read(path.join(retiredAssemblyFixture, `${name}.template.json`))]));
 });
 
-beforeEach(() => { workspace = fs.mkdtempSync(path.join(tmpdir(), 'dev-cdk-pipeline-test-')); });
-afterEach(() => { fs.rmSync(workspace, { recursive: true, force: true }); });
+beforeEach(() => { workspace = fs.mkdtempSync(path.join(tmpdir(), 'dev-cdk-pipeline-test-')); stage('retain'); });
+afterEach(() => { jest.restoreAllMocks(); fs.rmSync(workspace, { recursive: true, force: true }); });
 afterAll(() => { fs.rmSync(fixtures, { recursive: true, force: true }); });
 
 function copyAssembly(): string {
@@ -69,6 +93,7 @@ function makeHarness(event = 'push') {
     head: sha, remote: sha, account: TEST_ENV.account, identityRole: undefined as string | undefined, legacy: false, legacyDenied: false,
     templateError: false, describeError: false, synthError: false, diffError: false, deployError: false,
     diffOutput: 'There were no differences\n',
+    assemblyFixture,
     templates: clone(templates),
     stacks: Object.fromEntries(STACKS.map((name: string) => [name, {
       StackName: name,
@@ -115,7 +140,7 @@ function makeHarness(event = 'push') {
     if (executable === process.execPath && args[0] === path.join(root, 'node_modules/aws-cdk/bin/cdk')) {
       if (args[1] === 'synth') {
         if (state.synthError) return { status: 1, stderr: 'Synthesis failed' };
-        fs.cpSync(assemblyFixture, args[args.indexOf('--output') + 1], { recursive: true });
+        fs.cpSync(state.assemblyFixture, args[args.indexOf('--output') + 1], { recursive: true });
         return { status: 0, stdout: 'Successfully synthesized\n' };
       }
       if (args[1] === 'diff') return state.diffError ? { status: 1, stderr: 'Access denied' } : { status: 0, stdout: state.diffOutput };
@@ -457,5 +482,67 @@ describe('plan부터 승인 후 배포까지', () => {
     const planText = fs.readFileSync(path.join(h.directory, 'plan.json'), 'utf8');
     expect(planText).not.toContain('not-for-artifact');
     expect(planText).toContain('metadataHash');
+  });
+});
+
+
+describe('MSK 최초 제거 차단과 철거 후 자동 배포 복구', () => {
+  function retiredHarness() {
+    stage('network-removed');
+    const h = makeHarness();
+    h.state.templates = clone(retiredTemplates);
+    h.state.assemblyFixture = retiredAssemblyFixture;
+    return h;
+  }
+  test.each(['plan', 'verify', 'deploy'])('cluster-removed %s는 AWS 호출 전에 차단한다', operation => {
+    stage('cluster-removed'); const h = makeHarness();
+    expect(() => h.run(operation)).toThrow('EKS 단독');
+    expect(h.calls).toHaveLength(0);
+  });
+  test('network-removed라도 실제 MSK가 남아 있으면 최초 plan을 거부한다', () => {
+    stage('network-removed'); const h = makeHarness();
+    expect(() => h.run('plan')).toThrow('MSK 리소스');
+    expect(h.calls.some(call => call.args[1] === 'synth')).toBe(false);
+  });
+  test.each([
+    ['cluster', 'AWS::MSK::Cluster', {}], ['configuration', 'AWS::MSK::Configuration', {}],
+    ['SG', 'AWS::EC2::SecurityGroup', { GroupDescription: 'dev MSK brokers' }],
+    ['subnet', 'AWS::EC2::Subnet', { CidrBlock: '10.1.33.0/24' }],
+  ])('논리 ID가 달라도 잔존 %s를 자동 제거하지 않는다', (_kind, type, properties) => {
+    const baseline = clone(retiredTemplates);
+    baseline.DevNetworkStack.Resources.Renamed = { Type: type, Properties: properties };
+    expect(() => assertAutomaticRetirement({ context: { devMskRetirementStage: 'network-removed' } }, baseline)).toThrow('MSK 리소스');
+  });
+  test('완전히 철거한 안정 AWS baseline은 plan·인증 전 verify·deploy를 허용한다', () => {
+    const h = retiredHarness(); h.plan();
+    const before = h.calls.length;
+    h.run('verify'); expect(h.calls).toHaveLength(before);
+    h.run('deploy');
+    expect(h.calls.filter(call => call.args[1] === 'deploy')).toHaveLength(1);
+    expect(h.calls.filter(call => call.args[1] === 'get-template')).toHaveLength(12);
+  });
+  test('plan 뒤 MSK가 다시 나타나면 실제 AWS 재검사에서 deploy를 거부한다', () => {
+    const h = retiredHarness(); h.plan();
+    h.state.templates.DevEksStack.Resources.Reappeared = { Type: 'AWS::MSK::Cluster' };
+    expect(() => h.run('deploy')).toThrow('MSK 리소스');
+    expect(h.calls.some(call => call.args[1] === 'deploy')).toBe(false);
+  });
+  test('verify도 승인 artifact의 MSK baseline 잔존을 검사한다', () => {
+    const h = retiredHarness(), plan = h.plan();
+    const file = path.join(h.directory, 'payload/baseline/DevNetworkStack.json');
+    const baseline = read(file);
+    baseline.Resources.DevMskSgFixture = { Type: 'AWS::EC2::SecurityGroup' };
+    write(file, baseline);
+    plan.baseline.find((item: Json) => item.name === 'DevNetworkStack').templateHash = sha256(canonical(baseline));
+    plan.files = inventory(path.join(h.directory, 'payload')); write(path.join(h.directory, 'plan.json'), plan); h.approve();
+    const before = h.calls.length;
+    expect(() => h.run('verify')).toThrow('MSK 리소스');
+    expect(h.calls).toHaveLength(before);
+  });
+  test('철거 후에도 비정상 stack 상태나 조회 실패는 제거 완료로 간주하지 않는다', () => {
+    const h = retiredHarness(); h.state.stacks.DevNetworkStack.StackStatus = 'DELETE_IN_PROGRESS';
+    expect(() => h.run('plan')).toThrow('정상 완료 상태');
+    h.state.stacks.DevNetworkStack.StackStatus = 'UPDATE_COMPLETE'; h.state.templateError = true;
+    expect(() => h.run('plan')).toThrow('aws 실행 실패');
   });
 });

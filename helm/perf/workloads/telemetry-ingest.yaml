@@ -1,0 +1,8 @@
+# perf Pipeline은 kafka 모드 Consumer 하나다. 외부 OTLP 노출 없이 내부 health ClusterIP만 둔다.
+environment: perf
+workload: telemetry-ingest
+ingestMode: kafka
+service:
+  type: ClusterIP
+metrics:
+  enabled: true

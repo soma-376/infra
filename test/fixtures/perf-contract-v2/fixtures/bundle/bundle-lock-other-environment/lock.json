@@ -1,0 +1,13 @@
+{
+  "schema_version": 2,
+  "kind": "environment-lock",
+  "state": "held",
+  "environment_id": "perf-20261101-b",
+  "deployment_id": "perf-20261101-a-d1",
+  "experiment_id": "0002-perf-smoke",
+  "run_id": "20261101T0210Z-smoke-fixed",
+  "owner": "perf-operator",
+  "acquired_at": "2026-11-01T02:10:00Z",
+  "job_name": "k6-20261101t0210z-smoke",
+  "job_deadline_at": "2026-11-01T02:35:00Z"
+}

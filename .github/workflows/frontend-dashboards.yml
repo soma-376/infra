@@ -1,0 +1,78 @@
+name: Frontend Dashboards
+on:
+  pull_request:
+    paths:
+      - 'frontend/observability/dashboards/**'
+      - 'frontend/scripts/*dashboards*.py'
+      - 'frontend/scripts/dashboard-release.py'
+      - 'frontend/scripts/*dashboard-deploy-route.py'
+      - '.github/workflows/frontend-dashboards.yml'
+  push:
+    branches: [develop]
+    paths:
+      - 'frontend/observability/dashboards/**'
+      - 'frontend/scripts/*dashboards*.py'
+      - 'frontend/scripts/dashboard-release.py'
+      - 'frontend/scripts/*dashboard-deploy-route.py'
+      - '.github/workflows/frontend-dashboards.yml'
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      after_apply:
+        type: boolean
+        default: false
+permissions:
+  contents: read
+# Terraform과 함께 바뀌면 push 배포를 건너뛰고 apply 성공 후 재사용 호출한다.
+# 독립 배포는 Terraform 잠금을 공유한다. 부모가 잠금을 가진 재사용 호출만 별도 그룹으로 자기 대기를 피한다.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('frontend-dashboards-pr-{0}', github.event.pull_request.number) || (inputs.after_apply && 'frontend-dashboards-after-apply' || 'frontend-apply-develop') }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    outputs:
+      deploy: ${{ steps.route.outputs.deploy }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: 배포 경로 결정
+        id: route
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          AFTER_APPLY: ${{ inputs.after_apply }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: python3 frontend/scripts/dashboard-deploy-route.py
+      - run: python3 frontend/scripts/test-dashboard-deploy-route.py
+      - run: python3 frontend/scripts/deploy-dashboards.py
+      - run: python3 frontend/scripts/test-dashboards.py
+  deploy:
+    needs: validate
+    if: needs.validate.outputs.deploy == 'true' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: frontend-dashboards
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: 배포 설정과 최신 develop 확인
+        env:
+          ROLE_ARN: ${{ vars.DASHBOARD_DEPLOY_ROLE_ARN }}
+          ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+        run: |
+          test -n "$ROLE_ARN"
+          test -n "$ACCOUNT_ID"
+          test "$(git ls-remote origin refs/heads/develop | cut -f1)" = "$GITHUB_SHA"
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c
+        with:
+          role-to-assume: ${{ vars.DASHBOARD_DEPLOY_ROLE_ARN }}
+          aws-region: ap-northeast-2
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+      - run: python3 frontend/scripts/deploy-dashboards.py --deploy

@@ -1,33 +1,329 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "type": "object", "additionalProperties": false,
-  "required": ["replicaCount", "availabilityZone", "storage", "resources"],
-  "properties": {
-    "imageDigest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
-    "metricLog": {
-      "type": "object", "additionalProperties": false,
-      "required": ["maxCompressBlockSize", "mergeMaxBlockSize"],
-      "properties": {"maxCompressBlockSize": {"const": 65536}, "mergeMaxBlockSize": {"const": 512}}
-    },
-    "observability": {"type": "object", "additionalProperties": false, "required": ["enabled"], "properties": {"enabled": {"type": "boolean"}}},
-    "replicaCount": {"const": 1},
-    "availabilityZone": {"type": "string", "pattern": "^ap-northeast-2[a-d]$"},
-    "storage": {
-      "type": "object", "additionalProperties": false, "required": ["className", "size"],
-      "properties": {"className": {"const": "pulsemetry-dev-gp3"}, "size": {"const": "50Gi"}}
-    },
-    "resources": {
-      "type": "object", "additionalProperties": false, "required": ["requests", "limits"],
+  "oneOf": [
+    {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "replicaCount",
+        "availabilityZone",
+        "storage",
+        "resources"
+      ],
       "properties": {
-        "requests": {
-          "type": "object", "additionalProperties": false, "required": ["cpu", "memory"],
-          "properties": {"cpu": {"const": "250m"}, "memory": {"const": "1Gi"}}
+        "imageDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
         },
-        "limits": {
-          "type": "object", "additionalProperties": false, "required": ["cpu", "memory"],
-          "properties": {"cpu": {"const": "1"}, "memory": {"const": "2Gi"}}
+        "metricLog": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "maxCompressBlockSize",
+            "mergeMaxBlockSize"
+          ],
+          "properties": {
+            "maxCompressBlockSize": {
+              "const": 65536
+            },
+            "mergeMaxBlockSize": {
+              "const": 512
+            }
+          }
+        },
+        "observability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          }
+        },
+        "replicaCount": {
+          "const": 1
+        },
+        "availabilityZone": {
+          "type": "string",
+          "pattern": "^ap-northeast-2[a-d]$"
+        },
+        "storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "className",
+            "size"
+          ],
+          "properties": {
+            "className": {
+              "const": "pulsemetry-dev-gp3"
+            },
+            "size": {
+              "const": "50Gi"
+            }
+          }
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "requests",
+            "limits"
+          ],
+          "properties": {
+            "requests": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "cpu",
+                "memory"
+              ],
+              "properties": {
+                "cpu": {
+                  "const": "250m"
+                },
+                "memory": {
+                  "const": "1Gi"
+                }
+              }
+            },
+            "limits": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "cpu",
+                "memory"
+              ],
+              "properties": {
+                "cpu": {
+                  "const": "1"
+                },
+                "memory": {
+                  "const": "2Gi"
+                }
+              }
+            }
+          }
+        },
+        "environment": {
+          "const": "dev"
+        }
+      }
+    },
+    {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "replicaCount",
+        "availabilityZone",
+        "storage",
+        "resources",
+        "environment"
+      ],
+      "properties": {
+        "environment": {
+          "const": "perf"
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repository",
+            "digest"
+          ],
+          "properties": {
+            "repository": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9.-]+(:[0-9]+)?/[a-z0-9/_.-]+$"
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
+        },
+        "observability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          }
+        },
+        "replicaCount": {
+          "const": 1
+        },
+        "availabilityZone": {
+          "type": "string",
+          "pattern": "^ap-northeast-2[a-d]$"
+        },
+        "storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "className",
+            "size"
+          ],
+          "properties": {
+            "className": {
+              "enum": [
+                "pulsemetry-dev-gp3",
+                "pulsemetry-perf-gp3"
+              ]
+            },
+            "size": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*Gi$"
+            }
+          }
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "requests",
+            "limits"
+          ],
+          "properties": {
+            "requests": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "cpu",
+                "memory"
+              ],
+              "properties": {
+                "cpu": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*m?$"
+                },
+                "memory": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*(Mi|Gi)$"
+                }
+              }
+            },
+            "limits": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "memory"
+              ],
+              "properties": {
+                "cpu": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*m?$"
+                },
+                "memory": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*(Mi|Gi)$"
+                }
+              }
+            }
+          }
+        },
+        "imageDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "metricLog": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "maxCompressBlockSize",
+            "mergeMaxBlockSize"
+          ],
+          "properties": {
+            "maxCompressBlockSize": {
+              "const": 65536
+            },
+            "mergeMaxBlockSize": {
+              "const": 512
+            }
+          }
+        }
+      },
+      "if": {
+        "not": {
+          "required": [
+            "environment"
+          ],
+          "properties": {
+            "environment": {
+              "const": "perf"
+            }
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "required": [
+            "image"
+          ]
+        },
+        "properties": {
+          "storage": {
+            "properties": {
+              "className": {
+                "const": "pulsemetry-dev-gp3"
+              },
+              "size": {
+                "const": "50Gi"
+              }
+            }
+          },
+          "resources": {
+            "properties": {
+              "requests": {
+                "properties": {
+                  "cpu": {
+                    "const": "250m"
+                  },
+                  "memory": {
+                    "const": "1Gi"
+                  }
+                }
+              },
+              "limits": {
+                "required": [
+                  "cpu"
+                ],
+                "properties": {
+                  "cpu": {
+                    "const": "1"
+                  },
+                  "memory": {
+                    "const": "2Gi"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "required": [
+          "image"
+        ],
+        "properties": {
+          "storage": {
+            "properties": {
+              "className": {
+                "const": "pulsemetry-perf-gp3"
+              }
+            }
+          }
         }
       }
     }
-  }
+  ]
 }

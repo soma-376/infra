@@ -1,0 +1,539 @@
+{
+  "uid": "pulsemetry-browser-rum",
+  "title": "Pulsemetry · Browser RUM",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": [
+    "pulsemetry",
+    "rum"
+  ],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "RUM 읽는 법",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 5
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "브라우저에서 수집한 LCP·INP·CLS입니다. p75·분포는 선택 기간의 수신 보고값 기준이며 방문별 최종값이나 사용자 백분위가 아닙니다. 같은 측정 ID가 갱신·재전송되면 여러 보고로 집계될 수 있습니다. 페이지는 최초 진입 경로 그룹이며 SPA 이동마다 새 LCP가 생기지 않습니다. INP는 클릭·키 입력이 있어야 생기고, CLS·INP는 탭을 숨기거나 떠날 때 전송될 수 있습니다. Chrome에서 먼저 검증하세요. 표본이 없으면 0이나 정상으로 간주하지 않습니다.\n\n서버가 응답을 기다리는 전체 시간과 INP는 다릅니다. 개발 서버 수치는 운영 성능과 비교하지 마세요. 사용자·세션·원본 URL·쿼리·브라우저 로그는 수집하지 않습니다."
+      }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "LCP · 보고값 p75",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile_over_time(0.75, {job=\"frontend-rum\"} | json | app_environment=~\"$environment\" | page_url=~\"$page\" | type=\"web-vitals\" | value_lcp!=\"\" | unwrap value_lcp | __error__=\"\" [$__range]) by (page_url)",
+          "queryType": "instant",
+          "legendFormat": "{{page_url}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 2500
+              },
+              {
+                "color": "red",
+                "value": 4000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "LCP · 수신 보고 수",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({job=\"frontend-rum\"} | json | app_environment=~\"$environment\" | page_url=~\"$page\" | type=\"web-vitals\" | value_lcp!=\"\" [$__range])) by (page_url)",
+          "queryType": "instant",
+          "legendFormat": "{{page_url}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 12,
+      "type": "bargauge",
+      "title": "LCP · 등급별 수신 보고 수",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({job=\"frontend-rum\"} | json | app_environment=~\"$environment\" | page_url=~\"$page\" | type=\"web-vitals\" | value_lcp!=\"\" | value_lcp <= 2500 | __error__=\"\" [$__range])) by (page_url)",
+          "queryType": "instant",
+          "legendFormat": "좋음 · {{page_url}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(count_over_time({job=\"frontend-rum\"} | json | app_environment=~\"$environment\" | page_url=~\"$page\" | type=\"web-vitals\" | value_lcp!=\"\" | value_lcp > 2500 | value_lcp <= 4000 | __error__=\"\" [$__range])) by (page_url)",
+          "queryType": "instant",
+          "legendFormat": "개선 필요 · {{page_url}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(count_over_time({job=\"frontend-rum\"} | json | app_environment=~\"$environment\" | page_url=~\"$page\" | type=\"web-vitals\" | value_lcp!=\"\" | value_lcp > 4000 | __error__=\"\" [$__range])) by (page_url)",
+          "queryType": "instant",
+          "legendFormat": "나쁨 · {{page_url}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "INP · 보고값 p75",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 5,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile_over_time(0.75, {job=\"frontend-rum\"} | json | app_environment=~\"$environment\" | page_url=~\"$page\" | type=\"web-vitals\" | value_inp!=\"\" | unwrap value_inp | __error__=\"\" [$__range]) by (page_url)",
+          "queryType": "instant",
+          "legendFormat": "{{page_url}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 200
+              },
+              {
+                "color": "red",
+                "value": 500
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "INP · 수신 보고 수",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 10,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({job=\"frontend-rum\"} | json | app_environment=~\"$environment\" | page_url=~\"$page\" | type=\"web-vitals\" | value_inp!=\"\" [$__range])) by (page_url)",
+          "queryType": "instant",
+          "legendFormat": "{{page_url}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 22,
+      "type": "bargauge",
+      "title": "INP · 등급별 수신 보고 수",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 15,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({job=\"frontend-rum\"} | json | app_environment=~\"$environment\" | page_url=~\"$page\" | type=\"web-vitals\" | value_inp!=\"\" | value_inp <= 200 | __error__=\"\" [$__range])) by (page_url)",
+          "queryType": "instant",
+          "legendFormat": "좋음 · {{page_url}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(count_over_time({job=\"frontend-rum\"} | json | app_environment=~\"$environment\" | page_url=~\"$page\" | type=\"web-vitals\" | value_inp!=\"\" | value_inp > 200 | value_inp <= 500 | __error__=\"\" [$__range])) by (page_url)",
+          "queryType": "instant",
+          "legendFormat": "개선 필요 · {{page_url}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(count_over_time({job=\"frontend-rum\"} | json | app_environment=~\"$environment\" | page_url=~\"$page\" | type=\"web-vitals\" | value_inp!=\"\" | value_inp > 500 | __error__=\"\" [$__range])) by (page_url)",
+          "queryType": "instant",
+          "legendFormat": "나쁨 · {{page_url}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 30,
+      "type": "stat",
+      "title": "CLS · 보고값 p75",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 5,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile_over_time(0.75, {job=\"frontend-rum\"} | json | app_environment=~\"$environment\" | page_url=~\"$page\" | type=\"web-vitals\" | value_cls!=\"\" | unwrap value_cls | __error__=\"\" [$__range]) by (page_url)",
+          "queryType": "instant",
+          "legendFormat": "{{page_url}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.1
+              },
+              {
+                "color": "red",
+                "value": 0.25
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 31,
+      "type": "stat",
+      "title": "CLS · 수신 보고 수",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 10,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({job=\"frontend-rum\"} | json | app_environment=~\"$environment\" | page_url=~\"$page\" | type=\"web-vitals\" | value_cls!=\"\" [$__range])) by (page_url)",
+          "queryType": "instant",
+          "legendFormat": "{{page_url}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 32,
+      "type": "bargauge",
+      "title": "CLS · 등급별 수신 보고 수",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 15,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({job=\"frontend-rum\"} | json | app_environment=~\"$environment\" | page_url=~\"$page\" | type=\"web-vitals\" | value_cls!=\"\" | value_cls <= 0.1 | __error__=\"\" [$__range])) by (page_url)",
+          "queryType": "instant",
+          "legendFormat": "좋음 · {{page_url}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(count_over_time({job=\"frontend-rum\"} | json | app_environment=~\"$environment\" | page_url=~\"$page\" | type=\"web-vitals\" | value_cls!=\"\" | value_cls > 0.1 | value_cls <= 0.25 | __error__=\"\" [$__range])) by (page_url)",
+          "queryType": "instant",
+          "legendFormat": "개선 필요 · {{page_url}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(count_over_time({job=\"frontend-rum\"} | json | app_environment=~\"$environment\" | page_url=~\"$page\" | type=\"web-vitals\" | value_cls!=\"\" | value_cls > 0.25 | __error__=\"\" [$__range])) by (page_url)",
+          "queryType": "instant",
+          "legendFormat": "나쁨 · {{page_url}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "환경",
+        "type": "custom",
+        "query": "dev,local",
+        "current": {
+          "text": "dev",
+          "value": "dev"
+        },
+        "options": []
+      },
+      {
+        "name": "page",
+        "label": "최초 진입 경로",
+        "type": "custom",
+        "query": "/,/login,/overview,/teams,/members,/settings,/ops,/security,/onboarding,/other",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": []
+      }
+    ]
+  }
+}

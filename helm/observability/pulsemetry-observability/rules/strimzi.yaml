@@ -1,0 +1,155 @@
+# Strimzi 1.3.0/Kafka 4.2.2. JMX 이름은 helm/dev/kafka/templates/metrics.yaml과 함께 관리한다.
+groups:
+  - name: pulsemetry.strimzi.collection
+    interval: 10s
+    rules:
+      - record: pulsemetry:collection_state
+        expr: |
+          max((min(up{job="strimzi-jmx"}) == 1 and count(up{job="strimzi-jmx"}) == 3) * 2
+            or (max(up{job="strimzi-jmx"}) == 1) * 0 + 1
+            or max(up{job="strimzi-jmx"}) * 0 or absent(up{job="strimzi-jmx"}) * -1)
+        labels: {component: strimzi-jmx, dashboard: pulsemetry-kafka}
+      - record: pulsemetry:collection_success:ratio
+        expr: avg(up{job="strimzi-jmx"})
+        labels: {component: strimzi-jmx, dashboard: pulsemetry-kafka}
+      - record: pulsemetry:collection_last_success:timestamp
+        expr: max(timestamp(up{job="strimzi-jmx"}) and up{job="strimzi-jmx"} == 1)
+        labels: {component: strimzi-jmx, dashboard: pulsemetry-kafka}
+      - record: pulsemetry:collection_state
+        expr: |
+          max((min(up{job="strimzi-exporter"}) == 1) * 2
+            or max(up{job="strimzi-exporter"}) * 0 or absent(up{job="strimzi-exporter"}) * -1)
+        labels: {component: strimzi-exporter, dashboard: pulsemetry-kafka}
+      - record: pulsemetry:collection_success:ratio
+        expr: avg(up{job="strimzi-exporter"})
+        labels: {component: strimzi-exporter, dashboard: pulsemetry-kafka}
+      - record: pulsemetry:collection_last_success:timestamp
+        expr: max(timestamp(up{job="strimzi-exporter"}) and up{job="strimzi-exporter"} == 1)
+        labels: {component: strimzi-exporter, dashboard: pulsemetry-kafka}
+      - record: pulsemetry:kafka_messages:rate1m
+        expr: sum by (environment, cluster, kafka_cluster, topic) (rate(kafka_server_brokertopicmetrics_messagesinpersec_total{job="strimzi-jmx",topic!=""}[1m]))
+      # 미커밋 offset/lag의 -1은 backlog 0이 아니다. 확인된 lag와 미커밋 수를 나눠 표시한다.
+      - record: pulsemetry:kafka_committed_lag:sum
+        expr: |
+          sum by (environment, cluster, kafka_cluster, consumergroup, topic) (
+            (
+              (kafka_consumergroup_lag{job="strimzi-exporter"} >= 0)
+              and on (environment, cluster, kafka_cluster, job, instance, consumergroup, topic, partition)
+              (kafka_consumergroup_current_offset{job="strimzi-exporter"} >= 0)
+            )
+            and on (environment, cluster, kafka_cluster, job, instance)
+            (up{job="strimzi-exporter"} == 1)
+          )
+      - record: pulsemetry:kafka_uncommitted_partitions:count
+        expr: |
+          sum by (environment, cluster, kafka_cluster, consumergroup, topic) (
+            (kafka_consumergroup_current_offset{job="strimzi-exporter"} < bool 0)
+            and on (environment, cluster, kafka_cluster, job, instance)
+            (up{job="strimzi-exporter"} == 1)
+          )
+  - name: pulsemetry.strimzi.alerts
+    rules:
+      - alert: KafkaJmxTargetSetIncomplete
+        expr: (count(up{job="strimzi-jmx"}) != 3) or absent(up{job="strimzi-jmx"}) or (up{job="strimzi-jmx"} == 0)
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: Kafka JMX target 3개가 모두 정상이어야 한다
+      - alert: KafkaExporterUnavailable
+        expr: absent(up{job="strimzi-exporter"}) or (up{job="strimzi-exporter"} == 0)
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: Kafka exporter 수집이 중단됐다
+      - alert: KafkaUnderReplicatedPartitions
+        expr: max by (cluster, kafka_cluster) (kafka_server_replicamanager_underreplicatedpartitions{job="strimzi-jmx"}) > 0
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: Kafka 복제본이 ISR에서 이탈했다
+      - alert: KafkaUnderMinimumIsr
+        expr: max by (cluster, kafka_cluster) (kafka_server_replicamanager_underminisrpartitioncount{job="strimzi-jmx"}) > 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: Kafka min ISR 2를 만족하지 못한다
+      - alert: KafkaOfflinePartitions
+        expr: max by (cluster, kafka_cluster) (kafka_controller_kafkacontroller_offlinepartitionscount{job="strimzi-jmx"}) > 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: Kafka offline partition이 존재한다
+      - alert: KafkaSafetyMetricsMissing
+        expr: |
+          absent(kafka_server_replicamanager_underminisrpartitioncount{job="strimzi-jmx"})
+          or absent(kafka_controller_kafkacontroller_offlinepartitionscount{job="strimzi-jmx"})
+          or absent(kafka_server_socket_server_metrics_failed_authentication_total{job="strimzi-jmx"})
+          or count(count by (pod) (kafka_server_replicamanager_underminisrpartitioncount{job="strimzi-jmx"})) != 3
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: Kafka 필수 JMX 지표가 없다. 빈 값을 정상으로 해석하지 않는다
+      - alert: KafkaDiskSpaceLow
+        expr: |
+          kubelet_volume_stats_available_bytes{namespace="__TARGET_NAMESPACE__",persistentvolumeclaim=~"data-[0-9]+-__KAFKA_CLUSTER__-dual-role-[0-9]+"}
+          / kubelet_volume_stats_capacity_bytes{namespace="__TARGET_NAMESPACE__",persistentvolumeclaim=~"data-[0-9]+-__KAFKA_CLUSTER__-dual-role-[0-9]+"} < 0.15
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: Kafka PVC 여유가 15% 미만이다. 보존/용량을 확인하고 PVC를 삭제하지 않는다
+      - alert: KafkaPvcMetricsMissing
+        expr: count(kubelet_volume_stats_capacity_bytes{namespace="__TARGET_NAMESPACE__",persistentvolumeclaim=~"data-[0-9]+-__KAFKA_CLUSTER__-dual-role-[0-9]+"}) != 3 or absent(kubelet_volume_stats_capacity_bytes{namespace="__TARGET_NAMESPACE__",persistentvolumeclaim=~"data-[0-9]+-__KAFKA_CLUSTER__-dual-role-[0-9]+"})
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: Kafka PVC 3개의 용량 지표를 확인할 수 없다
+      - alert: KafkaBrokerPodsNotReady
+        expr: sum(kube_pod_status_ready{namespace="__TARGET_NAMESPACE__",pod=~"__KAFKA_CLUSTER__-dual-role-[0-9]+",condition="true"}) != 3 or absent(kube_pod_status_ready{namespace="__TARGET_NAMESPACE__",pod=~"__KAFKA_CLUSTER__-dual-role-[0-9]+",condition="true"})
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: Kafka broker Pod 3개가 Ready가 아니다
+      - alert: KafkaConsumerLagHigh
+        expr: pulsemetry:kafka_committed_lag:sum{consumergroup=~"pulsemetry-dev-telemetry-ingest-(validation|main)",topic=~"pulsemetry-dev-telemetry-ingress-(validation|main)"} > 1000
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: Kafka commit 기준 lag가 5분간 1000 record를 넘었다
+      - alert: KafkaAuthenticationFailures
+        expr: |
+          sum by (cluster, kafka_cluster, listener) (increase(kafka_server_socket_server_metrics_failed_authentication_total{job="strimzi-jmx"}[5m])) > 0
+          or sum by (cluster, kafka_cluster, listener) ((kafka_server_socket_server_metrics_failed_authentication_total{job="strimzi-jmx"} > 0) unless kafka_server_socket_server_metrics_failed_authentication_total{job="strimzi-jmx"} offset 5m) > 0
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: Kafka TLS 인증 실패가 발생했다. CA·사용자 인증서와 앱 재배포 상태를 확인한다
+      - alert: StrimziOperatorUnavailable
+        expr: absent(up{job="strimzi-cluster-operator"}) or (up{job="strimzi-cluster-operator"} == 0) or absent(up{job="strimzi-entity-operator",endpoint="healthcheck-to"}) or absent(up{job="strimzi-entity-operator",endpoint="healthcheck-uo"}) or (up{job="strimzi-entity-operator"} == 0)
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: Strimzi Operator 수집이 중단됐다. 토픽·인증서 reconciliation을 확인한다
+      - alert: StrimziReconciliationFailures
+        expr: sum by (job, kind, resource_namespace) (increase(strimzi_reconciliations_failed_total{job=~"strimzi-(cluster|entity)-operator"}[10m])) > 0
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: Strimzi reconciliation이 실패했다. Kafka·KafkaTopic·KafkaUser Ready와 observedGeneration을 확인한다
+      - alert: KafkaCertificateExpirySoon
+        expr: strimzi_certificate_expiration_timestamp_ms{job="strimzi-cluster-operator",resource_namespace="__TARGET_NAMESPACE__",kafka_cluster="__KAFKA_CLUSTER__"} / 1000 - time() < 30 * 86400
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: Kafka CA 만료까지 30일 미만이다. 갱신 및 앱 재접속을 확인한다
+      - alert: KafkaCertificateMetricsMissing
+        expr: absent(strimzi_certificate_expiration_timestamp_ms{job="strimzi-cluster-operator",resource_namespace="__TARGET_NAMESPACE__",kafka_cluster="__KAFKA_CLUSTER__",type="cluster-ca"}) or absent(strimzi_certificate_expiration_timestamp_ms{job="strimzi-cluster-operator",resource_namespace="__TARGET_NAMESPACE__",kafka_cluster="__KAFKA_CLUSTER__",type="client-ca"})
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: Kafka cluster/client CA 만료 지표가 없다
+      - alert: KafkaCertificateRenewalObserved
+        expr: changes(strimzi_certificate_expiration_timestamp_ms{job="strimzi-cluster-operator",resource_namespace="__TARGET_NAMESPACE__",kafka_cluster="__KAFKA_CLUSTER__"}[1h]) > 0
+        for: 1m
+        labels: {severity: info}
+        annotations:
+          summary: Kafka CA 만료 시각이 바뀌었다. 앱 tlsRevision 재생성·재배포·실제 재접속 증거를 확인한다

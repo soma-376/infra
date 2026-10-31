@@ -1,0 +1,12 @@
+{{- include "perfPlatform.validate" . -}}
+{{- /* app·runner·logs·observability namespace. 지우면 안의 PVC·Job 증거가 함께 사라지므로 uninstall로 지우지 않는다. */ -}}
+{{- range $name := list "pulsemetry-perf" "pulsemetry-perf-runner" "pulsemetry-perf-logs" "pulsemetry-observability" }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $name }}
+  labels:
+    pulsemetry.io/perf-environment: {{ $.Values.environmentId | quote }}
+  {{- include "perfPlatform.keep" $ | nindent 2 }}
+{{- end }}

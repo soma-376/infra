@@ -1,0 +1,66 @@
+{{- $perf := eq (.Values.environment | default "dev") "perf" -}}
+{{- $stages := ternary (list "perf") (list "validation" "main") $perf -}}
+{{- range $stage := $stages }}
+---
+{{- $topic := ternary "pulsemetry-perf-telemetry-ingress" (printf "pulsemetry-dev-telemetry-ingress-%s" $stage) $perf -}}
+{{- $group := ternary "pulsemetry-perf-telemetry-ingest" (printf "pulsemetry-dev-telemetry-ingest-%s" $stage) $perf -}}
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: {{ $topic }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    strimzi.io/cluster: {{ $.Values.clusterName }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  topicName: {{ $topic }}
+  partitions: 6
+  replicas: 3
+  config:
+    min.insync.replicas: 2
+    retention.ms: 259200000
+    cleanup.policy: delete
+    max.message.bytes: 13631488
+    unclean.leader.election.enable: false
+{{ range $role := list "gateway" "ingest" "topic-admin" "offset-admin" }}
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaUser
+metadata:
+  name: {{ printf "pulsemetry-%s-%s" $role $stage }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    strimzi.io/cluster: {{ $.Values.clusterName }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  authentication:
+    type: tls
+    validityDays: 365
+    renewalDays: 30
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: topic
+          name: {{ $topic }}
+          patternType: literal
+        operations: {{ if eq $role "gateway" }}[Describe, Write]{{ else if eq $role "topic-admin" }}[Describe, DescribeConfigs]{{ else }}[Describe, Read]{{ end }}
+        host: "*"
+      {{- if eq $role "gateway" }}
+      - resource:
+          type: cluster
+        operations: [IdempotentWrite]
+        host: "*"
+      {{- end }}
+      {{- if has $role (list "ingest" "offset-admin") }}
+      - resource:
+          type: group
+          name: {{ $group }}
+          patternType: literal
+        operations: [Describe, Read]
+        host: "*"
+      {{- end }}
+{{ end }}
+{{ end }}

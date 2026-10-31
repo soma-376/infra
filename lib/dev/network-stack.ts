@@ -22,6 +22,8 @@ import {
 
 export interface DevNetworkStackProps extends StackProps {
   readonly eksHttpsEnabled?: boolean;
+  readonly kafkaProvider?: 'msk' | 'strimzi';
+  readonly mskRetirementStage?: 'retain' | 'cluster-removed' | 'network-removed';
   /**
    * 앱 ALB(80/선택적 443)의 인바운드 허용 소스.
    */
@@ -41,7 +43,8 @@ export class DevNetworkStack extends Stack {
   public readonly dbRelaySecurityGroup: SecurityGroup;
   public readonly eksObservabilityNodeSecurityGroup: SecurityGroup;
   public readonly mskSubnets: readonly PrivateSubnet[];
-  public readonly mskSecurityGroup: SecurityGroup;
+  public readonly mskSecurityGroup?: SecurityGroup;
+  public readonly eksKafkaNodeSecurityGroup?: SecurityGroup;
   public readonly vpc: Vpc;
   public readonly rdsSecurityGroup: SecurityGroup;
 
@@ -96,6 +99,9 @@ export class DevNetworkStack extends Stack {
     this.eksAppNodeSecurityGroup = sg('DevEksAppNodeSg', 'dev EKS application nodes');
     this.eksClickhouseNodeSecurityGroup = sg('DevEksClickhouseNodeSg', 'dev EKS ClickHouse nodes');
     this.eksObservabilityNodeSecurityGroup = sg('DevEksObservabilityNodeSg', 'dev EKS observability nodes');
+    if (props.kafkaProvider === 'strimzi') {
+      this.eksKafkaNodeSecurityGroup = sg('DevEksKafkaNodeSg', 'dev EKS Strimzi Kafka nodes');
+    }
     this.eksValidationAlbSecurityGroup = sg('DevEksValidationAlbSg', 'dev EKS validation ALB');
     this.eksRelaySecurityGroup = new SecurityGroup(this, 'DevEksRelaySg', {
       vpc: this.vpc, description: 'dev EKS API SSM relay',
@@ -158,16 +164,34 @@ export class DevNetworkStack extends Stack {
     });
     // VPC construct와 maxAzs: 2를 바꾸지 않고 MSK broker 전용 subnet만 추가한다. local route만 있으며
     // IGW·NAT·S3 endpoint route를 연결하지 않는다. VPC의 subnet 선택에도 들어가지 않는다. (ADR-0035)
-    this.mskSubnets = DEV_EKS_MSK_SUBNETS.map((subnet, index) => new PrivateSubnet(this, `DevMskSubnet${index + 1}`, {
+    this.mskSubnets = props.mskRetirementStage === 'network-removed' ? [] : DEV_EKS_MSK_SUBNETS.map((subnet, index) => new PrivateSubnet(this, `DevMskSubnet${index + 1}`, {
       vpcId: this.vpc.vpcId, availabilityZone: subnet.availabilityZone,
       cidrBlock: subnet.cidrBlock, mapPublicIpOnLaunch: false,
     }));
     // broker ENI는 연결을 시작하지 않는다. 앱 NodePool의 Gateway·Consumer·관리 Job만 9098로 접속한다.
-    this.mskSecurityGroup = new SecurityGroup(this, 'DevMskSg', {
-      vpc: this.vpc, description: 'dev MSK brokers', allowAllOutbound: false, disableInlineRules: true,
-    });
-    this.mskSecurityGroup.addIngressRule(apps, Port.tcp(DEV_EKS_MSK_IAM_PORT), 'MSK IAM from EKS applications');
-    for (const port of [11001, 11002]) this.mskSecurityGroup.addIngressRule(obs, Port.tcp(port), 'MSK Open Monitoring from observability');
+    if (props.mskRetirementStage !== 'network-removed') {
+      this.mskSecurityGroup = new SecurityGroup(this, 'DevMskSg', {
+        vpc: this.vpc, description: 'dev MSK brokers', allowAllOutbound: false, disableInlineRules: true,
+      });
+      this.mskSecurityGroup.addIngressRule(apps, Port.tcp(DEV_EKS_MSK_IAM_PORT), 'MSK IAM from EKS applications');
+      for (const port of [11001, 11002]) this.mskSecurityGroup.addIngressRule(obs, Port.tcp(port), 'MSK Open Monitoring from observability');
+    }
+    const kafkaNodes = this.eksKafkaNodeSecurityGroup;
+    if (kafkaNodes) {
+      cp.addIngressRule(kafkaNodes, Port.tcp(443), 'Kubernetes API from Kafka nodes');
+      kafkaNodes.addIngressRule(cp, Port.tcp(10250), 'Kubelet from control plane');
+      // node SG는 Kafka 프로세스뿐 아니라 DNS·운영 agent 통신도 포함한다. Pod 경계는 NetworkPolicy로 제한한다.
+      kafkaNodes.addIngressRule(kafkaNodes, Port.allTraffic(), 'Same Kafka node pool communication');
+      for (const port of [9091, 9093]) kafkaNodes.addIngressRule(apps, Port.tcp(port), 'Kafka clients and Strimzi operators');
+      // Operator는 controller quorum과 KafkaAgent 복구 상태를 확인한 뒤 순차 재시작한다. (ADR-0049)
+      kafkaNodes.addIngressRule(apps, Port.tcp(9090), 'Strimzi controller quorum from EKS applications');
+      kafkaNodes.addIngressRule(apps, Port.tcp(8443), 'Strimzi KafkaAgent from EKS applications');
+      for (const port of [9404, 10250, 2020, 9100]) kafkaNodes.addIngressRule(obs, Port.tcp(port), 'Kafka and node metrics from observability');
+      for (const port of [8080, 8081]) apps.addIngressRule(obs, Port.tcp(port), 'Strimzi operator metrics from observability');
+      apps.addIngressRule(kafkaNodes, Port.udp(53), 'Cluster DNS from Kafka nodes');
+      apps.addIngressRule(kafkaNodes, Port.tcp(53), 'Cluster DNS TCP from Kafka nodes');
+      obs.addIngressRule(kafkaNodes, Port.tcp(DEV_OBSERVABILITY_INGEST_PORTS.loki), 'Loki push from Kafka log collectors');
+    }
     // 기존 SG의 inline properties를 바꾸지 않고 별도 규칙을 추가한다.
     new CfnSecurityGroupIngress(this, 'EksToRds', {
       groupId: this.rdsSecurityGroup.securityGroupId, sourceSecurityGroupId: apps.securityGroupId,

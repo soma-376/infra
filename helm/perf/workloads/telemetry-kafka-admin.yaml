@@ -1,0 +1,5 @@
+# perf topic은 stage 없는 고정 이름이다. 생성·대조 기준은 dev와 같은 scripts/topic-init.sh다.
+environment: perf
+stage: perf
+topic: pulsemetry-perf-telemetry-ingress
+consumerGroup: pulsemetry-perf-telemetry-ingest

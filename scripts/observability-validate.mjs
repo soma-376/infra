@@ -93,7 +93,7 @@ checked(promtool, ['check', 'config', resolve(temp, 'prometheus.yaml')]);
 checked(promtool, ['check', 'rules', resolve(chart, 'rules/pulsemetry.yaml')]);
 checked(promtool, ['test', 'rules', resolve(fixtures, 'rules.test.yaml')]);
 const dashboards = Object.values(find('ConfigMap', 'pulsemetry-dashboards').data).map(JSON.parse);
-assert.equal(dashboards.length, 8);
+assert.equal(dashboards.length, 9);
 assert.ok(dashboards.some(x => x.uid === 'pulsemetry-traces'), 'trace 대시보드(ADR-0039)');
 // 빈 패널 문구는 이유를 구분하는 고정 집합만 쓴다. 0이나 숫자로 빈값을 덮지 않는다.
 const noValueTexts = new Set([
@@ -293,4 +293,4 @@ if (process.env.KUBECONFORM_BIN) {
   const path = resolve(temp, 'monitoring.yaml'); writeFileSync(path, monitoringResources.map(x => dump(x)).join('---\n'));
   checked(process.env.KUBECONFORM_BIN, ['-strict','-summary','-schema-location',`${schemaDir}/{{.ResourceKind}}_{{.Group}}_{{.ResourceAPIVersion}}.json`,path]);
 }
-console.log(`관측 차트/8 dashboards/${expressions.length} PromQL/${load(readFileSync(resolve(chart, "rules/pulsemetry.yaml"), "utf8")).groups.reduce((n,g) => n + g.rules.length, 0)} rules/metric fixture/실패 경계 통과 (live 미실행)`);
+console.log(`관측 차트/9 dashboards/${expressions.length} PromQL/${load(readFileSync(resolve(chart, "rules/pulsemetry.yaml"), "utf8")).groups.reduce((n,g) => n + g.rules.length, 0)} rules/metric fixture/실패 경계 통과 (live 미실행)`);

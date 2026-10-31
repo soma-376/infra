@@ -1,3 +1,4 @@
+provider: msk
 # Kafka CLI 이미지와 MSK IAM jar는 검증한 고정값이다. 바꾸려면 schema와 함께 갱신한다. (ADR-0036)
 # apache/kafka:3.9.2 multi-arch index digest (registry-1.docker.io, 2026-10-21 확인)
 image:
@@ -7,6 +8,8 @@ image:
 iamAuthJar:
   url: https://github.com/aws/aws-msk-iam-auth/releases/download/v2.3.9/aws-msk-iam-auth-2.3.9-all.jar
   sha256: 922064f312ddc8a5f3dbe65fcef3d02ddbd588a02e3a6f0fca4b5a4dbec1ba43
+# dev(기본) 또는 perf. perf는 stage `perf`와 고정 topic·group·세션 이름을 쓴다. (ADR-0038)
+environment: dev
 # 아래 값은 generated/telemetry-kafka-admin.yaml이 CDK output과 bootstrap 조회 JSON에서 채운다.
 region: ap-northeast-2
 bootstrapServers: ""

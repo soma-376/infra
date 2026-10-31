@@ -1,0 +1,25 @@
+# perf: helm/dev/runtime과 같은 고정 ASCP 3.1.4다. CSI driver와 같은 pool에 둔다.
+image:
+  tag: "3.1.4"
+# driver는 위 고정 release가 소유한다. ASCP chart의 ^1 dependency를 사용하지 않는다.
+secrets-store-csi-driver:
+  install: false
+driverWritesSecrets: true
+awsRegion: ap-northeast-2
+nodeSelector:
+  kubernetes.io/arch: arm64
+tolerations:
+  - key: workload
+    operator: Equal
+    value: gateway
+    effect: NoSchedule
+  - key: workload
+    operator: Equal
+    value: pipeline
+    effect: NoSchedule
+  - key: workload
+    operator: Equal
+    value: observability
+    effect: NoSchedule
+  - key: CriticalAddonsOnly
+    operator: Exists

@@ -26,6 +26,10 @@ tolerations:
     operator: Equal
     value: observability
     effect: NoSchedule
+  - key: workload
+    operator: Equal
+    value: kafka
+    effect: NoSchedule
   - key: CriticalAddonsOnly
     operator: Exists
 resources:
