@@ -30,7 +30,7 @@ resource "aws_vpc" "cache" {
   lifecycle {
     prevent_destroy = true
     precondition {
-      condition     = data.aws_vpc.peer["dev"].cidr_block == "10.2.0.0/16" && data.aws_vpc.peer["prod"].cidr_block == "10.3.0.0/16" && alltrue([for vpc in data.aws_vpc.peer : length(vpc.cidr_block_associations) == 1])
+      condition     = alltrue([for env, vpc in data.aws_vpc.peer : vpc.cidr_block == { dev = "10.2.0.0/16", prod = "10.3.0.0/16" }[env]]) && alltrue([for vpc in data.aws_vpc.peer : length(vpc.cidr_block_associations) == 1])
       error_message = "기존 frontend CIDR dev=10.2/16·prod=10.3/16 및 secondary CIDR 부재를 확인하세요. 변경된 망은 공유 CIDR 충돌을 재검토해야 합니다."
     }
   }

@@ -301,4 +301,4 @@ ECS circuit breaker/events와 실제 task digest를 확인한다. runner 소실 
 ## 공유 Valkey 기반
 
 [공유 Valkey 구성](environments/shared/README.md)은 dev/prod 공용 캐시와 피어링·IAM 사용자를 정의한다.
-로컬 검증 대상이며 기존 자동 apply에 포함되지 않는다. BFF 연결·공유 상태/CI 준비는 별도다.
+develop 머지 후 bootstrap·dev 적용에 이어 shared plan/apply를 실행한다. 기존 bootstrap 승인 환경과 S3 버킷의 별도 state key를 사용하며, 전용 역할은 bootstrap이 생성한다. BFF 연결은 별도 작업이다.

@@ -10,7 +10,7 @@ BFF 프로세스 간 갱신 조율에 사용할 공유 저장소가 필요하다
 - `frontend/environments/shared`가 전용 VPC·두 격리 서브넷·Valkey Serverless 하나·dev/prod 피어링과 왕복 경로·SG를 소유한다. IGW/NAT/EC2를 만들지 않는다.
 - 캐시와 환경별 IAM 사용자·사용자 그룹을 함께 생성한다. ACL은 `dev:*`/`prod:*`로 나누고 명시한 명령만 허용한다. SCAN/KEYS/FLUSHALL/FLUSHDB와 관리 명령은 허용하지 않는다.
 - 별도 ECS task 역할 두 개는 자기 사용자와 캐시에만 Connect를 허용한다. 기존 execution 역할에 앱 권한을 추가하지 않는다.
-- 공유 상태는 dev/prod 상태와 다른 S3 key/bucket을 사용한다. 기존 배포 workflow에 자동 편입하지 않는다. 캐시에는 prevent_destroy를 설정한다. 이는 Terraform 설정이 존재하는 동안의 보호이며 AWS 삭제 방지 기능은 아니다.
+- 공유 상태는 dev/prod 상태와 다른 S3 key을 사용한다. develop 자동 배포에서 bootstrap·dev 적용 후 shared plan/apply를 실행한다. 기존 bootstrap S3 버킷의 별도 key를 사용하며 shared 역할에는 그 key만 허용한다. 캐시에는 prevent_destroy를 설정한다. 이는 Terraform 설정이 존재하는 동안의 보호이며 AWS 삭제 방지 기능은 아니다.
 - 저장 최소값은 지정하지 않아 Valkey 기본 최소 과금을 유지한다. 초기 최대치는 저장 1GB·초당 1,000 ECPU다. 이 값은 월 예산 상한이 아니다.
 - 세션 원본의 스냅샷 복구로 폐기한 로그인 정보를 되살리지 않도록 자동 스냅샷은 비활성화한다. 저장소 유실 시 재로그인을 요구하는 앱 동작은 후속 작업이다.
 
@@ -29,7 +29,9 @@ BFF 프로세스 간 갱신 조율에 사용할 공유 저장소가 필요하다
 - IAM 토큰 갱신·재연결 및 cluster-aware client가 필요하다.
 
 ## Follow-up
-- 보호된 shared CI 역할/backend/승인 workflow 준비 후에만 apply한다. 기존 runtime 역할을 확대 재사용하지 않는다.
+- bootstrap이 shared plan/apply 전용 역할을 만든다. 기존 frontend-bootstrap-plan/apply 승인 환경을 재사용하지만 runtime·bootstrap IAM 역할은 공유 배포에 재사용하지 않는다.
+- 태그 조회로 실제 dev/prod peer를 구성한다. dev는 필수이며 prod VPC가 없거나 앱 SG가 아직 없으면 prod 연결은 보류한다. 이미 state에 있는 peer가 조회에서 누락되면 제거하지 않고 실패한다. prod 준비 후 develop workflow_dispatch로 연결한다.
+- apply는 승인 전 계획과 재계획 해시·최신 develop SHA가 일치할 때만 수행한다. 최초 PR은 shared 역할 부재를 명시하고 AWS plan만 보류하며 머지 후 bootstrap에서 역할을 생성한다.
 - BFF 변경 전 허브 ADR 0009 및 웹 인증 계약을 개정한다. 세션 ID·저장 형식·TTL·잠금·실패 정책·환경별 암호화 키를 별도로 확정한다.
 - ECS task 역할 배선과 PassRole 허용은 기존 bootstrap 소유권을 따라 후속 반영한다.
 - 실제 CIDR 충돌·경로 소유권·NACL·SG·엔진 가용성·ACL/네트워크 차단·재연결을 배포 전후 검증한다.
