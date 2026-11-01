@@ -4,7 +4,7 @@
 Proposed ([PROJ-243](https://team376.atlassian.net/browse/PROJ-243)의 기반 구성) — dev/prod 공유는 사용자 선택이며, 네트워크·IAM 세부안은 로컬 구성이다. 배포하지 않았다.
 
 ## Context
-BFF 프로세스 간 갱신 조율에 사용할 공유 저장소가 필요하다. frontend dev/prod는 각각 별도 VPC와 Terraform 상태를 사용한다. 이번 범위는 infra의 기반 리소스다. 기존 허브 ADR 0009의 암호화 쿠키 계약과 frontend 실행 코드는 변경하지 않는다.
+BFF 프로세스 간 갱신 조율에 사용할 공유 저장소가 필요하다. frontend dev/prod는 각각 별도 VPC와 Terraform 상태를 사용한다. 이번 범위는 infra의 기반 리소스다. 웹 세션 계약은 후속 허브 ADR 0030가 정의하며, 환경별 runtime.valkey 입력으로 전용 task role과 연결 변수를 전달한다.
 
 ## Decision
 - `frontend/environments/shared`가 전용 VPC·두 격리 서브넷·Valkey Serverless 하나·dev/prod 피어링과 왕복 경로·SG를 소유한다. IGW/NAT/EC2를 만들지 않는다.
@@ -29,10 +29,11 @@ BFF 프로세스 간 갱신 조율에 사용할 공유 저장소가 필요하다
 - IAM 토큰 갱신·재연결 및 cluster-aware client가 필요하다.
 
 ## Follow-up
+- 새 BFF는 Valkey를 필수로 사용하며 토큰 쿠키·메모리 갱신 fallback을 지원하지 않는다. 새 이미지 배포 전 `runtime.valkey` 연결 입력을 완료해야 한다. Terraform의 optional 입력은 이전 이미지에 대한 단계적 인프라 적용용이다.
 - bootstrap이 shared plan/apply 전용 역할을 만든다. 기존 frontend-bootstrap-plan/apply 승인 환경을 재사용하지만 runtime·bootstrap IAM 역할은 공유 배포에 재사용하지 않는다.
 - 태그 조회로 실제 dev/prod peer를 구성한다. dev는 필수이며 prod VPC가 없거나 앱 SG가 아직 없으면 prod 연결은 보류한다. 이미 state에 있는 peer가 조회에서 누락되면 제거하지 않고 실패한다. prod 준비 후 develop workflow_dispatch로 연결한다.
 - apply는 승인 전 계획과 재계획 해시·최신 develop SHA가 일치할 때만 수행한다. 최초 PR은 shared 역할 부재를 명시하고 AWS plan만 보류하며 머지 후 bootstrap에서 역할을 생성한다.
-- BFF 변경 전 허브 ADR 0009 및 웹 인증 계약을 개정한다. 세션 ID·저장 형식·TTL·잠금·실패 정책·환경별 암호화 키를 별도로 확정한다.
+- BFF 공유 세션은 허브 ADR 0030를 따른다. runtime.valkey가 있을 때만 환경별 task role을 연결하며 bootstrap은 해당 환경의 정확한 task role ARN에만 ECS PassRole을 허용한다.
 - ECS task 역할 배선과 PassRole 허용은 기존 bootstrap 소유권을 따라 후속 반영한다.
 - 실제 CIDR 충돌·경로 소유권·NACL·SG·엔진 가용성·ACL/네트워크 차단·재연결을 배포 전후 검증한다.
 

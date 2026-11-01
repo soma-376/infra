@@ -19,6 +19,10 @@ variable "runtime" {
     enrollment_api_url         = string
     dashboard_api_url          = string
     dev_ami_id                 = optional(string)
+    valkey = optional(object({
+      host       = string
+      cache_name = string
+    }))
   })
   validation {
     condition     = can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$", var.runtime.domain_name))
@@ -35,6 +39,10 @@ variable "runtime" {
   validation {
     condition     = alltrue([for url in [var.runtime.enrollment_api_url, var.runtime.dashboard_api_url] : can(regex("^https://[a-zA-Z0-9.-]+(:443)?$", url))])
     error_message = "백엔드 URL은 경로와 끝 슬래시 없는 HTTPS origin(443)이어야 합니다."
+  }
+  validation {
+    condition     = var.runtime.valkey == null ? true : (can(regex("^[a-z0-9.-]+\\.cache\\.amazonaws\\.com$", var.runtime.valkey.host)) && var.runtime.valkey.cache_name == "pulsemetry-frontend-shared")
+    error_message = "공유 Valkey의 TLS endpoint와 pulsemetry-frontend-shared 캐시 이름을 지정하세요."
   }
   validation {
     condition     = var.environment != "dev" || can(regex("^ami-[0-9a-f]{17}$", var.runtime.dev_ami_id))
