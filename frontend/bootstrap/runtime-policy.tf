@@ -68,7 +68,7 @@ resource "aws_iam_policy" "runtime_write" {
       {
         Effect    = "Allow"
         Action    = ["iam:PassRole"]
-        Resource  = aws_iam_role.execution[each.key].arn
+        Resource  = [aws_iam_role.execution[each.key].arn, "arn:aws:iam::${var.aws_account_id}:role/soma-376-frontend-${each.key}-valkey-task"]
         Condition = { StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" } }
       }
     ]

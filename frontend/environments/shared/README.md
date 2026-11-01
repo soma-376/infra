@@ -69,14 +69,25 @@ backend key는 `shared-valkey/terraform.tfstate`이며 dev/prod의 `network/terr
 서버리스의 eviction 정책을 이 코드에서 noeviction으로 설정했다고 간주하지 않는다.
 스냅샷은 자동 복구로 폐기한 인증 정보를 되살리지 않도록 만들지 않는다. 유실 시 재로그인 처리는 BFF 구현이 필요하다.
 
-## BFF 적용 전 남은 작업
+## BFF 연결과 배포 검증
 
-1. 허브 ADR 0009·웹 인증 계약에서 공유 세션 전환을 정의한다. 현재 암호화 토큰 쿠키 계약은 그대로다.
-2. `cache.users`의 환경별 task 역할을 ECS `task_role_arn`에 연결하고 bootstrap PassRole을 정확한 ARN에 한정한다.
-3. TLS·cluster-aware client·IAM 인증을 구현한다. IAM 인증 토큰은 15분 유효하고 연결은 12시간 제한이므로 새 연결·재연결 때 새 토큰을 생성한다.
-4. 사용자 ACL은 AUTH를 위한 IAM 인증을 사용하며 문자열 GET/SET 기반 세션 저장을 전제로 한다. 실제 클라이언트 초기화 명령과 Lua 스크립트를 검증하고 필요 명령만 추가한다.
-5. 멀티 키 Lua는 동일 hash slot의 키만 사용한다. 예: `dev:{<session-id>}:session`, `dev:{<session-id>}:lock`. 세션 ID에 `{}` 삽입을 허용하지 않는다.
-6. 토큰 암호화 키·TTL·로그아웃·재사용 방어·실패 시 동작과 두 BFF 동시 갱신을 검증한다. 백엔드 API/refresh 정책은 이 구성에서 변경하지 않는다.
-7. dev 사용자로 prod 키/사용자 접근, KEYS/SCAN/FLUSHALL/FLUSHDB, 비인가 SG 접근이 거부되는지 실제 환경에서 확인한다.
+웹 세션 결정은 허브 ADR 0030이며 frontend의 `docs/valkey-sessions.md`가 저장 형식·실패 정책·전환 절차를 설명한다. backend의 RT 재사용 탐지는 유지한다.
 
-mock test는 리소스 구조와 잘못된 입력 방어만 검증한다. AWS 정책 평가·TLS·IAM 인증·서버 ACL·실제 트래픽 증거가 아니다.
+환경별 `runtime`에 다음 선택 입력을 추가하면 전용 task role과 BFF 환경변수를 연결한다. 실제 shared cache 생성·피어링 완료 뒤 `cache.endpoint` 출력의 address를 넣는다. 비밀값은 포함하지 않는다.
+
+```json
+"valkey": {
+  "host": "<cache.endpoint address>",
+  "cache_name": "pulsemetry-frontend-shared"
+}
+```
+
+bootstrap의 환경별 runtime apply 역할은 기존 execution role과 해당 환경의 Valkey task role만 ECS에 PassRole할 수 있다. shared CI 역할에는 PassRole을 추가하지 않는다. 이전 BFF 이미지의 runtime에는 입력을 생략할 수 있지만 새 이미지에는 필수다.
+
+frontend는 TLS·cluster-aware client·IAM 인증을 사용하며 10분마다 재인증한다. Lua는 한 세션 키에서 값 비교와 변경을 원자적으로 수행한다. backend 토큰 갱신과 Valkey 저장은 분산 트랜잭션이 아니므로 응답 유실·복제 유실에 대한 재로그인 정책을 유지한다.
+
+현재 상태: 연결 입력과 정책은 코드에 구현했다. 실제 endpoint를 환경별 runtime에 활성화하거나 AWS apply하지 않았다. 전환 시 이전 버전과 Valkey 전용 버전 태스크가 로그인 트래픽을 혼합 처리하지 않도록 frontend 전환 절차를 따른다.
+
+실제 환경에서는 TLS·IAM 재인증·두 BFF 동시 갱신과 dev 사용자의 prod 키 접근 거부를 확인한다. KEYS/SCAN/FLUSHALL/FLUSHDB와 비인가 SG 접근 거부도 확인한다. mock test와 localhost Lua 테스트는 AWS 정책 평가·IAM/TLS·서버 ACL 실검증을 대체하지 않는다.
+
+새 BFF는 Valkey를 필수로 사용하며 토큰 쿠키·메모리 갱신 fallback을 지원하지 않는다. 새 이미지 배포 전 `runtime.valkey` 연결 입력을 완료해야 한다. Terraform의 optional 입력은 이전 이미지에 대한 단계적 인프라 적용용이다.

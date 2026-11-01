@@ -1,5 +1,8 @@
 mock_provider "aws" {
   override_during = plan
+  mock_resource "aws_iam_role" {
+    defaults = { arn = "arn:aws:iam::111111111111:role/mock-execution" }
+  }
 }
 variables {
   aws_account_id        = "111111111111"
@@ -27,6 +30,15 @@ run "shared_ci_boundaries" {
   assert {
     condition     = aws_iam_role_policy_attachment.shared_network.role == aws_iam_role.shared["apply"].name && aws_iam_role_policy_attachment.shared_services.role == aws_iam_role.shared["apply"].name && aws_iam_role_policy_attachment.shared_peers.role == aws_iam_role.shared["apply"].name && !strcontains(aws_iam_policy.shared_read.policy, "GetSecretValue") && !strcontains(aws_iam_policy.shared_read.policy, "CreateVpc")
     error_message = "plan에는 쓰기나 secret 값 조회를 허용하지 않습니다."
+  }
+  assert {
+    condition = alltrue([for env, policy in aws_iam_policy.runtime_write : alltrue([
+      for statement in jsondecode(policy.policy).Statement :
+      contains(statement.Action, "iam:PassRole") ? (
+        length(statement.Resource) == 2 && contains(statement.Resource, "arn:aws:iam::${var.aws_account_id}:role/soma-376-frontend-${env}-valkey-task") && statement.Condition.StringEquals["iam:PassedToService"] == "ecs-tasks.amazonaws.com"
+      ) : true
+    ])])
+    error_message = "환경별 runtime apply의 PassRole은 execution role과 자기 환경 Valkey task role 두 개 및 ECS 서비스로 한정해야 합니다."
   }
   assert {
     condition     = !strcontains(aws_iam_policy.shared_services.policy, "AdministratorAccess") && !strcontains(aws_iam_policy.shared_services.policy, "iam:PassRole") && !strcontains(aws_iam_policy.shared_peers.policy, "ec2:DeleteVpc") && !strcontains(aws_iam_policy.shared_peers.policy, "ec2:AuthorizeSecurityGroupIngress")

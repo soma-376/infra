@@ -213,3 +213,22 @@ run "reject_prod_dev_telemetry" {
   }
   expect_failures = [var.telemetry]
 }
+
+run "valkey_session_runtime" {
+  command = plan
+  variables {
+    runtime = {
+      domain_name        = "frontend.example.com"
+      certificate_arn    = "arn:aws:acm:ap-northeast-2:111111111111:certificate/00000000-0000-0000-0000-000000000001"
+      image_digest       = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      enrollment_api_url = "https://enrollment.example.com"
+      dashboard_api_url  = "https://dashboard.example.com"
+      dev_ami_id         = "ami-0123456789abcdef0"
+      valkey             = { host = "fixture.serverless.apn2.cache.amazonaws.com", cache_name = "pulsemetry-frontend-shared" }
+    }
+  }
+  assert {
+    condition     = aws_ecs_task_definition.frontend.task_role_arn == "arn:aws:iam::111111111111:role/soma-376-frontend-dev-valkey-task" && contains(jsondecode(aws_ecs_task_definition.frontend.container_definitions)[0].environment, { name = "BFF_SESSION_ENV", value = "dev" })
+    error_message = "공유 Valkey를 켜면 dev 전용 IAM 태스크 역할과 세션 환경을 함께 연결해야 합니다."
+  }
+}

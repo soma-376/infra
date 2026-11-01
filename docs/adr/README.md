@@ -68,7 +68,7 @@
 | 0052 | [perf 예산과 독립 정리 보호](0052-perf-budget-and-independent-cleanup.md) | Accepted (로컬 구현; 실제 정리 검증 별도) |
 
 | 0053 | [dev 프론트 두 앱을 인증 동시성 검증에 앞서 배치한다](0053-frontend-dev-two-apps-before-auth-validation.md) | Accepted (PROJ-243; 배포 검증 별도) |
-| 0055 | [프론트 공유 Valkey 기반을 독립 Terraform 상태로 관리한다](0055-shared-frontend-valkey-foundation.md) | Proposed (로컬 구성; 배포 별도) |
+| 0055 | [프론트 공유 Valkey 기반을 독립 Terraform 상태로 관리한다](0055-shared-frontend-valkey-foundation.md) | Proposed (기반·선택적 BFF 연결; 배포 별도) |
 
 병행 작업에서 사용한 `0035`·`0036`은 각각 파일명·제목·링크를 보존한다. 번호만으로 대상을 식별하지 않는다.
 

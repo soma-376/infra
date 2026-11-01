@@ -30,7 +30,7 @@ prod는 BFF 단일 프로세스 desired=1/min=0/max=100을 유지한다. dev는 
 shared root가 별도 VPC·dev/prod 피어링·왕복 경로·SG 규칙·캐시·IAM 사용자/태스크 역할을 소유한다.
 기존 환경 root에 같은 경로/SG 규칙을 중복 정의하지 않는다. shared는 develop의 bootstrap·dev 적용 후 자동 plan/apply한다. 기존 bootstrap 버킷의 별도 key·승인 Environment를 사용하고 전용 역할은 bootstrap이 만든다. 기존 runtime 역할은 재사용하지 않는다.
 태그 기반 peer 조회는 dev 필수·prod 준비 시 추가이며 기존 peer 누락은 실패한다. prod 준비 후 develop workflow_dispatch로 연결한다.
-BFF 코드·쿠키 계약·ECS task 역할 연결은 변경하지 않았다. 공유 세션 전환 시 허브 ADR 0009·웹 인증 계약 개정이 먼저다.
+공유 세션 계약은 허브 ADR 0030를 따른다. runtime.valkey 선택 입력이 환경별 ECS task 역할·BFF 연결 변수를 연결한다. 새 BFF는 Valkey만 지원하므로 해당 이미지 배포 전 runtime.valkey를 반드시 입력한다. 기존 이미지의 단계적 인프라 적용을 위해 Terraform 입력만 optional로 유지한다. 전환 시 이전 버전 태스크를 drain한다. 실제 IAM/TLS·ACL·동시 갱신은 배포 검증이 필요하다.
 
 ## PROJ-282 dev Strimzi 전환
 
