@@ -220,6 +220,8 @@ infra checkout에서 §2의 `$RUN_DIR`·context·환경변수를 준비한다. �
 명령만 생략한다(`--msk-nodes` 줄까지 포함). 기존 output 조회, `EKS_*` 변수 설정, SSM Online 확인은
 모두 실행한다. 이어서 §2-2-1을 건너뛰고 **같은 `$RUN_DIR`과 Bash 환경**으로 §2-2-2를 실행한다.
 이 경우에도 기존 CloudFormation 배포와 이후 접속·설치 절차의 실행 조건은 바뀌지 않는다.
+아래 MSK 조회·생성 블록은 과거 공급자 경로다. 현재 dev Strimzi는 [Strimzi 런북](dev-strimzi-kafka.md)의
+현재 profile·output·metadata를 사용하며 MSK 조회를 실행하지 않는다.
 
 ```bash
 npx cdk deploy --all "${EKS_CONTEXT[@]}" --outputs-file "$RUN_DIR/cdk-outputs.json"
@@ -264,12 +266,17 @@ SSM Agent 기동, public IPv4·Internet Gateway 경로, 443 아웃바운드를 �
 
 ### 2-2-1. generated values의 private 사본 동기화
 
-[공급 계약(변경 중)](https://github.com/soma-376/docs/blob/399b652ee28d9541e428fee3a74fb59d0505c44f/contracts/generated-values-sync.md)에 따라
-[infra-generated-values](https://github.com/soma-376/infra-generated-values)의 `dev/generated/`에는 생성된
-values 사본만 둔다. 입력·생성기·chart·배포는 infra가 소유한다. 값을 바꾸려면 infra 원본을 수정하고
-같은 입력 묶음으로 재생성한다. 사본 직접 편집·역방향 동기화는 하지 않는다.
+이 절은 **Argo 인계 전 수동 사본 공급**에만 적용한다. 인계 후 이미지·설정 게시와 복구는 채택된 후속
+GitOps 공급 계약을 따른다. `dev/bundle.json`·`dev/desired.yaml`·`dev/applications/`·`dev/delivery-state.json`이
+있는 저장소는 아래 허용목록 검사에서 거부한다. 검사를 우회하거나 해당 metadata를 지우고 복사하지 않는다.
 
-앞 절의 생성이 성공하고 생성 결과·이미지 digest·고정 Secret 버전을 검토한 뒤, infra 루트의 **Bash**에서
+[공급 계약(변경 중)](https://github.com/soma-376/docs/blob/docs/PROJ-276-generated-values-sync-contract/contracts/generated-values-sync.md)에 따라
+[infra-generated-values](https://github.com/soma-376/infra-generated-values)의 `dev/generated/`에는 생성된
+values 사본을 둔다. 입력·생성기·chart는 infra가 소유한다. 이 수동 단계의 공급·배포는 infra 운영자가
+담당하며, 값을 바꾸려면 원본을 수정하고 같은 입력 묶음으로 재생성한다. 사본 직접 편집·역방향 동기화는 하지 않는다.
+
+현재 Strimzi의 생성은 [Strimzi 런북](dev-strimzi-kafka.md)의 profile·output·인증서 metadata 절차를 따른다.
+MSK bootstrap/list-nodes 입력은 사용하지 않는다. 생성 결과·이미지 digest·고정 Secret 버전을 검토한 뒤, infra 루트의 **Bash**에서
 아래 블록을 실행한다. `$VALUES_REPO`는 접근 권한을 가진 private 레포의 깨끗한 로컬 checkout이다.
 private checkout을 만들기 전에 `umask 077`을 적용한다. 블록은 Git 루트를 확인한 즉시 checkout 디렉터리를
 `0700`으로 제한하므로 뒤의 SHA·파일 검증이 실패해도 다른 로컬 사용자의 디렉터리 접근은 차단한다.
@@ -288,7 +295,7 @@ chmod 700 "$VALUES_REPO"
 GENERATED_VALUES_FILES=(
   base.yaml lbc.yaml runtime.yaml enrollment-api.yaml telemetry-ingest.yaml
   telemetry-gateway.yaml telemetry-kafka-admin.yaml dashboard-api.yaml
-  clickhouse.yaml fluent-bit.yaml ascp.yaml observability.yaml
+  clickhouse.yaml fluent-bit.yaml ascp.yaml observability.yaml kafka-strimzi.yaml
 )
 test -f "$RUN_DIR/infra-commit.txt"
 test ! -L "$RUN_DIR/infra-commit.txt"
@@ -352,13 +359,16 @@ git -C "$VALUES_REPO" diff --cached --stat
 입력 묶음으로 다시 준비한다. 이전 사본과 새 사본을 부분 commit하지 않는다. 생성 디렉터리에 새로운 파일이
 추가되면 허용목록을 임의로 넓히지 말고 허브 계약과 생성기 변경을 먼저 리뷰한다.
 
-운영자는 private checkout의 staged diff에서 YAML 12개와 `dev/infra-commit.txt` 이외의 변경이 없고
+운영자는 private checkout의 staged diff에서 YAML 13개와 `dev/infra-commit.txt` 이외의 변경이 없고
 Secret 원문이 없는지 검토한다. AWS 조회 JSON·kubeconfig·로그·이미지 조회 산출물·검증 증거는 private 레포에도
 올리지 않는다. `git add .`나 `$RUN_DIR` 전체 복사는 사용하지 않는다. 검토된 전체 묶음은 해당 운영 티켓의
 커밋 한 개로 게시한다. private 레포의 기본 브랜치는 `main`이며 commit·push는 운영자가 명시적으로 수행한다.
 실제 values 최초 게시와 Argo CD 인증·연결·Application·자동 sync 설정은 이 문서 변경의 완료 범위가 아니다.
 
 ### 2-2-2. private 사본을 기존 수동 배포에 사용
+
+이 절도 Argo 인계 전 Strimzi 사본에만 적용한다. 인계된 release의 일반 변경·복구에 과거 사본이나
+Helm history를 사용하지 않는다. 인계 후의 적용·복구 주체는 후속 GitOps 계약에서 정의한다.
 
 §2-2의 사본 사용 분기에 따라 미리 선택한 private **commit 하나**와 대응 infra checkout을 사용한다.
 private checkout은 생성 전 `umask 077`을 적용하고, 파일 확인 전에 Git 루트와 디렉터리 접근 권한을 확인한다.
@@ -378,7 +388,7 @@ chmod 700 "$VALUES_REPO"
 GENERATED_VALUES_FILES=(
   base.yaml lbc.yaml runtime.yaml enrollment-api.yaml telemetry-ingest.yaml
   telemetry-gateway.yaml telemetry-kafka-admin.yaml dashboard-api.yaml
-  clickhouse.yaml fluent-bit.yaml ascp.yaml observability.yaml
+  clickhouse.yaml fluent-bit.yaml ascp.yaml observability.yaml kafka-strimzi.yaml
 )
 test -z "$(git -C "$VALUES_REPO" status --porcelain --untracked-files=all)"
 test -z "$(git status --porcelain --untracked-files=all -- config scripts lib bin helm package.json package-lock.json cdk.json)"
