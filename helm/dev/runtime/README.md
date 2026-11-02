@@ -82,9 +82,10 @@ Fluent Bit의 Loki 병행 출력은 정적 values 다음에 `fluent-bit-loki-val
 [infra-generated-values](https://github.com/soma-376/infra-generated-values)는 생성된 values의 접근 제한
 사본을 보관한다. 이 절은 **Argo 인계 전 수동 단계**다. 입력·생성기·chart는 infra에 있으며 이 단계의
 변경은 원본 수정 → 재생성 → 검증 → 단방향 복사로 반영한다. 사본 직접 편집이나 역동기화는 하지 않는다.
-인계 후에는 후속 GitOps 공급 계약을 적용하며, 배포 선택·공통 상태 metadata가 있는 저장소를 수동 복사로 갱신하지 않는다.
+인계 후에는 backend가 기존 repository/digest 필드의 이미지 갱신·롤백을, infra가 설정 생성·게시를 담당한다.
+공통 Git 잠금으로 배포·복구까지 직렬화하며, 배포 선택·공통 상태 metadata가 있는 저장소를 수동 복사로 갱신하지 않는다.
 
-[공급 계약(변경 중)](https://github.com/soma-376/docs/blob/docs/PROJ-276-generated-values-sync-contract/contracts/generated-values-sync.md)이
+[공급 계약(변경 중)](https://github.com/soma-376/docs/blob/docs/PROJ-281-dev-gitops-contract/contracts/generated-values-sync.md)이
 허용 파일과 소유권을 정하고, [EKS 런북의 동기화 절차](../../../docs/runbooks/dev-eks-manual-deployment.md#2-2-1-generated-values의-private-사본-동기화)가
 실행 방법을 제공한다. 한 번 생성한 Strimzi YAML 13개(`kafka-strimzi.yaml` 포함)를 `dev/generated/`에, 대응하는 infra 전체 commit SHA를
 `dev/infra-commit.txt`에 함께 저장한다. `$RUN_DIR` 전체, Secret 원문, kubeconfig, AWS 조회 원본과
