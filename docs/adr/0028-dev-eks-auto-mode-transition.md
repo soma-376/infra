@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — 부분 대체: [ADR 0054](0054-dev-argocd-gitops-operations.md)가 인계된 dev 리소스의
+Accepted — 부분 대체: [ADR 0056](0056-dev-argocd-gitops-operations.md)가 인계된 dev 리소스의
 일반 배포 주체와 Argo 제외 결정을 대체한다. CDK/Helm 선언/Auto Mode의 소유권, ARM64·스토리지·
 Secret·private API 경계는 유지한다. 실제 인계 전에는 기존 수동 Helm 절차를 사용한다.
 
@@ -84,7 +84,7 @@ Helm release 복구, ALB 트래픽 복구, DB/PVC 데이터 복구는 서로 다
 ## Constraints
 
 - 앱 설정·DDL·인증 계약과 backend 소스/이미지를 바꾸지 않는다. enrollment 준비 확인 후 ingest를 배포한다.
-- 이 ADR 도입 당시에는 수동 Helm만 준비했다. 이후 Argo 적용·인계는 [ADR 0054](0054-dev-argocd-gitops-operations.md)를
+- 이 ADR 도입 당시에는 수동 Helm만 준비했다. 이후 Argo 적용·인계는 [ADR 0056](0056-dev-argocd-gitops-operations.md)를
   따르며, 인계 전에는 수동 Helm을 유지한다. 기존 CloudFormation CI가 Kubernetes를 배포하지 않는다.
 - PROJ-206~212는 구현·문서·로컬 검증·커밋 범위다. AWS 배포, 데이터 이관, Canary, ECS 제거, HTTPS 전체 CLI E2E는 실행하지 않는다. 기존 HTTP ALB는 HTTPS endpoint 계약의 대체가 아니다.
 

@@ -17,7 +17,7 @@ prod는 BFF 단일 프로세스 desired=1/min=0/max=100을 유지한다. dev는 
 기존 CDK 전용 테스트 규칙은 그대로 유지하고, 새 Terraform은 fmt·validate·mock test로 검증한다.
 기존 CDK 리소스를 Terraform에 import하거나 같은 리소스를 두 도구가 수정하지 않는다.
 실제 apply는 리뷰·머지 후 보호된 CI에서 수행한다. 최초 bootstrap CI 역할 준비는 관리자 작업이다. 이후 bootstrap 변경은 ADR-0050에 따라 develop에서 전용 plan/apply 역할과 Environment 승인을 거친다.
-다음 미사용 ADR은 **0056**이다. ADR 0054는 로컬 OIDC callback PR에서 예약했고 0055는 공유 Valkey다.
+다음 미사용 ADR은 **0057**이다. ADR 0054는 로컬 OIDC callback PR에서 예약했고 0055는 공유 Valkey다.
 
 [ADR-0044](docs/adr/0044-dev-waf-cli-oidc-loopback-query-exception.md)에 따라 정확한 CLI OIDC authorize GET과
 검증된 loopback query에만 SSRF·RFI 두 label의 후속 Block을 제외한다.
@@ -36,17 +36,24 @@ shared root가 별도 VPC·dev/prod 피어링·왕복 경로·SG 규칙·캐시�
 
 ## PROJ-280 dev Argo CD GitOps 설계
 
-[ADR 0054](docs/adr/0054-dev-argocd-gitops-operations.md)와 [운영 런북](docs/runbooks/dev-argocd-operations.md)은
-허브 PROJ-281·backend PROJ-286과 맞춘 Accepted 설계다. chart·workflow·Argo/Updater 설치·실제 Helm 인계는
-후속 구현이며, 인계 전에는 기존 수동 Helm을 유지한다. 인계 후에는 전체 대상 Application의 자동 sync·self-heal을
-사용하고 자동 prune은 끈다. Argo/Updater 자체는 수동 Helm으로 관리하며 prod·frontend·perf는 대상이 아니다.
-backend의 같은 SHA·run·attempt 네 이미지 완료 묶음만 승격한다. 생성기가 generated를 소유하고 Updater는
-비배포 candidate의 네 앱 `image.ref`만 수정한다. 현재 `repository+digest` 입력의 실제 코드 변경은 후속이다.
-infra/chart SHA·불변 values commit·backend 묶음·네 digest를 결합하고 V snapshot 게시 뒤 P에서
-desired/Application 참조를 함께 바꾼다. Git 충돌은 최신 상태 재검증으로 처리하며 force push하지 않는다.
-Strimzi CMP는 현재 vendor·Helm 3.22.0·post-render 검증을 보존한다. offset reset·키/인증서 교체·rollback은
-상위/하위 self-heal과 Updater·승격을 먼저 중지하고 Git 정합·실제 기능 확인 뒤 재개한다.
-Git 게시·Synced·Healthy·기능 성공은 각각 증거를 남긴다. 기존 Strimzi·관측 완료 근거와 ADR 0039의 Proposed 상태는 유지한다.
+[ADR 0056](docs/adr/0056-dev-argocd-gitops-operations.md)와 [운영 런북](docs/runbooks/dev-argocd-operations.md)은
+허브 PROJ-281·backend PROJ-286과 맞춘 Accepted 설계다. workflow·Argo 설치·실제 Helm 인계는 후속 구현이며,
+인계 전에는 기존 수동 Helm을 유지한다. 인계 후 전체 대상 Application의 자동 sync·self-heal을 사용하고
+자동 prune은 끈다. Argo 자체는 수동 Helm으로 관리하며 prod·frontend·perf는 대상이 아니다.
+Image Updater 도입은 철회하고 기존 `image.repository` + `image.digest`와 overlay 없는 구성을 유지한다.
+backend는 같은 SHA·run·attempt의 네 ARM64 이미지 생산 workflow가 최종 성공한 뒤 별도 workflow로
+이미지 갱신·롤백을 게시한다. infra는 설정 생성·게시를 담당한다. 이미지 변경은 현재 비이미지 설정을,
+설정 변경은 현재 B를 보존하며 C/B/V/P를 결합해 V 게시 뒤 P에서 desired/Application 참조를 함께 바꾼다.
+두 게시기는 후속 `dev/delivery-state.json`의 owner·generation·기준 P와 예상 main HEAD를 공통 CAS로
+검증한다. 배포·복구 판정까지 잠금을 유지하고 force push·시간 기반 탈취는 하지 않는다.
+현재 이미지 배포의 확정 실패만 실제 schema·설정·키·인증서 호환성을 재확인해 같은 owner가 새 V/P로
+한 번 복구한다. 관측 불가·설정 실패·정상 B 부재·owner 소실·복구 실패는 보류한다. 일반 이미지 복구는
+Argo sync를 유지한다. 실패 B/동일 이미지 조합은 차단하고 실패 source 이후 develop 후속 commit 및
+실패 기록 뒤 생성된 원본 생산 run의 정상 묶음부터 자동 재개한다. unlock 시 대기 후보를 다시 평가한다.
+Strimzi CMP는 vendor·Helm 3.22.0·post-render 검증을 보존한다. offset reset·키/인증서 교체는 두 게시기와
+필요한 상위/하위 self-heal을 먼저 중지하고 Git 정합·실제 기능 확인 뒤 재개한다. backend에 CDK·Helm·
+Kubernetes·Argo 변경 권한을 추가하지 않는다. Git 게시·Synced·Healthy·기능 성공은 각각 증거를 남긴다.
+기존 Strimzi·관측 완료 근거와 ADR 0039의 Proposed 상태는 유지한다.
 
 ## PROJ-282 dev Strimzi 전환
 
@@ -229,8 +236,9 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 생성된 dev values는 비공개 `soma-376/infra-generated-values`의 `dev/generated/`에 동기화 사본으로 둔다.
 PROJ-277은 Argo 인계 전 수동 공급·사용 절차다. 입력·생성기·chart는 infra가 소유하며, 수동 단계에서는
 infra 운영자가 생성·검증·공급·배포를 담당한다. 사본 직접 편집·역방향 동기화는 하지 않는다.
-인계 후에는 채택된 후속 GitOps 공급 계약을 따르며 배포 선택·공통 상태 metadata를 수동 복사로 덮어쓰지 않는다.
-[공급 계약(변경 중)](https://github.com/soma-376/docs/blob/docs/PROJ-276-generated-values-sync-contract/contracts/generated-values-sync.md)과
+인계 후에는 backend가 네 앱 이미지 갱신·롤백, infra가 설정 생성·게시를 맡고 두 게시기가 공통 잠금으로 직렬화한다.
+배포 선택·공통 상태 metadata를 수동 복사로 덮어쓰지 않는다.
+[공급 계약(변경 중)](https://github.com/soma-376/docs/blob/docs/PROJ-281-dev-gitops-contract/contracts/generated-values-sync.md)과
 [수동 배포 런북](docs/runbooks/dev-eks-manual-deployment.md#2-2-1-generated-values의-private-사본-동기화)을 따른다.
 사본은 `dev/infra-commit.txt`의 infra revision과 함께 사용한다. 사본 게시를 Argo CD 연결·배포 완료로 해석하지 않는다.
 
@@ -238,7 +246,7 @@ infra 운영자가 생성·검증·공급·배포를 담당한다. 사본 직접
 
 **ADR 우선 원칙은 이 레포의 기존 규칙과 같다** — 1장의 "코드와 ADR이 어긋나면 ADR이 기준이다"가
 전 레포 공통 규칙이며, 크로스레포 결정만 `../docs/adr/`가 소유한다. 스코프 판정은 `adr-new` 스킬이 안내한다.
-단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0056`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
+단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0057`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
 기존 병행 브랜치의 ADR `0028`·`0029`·`0030`은 번호가 겹치므로 파일명과 링크를 보존한다.
 프론트엔드 Terraform 절은 프론트엔드 ADR을, dashboard·EKS·기존 CDK 절은 해당 백엔드 ADR을 가리킨다.
 인용할 때는 번호와 함께 범위·제목 또는 파일 링크를 사용하며, 전체 목록은 [ADR 인덱스](docs/adr/README.md)를 따른다.
@@ -255,7 +263,7 @@ dev는 제품 수집용 OTel Collector를 배포하지 않고 `pulsemetry-backen
 ### EKS 운영 규칙 (ADR-0028·0034·0035)
 
 - CDK는 AWS 리소스, Helm chart는 Kubernetes 선언, Auto Mode는 노드 생성·교체를 소유한다.
-  ADR 0054 인계 후 선언의 적용·drift 복구는 Argo가 맡고 일반 수동 Helm과 동시에 관리하지 않는다.
+  ADR 0056 인계 후 선언의 적용·drift 복구는 Argo가 맡고 일반 수동 Helm과 동시에 관리하지 않는다.
 - EKS 운영자 role은 CDK가 생성하며 계정 IAM이 운영자에게 대상 role의 `sts:AssumeRole`을 부여한다.
   role은 `eks:DescribeCluster`·전용 SSM 터널·AccessEntry 기반 Kubernetes 관리를 담당한다. 릴레이 EC2에는 EKS 권한이 없다.
 - Secret 원문·Kubernetes Secret 복제 없이 ASCP/CSI/configtree를 사용한다. 고정 JWT/OIDC 버전과 명시적 재배포를 유지한다.
@@ -564,7 +572,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0055`**)를 쓰되 작성 직전 인덱스·예약을 확인한다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급, `0033`은 외부 ACM 기반 dev HTTPS, `0034`는 dev EKS SSM 릴레이 접근, `0035`는 MSK 배치와 dev EKS 전용 전환, `0036`은 telemetry Gateway·MSK IAM과 임시 blocked.certs 공급, `0037`은 관측 구성, `0038`은 dev DB 비공개 접근, `0039`는 Loki·Tempo·플랫폼 trace(Proposed), `0040`은 dev 공개 origin 영속화, `0041`은 dashboard 조회 권한 복구, `0042`는 프론트 관측 EC2, `0043`은 dev SES 초대 메일, `0044`는 정상 CLI OIDC loopback의 두 query label 예외, `0045`는 CLI token 교환의 두 Body label 예외, `0046`은 승인 태그 SES 수신 identity 권한, `0047`은 실제 진단 후 고정 발신 주소 SES identity 권한, `0048`은 dev CloudFormation CI/CD로 이미 쓰였다. `0020`은 프론트엔드 로그 정책이며, 프론트엔드 `0028`·`0029`·`0030`은 각각 Terraform 실행 환경·외부 DNS와 기존 인증서·독립 기반 상태를 다룬다. 중복 번호는 [ADR 인덱스](docs/adr/README.md)의 제목과 파일 링크로 구분하고, 기존 CDK 로그 정책 미결 사항은 위 (F)를 따른다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0057`**)를 쓰되 작성 직전 인덱스·예약을 확인한다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급, `0033`은 외부 ACM 기반 dev HTTPS, `0034`는 dev EKS SSM 릴레이 접근, `0035`는 MSK 배치와 dev EKS 전용 전환, `0036`은 telemetry Gateway·MSK IAM과 임시 blocked.certs 공급, `0037`은 관측 구성, `0038`은 dev DB 비공개 접근, `0039`는 Loki·Tempo·플랫폼 trace(Proposed), `0040`은 dev 공개 origin 영속화, `0041`은 dashboard 조회 권한 복구, `0042`는 프론트 관측 EC2, `0043`은 dev SES 초대 메일, `0044`는 정상 CLI OIDC loopback의 두 query label 예외, `0045`는 CLI token 교환의 두 Body label 예외, `0046`은 승인 태그 SES 수신 identity 권한, `0047`은 실제 진단 후 고정 발신 주소 SES identity 권한, `0048`은 dev CloudFormation CI/CD로 이미 쓰였다. `0020`은 프론트엔드 로그 정책이며, 프론트엔드 `0028`·`0029`·`0030`은 각각 Terraform 실행 환경·외부 DNS와 기존 인증서·독립 기반 상태를 다룬다. 중복 번호는 [ADR 인덱스](docs/adr/README.md)의 제목과 파일 링크로 구분하고, 기존 CDK 로그 정책 미결 사항은 위 (F)를 따른다.
    형식은 `docs/adr/0000-adr-template.md`를 따른다.
 3. 상수는 **"이 값이 dev에서 달라야 할 이유가 있는가"**로 위치를 정한다 — 없으면 `lib/common/config.ts`, 운영 전용이면 `lib/prod/config.ts`, dev 전용이면 `lib/dev/config.ts`. 스택에서는 import만 한다 (4장).
 4. `test/prod/*.test.ts` / `test/dev/*.test.ts` / `test/cicd/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`(prod), `buildDevApp()`(dev), `buildCicdApp()`(cicd)를 재사용한다.

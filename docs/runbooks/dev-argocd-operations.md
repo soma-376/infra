@@ -1,6 +1,6 @@
 # dev Argo CD 도입·인계·검증·복구
 
-[ADR 0054](../adr/0054-dev-argocd-gitops-operations.md)·PROJ-280의 운영 계약이다.
+[ADR 0056](../adr/0056-dev-argocd-gitops-operations.md)·PROJ-280의 운영 계약이다.
 **설계만 채택했으며 이 문서 추가는 Argo 설치·workflow 구현·Helm 인계 완료의 증거가 아니다.**
 도입 전에는 [EKS 수동 런북](dev-eks-manual-deployment.md)과 [Strimzi 런북](dev-strimzi-kafka.md)을 따른다.
 아래 단계는 후속 구현이 갖춰진 뒤 수행할 절차이며 이번 문서 작업에서 실행하지 않는다.
@@ -12,11 +12,13 @@
   기존 관측·수집 완료 결과는 [완료 기록](proj191-strimzi-completion.md)을 따른다.
 - AWS 갱신은 [CloudFormation CI/CD](dev-cloudformation-cicd.md), Kubernetes 적용은 인계 후 Argo가 맡는다.
   CDK 적용 성공이 generated 게시나 앱 배포 성공을 뜻하지 않는다.
-- Argo/Updater 자체는 고정된 Helm으로 수동 관리한다. UI/API는 ClusterIP로 두고 기존 SSM EKS 터널과
+- Argo 자체는 고정된 Helm으로 수동 관리한다. UI/API는 ClusterIP로 두고 기존 SSM EKS 터널과
   별도 kubeconfig·원래 서버 hostname/CA 검증을 유지한다. 새 public ALB/DNS를 만들지 않는다.
-- 배포 단위와 파일 형식은 [허브 generated-values 계약](https://github.com/soma-376/docs/blob/main/contracts/generated-values-sync.md)이
+- 배포 단위와 파일 형식은 [허브 generated-values 계약](https://github.com/soma-376/docs/blob/docs/PROJ-281-dev-gitops-contract/contracts/generated-values-sync.md)이
   단일 출처다. C=infra/chart SHA, V=generated snapshot commit, B=backend 완료 manifest 원본 바이트의 SHA-256,
-  P=배포 선택 commit이다.
+  P=배포 선택 commit이다. backend는 이미지 갱신·롤백, infra는 설정 생성·게시, Argo는 적용·self-heal을 맡는다.
+- 두 게시기는 후속 `dev/delivery-state.json`의 owner·generation·기준 P와 main HEAD를 CAS로 검증한다.
+  배포/복구 판정까지 잠금을 유지하며 state commit은 배포 선택 P와 구분한다. 실제 상태 파일은 이번에 만들지 않는다.
 
 ## 2. 최초 설치와 기존 Helm 리소스 인계
 
@@ -33,11 +35,12 @@
    H는 정상 V가 아니며 `dev/bundle.json`·`dev/desired.yaml`을 꾸며 만들지 않는다. 정상 B가 없을 때는
    운영자가 C/H에 고정한 하위 Application을 수동으로 만들고 자동 sync/self-heal을 끈 상태에서 인계한다.
    아직 root의 `dev/applications/` 자동 관리와 P 선택 계약에는 연결하지 않는다.
-3. 후속 구현의 chart/schema/생성기 `image.ref` 정합, 고정 의존성·digest, Argo/Updater·CMP,
-   C/V health gate와 기능 검증 경로, Git 권한·branch 보호·maintenance를 확인한다.
+3. 후속 구현의 기존 `image.repository`·`image.digest` 정합, 고정 의존성·digest, Argo·CMP,
+   C/V health gate·기능 검증·공통 상태·자동 복구 경로, Git 권한·branch 보호·maintenance를 확인한다.
    초기 인계 선언도 기존 실제 이미지를 그대로 렌더해야 한다.
-4. Argo와 Updater를 수동 설치하되 Updater·자동 sync·self-heal·prune은 비활성 상태로 시작한다.
-   private Git 읽기와 후보 쓰기, ECR 조회, 보호된 main 쓰기 거부를 각 identity로 검증한다.
+4. Argo만 수동 설치하고 자동 sync·self-heal·prune은 비활성 상태로 시작한다.
+   repo-server의 private Git 읽기 전용, 두 게시기의 허용 Git 쓰기·diff 검증, backend의
+   CDK·Helm·Kubernetes·Argo 변경 거부를 각 identity로 검증한다.
    Git/Argo 관리 자격증명의 런타임 공급·회전·회수를 검증하고 원문을 Git·로그에 저장하지 않는다.
 
 ### 2.2 동일성 비교와 첫 sync
@@ -66,24 +69,29 @@ Namespace·CRD·PVC·Kafka·ClickHouse 삭제는 대상·데이터 영향·복�
 
 ## 3. 일반 변경의 공급과 승격
 
-1. backend의 허용 workflow가 같은 SHA·run·attempt의 네 ARM64 이미지와 완료 manifest를 게시하고
-   최종 성공했는지 확인한다. 개별 태그나 manifest의 자기 선언만으로 성공을 판정하지 않는다.
-2. Updater는 네 앱 `dev` 태그를 `digest` 전략·`linux/arm64`로 추적해 `candidate/dev`의 네 앱 `image.ref`만 갱신한다.
-   배포 Application은 candidate를 읽지 않는다.
-   writer branch·private repository·앱별 `helmvalues` 경로를 명시하고 V의 SHA로부터 branch를 추정하지 않는다.
-3. publisher는 현재 선택된 C/V/P와 candidate의 기준을 대조한다. 네 digest가 하나의 B와 일치하고
-   비이미지 diff가 없어야 한다. 후보가 덜 완성됐으면 기존 desired를 유지한다.
-4. 설정 변경은 생성기를 통해 별도로 재생성하고 현재 B를 유지한다. 추적 profile/runtime과 AWS output,
-   Strimzi metadata가 맞지 않으면 실패한다. Secret 내용이 아닌 UID/resourceVersion만 tlsRevision에 사용한다.
-5. 검증 결과를 V로 먼저 게시하고 기존 Application 참조가 그대로인지 확인한다. 그 다음 P에서 desired와
-   Application C/V 참조를 함께 갱신한다. Git head 변경은 최신 기준 재검증으로 처리하며 force push하지 않는다.
-6. 승격 중인 묶음이 끝나기 전에는 다음 묶음을 적용하지 않는다. 같은 digest·설정이면 no-op으로 기록하고,
-   같은 SHA라도 다른 digest는 별도 B로 검증한다. 과거 실행을 자동 경로로 재승격하지 않는다.
-7. Argo는 모든 대상의 검증된 설정 변경을 자동 적용한다. schema·키·인증서·runtime 변경 중 별도 조정이
-   필요한 것은 P 승격 전에 일반 경로를 멈추고 해당 운영 절차를 수행한다.
+1. 이미지 변경은 backend의 허용 생산 workflow가 같은 SHA·run·attempt의 네 ARM64 이미지와 완료 manifest를
+   게시하고 최종 성공한 뒤 별도의 backend 승격 workflow가 처리한다. 원본 실행과 artifact를 조회해 B·repository·
+   digest·ARM64·source 및 재개 fence를 검증한다. 개별 태그나 manifest의 자기 선언은 성공 증거가 아니다.
+2. 설정 변경은 infra 게시기가 현재 C/B/V/P를 조회해 현재 B의 네 이미지를 생성기에 주입한다. 추적 profile/runtime과
+   AWS output·Strimzi metadata가 맞지 않으면 실패한다. Secret 내용이 아닌 UID/resourceVersion만 tlsRevision에 사용한다.
+3. 두 게시기는 예상 main HEAD와 현재 P에서 공통 상태가 `idle`인지 검사하고 새 owner/generation을 CAS로 획득한다.
+   repo별 concurrency 외에 Git 기반 상호 배제가 필요하다. 잠금 획득 뒤에도 후보 적격성과 현재 C/B/V/P를 다시 확인한다.
+   이미지 게시기는 비이미지 값을 보존하고 infra 게시기는 B를 보존한다. 반대 영역 diff는 거부한다.
+4. generated 13개와 B를 V로 먼저 게시하고 기존 Application 참조가 그대로인지 확인한다. 그 다음 P에서 desired와
+   영향을 받는 모든 Application C/V 참조를 함께 갱신한다. 모든 push는 owner/generation/예상 HEAD/기준 P를 대조한다.
+   HEAD 변경은 최신 상태 재검증으로 처리하며 force push하지 않는다. V 게시 후 P 실패는 기존 배포를 유지한다.
+   응답 유실로 성공 여부가 불명확하면 원격 선택을 확인하고, 확정할 수 없으면 보류한다.
+5. 같은 선택이면 no-op으로 기록하고, 같은 SHA라도 다른 digest는 새 B로 검증한다. 과거 실행·혼합 attempt를 자동으로
+   재승격하지 않는다. 잠금은 §4 성공 판정 또는 §6 복구 판정까지 유지한다. 성공 근거와 lastKnownGood을 기록한 뒤
+   owner를 비워 `idle`로 전환한다. owner 소실·관측 불명확은 `blocked`이며 timeout만으로 탈취하지 않는다.
+   이전 owner가 쓰기 권한을 잃었다면 상태도 덮어쓰지 않고 보고하며 현재 관리 경로에서 보류를 확정한다.
+6. unlock 시 두 게시기는 대기 중 후보를 다시 조회·검증한다. 복구 도중 받은 이벤트를 버리거나 이전 검사 결과만으로
+   게시하지 않는다. image/config 후보가 동시에 도착하면 먼저 잠금을 얻은 결과를 기준으로 나머지를 재평가한다.
+7. schema·키·인증서·runtime 변경 중 별도 조정이 필요한 것은 P 승격 전에 일반 경로를 멈추고 해당 운영 절차를 수행한다.
 
 chart·runtime만 바뀐 경우에도 C/V를 새로 검증해 함께 선택한다. 가변 `develop` chart와 최신 values를
-따로 읽거나 Application parameter/`--set`으로 Git 바깥 값을 덧씌우지 않는다.
+따로 읽거나 Application parameter/`--set`으로 Git 바깥 값을 덧씌우지 않는다. `image.repository` +
+`image.digest`와 overlay 없는 구성을 유지하며 Image Updater·태그 감시는 도입하지 않는다.
 
 ## 4. 순차 적용과 성공 판정
 
@@ -107,13 +115,14 @@ PodSpec이 B의 digest에 고정됐는지 확인하고 실제 Pod imageID와 연
 
 Git 게시, Argo Synced, Healthy, 기능 검증 결과를 별도 항목으로 남긴다. 단계가 실패하면 후속 앱과 다음
 묶음을 보류하고 마지막 성공 단계 및 실제 실행 digest를 기록한다. 부분 실패를 네 앱 전체 성공으로 보고하지 않는다.
-Argo·Updater·publisher의 오류/중단, sync 지연·Degraded, 후보 정체를 관측할 수 있어야 한다.
+Argo·두 게시기의 오류/중단, 공통 상태·owner·generation, sync 지연·Degraded, 후보 정체와 복구 결과를 관측해야 한다.
+검증 결과는 정확한 P/C/V/B·현재 operation과 연결하며 관측 불가를 이미지 실패로 분류하지 않는다.
 `argocd` namespace가 기존 Fluent Bit 수집 범위에 자동 포함된다고 가정하지 않고 후속 관측 연결을 검증한다.
 
 ## 5. 운영 중지·인증서 교체·offset reset
 
 1. maintenance 대상·사유·현재 P·진행 중 operation과 원래 자동화 설정을 기록한다.
-2. Git에서 publisher 승격·Updater와 대상 Application의 자동 sync/self-heal을 중지한다.
+2. 공통 상태를 명시적으로 보류하고 두 게시기의 자동 승격을 중지한다. infra 운영자가 Git에서 대상 Application의 자동 sync/self-heal을 중지한다.
    상위가 생성하는 하위 Application 선언에도 같은 상태를 넣어 상위 self-heal이 되돌리지 않게 한다.
    보호된 수동 운영 경로로 중지 선언을 먼저 적용하고 동작 중 sync의 종료를 확인한다.
 3. offset reset은 [Strimzi 런북](dev-strimzi-kafka.md)의 ingest 중지·group 상태·plan/execute 대조를 따른다.
@@ -123,19 +132,32 @@ Argo·Updater·publisher의 오류/중단, sync 지연·Degraded, 후보 정체�
    파일 mount 갱신이 앱의 자동 재로딩을 뜻하지 않는다. JWT는 기존 verifier→signer→구 키 제거 순서를 유지한다.
 5. maintenance 중 승인한 수동 P 선택·sync는 가능하지만 자동 후보 승격은 계속 중지한다.
    runtime·replica 등 최종 선언을 Git에 반영하고 실제 동작과 대조한 다음 원래 자동화 설정을 복구한다.
+   기존 owner 실행 종료·원격 P·실제 상태를 확인해 새 generation으로 회복하고 보류를 해제한다. §6의 일반 자동 이미지
+   rollback에는 이 sync 중지 절차를 적용하지 않는다.
 
-## 6. rollback과 Argo 장애 복구
+## 6. 자동 이미지 rollback·재개와 수동 복구
 
-1. §5에 따라 자동화를 멈추고 실패 P/B, 실제 실행 이미지, 적용된 migration·키/TLS revision을 확인한다.
-2. 이전에 기능 검증한 네 앱 B 중 현재 schema·Kafka backlog·runtime·JWT·인증서와 호환되는 것을 고른다.
-   선택한 B를 생성기에 주입하고 현재 비이미지 설정을 보존한 V/P로 복구한다. generated를 사람이 직접 고치지 않는다.
-3. config/chart까지 복원해야 하면 검증된 C/V/B 전체 조합과 데이터 호환성을 별도로 확인한다.
-   과거 Git commit 전체 revert, DB 자동 downgrade, PVC/offset 복원, 만료 인증서·MSK 경로 복귀를 기본 복구로 삼지 않는다.
-4. 순차 sync와 §4 기능 검증 후 실패 후보의 재승격을 차단한다. 최신 태그가 여전히 실패 digest를 가리키면
-   Updater를 재개하지 않는다. 새 정상 후보 또는 명시적 보류 상태를 확인한 뒤 자동화를 켠다.
-5. Argo 자체 장애는 수동 Helm 설치 입력과 고정 버전으로 복구한다. 일시적인 앱 Helm 조작이 필요하면
-   Argo reconcile·publisher·Updater 정지를 먼저 확인하고, 현재 C/V로 렌더한 정확한 선언만 사용한다.
-   과거 Helm history가 인계 후 배포를 나타낸다고 가정하지 않는다. 긴급 변경 후 Git 정합을 복원해야 인계를 재개한다.
+1. 이미지 승격 직전 lastKnownGood을 고정한다. 목표 P/C/V/B에 귀속된 rollout 또는 기능의 **확정 실패**만 자동
+   rollback 대상으로 분류한다. 원격 선택·실제 digest·operation·migration·키/TLS 상태를 확인하고 진행 중 적용
+   operation이 끝날 때까지 새 복구 P를 게시하지 않는다. 과거 Healthy·관측 불가·단순 timeout은 확정 실패가 아니다.
+2. 같은 owner/generation이 실패 B·backend SHA·앱별 repository/digest와 실패 시각을 durable CAS commit에 기록한다.
+   `resumeFence`는 이 실패 기록을 기준으로 한다. commit ID는 Git 이력에서 얻으며 상태 파일에 자기 SHA를 기록하지 않는다.
+3. 마지막 정상 B를 **현재 실제 schema**·Kafka backlog·C/runtime·JWT·인증서와 다시 대조한다. 실패 전에 Flyway가
+   진행됐을 수 있으므로 배포 전 검사만 재사용하지 않는다. 호환성 불명확·정상 B 부재·설정 변경 실패·관측 불가·
+   owner 소실이면 `blocked`로 남긴다. 잠금 age만으로 다른 실행이 인계하지 않는다.
+4. 안전한 경우 같은 owner가 `rolling_back`으로 전환해 현재 비이미지 설정을 보존한 새 V/P를 **한 번만** 게시한다.
+   Argo 자동 sync·self-heal은 유지하고 §4의 순차 적용·기능 검증을 반복한다. 복구 실패면 blocked이며 재귀적인 자동
+   rollback은 금지한다. backend는 Git의 desired를 바꾸며 Argo rollback 명령이나 Kubernetes를 직접 조작하지 않는다.
+5. 복구 성공 후 lastKnownGood과 복구 증거를 갱신하고 잠금을 해제하되 실패 B와 동일한 네 이미지 조합의 차단은 유지한다.
+   자동 재개는 실패 source의 엄격한 develop 후속 commit에서, 실패 기록 이후 생성된 **원본 생산 run**이 정상 완료한
+   묶음부터 허용한다. 원본 `created_at`을 비교하며 attempt 재시작 시각은 사용하지 않는다. 새 manifest/B로 실패 이미지를
+   재포장해도 거부한다. unlock 시 복구 중 도착한 후보를 다시 조회·검증한다.
+6. 보류된 실패는 운영자가 원인·실제 상태·기존 owner 종료·호환성을 확인하고 공통 상태를 명시적으로 회복한다.
+   config/chart까지 복원해야 하면 검증된 C/V/B 전체 조합과 데이터 호환성을 별도로 확인한다. Git 전체 revert,
+   DB 자동 downgrade, PVC/offset 복원, 만료 인증서·MSK 경로 복귀를 기본 복구로 삼지 않는다.
+7. Argo 자체 장애는 수동 Helm 설치 입력과 고정 버전으로 복구한다. 일시적인 앱 Helm 조작이 필요하면 §5에 따라
+   Argo reconcile·두 게시기를 먼저 멈추고 현재 C/V로 렌더한 정확한 선언만 사용한다. 과거 Helm history가 인계 후
+   배포를 나타낸다고 가정하지 않는다. 긴급 변경 후 Git 정합·실제 기능·소유권을 복원해야 자동화를 재개한다.
 
 ## 7. 후속 구현 수락 시나리오
 
@@ -143,17 +165,21 @@ Argo·Updater·publisher의 오류/중단, sync 지연·Degraded, 후보 정체�
 |---|---|
 | Gateway 누락·게시 실패·실패한 workflow의 manifest | V/P 승격 없음, 기존 묶음 유지 |
 | 네 앱 SHA/run/attempt 혼합·digest/repository/ARM64 불일치 | 후보 거부 |
-| candidate에서 env·replica·revision metadata 변경 | 허용 필드 외 diff로 거부 |
-| 설정 재생성 중 새 태그 발견 | 현재 B 유지; 별도 검증된 후보만 승격 |
-| 동일 SHA 재실행, 같은 네 digest | 불필요한 rollout 없는 no-op; 실행 증거는 기록 |
-| 동일 SHA 재실행, 다른 digest | 새 B로 검증; 과거 attempt와 혼합 금지 |
-| 과거 실행·기준 C/V/P 변경·동시 Git 갱신 | 최신 상태에서 재검증, force push 없음 |
-| V 게시 후 P 게시 실패 | 기존 Application C/V 유지, 배포 성공으로 기록하지 않음 |
-| 이전 revision은 Healthy지만 목표 revision은 미적용 | 다음 wave 차단 |
-| Flyway/ingest/Gateway 단계 실패 | 후속 단계·다음 묶음 보류, 부분 상태 보존 |
+| backend 이미지 게시에 env·replica 등 비이미지 변경 포함 | 반대 소유 영역 diff로 거부 |
+| infra 설정 재생성 중 새 태그/새 B 발견 | 선택된 B 유지; 이미지 변경은 backend 별도 승격 |
+| 동일 SHA 재실행, 같은 네 digest | 정상 상태에서는 rollout 없는 no-op; 실패 조합이면 차단 |
+| 동일 SHA 재실행, 다른 digest | 새 B로 검증하되 실패 후 재개 fence는 우회 불가 |
+| image/config 동시 게시·오래된 C/V/P 또는 실행 | 한 owner만 CAS 획득; 나머지는 최신 상태 재검증 |
+| 잠금 획득 뒤 HEAD 변경·owner 소실 | owner/generation/기준 P 재확인; 권한 소실 시 게시 중지·보류 |
+| V 게시 후 P 실패·응답 유실 | 기존 참조 유지 또는 원격 P 조회로 성공 여부 확정; 불명확 시 보류 |
+| 이전 revision Healthy·관측 불가 | 다음 wave 차단; 자동 이미지 실패/복구로 오판하지 않음 |
+| 현재 이미지의 확정 실패·안전한 마지막 정상 B | operation 종료 뒤 같은 owner가 새 V/P로 한 번 복구 |
+| migration 적용 후 과거 B 호환성 불명확·정상 B 부재 | blocked; schema·DB·PVC·offset 자동 복구 없음 |
+| 설정 실패·rollback 실패·복구 중 owner 소실 | blocked; 자동 재복구·시간 기반 탈취 없음 |
+| 복구 성공 후 실패 B/동일 이미지 재포장·옛 run 재실행 | 재승격 거부; 후속 source + fence 이후 원본 run만 재개 |
+| 복구 중 새 후보 도착 | unlock 시 후보 재조회·적격성 재평가 |
 | CMP checksum·원래 감시 목록 불일치·빈 출력 | 렌더/sync 실패, namespace 확대나 fallback 없음 |
-| offset reset을 위해 ingest 중지 | 상위/하위 self-heal과 Updater가 중지를 되돌리지 않음 |
-| 이미지 rollback 후 실패 태그가 여전히 최신 | 자동 재승격 차단 유지 |
+| offset reset을 위해 ingest 중지 | 상위/하위 self-heal과 두 게시기가 중지를 되돌리지 않음 |
 | 인계 diff에 selector/PVC/리소스 삭제·교체 포함 | 인계 중단, 원인과 별도 변경 범위 검토 |
 
 문서 단계에서는 링크·상태·계약 정합과 위 시나리오의 기대 동작을 검토한다. 후속 구현에서는 fixture/render·
