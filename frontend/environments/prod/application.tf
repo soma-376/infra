@@ -8,6 +8,10 @@ variable "runtime" {
     enrollment_api_url         = string
     dashboard_api_url          = string
     dev_ami_id                 = optional(string)
+    valkey = optional(object({
+      host       = string
+      cache_name = string
+    }))
   })
   default = null
 }

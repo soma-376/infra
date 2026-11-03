@@ -1,0 +1,18 @@
+aws_account_id = "<AWS 계정 ID>"
+# terraform output의 실제 ID로 채운다. 앱이 없는 환경은 먼저 네트워크/SG를 준비한다.
+peers = {
+  dev = {
+    vpc_id            = "vpc-<dev>"
+    security_group_id = "sg-<dev-app>"
+    route_table_ids   = ["rtb-<dev-public>"]
+  }
+  prod = {
+    vpc_id            = "vpc-<prod>"
+    security_group_id = "sg-<prod-app>"
+    route_table_ids   = ["rtb-<prod-private-a>", "rtb-<prod-private-c>"]
+  }
+}
+max_storage_gb      = 1
+max_ecpu_per_second = 1000
+# SNS 수신처 등록과 구독 확인 후 지정한다. 월 예산 알림은 아니다.
+alarm_topic_arn = null

@@ -27,7 +27,9 @@ bootstrap은 dev/prod 공통이므로 일반 dev 배포 역할에 IAM 수정 권
   자기 역할/정책 수정까지 가능하므로 강한 privilege-escalation 차단 경계라고 주장하지 않는다.
 - Secret GetSecretValue는 부여하지 않는다. UpdateSecret은 메타데이터 외 값도 수정할 수 있으므로 승인 대상이다.
 - state 버킷/객체는 기존 `bootstrap/terraform.tfstate`를 사용한다. runtime state 본문 쓰기는 허용하지 않는다.
-- plan 바이너리/state는 GitHub artifact나 PR 댓글에 올리지 않는다. 계획 전체 JSON에서 timestamp만 제외해 해시를 출력한다.
+- plan 바이너리/state는 GitHub artifact나 PR 댓글에 올리지 않는다. 계획 전체 JSON에서 timestamp를 제외하고,
+  의미상 집합인 최상위 `relevant_attributes` 목록만 정렬해 해시를 출력한다. 리소스 값·입력·prior state와 배열 순서는 보존한다.
+  Terraform 1.13.5의 참조 목록 출력 순서 차이로 동일 계획을 거부하는 문제를 방지한다.
   승인 후 같은 커밋에서 재계획하고 해시가 일치할 때 그 바이너리를 적용한다. SHA·baseline·입력·계획이 달라지면 중단한다.
   이는 저장한 바이너리를 job 간 전달하는 방식은 아니다. stale saved-plan 검사와 S3 lock도 그대로 사용한다.
 - 공통 concurrency group으로 bootstrap 실행을 직렬화한다. 오래된 승인 대기 실행은 운영자가 취소하고 최신 실행을 승인한다.

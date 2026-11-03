@@ -1,0 +1,2 @@
+bucket              = "<기존 bootstrap 상태 버킷>"
+allowed_account_ids = ["<AWS 계정 ID>"]

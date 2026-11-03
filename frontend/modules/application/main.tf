@@ -138,6 +138,7 @@ resource "aws_ecs_task_definition" "frontend" {
   cpu                      = "512"
   memory                   = local.is_dev ? "512" : "1024"
   execution_role_arn       = local.execution_role_arn
+  task_role_arn            = var.runtime.valkey == null ? null : "arn:aws:iam::${var.aws_account_id}:role/soma-376-frontend-${var.environment}-valkey-task"
   runtime_platform {
     operating_system_family = "LINUX"
     cpu_architecture        = "ARM64"
@@ -158,6 +159,12 @@ resource "aws_ecs_task_definition" "frontend" {
       { name = "BFF_ORIGIN", value = "https://${var.runtime.domain_name}" },
       { name = "ENROLLMENT_API_URL", value = var.runtime.enrollment_api_url },
       { name = "DASHBOARD_API_URL", value = var.runtime.dashboard_api_url }
+      ], var.runtime.valkey == null ? [] : [
+      { name = "BFF_SESSION_ENV", value = var.environment },
+      { name = "BFF_VALKEY_HOST", value = var.runtime.valkey.host },
+      { name = "BFF_VALKEY_CACHE_NAME", value = var.runtime.valkey.cache_name },
+      { name = "BFF_VALKEY_USERNAME", value = "pulsemetry-bff-${var.environment}" },
+      { name = "AWS_REGION", value = local.region }
       ], var.telemetry == null ? [] : [
       { name = "OTEL_SDK_DISABLED", value = "false" },
       { name = "OTEL_DEPLOYMENT_ENVIRONMENT", value = var.environment },

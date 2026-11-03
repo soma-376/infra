@@ -1,0 +1,145 @@
+name: Frontend Terraform Shared Valkey
+
+on:
+  workflow_call:
+    inputs:
+      apply:
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: frontend-shared-valkey-state
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: frontend-bootstrap-plan
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      ready: ${{ steps.role.outputs.ready }}
+      changed: ${{ steps.plan.outputs.changed }}
+      digest: ${{ steps.plan.outputs.digest }}
+    env:
+      TF_IN_AUTOMATION: 'true'
+      AWS_EC2_METADATA_DISABLED: 'true'
+      TF_VAR_aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+      STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      BOOTSTRAP_PLAN_ROLE: ${{ vars.TF_PLAN_ROLE_ARN }}
+      APPLY_REQUESTED: ${{ inputs.apply }}
+    defaults:
+      run:
+        working-directory: frontend/environments/shared
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: 1.13.5
+          terraform_wrapper: false
+      - name: 기존 bootstrap 입력 확인
+        run: |
+          test -n "$TF_VAR_aws_account_id"
+          test -n "$STATE_BUCKET"
+          test -n "$BOOTSTRAP_PLAN_ROLE"
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c # v4
+        with:
+          role-to-assume: ${{ env.BOOTSTRAP_PLAN_ROLE }}
+          aws-region: ap-northeast-2
+          allowed-account-ids: ${{ env.TF_VAR_aws_account_id }}
+      - name: 최초 bootstrap 여부 확인
+        id: role
+        run: |
+          if aws iam get-role --role-name soma-376-frontend-shared-plan --query Role.RoleName --output text >/dev/null 2>role-error.txt; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          elif grep -q 'NoSuchEntity' role-error.txt && [ "$APPLY_REQUESTED" = 'false' ]; then
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            echo 'Shared AWS plan 보류: 최초 머지의 bootstrap apply가 shared 역할을 생성합니다. 정적/mock 검증은 별도 통과해야 합니다.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            cat role-error.txt >&2
+            exit 1
+          fi
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c # v4
+        if: steps.role.outputs.ready == 'true'
+        with:
+          unset-current-credentials: true
+          role-to-assume: arn:aws:iam::${{ env.TF_VAR_aws_account_id }}:role/soma-376-frontend-shared-plan
+          aws-region: ap-northeast-2
+          allowed-account-ids: ${{ env.TF_VAR_aws_account_id }}
+      - name: 공유 계획
+        id: plan
+        if: steps.role.outputs.ready == 'true'
+        run: |
+          terraform init -input=false -lockfile=readonly -backend-config="bucket=$STATE_BUCKET" -backend-config="allowed_account_ids=[\"$TF_VAR_aws_account_id\"]"
+          terraform show -json > previous-state.json
+          python3 ../../scripts/shared-peers.py --state previous-state.json --output peers.auto.tfvars.json
+          set +e
+          terraform plan -input=false -lock-timeout=5m -detailed-exitcode -out=shared.tfplan
+          result=$?
+          set -e
+          if [ "$result" -ne 0 ] && [ "$result" -ne 2 ]; then exit "$result"; fi
+          echo "changed=$([ "$result" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          digest=$(terraform show -json shared.tfplan | python3 ../../scripts/bootstrap-plan-digest.py)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          printf 'Shared plan SHA256: `%s`\n' "$digest" >> "$GITHUB_STEP_SUMMARY"
+      - name: 생성 파일 제거
+        if: always()
+        run: rm -f previous-state.json peers.auto.tfvars.json shared.tfplan role-error.txt
+
+  apply:
+    needs: plan
+    if: inputs.apply && github.ref == 'refs/heads/develop' && github.event_name != 'pull_request' && needs.plan.outputs.ready == 'true' && needs.plan.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: frontend-bootstrap-apply
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TF_IN_AUTOMATION: 'true'
+      AWS_EC2_METADATA_DISABLED: 'true'
+      TF_VAR_aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+      STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      APPROVED_DIGEST: ${{ needs.plan.outputs.digest }}
+    defaults:
+      run:
+        working-directory: frontend/environments/shared
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: 1.13.5
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c # v4
+        with:
+          role-to-assume: arn:aws:iam::${{ env.TF_VAR_aws_account_id }}:role/soma-376-frontend-shared-apply
+          aws-region: ap-northeast-2
+          allowed-account-ids: ${{ env.TF_VAR_aws_account_id }}
+      - name: 승인 계획 재검증과 적용
+        run: |
+          test -n "$STATE_BUCKET"
+          test -n "$TF_VAR_aws_account_id"
+          test "$(git ls-remote origin refs/heads/develop | cut -f1)" = "$GITHUB_SHA"
+          terraform init -input=false -lockfile=readonly -backend-config="bucket=$STATE_BUCKET" -backend-config="allowed_account_ids=[\"$TF_VAR_aws_account_id\"]"
+          terraform show -json > previous-state.json
+          python3 ../../scripts/shared-peers.py --state previous-state.json --output peers.auto.tfvars.json
+          terraform plan -input=false -lock-timeout=5m -out=shared.tfplan
+          actual=$(terraform show -json shared.tfplan | python3 ../../scripts/bootstrap-plan-digest.py)
+          if [ "$actual" != "$APPROVED_DIGEST" ]; then
+            echo '승인 대기 중 shared 계획/state/peer가 변경됐습니다. 새 실행이 필요합니다.' >&2
+            exit 1
+          fi
+          test "$(git ls-remote origin refs/heads/develop | cut -f1)" = "$GITHUB_SHA"
+          terraform apply -input=false -lock-timeout=5m shared.tfplan
+          terraform output -json cache >> "$GITHUB_STEP_SUMMARY"
+      - name: 생성 파일 제거
+        if: always()
+        run: rm -f previous-state.json peers.auto.tfvars.json shared.tfplan
