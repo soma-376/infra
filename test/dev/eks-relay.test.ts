@@ -58,7 +58,7 @@ describe('dev EKS private API SSM 릴레이', () => {
     const attachedPolicies = Object.values(template.findResources('AWS::IAM::Policy'))
       .filter(policy => policy.Properties.Roles?.some((ref: any) => ref.Ref === relayRoleId));
     expect(attachedPolicies).toEqual([]);
-    template.resourceCountIs('AWS::EKS::AccessEntry', 2);
+    template.resourceCountIs('AWS::EKS::AccessEntry', 3);
     const principals = Object.values(template.findResources('AWS::EKS::AccessEntry'))
       .map(entry => entry.Properties.PrincipalArn);
     expect(principals).not.toContainEqual({ 'Fn::GetAtt': [relayRoleId, 'Arn'] });
