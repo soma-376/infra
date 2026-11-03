@@ -7,6 +7,7 @@ variable "runtime" {
     automatic_image_deployment = optional(bool, false)
     enrollment_api_url         = string
     dashboard_api_url          = string
+    bff_local_origins          = optional(list(string), [])
     dev_ami_id                 = optional(string)
     valkey = optional(object({
       host       = string

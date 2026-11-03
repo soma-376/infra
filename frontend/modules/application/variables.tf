@@ -18,12 +18,21 @@ variable "runtime" {
     automatic_image_deployment = optional(bool, false)
     enrollment_api_url         = string
     dashboard_api_url          = string
+    bff_local_origins          = optional(list(string), [])
     dev_ami_id                 = optional(string)
     valkey = optional(object({
       host       = string
       cache_name = string
     }))
   })
+  validation {
+    condition     = length(var.runtime.bff_local_origins) == 0 || (var.environment == "dev" && var.runtime.valkey != null)
+    error_message = "BFF localhost 허용 목록은 Valkey가 설정된 dev 환경에서만 사용할 수 있습니다."
+  }
+  validation {
+    condition     = alltrue([for origin in var.runtime.bff_local_origins : can(regex("^https?://localhost(:([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?$", origin))])
+    error_message = "BFF 허용 출처는 경로 없는 정확한 HTTP(S) localhost origin이어야 합니다."
+  }
   validation {
     condition     = can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$", var.runtime.domain_name))
     error_message = "소문자 FQDN(와일드카드·끝 마침표 제외)을 입력하세요."
