@@ -7,13 +7,25 @@ on:
       - 'bin/**'
       - 'lib/**'
       - 'config/dev/deployment.json'
+      - 'config/dev/runtime.yaml'
+      - 'scripts/backend-image-inputs.mjs'
+      - 'scripts/dev-generated-values*.mjs'
+      - 'scripts/validate-generated-values.mjs'
+      - 'scripts/generated-values-github.mjs'
+      - 'scripts/eks-values.mjs'
       - 'scripts/dev-cdk-pipeline.mjs'
       - 'scripts/dev-cdk-pipeline.cjs'
+      - 'helm/dev/platform/base/**'
+      - 'test/helm/values-reader-rbac.test.ts'
       - 'test/dev/**'
       - 'test/prod/**'
       - 'test/cicd/**'
       - 'test/helpers.ts'
       - 'test/scripts/dev-cdk-pipeline.test.ts'
+      - 'test/scripts/backend-image-inputs.test.ts'
+      - 'test/scripts/dev-generated-values*.test.ts'
+      - 'test/scripts/validate-generated-values.test.ts'
+      - 'test/scripts/fixtures/backend-image-publication.json'
       - 'test/workflows/dev-cdk.test.ts'
       - 'package*.json'
       - 'cdk.json'
@@ -49,8 +61,20 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: 고정 Helm 준비
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/helm"
+          cd "$RUNNER_TEMP/helm"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://get.helm.sh/helm-v3.22.0-linux-amd64.tar.gz \
+            -o helm-v3.22.0-linux-amd64.tar.gz
+          echo '1e4ab49e429626cf6c6958d914248b78c9730803c2751b87627e171dc800e7bb  helm-v3.22.0-linux-amd64.tar.gz' | sha256sum --check
+          tar -xzf helm-v3.22.0-linux-amd64.tar.gz
+          echo "HELM_BIN=$RUNNER_TEMP/helm/linux-amd64/helm" >> "$GITHUB_ENV"
       - name: CDK·배포 경계 검증
-        run: npm test -- --runInBand test/dev test/prod test/cicd test/scripts/dev-cdk-pipeline.test.ts test/workflows/dev-cdk.test.ts
+        run: npm test -- --runInBand test/dev test/prod test/cicd test/scripts/dev-cdk-pipeline.test.ts test/scripts/backend-image-inputs.test.ts test/scripts/dev-generated-values-inputs.test.ts test/scripts/dev-generated-values-sync.test.ts test/scripts/validate-generated-values.test.ts test/helm/values-reader-rbac.test.ts test/workflows/dev-cdk.test.ts
 
   plan:
     needs: validate

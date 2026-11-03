@@ -324,7 +324,25 @@ function checkPlatform() {
   const args = chartArgs('pulsemetry-dev-platform', chart, values);
   checked(helm, ['lint', chart, '--strict', ...args.slice(2)]);
   const documents = yaml.loadAll(checked(helm, ['template', ...args])).filter(Boolean);
-  assert.equal(documents.length, 11);
+  assert.equal(documents.length, 13);
+  // 자동 공급 reader는 dev main Secret 5개만 단건 조회하며 cluster 범위 권한은 만들지 않는다.
+  assert.equal(documents.filter(document => document.kind === 'Role').length, 1);
+  assert.equal(documents.filter(document => document.kind === 'RoleBinding').length, 1);
+  assert.equal(documents.filter(document => ['ClusterRole', 'ClusterRoleBinding'].includes(document.kind)).length, 0);
+  const reader = find(documents, 'Role', 'generated-values-reader');
+  const readerBinding = find(documents, 'RoleBinding', 'generated-values-reader');
+  for (const resource of [reader, readerBinding]) {
+    assert.equal(resource.apiVersion, 'rbac.authorization.k8s.io/v1');
+    assert.equal(resource.metadata.namespace, 'pulsemetry-dev');
+  }
+  assert.deepEqual(reader.rules, [{ apiGroups: [''], resources: ['secrets'], verbs: ['get'], resourceNames: [
+    'soma-376-dev-telemetry-cluster-ca-cert', 'pulsemetry-gateway-main', 'pulsemetry-ingest-main',
+    'pulsemetry-topic-admin-main', 'pulsemetry-offset-admin-main',
+  ] }]);
+  assert.deepEqual(readerBinding.roleRef,
+    { apiGroup: 'rbac.authorization.k8s.io', kind: 'Role', name: 'generated-values-reader' });
+  assert.deepEqual(readerBinding.subjects,
+    [{ apiGroup: 'rbac.authorization.k8s.io', kind: 'Group', name: 'pulsemetry:dev:generated-values-reader' }]);
   // NetworkPolicy controller는 ConfigMap 하나로 켠다(ADR-0039). NodeClass에 networkPolicy 필드를 쓰지 않는다 — 바꾸면 노드가 교체된다.
   const controller = find(documents, 'ConfigMap', 'amazon-vpc-cni');
   assert.equal(controller.metadata.namespace, 'kube-system');
@@ -385,7 +403,8 @@ function checkPlatform() {
   assert.deepEqual(observationPool.spec.template.spec.taints, [{ key: 'workload', value: 'observability', effect: 'NoSchedule' }]);
   assert.deepEqual(observationPool.spec.template.metadata.labels, { 'pulsemetry.io/workload': 'observability' });
   assert.deepEqual(observationPool.spec.template.spec.requirements.find(rule => rule.key === 'node.kubernetes.io/instance-type').values, ['m7g.large']);
-  checkSchema([namespace, storage, observationStorage, controller, find(documents, 'Namespace', 'pulsemetry-observability')]);
+  checkSchema([namespace, storage, observationStorage, controller, reader, readerBinding,
+    find(documents, 'Namespace', 'pulsemetry-observability')]);
   return documents.length;
 }
 
