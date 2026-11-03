@@ -165,7 +165,9 @@ resource "aws_ecs_task_definition" "frontend" {
       { name = "BFF_VALKEY_CACHE_NAME", value = var.runtime.valkey.cache_name },
       { name = "BFF_VALKEY_USERNAME", value = "pulsemetry-bff-${var.environment}" },
       { name = "AWS_REGION", value = local.region }
-      ], var.telemetry == null ? [] : [
+      ], local.is_dev && var.runtime.valkey != null ? [
+      { name = "BFF_LOCAL_ORIGINS", value = "http://localhost:3000" }
+      ] : [], var.telemetry == null ? [] : [
       { name = "OTEL_SDK_DISABLED", value = "false" },
       { name = "OTEL_DEPLOYMENT_ENVIRONMENT", value = var.environment },
       { name = "OTEL_SERVICE_NAME", value = "pulsemetry-frontend" },
