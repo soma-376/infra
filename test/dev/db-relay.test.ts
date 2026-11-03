@@ -70,7 +70,20 @@ describe('dev DB 전용 SSM 릴레이', () => {
       'ssm:StartSession', 'ssm:StartSession', 'ssm:ResumeSession', 'ssm:TerminateSession', 'ssmmessages:OpenDataChannel',
     ].sort());
     template.resourceCountIs('AWS::EKS::AccessEntry', 0);
-    Template.fromStack(built.eks).resourceCountIs('AWS::EKS::AccessEntry', 2);
+    const eks = Template.fromStack(built.eks);
+    eks.resourceCountIs('AWS::EKS::AccessEntry', 3);
+    const readerIds = Object.keys(eks.findResources('AWS::IAM::Role', {
+      Properties: { RoleName: 'soma-376-dev-eks-values-reader' },
+    }));
+    expect(readerIds).toHaveLength(1);
+    // 전체 principal 집합을 제한해 Data의 DB operator·relay가 교차 스택 참조로 추가되는 것도 막는다.
+    const principals = Object.values(eks.findResources('AWS::EKS::AccessEntry'))
+      .map(entry => entry.Properties.PrincipalArn);
+    expect(principals).toEqual(expect.arrayContaining([
+      built.eks.resolve(built.eks.nodeRole.roleArn),
+      built.eks.resolve(built.eks.operatorRole.roleArn),
+      { 'Fn::GetAtt': [readerIds[0], 'Arn'] },
+    ]));
   });
 
   test('Network가 모든 relay SG 규칙을 소유하고 SSM과 두 DB 포트에만 egress를 허용한다', () => {

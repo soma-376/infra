@@ -194,7 +194,8 @@ function stackRecord(raw, name, account) {
       roleArn: raw.RoleARN ?? null, terminationProtection: raw.EnableTerminationProtection ?? false })) };
 }
 
-function createPipeline({ root, directory, env = process.env, runner = defaultRunner }) {
+function createPipeline({ root, directory, env = process.env, runner = defaultRunner,
+  generatedValues = { enabled: false }, validateImages = () => fail('backend 이미지 검증기 누락') }) {
   root = path.resolve(root); directory = path.resolve(directory);
   const payload = path.join(directory, 'payload'), assembly = path.join(payload, 'assembly'), logs = path.join(directory, 'logs');
   const childEnv = { ...env, AWS_REGION: REGION, AWS_DEFAULT_REGION: REGION, CDK_DEFAULT_REGION: REGION,
@@ -281,7 +282,13 @@ function createPipeline({ root, directory, env = process.env, runner = defaultRu
     return baseline;
   }
   function inputs() {
-    return Object.fromEntries(['package-lock.json', 'config/dev/deployment.json'].map(file => [file, sha256(fs.readFileSync(path.join(root, file)))]));
+    return Object.fromEntries(['package-lock.json', 'config/dev/deployment.json', 'config/dev/runtime.yaml'].map(file => [file, sha256(fs.readFileSync(path.join(root, file)))]));
+  }
+  function validateGenerated(value) {
+    keys(value, ['enabled', 'backend'], 'generated values 입력');
+    if (typeof value.enabled !== 'boolean') fail('generated values 활성 여부 오류');
+    if (value.enabled) validateImages(value.backend);
+    else if (Object.hasOwn(value, 'backend')) fail('비활성 plan의 backend 입력 금지');
   }
   const cdkVersion = () => JSON.parse(fs.readFileSync(path.join(root, 'node_modules/aws-cdk/package.json'), 'utf8')).version;
   function cdk(args, log, cwd = root) {
@@ -289,6 +296,8 @@ function createPipeline({ root, directory, env = process.env, runner = defaultRu
   }
   function preparePlan(expected) {
     if (fs.existsSync(payload) || fs.existsSync(path.join(directory, 'plan.json'))) fail('plan은 빈 디렉터리에서 생성해야 합니다');
+    validateGenerated(generatedValues);
+    equal(generatedValues.enabled, CD_EVENTS.has(expected.event) && env.GENERATED_VALUES_SYNC_ENABLED === 'true', 'plan 사본 활성 여부');
     checkSource(expected); checkIdentity(expected, 'diff');
     const baseline = captureBaseline(expected, true);
     result.stacks = baseline.map(stack => ({ name: stack.name, id: stack.id, status: stack.status, diff: 'pending' }));
@@ -315,10 +324,10 @@ function createPipeline({ root, directory, env = process.env, runner = defaultRu
     fs.writeFileSync(path.join(payload, 'diff.txt'), diff.join('\n'), { mode: 0o600 });
     equal(captureBaseline(expected), baseline, 'plan 생성 중 baseline 변경');
     checkSource(expected);
-    const plan = { schemaVersion: 1, ...expected, cdkVersion: cdkVersion(), inputs: inputs(), order, baseline, files: inventory(payload) };
+    const plan = { schemaVersion: 1, ...expected, cdkVersion: cdkVersion(), inputs: inputs(), order, baseline, files: inventory(payload), generatedValues };
     writeJson(path.join(directory, 'plan.json'), plan);
     const hash = sha256(fs.readFileSync(path.join(directory, 'plan.json')));
-    if (env.GITHUB_OUTPUT) fs.appendFileSync(env.GITHUB_OUTPUT, `plan_sha256=${hash}\n`);
+    if (env.GITHUB_OUTPUT) fs.appendFileSync(env.GITHUB_OUTPUT, `plan_sha256=${hash}\ngenerated_values_enabled=${generatedValues.enabled}\n`);
     if (env.GITHUB_STEP_SUMMARY) {
       fs.appendFileSync(env.GITHUB_STEP_SUMMARY, `## dev CloudFormation plan\n\nSHA: \`${expected.sourceSha}\`\n\nPlan SHA256: \`${hash}\`\n\n승인 대상은 고정된 합성 템플릿입니다.\n\n`);
       // 긴 diff는 artifact에 온전히 남기고 Summary는 GitHub 용량 안에서 HTML escape한다.
@@ -336,6 +345,7 @@ function createPipeline({ root, directory, env = process.env, runner = defaultRu
     equal(sha256(fs.readFileSync(file)), env.PLAN_SHA256, 'plan hash');
     const plan = document(file);
     equal(plan.schemaVersion, 1, 'plan schema');
+    validateGenerated(plan.generatedValues);
     for (const [key, value] of Object.entries(expected)) equal(plan[key], value, `plan ${key}`);
     equal(plan.cdkVersion, cdkVersion(), 'CDK CLI 버전');
     equal(plan.inputs, inputs(), '배포 입력');
@@ -373,6 +383,41 @@ function createPipeline({ root, directory, env = process.env, runner = defaultRu
       cdk(['deploy', ...plan.order, '--app', assembly, '--exclusively', '--concurrency', '1', '--require-approval', 'never', '--ci'], 'deploy.log', execution);
     } finally { collectResult(expected); }
     if (result.stacks.some(stack => !STABLE.has(stack.status))) fail('배포 후 stack 상태 확인 실패');
+    if (plan.generatedValues.enabled) {
+      const deployedBaseline = captureBaseline(expected);
+      for (const stack of deployedBaseline) {
+        equal(stack.id, plan.baseline.find(before => before.name === stack.name).id, '배포 후 stack ID');
+        equal(stack.templateHash, sha256(canonical(document(relative(assembly, `${stack.name}.template.json`)))), '배포 후 승인 template');
+      }
+      const receipt = { schemaVersion: 1, ...expected, planArtifactId: env.PLAN_ARTIFACT_ID,
+        planSha256: env.PLAN_SHA256, baselineSha256: sha256(canonical(deployedBaseline)) };
+      writeJson(path.join(directory, 'deployment-receipt.json'), receipt);
+      if (env.GITHUB_OUTPUT) fs.appendFileSync(env.GITHUB_OUTPUT,
+        `receipt_sha256=${sha256(fs.readFileSync(path.join(directory, 'deployment-receipt.json')))}\n`);
+    }
+  }
+  // publisher만 원본 승인 attempt로 검증한다. CDK verify/deploy의 현재 attempt 경계는 바꾸지 않는다.
+  function verifyPublication(expected) {
+    if (!/^[a-f0-9]{64}$/.test(env.RECEIPT_SHA256 ?? '') || !/^[1-9]\d*$/.test(env.RECEIPT_ARTIFACT_ID ?? '')) fail('receipt 식별자 누락');
+    const file = relative(directory, 'deployment-receipt.json');
+    equal(sha256(fs.readFileSync(file)), env.RECEIPT_SHA256, 'receipt hash');
+    const receipt = document(file);
+    equal(receipt.schemaVersion, 1, 'receipt schema');
+    for (const [key, value] of Object.entries(expected)) {
+      if (key !== 'runAttempt') equal(receipt[key], value, `receipt ${key}`);
+    }
+    if (!/^[1-9]\d*$/.test(receipt.runAttempt ?? '') || BigInt(receipt.runAttempt) > BigInt(expected.runAttempt)) fail('receipt 원본 attempt 오류');
+    if (!/^[a-f0-9]{64}$/.test(receipt.baselineSha256 ?? '')) fail('receipt baseline hash 오류');
+    equal(receipt.planArtifactId, env.PLAN_ARTIFACT_ID, 'receipt plan artifact');
+    equal(receipt.planSha256, env.PLAN_SHA256, 'receipt plan hash');
+    const plan = verifyPlan({ ...expected, runAttempt: receipt.runAttempt });
+    if (!plan.generatedValues.enabled) fail('승인 plan의 사본 공급이 비활성입니다');
+    equal(command('git', ['rev-parse', 'HEAD']).trim(), receipt.sourceSha, 'publisher checkout SHA');
+    return { plan, receipt };
+  }
+  function checkPublicationBaseline(expected, receipt) {
+    checkIdentity(expected, 'deploy');
+    equal(sha256(canonical(captureBaseline(expected))), receipt.baselineSha256, '배포 후 baseline 변경');
   }
   function execute(operation) {
     fs.mkdirSync(directory, { recursive: true });
@@ -384,6 +429,7 @@ function createPipeline({ root, directory, env = process.env, runner = defaultRu
       if (operation === 'plan') preparePlan(expected);
       else if (operation === 'verify') verifyPlan(expected);
       else if (operation === 'deploy') deploy(expected);
+      else if (operation === 'verify-publish') verifyPublication(expected);
       else fail('지원하지 않는 명령');
       result.status = 'succeeded';
       return result;
@@ -395,7 +441,7 @@ function createPipeline({ root, directory, env = process.env, runner = defaultRu
       if (env.GITHUB_STEP_SUMMARY) fs.appendFileSync(env.GITHUB_STEP_SUMMARY, `\n${operation}: **${result.status}**\n`);
     }
   }
-  return { execute, preparePlan, verifyPlan, captureBaseline };
+  return { execute, preparePlan, verifyPlan, captureBaseline, verifyPublication, checkPublicationBaseline };
 }
 
 module.exports = { REGION, REPOSITORY, STACKS, sha256, canonical, inventory, validateAssembly, assertTemplate, assertAutomaticRetirement, stackRecord, context, createPipeline };
