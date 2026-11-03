@@ -1,0 +1,30 @@
+# PROJ-279: dev 전용 chart다. metadata-only 응답 선택은 수집기가 강제하며 RBAC는 이름과 동작을 제한한다.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: generated-values-reader
+  namespace: pulsemetry-dev
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get]
+    resourceNames:
+      - soma-376-dev-telemetry-cluster-ca-cert
+      - pulsemetry-gateway-main
+      - pulsemetry-ingest-main
+      - pulsemetry-topic-admin-main
+      - pulsemetry-offset-admin-main
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: generated-values-reader
+  namespace: pulsemetry-dev
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: generated-values-reader
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: pulsemetry:dev:generated-values-reader

@@ -4,6 +4,7 @@ import { IBucket } from 'aws-cdk-lib/aws-s3';
 import { DevEksRuntime } from './eks-runtime';
 import { DevEksLbc } from './eks-lbc';
 import { DevEksRelay } from './eks-relay';
+import { DevEksValuesReader } from './eks-values-reader';
 import { DevEksMsk } from './eks-msk';
 import { DevEksTelemetryAlarms } from './eks-telemetry-alarms';
 import { CfnOutput, Stack, StackProps } from 'aws-cdk-lib/core';
@@ -107,6 +108,7 @@ export class DevEksStack extends Stack {
       vpc: props.vpc, securityGroup: props.relaySecurityGroup,
       clusterEndpoint: this.cluster.attrEndpoint, operatorRole: this.operatorRole,
     });
+    const valuesReader = new DevEksValuesReader(this, 'ValuesReader', { cluster: this.cluster, relay });
     new DevEksLbc(this, 'Lbc', { clusterName: this.cluster.ref });
     const stage = devTelemetryStage(props.config.archivePrefix);
     if (props.config.mskRetirementStage === 'retain') {
@@ -169,6 +171,7 @@ export class DevEksStack extends Stack {
       EksControlPlaneSecurityGroupId: props.controlPlaneSecurityGroup.securityGroupId,
       EksNodeRoleArn: this.nodeRole.roleArn, EksNodeRoleName: this.nodeRole.roleName,
       EksOperatorRoleArn: this.operatorRole.roleArn, EksOperatorRoleName: this.operatorRole.roleName,
+      EksValuesReaderRoleArn: valuesReader.role.roleArn,
       EksRelayInstanceId: relay.instance.instanceId,
       EksRelaySessionDocumentName: relay.sessionDocument.ref,
       KafkaProvider: props.config.kafkaProvider,
