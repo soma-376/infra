@@ -6,6 +6,7 @@
     "image_digest": "sha256:REPLACE_WITH_ARM64_ECR_IMAGE_DIGEST",
     "enrollment_api_url": "https://enrollment.dev.example.com",
     "dashboard_api_url": "https://dashboard.dev.example.com",
+    "bff_local_origins": ["http://localhost:3000"],
     "dev_ami_id": "ami-REPLACE_WITH_ECS_AL2023_ARM64_ID"
   }
 }

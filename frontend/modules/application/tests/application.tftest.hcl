@@ -224,11 +224,12 @@ run "valkey_session_runtime" {
       enrollment_api_url = "https://enrollment.example.com"
       dashboard_api_url  = "https://dashboard.example.com"
       dev_ami_id         = "ami-0123456789abcdef0"
+      bff_local_origins  = ["http://localhost:3000", "https://localhost:3443"]
       valkey             = { host = "fixture.serverless.apn2.cache.amazonaws.com", cache_name = "pulsemetry-frontend-shared" }
     }
   }
   assert {
-    condition     = contains(jsondecode(aws_ecs_task_definition.frontend.container_definitions)[0].environment, { name = "BFF_LOCAL_ORIGINS", value = "http://localhost:3000" })
+    condition     = contains(jsondecode(aws_ecs_task_definition.frontend.container_definitions)[0].environment, { name = "BFF_LOCAL_ORIGINS", value = "http://localhost:3000,https://localhost:3443" })
     error_message = "dev BFF는 로컬 앱의 정확한 origin을 허용해야 합니다."
   }
   assert {
@@ -254,4 +255,56 @@ run "prod_valkey_rejects_local_origins" {
     condition     = !contains([for item in jsondecode(aws_ecs_task_definition.frontend.container_definitions)[0].environment : item.name], "BFF_LOCAL_ORIGINS")
     error_message = "prod에서는 Valkey를 사용해도 localhost 출처를 허용하지 않아야 합니다."
   }
+}
+
+run "reject_prod_local_origins" {
+  command = plan
+  variables {
+    environment = "prod"
+    runtime = {
+      domain_name        = "frontend.example.com"
+      certificate_arn    = "arn:aws:acm:ap-northeast-2:111111111111:certificate/00000000-0000-0000-0000-000000000001"
+      image_digest       = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      enrollment_api_url = "https://enrollment.example.com"
+      dashboard_api_url  = "https://dashboard.example.com"
+      bff_local_origins  = ["http://localhost:3000"]
+      valkey             = { host = "fixture.serverless.apn2.cache.amazonaws.com", cache_name = "pulsemetry-frontend-shared" }
+    }
+  }
+  expect_failures = [var.runtime]
+}
+
+run "reject_non_localhost_origin" {
+  command = plan
+  variables {
+    environment = "dev"
+    runtime = {
+      domain_name        = "frontend.example.com"
+      certificate_arn    = "arn:aws:acm:ap-northeast-2:111111111111:certificate/00000000-0000-0000-0000-000000000001"
+      image_digest       = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      enrollment_api_url = "https://enrollment.example.com"
+      dashboard_api_url  = "https://dashboard.example.com"
+      bff_local_origins  = ["https://example.com"]
+      dev_ami_id         = "ami-0123456789abcdef0"
+      valkey             = { host = "fixture.serverless.apn2.cache.amazonaws.com", cache_name = "pulsemetry-frontend-shared" }
+    }
+  }
+  expect_failures = [var.runtime]
+}
+
+run "reject_local_origins_without_valkey" {
+  command = plan
+  variables {
+    environment = "dev"
+    runtime = {
+      domain_name        = "frontend.example.com"
+      certificate_arn    = "arn:aws:acm:ap-northeast-2:111111111111:certificate/00000000-0000-0000-0000-000000000001"
+      image_digest       = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      enrollment_api_url = "https://enrollment.example.com"
+      dashboard_api_url  = "https://dashboard.example.com"
+      bff_local_origins  = ["http://localhost:3000"]
+      dev_ami_id         = "ami-0123456789abcdef0"
+    }
+  }
+  expect_failures = [var.runtime]
 }

@@ -302,3 +302,7 @@ ECS circuit breaker/events와 실제 task digest를 확인한다. runner 소실 
 
 [공유 Valkey 구성](environments/shared/README.md)은 dev/prod 공용 캐시와 피어링·IAM 사용자를 정의한다.
 develop 머지 후 bootstrap·dev 적용에 이어 shared plan/apply를 실행한다. 기존 bootstrap 승인 환경과 S3 버킷의 별도 state key를 사용하며, 전용 역할은 bootstrap이 생성한다. BFF 연결은 별도 작업이다.
+
+### dev BFF localhost 허용 목록
+
+`environments/dev/runtime.auto.tfvars.json`의 `runtime.bff_local_origins`에 정확한 출처 목록을 설정한다. 모듈은 목록을 쉼표로 연결해 `BFF_LOCAL_ORIGINS`로 주입한다. 기본값은 빈 목록이며 prod 또는 Valkey가 없는 환경의 설정은 거부한다. 변경 적용에는 Terraform 배포가 필요하며 이미지 재빌드는 필요 없다.
