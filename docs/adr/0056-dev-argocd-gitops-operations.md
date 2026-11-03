@@ -31,6 +31,25 @@ Strimzi Operator는 vendor chart와 Helm 3.22.0, `scripts/strimzi-operator-post-
 
 ## Decision
 
+### 0. Argo 인계 전 CD 사본 공급
+
+PROJ-279는 [ADR 0048](0048-dev-cloudformation-cicd.md)의 성공한 CDK 배포 뒤 수동 Helm용 YAML
+13개와 infra 전체 SHA를 private main에 공급한다. 최초 실제 사본도 CD가 생성·검증·게시한다.
+plan에서 고정한 backend 성공 run/attempt·SHA·네 ARM64 digest와 로그 해시는 임시 이미지 입력이며,
+완료 manifest B나 정식 GitOps 게시·승격 증거로 해석하지 않는다. backend 소스 변경은 이 경로의 범위가 아니다.
+
+전용 reader·metadata-only 조회, 승인 시 활성 여부 고정, 배포 receipt와 사본 job 재시도는 ADR 0048을 따른다.
+같은 infra SHA의 생성기·추적 입력과 재조회한 Outputs·Strimzi metadata로 전체 묶음을 검증한다.
+private 시작 HEAD에 대한 정상 push로 14개 파일만 한 commit으로 공급하며 동일 내용은 no-op이다.
+게시 직전 metadata를 재대조하고 경쟁·불명확한 응답·실패를 성공으로 숨기지 않는다. 응답 유실은 원격
+commit·내용을 확인해 이미 성공한 게시를 중복하지 않는다. 이미지 선택을 바꾸는 재시도는 새 plan이 필요하다.
+
+`dev/bundle.json`, `dev/desired.yaml`, `dev/applications/`, `dev/delivery-state.json` 중 하나라도 있으면
+이 사본 writer는 중단한다. Argo 인계 전에 writer를 먼저 중지하고 실제 실행 중 이미지로 별도 handoff
+snapshot H를 검증한다. 사본에 기록된 최신 성공 이미지가 현재 실행 이미지임을 가정하지 않는다.
+인계 이후에는 아래 정식 publisher를 사용하며 이 사본 writer와 동시에 운영하지 않는다.
+사본 공급 성공은 Helm 적용·Argo 설치·기능 성공을 뜻하지 않으며 Helm 적용은 인계 전까지 수동이다.
+
 ### 1. 범위와 소유권
 
 - 대상은 공유 dev EKS다. prod·frontend Terraform·perf는 Application 대상에서 제외한다.
@@ -196,7 +215,8 @@ Argo 자체는 초기 비 HA이며 데이터 복구나 네 앱의 동시 교체�
 허브 PROJ-281 계약 이후 PROJ-280·286의 문서를 정합화한다. 후속 구현에서 backend 완료 manifest와
 별도 승격·복구 workflow, infra 설정 게시기, 공통 상태·CAS·실패 fence, Git 보호·권한, Argo 고정 설치,
 CMP·Application·health, maintenance·검증 결과 기록을 구현한다. 기존 repository/digest 입력을 유지한다. [운영 런북](../runbooks/dev-argocd-operations.md)의 인계 수락 조건을
-통과하기 전에는 기존 Helm 운영을 유지한다. 현재 CloudFormation workflow가 values 게시까지 수행한다고 표현하지 않는다.
+통과하기 전에는 기존 Helm 운영을 유지한다. PROJ-279의 사본 job 구현·활성화와 실제 게시 증거를
+각각 확인하고, 이를 정식 publisher·Argo 인수 완료로 표현하지 않는다.
 
 ## Acceptance Criteria
 
