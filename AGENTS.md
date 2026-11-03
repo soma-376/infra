@@ -21,6 +21,8 @@ prod는 BFF 단일 프로세스 desired=1/min=0/max=100을 유지한다. dev는 
 
 [ADR-0044](docs/adr/0044-dev-waf-cli-oidc-loopback-query-exception.md)에 따라 정확한 CLI OIDC authorize GET과
 검증된 loopback query에만 SSRF·RFI 두 label의 후속 Block을 제외한다.
+[ADR-0054](docs/adr/0054-dev-local-web-oidc-callback.md)는 같은 검증 아래 정확한
+`http://localhost:3000/auth/callback`을 query 예외와 dev runtime 허용 목록에 추가한다.
 [ADR-0045](docs/adr/0045-dev-waf-cli-token-body-exception.md)는 정확한 CLI token POST의 1KB 이하 원문 JSON
 세 필드를 검증한 경우에만 두 Body label을 제외한다. 다른 탐지·rate·로그 보호는 유지한다.
 

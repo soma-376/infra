@@ -8,11 +8,10 @@ userAuth:
   publicVersionId: 0c264302-a752-4906-a5e0-c1f101482f6d
   allowedOrigins:
     - https://dev.pulsemetry.co.kr
-    - https://pulsemetry-dev.kro.kr
     - http://localhost:3000
   allowedRedirectUris:
+    - http://localhost:3000/auth/callback
     - https://dev.pulsemetry.co.kr/auth/callback
-    - https://pulsemetry-dev.kro.kr/auth/callback
   audience: pulsemetry-dev
   issuer: https://pulseb-dev.kro.kr
 telemetryJwt:
