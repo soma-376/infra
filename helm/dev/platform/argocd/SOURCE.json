@@ -1,0 +1,39 @@
+{
+  "chart": {
+    "url": "https://github.com/argoproj/argo-helm/releases/download/argo-cd-10.11.7/argo-cd-10.11.7.tgz",
+    "version": "10.11.7",
+    "appVersion": "v3.5.7",
+    "sha256": "9f24a574ead97a1a68af447ab2678073c5e16a98ff9385aee766daf74361f04e"
+  },
+  "helmVersion": "3.22.0",
+  "kubernetesVersion": "1.36.0",
+  "images": {
+    "argocd": {
+      "repository": "quay.io/argoproj/argocd",
+      "tag": "v3.5.7",
+      "digest": "sha256:16df57da6f223808d204cd94c67c929b931fa01670b91b0b3a2298c4647de0db",
+      "manifestUrl": "https://quay.io/v2/argoproj/argocd/manifests/sha256:16df57da6f223808d204cd94c67c929b931fa01670b91b0b3a2298c4647de0db",
+      "platforms": [
+        {
+          "os": "linux",
+          "architecture": "arm64",
+          "digest": "sha256:d858fe2b772874df58672a82e82137b53a59a80f5bf7e8b1b0f8a0f29eccb7dd"
+        }
+      ]
+    },
+    "redis": {
+      "repository": "ecr-public.aws.com/docker/library/redis",
+      "tag": "8.6.4-alpine",
+      "digest": "sha256:8767d84b0adc89c37a352a17372a5e97bf21bb723890e244c212bb44b9f11177",
+      "manifestUrl": "https://ecr-public.aws.com/v2/docker/library/redis/manifests/sha256:8767d84b0adc89c37a352a17372a5e97bf21bb723890e244c212bb44b9f11177",
+      "platforms": [
+        {
+          "os": "linux",
+          "architecture": "arm64",
+          "variant": "v8",
+          "digest": "sha256:8767d84b0adc89c37a352a17372a5e97bf21bb723890e244c212bb44b9f11177"
+        }
+      ]
+    }
+  }
+}
