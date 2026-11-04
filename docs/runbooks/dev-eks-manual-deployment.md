@@ -3,6 +3,12 @@
 > ADR-0048 도입 후 기존 dev CloudFormation의 일반 후속 업데이트는 [CI/CD 런북](dev-cloudformation-cicd.md)을
 > 따른다. 최초 설치·철거·복구와 아래 Kubernetes/Helm 절차는 계속 수동이다. CI/CD의 관리자 설정·실제 배포는 별도다.
 
+> **Argo 인계 경계:** [ADR 0056](../adr/0056-dev-argocd-gitops-operations.md)·[Argo 운영 런북](dev-argocd-operations.md)은
+> 도입 후 적용할 설계다. 실제 인계 전에는 이 문서의 Helm 경로를 유지한다. 인계 후 일반 변경·복구는 Git/Argo를 사용하며,
+> 아래 `helm upgrade`·`helm rollback`은 bootstrap·인계 전 또는 Argo 중지를 확인한 비상 복구에만 사용한다.
+> Argo 적용은 Helm history를 갱신하지 않으므로 과거 Helm revision을 현재 rollback 원본으로 간주하지 않는다.
+> 현재 Strimzi 공급자의 값 생성·인증서·Kafka 절차는 [Strimzi 런북](dev-strimzi-kafka.md)이 우선하며 MSK 조회 입력을 요구하지 않는다.
+
 > 새 dev 도메인의 공개 URL·추가 SNI 인증서와 재배포 입력은 [도메인 전환 런북](dev-domain-migration.md)을 따른다.
 
 > **현재 기준은 ADR-0035·PROJ-248의 EKS 전용 구성이다.** 기존 ECS가 있는 환경은 먼저
@@ -270,7 +276,7 @@ SSM Agent 기동, public IPv4·Internet Gateway 경로, 443 아웃바운드를 �
 GitOps 공급 계약을 따른다. `dev/bundle.json`·`dev/desired.yaml`·`dev/applications/`·`dev/delivery-state.json`이
 있는 저장소는 아래 허용목록 검사에서 거부한다. 검사를 우회하거나 해당 metadata를 지우고 복사하지 않는다.
 
-[공급 계약(변경 중)](https://github.com/soma-376/docs/blob/docs/PROJ-276-generated-values-sync-contract/contracts/generated-values-sync.md)에 따라
+[공급 계약(변경 중)](https://github.com/soma-376/docs/blob/docs/PROJ-281-dev-gitops-contract/contracts/generated-values-sync.md)에 따라
 [infra-generated-values](https://github.com/soma-376/infra-generated-values)의 `dev/generated/`에는 생성된
 values 사본을 둔다. 입력·생성기·chart는 infra가 소유한다. 이 수동 단계의 공급·배포는 infra 운영자가
 담당하며, 값을 바꾸려면 원본을 수정하고 같은 입력 묶음으로 재생성한다. 사본 직접 편집·역방향 동기화는 하지 않는다.

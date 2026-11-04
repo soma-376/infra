@@ -7,6 +7,11 @@ Accepted (PROJ-259·270·271·272; 코드·문서·로컬 검증 범위이며 AW
 ADR-0024의 앱 배포 역할 4개는 유지한다. 이 결정은 infra 저장소의 dev CloudFormation 역할 두 개와
 승인 절차를 더한다. 앱 이미지 공급·수동 Helm 배포·prod·frontend Terraform 계약은 바꾸지 않는다.
 
+후속 [ADR 0056](0056-dev-argocd-gitops-operations.md)는 인계된 Kubernetes 선언의 적용을 Argo로 넘긴다.
+이 ADR의 고정 Assembly·승인·AWS 배포 경계는 유지한다. PROJ-279는 Argo 인계 전 성공한 CDK 배포 뒤
+수동 Helm용 generated 사본을 공급하는 job을 추가한다. 정식 V/P 게시와 Argo 적용은 별도 후속 경로다.
+이 문서의 설계 채택은 사본 job 구현·활성화·실제 게시 또는 Helm 적용 완료를 뜻하지 않는다.
+
 ## Context
 
 dev 배포 입력은 ADR-0040에 따라 추적된 `config/dev/deployment.json`을 사용한다. 기존
@@ -28,9 +33,10 @@ CloudFormation 실행 역할의 `AdministratorAccess` 연결을 확인했고, �
 
 - 자동 배포는 기존 `DevNetworkStack`, `DevDataStack`, `DevEdgeStack`, `DevEksStack`의 후속
   업데이트만 수행한다. 최초 설치·ECS 철거·실패 스택 복구는 수동 절차다.
-- `env=cicd`는 관리자가 수동 배포한다. prod·frontend·Kubernetes·Helm은 이 workflow의 대상이 아니다.
+- `env=cicd`는 관리자가 수동 배포한다. prod·frontend와 Kubernetes·Helm 적용은 이 workflow의 대상이 아니다.
 - 실제 계정은 GitHub Variable로 주입하고 리전은 `ap-northeast-2`로 고정한다. 현재 profile과
-  `package-lock.json`을 사용하며 이미지 digest·MSK 조회·runtime values 생성은 요구하지 않는다.
+  `package-lock.json`을 사용한다. CDK 합성 자체에는 이미지 digest·MSK 조회·runtime values 생성을
+  요구하지 않는다. 사본 공급을 활성화한 plan에는 아래 고정 이미지 입력을 별도로 포함한다.
 - 새로운 nested stack·Docker asset·추가 context lookup은 지원 결정을 추가하기 전까지 거부한다.
 
 ### 읽기 전용 diff와 승인 대상
@@ -71,12 +77,40 @@ Description의 `ADR-0044` 문자열은 불필요한 배포 차이를 피하기 �
 - 기존 관리자급 실행 역할 재사용은 **dev/prod의 IAM 격리가 아니다**. workflow·manifest 검사와
   사람의 승인이 대상 범위를 통제하며, 강한 권한 격리는 별도 작업이다.
 
+### 인계 전 generated 사본 공급
+
+- `GENERATED_VALUES_SYNC_ENABLED`는 초기 비활성이다. plan은 활성 여부를 승인 artifact에 고정한다.
+  승인 뒤 Variable 변경만으로 사본 게시를 활성화할 수 없다. 활성화한 plan은 최신 성공 backend
+  `develop` 원본 run의 정확한 attempt에서 네 ARM64 build digest·backend SHA·로그 해시를 검증해
+  고정한다. 누락·중복·만료·혼합·모호한 로그는 실패이며 태그나 다른 run으로 대체하지 않는다.
+- CDK 성공 후 별도 사본 job이 같은 infra SHA의 생성기·추적 입력으로 현재 Outputs와 Strimzi
+  metadata를 수집해 YAML 13개와 `dev/infra-commit.txt`를 생성·Helm 렌더 검증한다. 최초 사본도
+  이 job이 공급한다. private main 시작 HEAD를 기준으로 14개 파일만 한 commit으로 정상 push하며
+  동일 내용은 no-op이다. metadata 변경·HEAD 경쟁·GitOps 표식 발견 시 중단하고 force push하지 않는다.
+- `DevEksStack`은 전용 reader 역할·`EksValuesReaderRoleArn` output과 Kubernetes group AccessEntry를 소유한다. 기존 infra deploy
+  역할만 이 reader를 AssumeRole한다. 기존 관리자 역할·relay·DeployStack 역할 6개는 유지하며
+  base chart의 `pulsemetry-dev` 지정 Secret 5개 `get` Role·RoleBinding은 운영자가 먼저 설치한다.
+  기존 SSM relay와 원래 TLS hostname·CA 검증을 사용한다. metadata-only 응답만 요청하고 이름·
+  namespace·UID·resourceVersion만 보존한다. 전체 Secret 응답으로 fallback하지 않는다. RBAC의
+  `get`은 응답 필드별 권한이 아니므로 metadata-only 요청·응답 검증을 별도로 강제한다.
+- deploy 성공 뒤 원본 infra SHA·run·attempt, plan artifact ID/hash와 배포 후 baseline 해시를 담은
+  receipt를 별도 artifact로 남긴다. 사본 job은 원본 plan·deploy job 성공과 artifact 무결성·현재
+  AWS baseline 일치를 확인한다. 조회 원문·실제 endpoint·kubeconfig는 추가 공개 artifact에 넣지 않는다.
+- 사본 job만 재실행할 때 publisher attempt와 원본 승인·배포 attempt를 구분한다. 사본 실패 때문에
+  전체 workflow가 실패해도 원본 plan·deploy 성공 증거가 유효하면 고정 이미지를 유지하고 Outputs·
+  metadata만 다시 조회한다. 기존 CDK deploy-only 재실행 거부는 유지한다. 증거 만료·누락 또는
+  baseline 변경은 새 plan·승인을 요구한다. 사본 job도 기존 배포 Environment와 workflow concurrency를 쓴다.
+- IAM·RBAC·GitHub App 자격을 준비한 뒤 활성화하고 실제 최초 게시·no-op·실패 시 기존 사본 보존을
+  확인한다. 공급 계약과 GitOps 표식·인계 시 writer 종료 조건은 [ADR 0056](0056-dev-argocd-gitops-operations.md)을 따른다.
+
 ### 실행 순서와 결과
 
 - PR은 PR별 concurrency로 병렬 실행하고 같은 PR의 이전 실행을 취소한다.
-- CD는 `plan` → `deploy` 두 job이며 workflow 전체를 고정 concurrency group과
+- CD는 `plan` → `deploy` → 선택적 사본 job 순서이며 workflow 전체를 고정 concurrency group과
   `cancel-in-progress: false`로 직렬화한다. 기본 pending 교체 동작을 수용하고 최신 SHA만 배포한다.
-- CDK·profile·의존성·pipeline 변경이 CD를 실행한다. cicd 전용·Helm 전용 변경은 자동 CD를 실행하지 않는다.
+- CDK·profile·추적 runtime·의존성·pipeline과 사본 수집·검증·게시 스크립트 변경이 CD를 실행한다.
+  cicd 전용·Helm 전용 변경은 자동 CD를 실행하지 않는다. chart만 바뀐 경우 최신 develop에서 수동
+  `workflow_dispatch`로 새 plan·승인을 수행한다.
 - `workflow_dispatch`는 `refs/heads/develop`에서만 허용하며 새 run의 `plan`부터 시작한다.
   임의 SHA·artifact를 받는 입력은 두지 않는다. push와 동일한 concurrency·Environment 승인·최신 SHA·
   baseline·artifact 검증을 적용한다. 다른 branch·tag는 AWS 인증 전에 job 조건으로 제외하고
@@ -129,6 +163,8 @@ Description의 `ADR-0044` 문자열은 불필요한 배포 차이를 피하기 �
 - AWS 없는 테스트가 fork·승인 순서·stale SHA·baseline 변경·artifact 변조·잘못된 대상·실패 결과 보존을 검증한다.
 - 수동 실행도 develop 최신 SHA만 허용하고 새 plan·승인을 요구하며 다른 branch·tag와 과거 artifact를 거부한다.
 - 코드·문서·테스트 커밋과 실환경 적용 여부가 분리되어 보고된다.
+- 승인 후 활성화 변경, 잘못된 backend 로그·run/attempt, reader 최소 권한, metadata 응답 변형,
+  최초 게시·no-op·경쟁·응답 유실·사본 전용 재시도와 baseline 변경을 검증한다. 실제 Helm 렌더도 수행한다.
 
 ## References
 

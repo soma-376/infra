@@ -35,7 +35,7 @@
 | 0026 | [dev 백엔드를 telemetry-ingest·enrollment-api·ClickHouse 세 서비스로 전환](0026-dev-backend-deployment-units-and-staged-migration.md) | Accepted (API 경로·health check는 허브 ADR 0016이 부분 대체); EKS 활성화 경로 부분 대체: [백엔드 ADR 0028](0028-dev-eks-auto-mode-transition.md), dashboard 배포 범위 부분 대체: [백엔드 ADR 0029](0029-dev-dashboard-api-ecs-and-eks-deployment.md); 선택적 dev HTTPS 부분 대체: ADR 0033; dev ECS 제거는 [ADR 0035](0035-dev-backend-eks-only.md)로 부분 대체 |
 | 0027 | [dev ALB에 경로별 Count 예외를 가진 WAF를 적용](0027-dev-alb-waf-policy.md) | Accepted (PROJ-269 bootstrap 두 경로의 등록 rate 합산; 실제 적용 별도); CLI OIDC query 조건 부분 대체: [ADR 0044](0044-dev-waf-cli-oidc-loopback-query-exception.md); CLI token Body 조건 부분 대체: [ADR 0045](0045-dev-waf-cli-token-body-exception.md); dashboard 배포 범위 부분 대체: [백엔드 ADR 0029](0029-dev-dashboard-api-ecs-and-eks-deployment.md); DB 공개 접근 관련 부분은 [ADR 0038](0038-dev-databases-private-access-via-ssm-relay.md)로 대체 |
 | 0028 (프론트엔드) | [프론트엔드 HTTPS와 단일 컨테이너 실행 환경을 Terraform으로 관리한다](0028-frontend-alb-and-container-runtime.md) | Accepted (DNS·ACM은 [프론트엔드 0029](0029-use-external-dns-and-existing-frontend-certificate.md), 이미지 릴리스는 허브 0022로 부분 대체) |
-| 0028 (백엔드 CDK/EKS) | [dev에 EKS Auto Mode를 병행 추가하고 수동 Helm으로 단계 전환](0028-dev-eks-auto-mode-transition.md) | Accepted (구현·검증 기록은 PROJ-206~212; dashboard 범위 부분 대체: [백엔드 ADR 0029](0029-dev-dashboard-api-ecs-and-eks-deployment.md); JWT 참조 목록 부분 대체: [백엔드 ADR 0030](0030-dev-user-jwt-keys-from-secrets-manager.md); 선택적 dev HTTPS 부분 대체: ADR 0033; API 접근·operator IAM 부분 대체: ADR 0034; MSK·telemetry Gateway 추가: ADR 0035·0036; NodePool·로그 수집 범위 부분 대체: ADR 0037); DB 공개 접근 관련 부분은 [ADR 0038](0038-dev-databases-private-access-via-ssm-relay.md)로 대체 |
+| 0028 (백엔드 CDK/EKS) | [dev에 EKS Auto Mode를 병행 추가하고 수동 Helm으로 단계 전환](0028-dev-eks-auto-mode-transition.md) | Accepted (구현·검증 기록은 PROJ-206~212; dashboard 범위 부분 대체: [백엔드 ADR 0029](0029-dev-dashboard-api-ecs-and-eks-deployment.md); JWT 참조 목록 부분 대체: [백엔드 ADR 0030](0030-dev-user-jwt-keys-from-secrets-manager.md); 선택적 dev HTTPS 부분 대체: ADR 0033; API 접근·operator IAM 부분 대체: ADR 0034; MSK·telemetry Gateway 추가: ADR 0035·0036; NodePool·로그 수집 범위 부분 대체: ADR 0037); DB 공개 접근 관련 부분은 [ADR 0038](0038-dev-databases-private-access-via-ssm-relay.md)로 대체; 일반 배포 주체·Argo 제외는 [ADR 0056](0056-dev-argocd-gitops-operations.md)로 부분 대체(실제 인계 전 수동 Helm 유지) |
 | 0029 (프론트엔드) | [프론트 DNS는 외부에서 관리하고 발급된 ACM 인증서를 참조한다](0029-use-external-dns-and-existing-frontend-certificate.md) | Accepted |
 | 0029 (백엔드 CDK/EKS) | [dev dashboard-api는 공통 ARM64 이미지로 ECS와 EKS에 각각 배포](0029-dev-dashboard-api-ecs-and-eks-deployment.md) | Accepted (후속 구현·AWS 배포 증거 대기; JWT 공개키 공급 부분 대체: [백엔드 ADR 0030](0030-dev-user-jwt-keys-from-secrets-manager.md)); dev ECS 제거는 [ADR 0035](0035-dev-backend-eks-only.md)로 부분 대체 |
 | 0030 (프론트엔드) | [프론트엔드 기반 인프라는 독립 Terraform 상태로 관리한다](0030-isolate-frontend-terraform-network.md) | Accepted |
@@ -59,8 +59,8 @@
 | 0045 | [정상 CLI 토큰 교환 본문에만 두 탐지의 후속 차단 예외를 둔다](0045-dev-waf-cli-token-body-exception.md) | Accepted (ADR 0027의 두 Body label 조건 부분 대체; 실제 배포 검증 별도) |
 | 0046 | [dev SES 수신 identity 권한은 승인 태그와 고정 발신 주소로 제한한다](0046-dev-ses-tagged-recipient-authorization.md) | Superseded by [ADR 0047](0047-dev-ses-fixed-sender-identity-authorization.md) |
 | 0047 | [dev SES identity 권한은 실행 계정·리전과 고정 발신 주소로 제한한다](0047-dev-ses-fixed-sender-identity-authorization.md) | Accepted (ADR 0046 대체; 실제 정상 초대 수신·설치 검증 별도) |
-| 0048 | [dev CloudFormation은 고정한 합성 결과를 승인한 뒤 GitHub Actions로 배포한다](0048-dev-cloudformation-cicd.md) | Accepted (PROJ-259·270·271·272; develop 수동 재계획 포함; 로컬 구현·검증, 관리자 설정·실제 배포 별도) |
-| 0049 | [dev Kafka는 Strimzi로 관리하고 MSK는 검증 후 단계적으로 제거한다](0049-dev-strimzi-kafka-and-staged-msk-retirement.md) | Accepted (Operator 통신·main 전환 S3 임시 중첩·Group ACL 의미 포함; 배포 검증 별도) |
+| 0048 | [dev CloudFormation은 고정한 합성 결과를 승인한 뒤 GitHub Actions로 배포한다](0048-dev-cloudformation-cicd.md) | Accepted (develop 수동 재계획·PROJ-279 인계 전 CD 사본 공급·receipt 재시도; 관리자 설정·실제 배포·게시 별도) |
+| 0049 | [dev Kafka는 Strimzi로 관리하고 MSK는 검증 후 단계적으로 제거한다](0049-dev-strimzi-kafka-and-staged-msk-retirement.md) | Accepted (Operator 통신·main 전환 S3 임시 중첩·Group ACL 의미 포함; 배포 검증 별도); 인계 후 적용 주체는 [ADR 0056](0056-dev-argocd-gitops-operations.md)로 부분 대체 |
 
 | 0050 | [격리 perf 환경의 공급자별 Kafka와 고정 Strimzi 용량](0050-perf-strimzi-provider-and-isolated-capacity.md) | Accepted (로컬 구현; 배포 NOT_RUN) |
 | 0051 | [perf 내부 Service와 공개 HTTPS는 같은 Gateway를 사용한다](0051-perf-https-edge-to-shared-gateway.md) | Accepted (로컬 구현; 실제 HTTPS 검증 NOT_RUN) |
@@ -71,10 +71,11 @@
 | 0054 | [dev OIDC에 로컬 웹의 고정 콜백을 허용한다](0054-dev-local-web-oidc-callback.md) | Accepted (PROJ-305; 실제 배포·로그인 검증 별도) |
 | 0055 | [프론트 공유 Valkey 기반을 독립 Terraform 상태로 관리한다](0055-shared-frontend-valkey-foundation.md) | Proposed (기반·선택적 BFF 연결; 배포 별도) |
 
+| 0056 | [dev Kubernetes 선언은 검증한 revision 묶음을 Argo CD로 적용한다](0056-dev-argocd-gitops-operations.md) | Accepted (PROJ-280 개정; 인계 전 CD 사본과 인계 후 workflow 게시·복구 분리; 구현·설치·인계는 후속) |
 
 병행 작업에서 사용한 `0035`·`0036`은 각각 파일명·제목·링크를 보존한다. 번호만으로 대상을 식별하지 않는다.
 
-새 ADR을 작성할 때는 다음 미사용 번호(`0056-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
+새 ADR을 작성할 때는 다음 미사용 번호(`0057-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
 
 섹션 순서는 다음과 같다. 괄호로 표시한 것은 내용이 있을 때만 둔다.
 
