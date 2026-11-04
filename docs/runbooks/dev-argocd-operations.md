@@ -2,7 +2,8 @@
 
 [ADR 0056](../adr/0056-dev-argocd-gitops-operations.md)·PROJ-280의 운영 계약이다.
 PROJ-274의 [고정 설치 구성·로컬 검증·접속 절차](../../helm/dev/platform/argocd/README.md)를 추가했다.
-**실제 dev 설치·로그인·재기동 검증, workflow 구현과 기존 Helm 인계는 별도이며 아직 이 문서의 완료 증거가 아니다.**
+2026-11-04 운영자가 실제 dev 클러스터 설치 완료를 확인했다. 이 변경에서는 live 상태를 재조회하지 않았다.
+**UI 로그인·재기동·권한 거부의 검증 근거, workflow 구현과 기존 Helm 인계는 별도로 확인한다.**
 도입 전에는 [EKS 수동 런북](dev-eks-manual-deployment.md)과 [Strimzi 런북](dev-strimzi-kafka.md)을 따른다.
 아래 인계·자동 배포 절차는 후속 구현과 운영 수락을 갖춘 뒤 수행한다.
 
@@ -31,7 +32,7 @@ Argo 자체는 `argocd` namespace/release, chart 10.11.7·Argo CD v3.5.7·Helm 3
 
 초기에는 namespaced Role만 사용하고 `cluster.inClusterEnabled=false`, ApplicationSet `replicas=0`으로 둔다.
 Application·private Git 연결·관리 대상 AppProject/RBAC·Strimzi CMP·중앙 관측은 PROJ-287/310 등 후속 범위다.
-Argo 설치 기반이 있어도 기존 workload의 적용 주체는 수동 Helm이며, 실제 설치 성공은 별도 증거로 남긴다.
+운영자 설치 완료 확인 이후에도 기존 workload의 적용 주체는 수동 Helm이며, 상세 운영 수락 결과는 별도 증거로 남긴다.
 
 ### 2.1 인계 전 준비
 
