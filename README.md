@@ -9,7 +9,7 @@ AWS CDK v2로 prod·dev·cicd를 관리한다. dev 백엔드는 EKS 전용이며
 - [ADR 인덱스](docs/adr/README.md), [dev EKS 전용 ADR-0035](docs/adr/0035-dev-backend-eks-only.md)
 - [기존 dev ECS 수동 철거](docs/runbooks/dev-ecs-retirement.md): PROJ-249 선행·수동 Snapshot·Application 삭제·Edge/Network/IAM 순서
 - [EKS 수동 설치·검증·복구](docs/runbooks/dev-eks-manual-deployment.md)
-- [dev Argo CD 설치 기반](helm/dev/platform/argocd/README.md): PROJ-274 고정 chart·로컬 검사·private 접속·초기 관리자 절차; 실제 설치는 별도
+- [dev Argo CD 설치 기반](helm/dev/platform/argocd/README.md): PROJ-274 고정 chart·로컬 검사·private 접속·초기 관리자 절차; 2026-11-04 운영자 설치 완료 확인, GitOps 인계는 후속
 - [dev Argo CD 도입·인계·복구](docs/runbooks/dev-argocd-operations.md): PROJ-280 설계; Git 연결·Application/CMP·이미지/설정 게시·기존 Helm 인계는 후속 구현·검증
 - [dev CloudFormation CI/CD](docs/runbooks/dev-cloudformation-cicd.md): PR diff·고정 Assembly 승인·후속 배포, 최초 관리자 설정은 별도
 - [telemetry Gateway·MSK](docs/runbooks/dev-telemetry-kafka.md), [Prometheus·Grafana 관측](docs/runbooks/dev-observability.md)

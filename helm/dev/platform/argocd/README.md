@@ -1,7 +1,9 @@
 # dev Argo CD 설치 기반
 
 [ADR 0056](../../../../docs/adr/0056-dev-argocd-gitops-operations.md)의 Argo 자체를 운영자가 수동 Helm으로 관리한다.
-PROJ-274는 고정 설치 구성·로컬 검사·운영 절차를 제공한다. **실제 dev 설치·UI 로그인·재기동 성공은 별도 검증이다.**
+PROJ-274는 고정 설치 구성·로컬 검사·운영 절차를 제공한다.
+2026-11-04 운영자가 실제 dev 클러스터 설치 완료를 확인했다. 이 변경에서는 live 상태를 재조회하지 않았으며,
+UI 로그인·재기동·권한 거부 검증 결과는 별도 근거로 확인한다.
 기존 workload의 Helm 인계, private Git 연결, 관리 대상 AppProject/RBAC, Strimzi CMP와 중앙 관측 연결은 후속 작업이다.
 
 ## 고정 입력과 초기 권한
