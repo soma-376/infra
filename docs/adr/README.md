@@ -74,7 +74,8 @@
 | 0061 | [dev 프론트는 동적 포트로 새 태스크를 먼저 띄운 뒤 교체한다](0061-frontend-dev-dynamic-port-prestart-rolling.md) | Proposed (PROJ-328; 0053의 배포 비율·distinctInstance·고정 hostPort 대체; 배포 별도) |
 | 0060 | [랜딩 정적 사이트는 외부 생성 S3·CloudFront에 DeployStack의 전용 OIDC 역할로 배포한다](0060-landing-static-site-deploy-role.md) | Accepted (PROJ-327; 역할 배포·첫 자동 배포 검증은 별도) |
 
-| 0056 | [dev Kubernetes 선언은 검증한 revision 묶음을 Argo CD로 적용한다](0056-dev-argocd-gitops-operations.md) | Accepted (PROJ-280 개정; 인계 전 CD 사본과 인계 후 workflow 게시·복구 분리; 구현·설치·인계는 후속) |
+| 0056 | [dev Kubernetes 선언은 검증한 revision 묶음을 Argo CD로 적용한다](0056-dev-argocd-gitops-operations.md) | Accepted (PROJ-280 개정; 인계 전 CD 사본과 인계 후 workflow 게시·복구 분리; Git 관리 자격증명 공급은 ADR 0057로 부분 대체; 실제 인계는 별도 수락) |
+| 0057 | [dev Argo의 Git 읽기 인증은 전용 GitHub App과 native repository Secret으로 공급한다](0057-dev-argocd-github-app-authentication.md) | Accepted (PROJ-287; argocd namespace의 reader repository Secret 한정 예외, 앱 CSI·게시 계약 유지; 실제 App 설치·인증은 PROJ-310) |
 
 병행 작업에서 사용한 `0035`·`0036`은 각각 파일명·제목·링크를 보존한다. 번호만으로 대상을 식별하지 않는다.
 

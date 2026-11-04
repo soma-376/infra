@@ -5,7 +5,8 @@ PROJ-274의 [고정 설치 구성·로컬 검증·접속 절차](../../helm/dev/
 2026-11-04 운영자가 실제 dev 클러스터 설치 완료를 확인했다. 이 변경에서는 live 상태를 재조회하지 않았다.
 **UI 로그인·재기동·권한 거부의 검증 근거, workflow 구현과 기존 Helm 인계는 별도로 확인한다.**
 도입 전에는 [EKS 수동 런북](dev-eks-manual-deployment.md)과 [Strimzi 런북](dev-strimzi-kafka.md)을 따른다.
-아래 인계·자동 배포 절차는 후속 구현과 운영 수락을 갖춘 뒤 수행한다.
+PROJ-287은 Application·권한·렌더·GitHub App 연결의 로컬 구성을 준비한다. 아래 인계·자동 배포 절차는
+PROJ-310의 실제 Git 연결·클러스터 검증과 남은 운영 관문을 갖춘 뒤 수행한다.
 
 ## 1. 기준과 책임
 
@@ -31,8 +32,161 @@ Argo 자체는 `argocd` namespace/release, chart 10.11.7·Argo CD v3.5.7·Helm 3
 수동 Helm 설치 → CRD Established → 별도 default Project 제한 적용, loopback TLS 접속과 초기 admin 정리를 소유한다.
 
 초기에는 namespaced Role만 사용하고 `cluster.inClusterEnabled=false`, ApplicationSet `replicas=0`으로 둔다.
-Application·private Git 연결·관리 대상 AppProject/RBAC·Strimzi CMP·중앙 관측은 PROJ-287/310 등 후속 범위다.
+PROJ-287의 관리 구성은 bootstrap과 별도로 선택한다. private Git 연결·관리 RBAC 적용·Application/CMP 실행과
+중앙 관측의 실제 연결은 아직 운영 수락 범위다.
 운영자 설치 완료 확인 이후에도 기존 workload의 적용 주체는 수동 Helm이며, 상세 운영 수락 결과는 별도 증거로 남긴다.
+
+### 2.0.1 PROJ-287 로컬 구성과 배포 입력
+
+`helm/dev/gitops/`의 catalog는 하위 Application 17개를 정의한다. `scripts/dev-argocd-applications.mjs`는
+infra C 전체 SHA, private H/V 전체 SHA, 실제 release inventory를 받아 로컬 검토 산출물을 만든다.
+root·platform·workload Project와 관리 RBAC는 `helm/dev/platform/argocd/management/`에서 별도로 준비한다.
+기본 bootstrap만 적용하면 로컬 클러스터 관리는 계속 비활성이다.
+
+| 관리 묶음 | 대상 |
+|---|---|
+| 기반·런타임 | base, LBC, CSI driver, ASCP, Fluent Bit, runtime-config |
+| 데이터 | Strimzi Operator, Kafka CR, ClickHouse |
+| 관측 | observability, Loki, Tempo, otel-platform |
+| 앱 | enrollment, ingest, Gateway, dashboard |
+
+inventory의 namespace·releaseName은 `helm list --all-namespaces`와 기존 배포 기록에서 확정한다.
+`pulsemetry-dev-platform`과 `dev-platform` 등 문서의 예시를 실제 release 이름으로 추정하지 않는다.
+fixture inventory는 로컬 검증 전용이며 운영 기본값이 아니다. Application 이름과 기존 Helm release 이름은
+다를 수 있고 annotation 기반 tracking을 유지한다.
+
+입력 JSON은 다음 필드를 사용한다. `inventory`의 `id`는 catalog의 17개 항목과 정확히 대응해야 한다.
+
+| 필드 | 요구사항 |
+|---|---|
+| `schemaVersion` | `1` |
+| `mode` | `handoff` 또는 `gitops` |
+| `infraRevision` | C의 40자리 전체 SHA |
+| `inventory` | `{id, releaseName, namespace}` 객체 17개 |
+| `handoffRevision` | `handoff`에서만 H 전체 SHA; V/B 필드는 금지 |
+| `valuesRevision`, `bundleManifestSha256` | `gitops`에서만 V 전체 SHA와 B의 64자리 SHA-256; H 필드는 금지 |
+
+```bash
+set -euo pipefail
+: "${ARGOCD_APPLICATION_INPUT:?검토한 입력 JSON 파일 경로}"
+ARGOCD_REVIEW_PARENT="$(mktemp -d)"
+node scripts/dev-argocd-applications.mjs \
+  --input "$ARGOCD_APPLICATION_INPUT" --output-dir "$ARGOCD_REVIEW_PARENT/review"
+```
+
+출력 디렉터리는 새 경로여야 한다. `application-review.json`은 Kubernetes manifest가 아닌 검토 보고서다.
+`readiness.status=blocked`, `deployable=false`, `deployableApplicationCount=0`을 유지한다.
+17개 정의는 `review-only` 또는 LBC의 `quarantined` 상태이고, 모든 하위 선언과 gitops root 템플릿은
+`skip-reconcile=true`다. `handoff`의 `rootTemplate`은 null이다. 생성기에 자동화 활성화·차단 우회 옵션은 없다.
+이 보고서를 `kubectl apply`하거나 private main에 그대로 게시하지 않는다.
+
+관리 구성은 고정 C와 inventory로 렌더한 리소스 목록에서 필요한 RBAC 이름을 추출한다. 다음 명령도
+로컬 파일만 생성하며 Git 또는 클러스터에 적용하지 않는다. 입력 manifest는 접근 제한 경로에서 취급하고
+원문을 검증 로그에 출력하지 않는다.
+
+```bash
+: "${ARGOCD_CMP_IMAGE:?게시·검증한 CMP repository@sha256 digest 또는 로컬 fixture의 명시 입력}"
+: "${ARGOCD_RENDERED_MANIFESTS:?고정 C와 inventory로 렌더한 manifest 파일 경로}"
+node scripts/dev-argocd-management.mjs \
+  --cmp-image "$ARGOCD_CMP_IMAGE" --rendered-manifests "$ARGOCD_RENDERED_MANIFESTS" \
+  --output-dir "$ARGOCD_REVIEW_PARENT/management"
+```
+
+`argocd-values.yaml`은 기존 bootstrap values 뒤에 더할 관리 overlay이고, `management-values.yaml`은
+수동 release `argocd-management`의 입력이다. 실제 게시 전 CMP digest를 운영값으로 꾸며 넣지 않는다.
+관리 chart는 root/platform/workload Project와 controller Role·server 조회 Role을 분리한다.
+`resource.respectRBAC=strict`와 명시된 관리 namespace를 사용하며 cluster-scoped 리소스도 필요한 종류로 제한한다.
+PROJ-287의 overlay는 `cluster.inClusterEnabled=false`를 유지하고 관리 chart도 `reconciliationEnabled=false`만
+허용하므로 cluster Secret을 렌더하지 않는다. cluster Secret의 `skip-reconcile` annotation을 비활성화 수단으로
+사용하지 않는다. 해당 annotation은 Application용이다.
+후속 PROJ-310의 코드 리뷰를 거친 활성화에 사용할 연결 템플릿은 `argocd-dev-in-cluster`이며 별도 bearer token이나
+PEM 없이 `config: {}`와 기존 in-cluster ServiceAccount token·CA를 사용한다. Git reader repository Secret과는
+다른 구성 객체다. 현 단계의 값 override만으로 이 연결을 활성화할 수 없다.
+
+권한 생성기는 렌더 결과의 RBAC 이름만 출력에 사용하고 Secret data를 복사하지 않는다. `bind`·`escalate`는
+렌더에서 확인한 Role/ClusterRole 이름으로 제한한다. CSI·관측의 hook 재실행·정리에 필요한 ServiceAccount
+삭제는 렌더에서 확인한 hook 이름에만 허용하며 일반 ServiceAccount·Pod·PVC·Secret 삭제로 확대하지 않는다.
+다만 Kubernetes `create`는 `resourceNames`로 제한할 수
+없고 cluster-scoped 권한도 종류 단위의 범위가 있으므로 이를 강한 테넌트 격리로 설명하지 않는다.
+AppProject 제한과 Kubernetes RBAC는 다른 계층이며 실제 거부 검증이 모두 필요하다.
+
+하위 Application은 고정 C와 H/V를 함께 읽고 정적 values 뒤에 generated 값을 적용한다. H 인계 시에는
+하위 선언만 수동 검토하며 root를 활성화하지 않는다. 정상 B·V/P·공통 상태가 준비된 뒤에만 root가 private
+`main`의 `dev/applications/`를 관리한다. 두 모드 모두 초기 자동 sync·self-heal·prune·allowEmpty는 비활성이고
+Application 삭제 finalizer를 넣지 않는다. `telemetry-kafka-admin.yaml`은 사본 목록에 남지만 자동 Job 실행 대상은 아니다.
+
+생성기는 Git 게시나 클러스터 적용을 수행하지 않는다. 결과를 private main에 수동 복사하지 않는다.
+`dev/bundle.json`, `dev/desired.yaml`, `dev/applications/`, `dev/delivery-state.json` 중 하나라도 게시하면
+PROJ-279 사본 writer가 중단하므로, 실제 최초 게시·writer 전환은 §2.1의 인계 절차로 조정한다.
+
+### 2.0.2 GitHub App 등록·교체·회수
+
+[ADR 0057](../adr/0057-dev-argocd-github-app-authentication.md)에 따라 읽기 App은 `soma-376` 소유이며
+`infra-generated-values` 하나에만 설치한다. 권한은 `Contents: read`와 기본 Metadata 읽기다.
+공개 infra는 인증 없이 읽고 publisher App 개인키를 Argo에 등록하지 않는다. App ID와 Installation ID는
+다른 값이며 실제 선택 저장소·권한과 함께 대조한다. OAuth/SSO와 webhook은 이 등록에 포함하지 않는다.
+
+다음은 **PROJ-310에서 운영자가 수행하는 절차**다. PROJ-287 로컬 검증·CI·에이전트 도구에서는 실행하지 않는다.
+운영자는 기존 SSM/private EKS 경로에서 확인한 Argo context로 로그인하고 TLS 검증과 loopback 접속을 유지한다.
+GitHub에서 발급한 PEM 파일은 운영자만 읽을 수 있도록 보관하며 화면 공유·명령 추적·세션 기록을 끈다.
+
+```bash
+set +x
+: "${ARGOCD_CONTEXT:?확인한 dev Argo CLI context 이름}"
+: "${ARGOCD_READER_APP_ID:?전용 읽기 GitHub App ID}"
+: "${ARGOCD_READER_INSTALLATION_ID:?private 저장소 설치 ID}"
+: "${ARGOCD_READER_KEY_FILE:?보호된 로컬 PEM 파일 경로}"
+chmod 600 "$ARGOCD_READER_KEY_FILE"
+argocd repo add https://github.com/soma-376/infra-generated-values.git \
+  --argocd-context "$ARGOCD_CONTEXT" \
+  --github-app-id "$ARGOCD_READER_APP_ID" \
+  --github-app-installation-id "$ARGOCD_READER_INSTALLATION_ID" \
+  --github-app-private-key-path "$ARGOCD_READER_KEY_FILE" --upsert
+```
+
+`--github-app-private-key-path`는 파일 내용을 Argo에 전달해 `argocd` namespace의 native repository Secret에
+저장한다. CSI 경로 등록이 아니다. 위 명령의 인자·환경에는 식별자와 파일 경로만 들어가며 PEM 원문을 `cat`,
+환경변수, 명령 치환, `kubectl -o yaml`, Helm values, 로그·artifact로 출력하지 않는다. 다른 URL을 위한
+credential template이나 별도 repository Secret을 추가하지 않는다. 등록 후 임시 PEM은 운영자 보관 정책에
+따라 정리하고, 원문을 성공 근거로 첨부하지 않는다.
+
+실제 수락은 private 읽기 성공, reader 쓰기 거부, 미설치 private 저장소 접근 거부, repo-server 재시작 후 읽기,
+한 시간을 넘긴 installation token 갱신을 각각 확인한다. 기존 token의 캐시 hit만으로 새 키를 검증하지 않는다.
+키 교체는 새 키 발급 → 같은 credential 갱신 → 새 인증·재시작·token 갱신 후 읽기 확인 → 이전 키 폐기 순서다.
+App 개인키 폐기가 이미 발급한 token을 즉시 폐기한다고 가정하지 않는다. 긴급 회수는 설치 중지·해제와 token의
+잔여 수명을 함께 확인한다. Secret 소실 시에는 새 키를 발급해 복구하며 publisher 키나 PAT로 대체하지 않는다.
+Argo native token 갱신을 사용하므로 갱신 CronJob이나 별도 token Secret은 만들지 않는다.
+
+### 2.0.3 렌더러와 아직 닫히지 않은 인계 관문
+
+Argo 자체 설치용 Helm 3.22.0과 repo-server의 native Helm은 다르다. Argo CD 3.5는 native Helm 4를 사용하며
+`spec.source.helm.version: v3`로 이전 버전을 선택할 수 없다. 고정 이미지의 실제 바이너리 버전을 확인하고
+일반 Application은 기존 3.22.0 결과와 의미상 같은 리소스를 렌더하는지 대조한다.
+의존 chart는 lock/checksum과 같은 bytes를 Git에서 재현해야 하며 렌더 중 최신 dependency를 받지 않는다.
+
+Tempo의 비활성 receiver endpoint는 빈 문자열로 고정하고, 플랫폼 OTel Collector는 upstream의
+`alternateConfig`로 완전한 설정을 공급한다. 이는 Helm 3·4의 null 병합 차이로 비활성 수신기·pipeline·기본
+memory limiter 설정이 되살아나는 것을 막는 입력 정합화다. 기존 self-metrics 자원 속성 여섯 개도 명시적으로
+보존한다. 수신 포트·실제 Collector 설정·리소스의 기존 Helm 3 렌더와 새 Helm 3/4 렌더 동일성이 수락 기준이며,
+관측 정책 변경이나 배포 완료로 해석하지 않는다.
+
+Strimzi Operator만 CMP에서 별도 Helm 3.22.0·고정 Node/의존성으로 렌더한다. 동일 C의 vendor checksum과
+post-render script를 사용하고 오류·빈 결과는 실패다. 이미지 정의·로컬 검증과 실제 registry 게시·ARM64 digest
+선택은 구분한다. CMP에 Kubernetes credential이나 Git reader Secret을 mount하지 않으며
+`preserveFileMode=false`, `provideGitCreds=false`와 repo-server와 분리된 임시 디렉터리를 유지한다.
+
+| 관문 | PROJ-287의 처리 | PROJ-310에서 필요한 증거 |
+|---|---|---|
+| LBC webhook 인증서 | native offline 렌더의 `lookup` 실패 시 TLS Secret·CA가 매번 생성되는 것을 검출하고 LBC 선언을 격리한다. 전체 인계 가능 판정은 실패로 남긴다. | 기존 인증서의 소유권·회전·Secret/CA 한쪽 소실 복구를 결정하고 동일성·실제 webhook 요청을 검증한다. |
+| 관측 webhook hook | 기존 인증서 생성/patch hook·RBAC·phase·삭제 정책과 반복 실행 계약을 검증한다. | 실제 hook 재실행·권한·인증서 정합, patch Job 소유 `caBundle`·`failurePolicy`의 차이 처리를 확인한다. |
+| 상태·기능 | 목표 spec/comparedTo/revision과 Synced·Healthy·operation·Kafka generation을 검사한다. | Flyway, 로그인·조회, ACK→consume→commit→저장을 목표 revision에 연결한다. |
+
+LBC의 Secret 또는 `caBundle`만 무시하거나 둘을 광범위하게 무시해 인계를 통과시키지 않는다. 인증서 개인키를
+Git values에 복사하지 않는다. 관측 hook을 일괄 제거하거나 patch Job만 끄지 않는다. Grafana의 기존 CSI 암호
+공급과 비활성 CRD upgrade Job을 유지한다. Loki의 live `lookup` 기반 hook을 Argo의 스토리지 변경 복구로 사용하지 않는다.
+
+위 표의 로컬 검증은 실제 인증·권한·TLS·기능 성공을 증명하지 않는다. LBC 관문이 남아 있는 동안 root를 포함한
+전체 관리 인계를 활성화하지 않으며, bootstrap과 기존 수동 Helm 운영을 유지한다.
 
 ### 2.1 인계 전 준비
 
