@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (PROJ-280 설계 채택; chart·workflow·Argo 설치·기존 release 인계는 후속 구현·검증 대상)
+Accepted (PROJ-280 설계 채택; Git 관리 자격증명 공급은 [ADR 0057](0057-dev-argocd-github-app-authentication.md)로 부분 대체한다. C/B/V/P·CSI·게시 권한 계약은 유지하며 실제 GitOps 인계는 별도 운영 수락 대상이다.)
 
 [ADR 0028의 EKS 수동 Helm 전환](0028-dev-eks-auto-mode-transition.md) 중 인계된 리소스의
 일반 배포 주체와 Argo 제외 결정을 부분 대체한다. CDK의 AWS 소유권, Auto Mode의 노드 관리,
@@ -159,7 +159,10 @@ namespaced 리소스를 분리한다. 임의 저장소·클러스터·prod/perf 
 AppProject 제약과 Kubernetes RBAC는 별도 계층이며 둘 다 실제 거부 검증이 필요하다.
 
 AWS Secret 원문은 Git·CI artifact·values로 복제하지 않고 기존 CSI 파일 공급을 유지한다.
-Strimzi 인증서의 읽기 전용 mount 예외를 Git 자격증명이나 다른 Secret에 확대하지 않는다.
+Strimzi 인증서의 읽기 전용 mount 예외를 다른 Secret에 확대하지 않는다.
+[ADR 0057](0057-dev-argocd-github-app-authentication.md)은 `argocd` namespace의 private 저장소용 native repository
+Secret 하나에 전용 읽기 GitHub App 개인키를 등록하는 별도 예외다. 운영자 로컬 등록·키 교체만 허용하고,
+AWS Secret 복제나 publisher 키 재사용·CMP 전달을 허용하지 않는다.
 Git/Argo 관리 자격증명은 애플리케이션 Secret과 분리하고 원문을 문서·출력·검증 증거에 넣지 않는다.
 
 ### 5. 자동 이미지 복구와 운영 중지
