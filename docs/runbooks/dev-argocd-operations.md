@@ -1,9 +1,11 @@
 # dev Argo CD 도입·인계·검증·복구
 
 [ADR 0056](../adr/0056-dev-argocd-gitops-operations.md)·PROJ-280의 운영 계약이다.
-**설계만 채택했으며 이 문서 추가는 Argo 설치·workflow 구현·Helm 인계 완료의 증거가 아니다.**
+PROJ-274의 [고정 설치 구성·로컬 검증·접속 절차](../../helm/dev/platform/argocd/README.md)를 추가했다.
+2026-11-04 운영자가 실제 dev 클러스터 설치 완료를 확인했다. 이 변경에서는 live 상태를 재조회하지 않았다.
+**UI 로그인·재기동·권한 거부의 검증 근거, workflow 구현과 기존 Helm 인계는 별도로 확인한다.**
 도입 전에는 [EKS 수동 런북](dev-eks-manual-deployment.md)과 [Strimzi 런북](dev-strimzi-kafka.md)을 따른다.
-아래 단계는 후속 구현이 갖춰진 뒤 수행할 절차이며 이번 문서 작업에서 실행하지 않는다.
+아래 인계·자동 배포 절차는 후속 구현과 운영 수락을 갖춘 뒤 수행한다.
 
 ## 1. 기준과 책임
 
@@ -22,6 +24,16 @@
 
 ## 2. 최초 설치와 기존 Helm 리소스 인계
 
+### 2.0 PROJ-274 설치 기반
+
+Argo 자체는 `argocd` namespace/release, chart 10.11.7·Argo CD v3.5.7·Helm 3.22.0으로 고정한다.
+[설치 안내](../../helm/dev/platform/argocd/README.md)가 checksum·로컬 검사, SSM 전용 kubeconfig/context 확인,
+수동 Helm 설치 → CRD Established → 별도 default Project 제한 적용, loopback TLS 접속과 초기 admin 정리를 소유한다.
+
+초기에는 namespaced Role만 사용하고 `cluster.inClusterEnabled=false`, ApplicationSet `replicas=0`으로 둔다.
+Application·private Git 연결·관리 대상 AppProject/RBAC·Strimzi CMP·중앙 관측은 PROJ-287/310 등 후속 범위다.
+운영자 설치 완료 확인 이후에도 기존 workload의 적용 주체는 수동 Helm이며, 상세 운영 수락 결과는 별도 증거로 남긴다.
+
 ### 2.1 인계 전 준비
 
 1. 대상 context·계정·리전·cluster를 확인하고 다른 Helm 배포와 자동 publisher 실행을 중지한다.
@@ -38,7 +50,8 @@
 3. 후속 구현의 기존 `image.repository`·`image.digest` 정합, 고정 의존성·digest, Argo·CMP,
    C/V health gate·기능 검증·공통 상태·자동 복구 경로, Git 권한·branch 보호·maintenance를 확인한다.
    초기 인계 선언도 기존 실제 이미지를 그대로 렌더해야 한다.
-4. Argo만 수동 설치하고 자동 sync·self-heal·prune은 비활성 상태로 시작한다.
+4. §2.0의 설치를 검증한 뒤 후속 관리 RBAC·AppProject와 Git 읽기 연결을 준비하고 로컬 클러스터 관리를 활성화한다.
+   초기 Application의 자동 sync·self-heal·prune은 비활성 상태로 시작한다.
    repo-server의 private Git 읽기 전용, 두 게시기의 허용 Git 쓰기·diff 검증, backend의
    CDK·Helm·Kubernetes·Argo 변경 거부를 각 identity로 검증한다.
    Git/Argo 관리 자격증명의 런타임 공급·회전·회수를 검증하고 원문을 Git·로그에 저장하지 않는다.

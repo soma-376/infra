@@ -1,0 +1,141 @@
+# PROJ-274: Argo 자체만 수동 Helm으로 설치하는 초기 구성이다.
+# dev workload 권한·private Git·Application·CMP는 PROJ-287/310에서 연결한다.
+fullnameOverride: argocd
+namespaceOverride: argocd
+createClusterRoles: false
+createAggregateRoles: false
+crds:
+  install: true
+  keep: true
+
+global:
+  # upstream은 repository:tag로 조립하므로 tag에 digest를 함께 고정한다.
+  image:
+    repository: quay.io/argoproj/argocd
+    tag: v3.5.7@sha256:16df57da6f223808d204cd94c67c929b931fa01670b91b0b3a2298c4647de0db
+    imagePullPolicy: IfNotPresent
+  nodeSelector:
+    kubernetes.io/os: linux
+    kubernetes.io/arch: arm64
+    karpenter.sh/nodepool: pulsemetry-dev-apps
+  tolerations: []
+  logging:
+    format: json
+    level: info
+  networkPolicy:
+    create: true
+  addPrometheusAnnotations: false
+
+configs:
+  cm:
+    cluster.inClusterEnabled: "false"
+    application.resourceTrackingMethod: annotation
+    admin.enabled: "true"
+    users.anonymous.enabled: "false"
+    exec.enabled: "false"
+  params:
+    server.insecure: "false"
+  rbac:
+    policy.default: ""
+    policy.csv: ""
+  # admin 암호·서명키는 Argo가 클러스터에서 생성한다. 원문/해시를 values에 넣지 않는다.
+  secret:
+    createSecret: true
+  repositories: {}
+  credentialTemplates: {}
+
+controller:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+  metrics:
+    enabled: false
+
+server:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  service:
+    type: ClusterIP
+  ingress:
+    enabled: false
+  metrics:
+    enabled: false
+
+repoServer:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  # 렌더 전용 프로세스에는 Kubernetes API credential을 마운트하지 않는다.
+  automountServiceAccountToken: false
+  serviceAccount:
+    automountServiceAccountToken: false
+  clusterRoleRules:
+    enabled: false
+    rules: []
+  rbac: []
+  metrics:
+    enabled: false
+
+redis:
+  enabled: true
+  image:
+    repository: ecr-public.aws.com/docker/library/redis
+    tag: 8.6.4-alpine@sha256:8767d84b0adc89c37a352a17372a5e97bf21bb723890e244c212bb44b9f11177
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+  automountServiceAccountToken: false
+  exporter:
+    enabled: false
+
+redisSecretInit:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+redis-ha:
+  enabled: false
+externalRedis:
+  host: ""
+dex:
+  enabled: false
+notifications:
+  enabled: false
+commitServer:
+  enabled: false
+
+# upstream에는 enabled 옵션이 없으므로 Deployment는 유지하고 실행 replica를 0으로 둔다.
+applicationSet:
+  replicas: 0
+  allowAnyNamespace: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  metrics:
+    enabled: false
+
+# AppProject는 CRD Established 확인 후 별도 manifest로 적용한다.
+extraObjects: []

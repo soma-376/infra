@@ -161,3 +161,4 @@ generated/
 
 # 검증한 upstream Helm archive는 버전·checksum과 함께 보관한다.
 !helm/dev/platform/lbc/vendor/aws-load-balancer-controller-3.6.0.tgz
+!helm/dev/platform/argocd/vendor/argo-cd-10.11.7.tgz

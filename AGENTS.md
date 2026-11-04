@@ -34,10 +34,23 @@ shared root가 별도 VPC·dev/prod 피어링·왕복 경로·SG 규칙·캐시�
 태그 기반 peer 조회는 dev 필수·prod 준비 시 추가이며 기존 peer 누락은 실패한다. prod 준비 후 develop workflow_dispatch로 연결한다.
 공유 세션 계약은 허브 ADR 0030를 따른다. runtime.valkey 선택 입력이 환경별 ECS task 역할·BFF 연결 변수를 연결한다. 새 BFF는 Valkey만 지원하므로 해당 이미지 배포 전 runtime.valkey를 반드시 입력한다. 기존 이미지의 단계적 인프라 적용을 위해 Terraform 입력만 optional로 유지한다. 전환 시 이전 버전 태스크를 drain한다. 실제 IAM/TLS·ACL·동시 갱신은 배포 검증이 필요하다.
 
+## PROJ-274 dev Argo CD 설치 기반
+
+[설치 안내](helm/dev/platform/argocd/README.md)의 chart 10.11.7·Argo CD v3.5.7·Helm 3.22.0을 사용한다.
+vendor archive·checksum·ARM64 이미지 digest를 고정하고 기존 apps 노드에 비 HA로 배치한다.
+namespace/release는 `argocd`, 접근은 TLS ClusterIP와 기존 SSM/private EKS 경로다.
+초기에는 namespaced Role만 생성하고 `cluster.inClusterEnabled=false`, ApplicationSet `replicas=0`을 유지한다.
+default Project 제한은 Helm 설치·CRD Established 확인 뒤 별도 추적 YAML로 적용한다.
+초기 admin 원문은 운영자 로컬 터미널에서만 처리하고 모델 컨텍스트·로그에 넣지 않는다.
+2026-11-04 운영자가 실제 dev 클러스터 설치 완료를 확인했다. 이 변경에서 live 상태를 재조회하지 않았으며,
+UI 로그인·재기동·권한 거부 검증 결과는 별도 근거로 확인한다. private Git 읽기·Application·
+관리 RBAC/AppProject·CMP와 중앙 관측 연결은 후속이며 기존 workload는 계속 수동 Helm으로 관리한다.
+
 ## PROJ-280 dev Argo CD GitOps 설계
 
 [ADR 0056](docs/adr/0056-dev-argocd-gitops-operations.md)와 [운영 런북](docs/runbooks/dev-argocd-operations.md)은
-허브 PROJ-281·backend PROJ-286과 맞춘 Accepted 설계다. workflow·Argo 설치·실제 Helm 인계는 후속 구현이며,
+허브 PROJ-281·backend PROJ-286과 맞춘 Accepted 설계다. PROJ-274는 Argo 설치 기반을 제공하며,
+Argo 설치는 위 PROJ-274의 운영자 확인을 따르며 workflow·Application/CMP·Helm 인계는 후속 구현·검증이다.
 인계 전에는 기존 수동 Helm을 유지한다. 인계 후 전체 대상 Application의 자동 sync·self-heal을 사용하고
 자동 prune은 끈다. Argo 자체는 수동 Helm으로 관리하며 prod·frontend·perf는 대상이 아니다.
 Image Updater 도입은 철회하고 기존 `image.repository` + `image.digest`와 overlay 없는 구성을 유지한다.

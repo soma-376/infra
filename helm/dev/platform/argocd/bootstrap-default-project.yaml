@@ -1,0 +1,15 @@
+# Helm 최초 설치와 CRD Established 확인 후 운영자가 별도로 적용한다.
+# Helm 관리 밖의 초기 제한이다. 후속 용도별 Project를 만들어도 default는 닫힌 상태로 유지한다.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: default
+  namespace: argocd
+spec:
+  sourceRepos: []
+  sourceNamespaces: []
+  destinations: []
+  clusterResourceWhitelist: []
+  namespaceResourceBlacklist:
+    - group: "*"
+      kind: "*"
