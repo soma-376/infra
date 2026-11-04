@@ -60,8 +60,14 @@ jobs:
           tar -xzf helm-v3.22.0-linux-amd64.tar.gz
           echo "HELM_BIN=$RUNNER_TEMP/helm/linux-amd64/helm" >> "$GITHUB_ENV"
       - run: npm run build
+      - name: 고정 Helm 실행 확인
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x "${HELM_BIN:?고정 Helm 경로가 필요합니다}"
+          "$HELM_BIN" version --short | grep -Eq '^v3\.22\.0(\+|$)'
       - name: dev 입력·호환성·Helm 전달 검사
-        run: npm test -- --runInBand test/dev test/scripts/eks-values.test.ts test/scripts/backend-image-inputs.test.ts test/scripts/dev-generated-values-inputs.test.ts test/scripts/dev-generated-values-sync.test.ts test/scripts/validate-generated-values.test.ts test/helm/values-reader-rbac.test.ts test/workflows/dev-cdk.test.ts
+        run: npm test -- --runInBand test/dev test/scripts/eks-values.test.ts test/scripts/backend-image-inputs.test.ts test/scripts/dev-generated-values-inputs.test.ts test/scripts/dev-generated-values-sync.test.ts test/scripts/validate-generated-values.test.ts test/helm/values-reader-rbac.test.ts test/helm/argocd.test.ts test/workflows/dev-cdk.test.ts
       - name: 공식 명령으로 fixture 계정 합성
         run: |
           node -e 'require("node:fs").writeFileSync("cdk.context.json", JSON.stringify({"availability-zones:account=111111111111:region=ap-northeast-2":["ap-northeast-2a","ap-northeast-2b","ap-northeast-2c","ap-northeast-2d"]}))'
