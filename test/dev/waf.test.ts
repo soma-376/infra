@@ -512,12 +512,14 @@ describe('dev ALB WAF 정책 합성', () => {
     },
   );
 
-  describe('정상 CLI token JSON의 두 Body label 예외', () => {
-    const uri = '/api/v1/auth/cli/token';
+  describe.each([
+    { name: 'CLI', uri: '/api/v1/auth/cli/token', redirect: 'http://127.0.0.1:54610/callback' },
+    { name: '로컬 웹', uri: '/api/v1/auth/token', redirect: 'http://localhost:3000/auth/callback' },
+  ])('정상 $name token JSON의 두 Body label 예외', ({ uri, redirect }) => {
     const exceptions = [BODY_RULES[0][1], BODY_RULES[2][1]];
     const values = {
       code: `uac_${'c'.repeat(43)}`,
-      redirect_uri: 'http://127.0.0.1:54610/callback',
+      redirect_uri: redirect,
       code_verifier: 'v'.repeat(64),
     };
     const json = (changes: Record<string, unknown> = {}) => JSON.stringify({ ...values, ...changes });
@@ -539,11 +541,11 @@ describe('dev ALB WAF 정책 합성', () => {
       expect(blocks(json(), exceptions, { contentType: 'application/json ;\tcharset=utf-8' })).toBe(false);
     });
 
-    test.each([
+    test.each(uri.endsWith('/cli/token') ? [
       'http://127.0.0.1:1/callback', 'http://127.0.0.1:65535/callback',
       'http://127.0.0.1:00054610/callback', 'http://[::1]:1/callback',
       'http://[::1]:65535/callback', `http://127.0.0.1:${'0'.repeat(229)}1/callback`,
-    ])('정상 콜백 %s의 두 Body label만 제외한다', redirect_uri => {
+    ] : [redirect])('정상 콜백 %s의 두 Body label만 제외한다', redirect_uri => {
       expect(blocks(json({ redirect_uri }))).toBe(false);
       for (const label of exceptions) expect(blocks(json({ redirect_uri }), [label])).toBe(false);
     });
@@ -558,7 +560,13 @@ describe('dev ALB WAF 정책 합성', () => {
     });
 
     test.each([
-      'http://localhost:3000/auth/callback',
+      ...(uri.endsWith('/cli/token') ? ['http://localhost:3000/auth/callback'] : [
+        'http://127.0.0.1:54610/callback', 'http://[::1]:54610/callback',
+        'http://localhost:3001/auth/callback', 'https://localhost:3000/auth/callback',
+        'http://localhost:3000/auth/callback/', 'http://localhost:3000/auth/callback?x=1',
+        'http://localhost:3000/auth/callback#x', 'http://user@localhost:3000/auth/callback',
+        'http://localhost.example.test:3000/auth/callback', 'http://localhost:03000/auth/callback',
+      ]),
       'https://127.0.0.1:54610/callback', 'HTTP://127.0.0.1:54610/callback',
       'http://localhost:54610/callback', 'http://127.1:54610/callback',
       'http://169.254.169.254:80/callback', 'http://2130706433:54610/callback',
@@ -625,7 +633,7 @@ describe('dev ALB WAF 정책 합성', () => {
 
     test('정확한 POST·원문 route·JSON content type에서만 예외다', () => {
       for (const method of ['GET', 'HEAD', 'post', 'PUT']) expect(blocks(json(), exceptions, { method })).toBe(true);
-      for (const path of ['/api/v1/auth/token', `${uri}/`, '/api/v1/auth/cli/%74oken']) expect(blocks(json(), exceptions, { path })).toBe(true);
+      for (const path of [uri.endsWith('/cli/token') ? '/api/v1/auth/token' : '/api/v1/auth/cli/token', `${uri}/`, '/api/v1/auth/cli/%74oken', '/api/v1/auth/%74oken']) expect(blocks(json(), exceptions, { path })).toBe(true);
       for (const contentType of ['', 'text/plain', 'application/x-www-form-urlencoded', 'application/json;charset=utf-16', 'application/json; extra=x']) {
         expect(blocks(json(), exceptions, { contentType })).toBe(true);
       }

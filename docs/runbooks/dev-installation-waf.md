@@ -91,3 +91,18 @@ JSON parser fallback이나 escape 변환은 사용하지 않는다.
   기존 CLI·HTTPS 웹 로그인의 회귀도 확인한다. 주소의 port/path/host 변형, 중복 파라미터와 다른 공격 label은
   예외가 아니며 정상 형식의 요청도 다른 WAF 판정과 backend 인증 검증을 계속 받는다.
 - 복구는 이 PR의 WAF 조건과 runtime callback 추가를 함께 되돌려 각각 재배포한다. 기존 HTTPS 웹과 CLI는 유지한다.
+
+### PROJ-305 웹 token 본문 예외 보완
+
+- authorize query 허용만으로 token POST 본문 검사를 통과하지 않는다. 웹은 정확한
+  `/api/v1/auth/token` + `http://localhost:3000/auth/callback`, CLI는 기존 경로 + loopback
+  조합만 두 Body label 예외로 인정한다. 다른 label·rate·코드/PKCE 검증은 유지한다.
+- 2026-11-04 로컬 검증: build, WAF 413개, 전체 1,639개 통과(기존 47개 skip),
+  dev·prod A/B·cicd synth 통과. CLI의 계정/리전 주입 문제로 synth는 동일 `bin/infra.ts`에
+  CDK context와 합성용 계정·리전을 명시해 수행했다. 실제 AWS 배포를 의미하지 않는다.
+- CheckCapacity는 sandbox SSO 만료로 실행하지 못했다. 인증 갱신 후 합성 Rules에 대해
+  `aws wafv2 check-capacity --scope REGIONAL --region ap-northeast-2 --profile sandbox
+  --cli-binary-format raw-in-base64-out --rules file://<rules.json>`를 다시 수행한다.
+- 리뷰·머지·보호된 배포 후 비밀 없는 합성 token 요청이 localhost에서도 JSON 인증 오류로
+  도달하는지 확인하고, 새로운 실제 로그인으로 토큰 교환과 BFF 세션 조회까지 확인한다.
+  이 보완만으로 로컬 브라우저의 쿠키·세션 동작까지 검증됐다고 판단하지 않는다.
