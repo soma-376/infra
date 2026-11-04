@@ -1,0 +1,58 @@
+{{- $repos := list "https://github.com/soma-376/infra.git" "https://github.com/soma-376/infra-generated-values.git" -}}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: pulsemetry-dev-root
+  namespace: argocd
+spec:
+  sourceRepos:
+    - https://github.com/soma-376/infra-generated-values.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: argoproj.io
+      kind: Application
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: pulsemetry-dev-platform
+  namespace: argocd
+spec:
+  sourceRepos:
+    {{- toYaml $repos | nindent 4 }}
+  destinations:
+    {{- range list "kube-system" "pulsemetry-dev" "pulsemetry-dev-logs" "pulsemetry-observability" "strimzi-system" }}
+    - server: https://kubernetes.default.svc
+      namespace: {{ . }}
+    {{- end }}
+  clusterResourceWhitelist:
+    {{- range $item := list (list "" "Namespace") (list "rbac.authorization.k8s.io" "ClusterRole") (list "rbac.authorization.k8s.io" "ClusterRoleBinding") (list "apiextensions.k8s.io" "CustomResourceDefinition") (list "storage.k8s.io" "StorageClass") (list "storage.k8s.io" "CSIDriver") (list "eks.amazonaws.com" "NodeClass") (list "karpenter.sh" "NodePool") (list "admissionregistration.k8s.io" "MutatingWebhookConfiguration") (list "admissionregistration.k8s.io" "ValidatingWebhookConfiguration") }}
+    - group: {{ index $item 0 | quote }}
+      kind: {{ index $item 1 }}
+    {{- end }}
+  namespaceResourceWhitelist:
+    {{- range $item := list (list "" "ConfigMap") (list "" "Service") (list "" "ServiceAccount") (list "" "Secret") (list "" "PersistentVolumeClaim") (list "apps" "Deployment") (list "apps" "StatefulSet") (list "apps" "DaemonSet") (list "batch" "Job") (list "rbac.authorization.k8s.io" "Role") (list "rbac.authorization.k8s.io" "RoleBinding") (list "networking.k8s.io" "NetworkPolicy") (list "policy" "PodDisruptionBudget") (list "secrets-store.csi.x-k8s.io" "SecretProviderClass") (list "kafka.strimzi.io" "Kafka") (list "kafka.strimzi.io" "KafkaNodePool") (list "kafka.strimzi.io" "KafkaTopic") (list "kafka.strimzi.io" "KafkaUser") (list "monitoring.coreos.com" "Prometheus") (list "monitoring.coreos.com" "ServiceMonitor") (list "monitoring.coreos.com" "PodMonitor") (list "monitoring.coreos.com" "PrometheusRule") }}
+    - group: {{ index $item 0 | quote }}
+      kind: {{ index $item 1 }}
+    {{- end }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: pulsemetry-dev-workloads
+  namespace: argocd
+spec:
+  sourceRepos:
+    {{- toYaml $repos | nindent 4 }}
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: pulsemetry-dev
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    {{- range $item := list (list "" "ConfigMap") (list "" "Service") (list "" "ServiceAccount") (list "apps" "Deployment") (list "elbv2.k8s.aws" "TargetGroupBinding") }}
+    - group: {{ index $item 0 | quote }}
+      kind: {{ index $item 1 }}
+    {{- end }}

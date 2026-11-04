@@ -1,1 +1,2 @@
-/charts/
+/charts/*
+!/charts/kube-prometheus-stack-81.2.2.tgz
