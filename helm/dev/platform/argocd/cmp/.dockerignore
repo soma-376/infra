@@ -1,0 +1,9 @@
+# 렌더 이미지 build context에는 명시한 소스·lock만 전달한다.
+**
+!Dockerfile
+!package.json
+!package-lock.json
+!toolchain.json
+!install-helm.mjs
+!bin/
+!bin/render-strimzi.mjs

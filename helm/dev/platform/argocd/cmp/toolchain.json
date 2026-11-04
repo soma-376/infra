@@ -1,0 +1,15 @@
+{
+  "node": {
+    "image": "docker.io/library/node:24.14.1-bookworm-slim@sha256:b506e7321f176aae77317f99d67a24b272c1f09f1d10f1761f2773447d8da26c",
+    "arm64Manifest": "sha256:fdf1c60c166aaf02dd124c08a1c67b5df800766d3c00661427b84d26138a5432"
+  },
+  "helm": {
+    "version": "3.22.0",
+    "sha256": {
+      "amd64": "1e4ab49e429626cf6c6958d914248b78c9730803c2751b87627e171dc800e7bb",
+      "arm64": "f14e804dfee240f55525b667488fe9adca349e63e00c9af634c0beb1421ac310"
+    }
+  },
+  "kubernetesVersion": "1.36.0",
+  "jsYamlVersion": "5.2.3"
+}

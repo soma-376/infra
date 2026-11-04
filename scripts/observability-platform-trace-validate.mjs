@@ -222,7 +222,7 @@ const rejects = [
   ['tempo', ['--set', 'tempo.tempo.tag=3.1.0']],
   ['otel-platform', ['--set', 'collector.mode=deployment']],
   ['otel-platform', ['--set', 'collector.image.digest=']],
-  ['otel-platform', ['--set-json', 'collector.config.service.pipelines.logs={"receivers":["otlp"],"exporters":["otlp_grpc/tempo"]}']],
+  ['otel-platform', ['--set-json', 'collector.alternateConfig.service.pipelines.logs={"receivers":["otlp"],"exporters":["otlp_grpc/tempo"]}']],
   ['otel-platform', ['--set', 'collector.statefulset.persistentVolumeClaimRetentionPolicy.whenDeleted=Delete']],
 ];
 for (const [wrapper, overrides] of rejects) {

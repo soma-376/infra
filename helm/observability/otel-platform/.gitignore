@@ -1,1 +1,2 @@
-/charts/
+/charts/*
+!/charts/opentelemetry-collector-0.175.1.tgz
