@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — PROJ-305. ADR 0044의 query redirect 범위만 부분 확장한다. 실제 배포·로그인 검증은 별도다.
+Accepted — PROJ-305. ADR 0044의 query redirect 범위와 ADR 0045의 token body 예외를 부분 확장한다. 실제 배포·로그인 검증은 별도다.
 
 ## Context
 
@@ -12,6 +12,11 @@ OIDC authorize 요청이 ALB 측 HTML 403으로 거부된다. 같은 요청의 r
 `lib/dev/waf.ts`의 기존 예외는 CLI loopback이며, `config/dev/runtime.yaml`의 웹 콜백 목록에도
 localhost가 없다. CORS allowedOrigins 등록만으로 redirect 허용 조건을 충족하지 못한다.
 
+2026-11-04 후속 재현: 비밀 없는 동일 합성 코드의 token POST에서 dev HTTPS 콜백은 JSON 401,
+localhost 콜백은 HTML 403이었다. dev BFF도 이를 403으로 전달했다. 기존 변경은 authorize만
+처리했고 token 본문에는 CLI 예외만 있어 웹 토큰 교환 조건을 보완한다. 실제 종료 규칙은
+로그로 확정하지 않았으며 배포 후 재검증한다.
+
 ## Decision
 
 1. dev runtime의 `userAuth.allowedRedirectUris`에 정확한 `http://localhost:3000/auth/callback`을 추가한다.
@@ -19,7 +24,11 @@ localhost가 없다. CORS allowedOrigins 등록만으로 redirect 허용 조건�
 3. 정확한 authorize GET, 필수 다섯 항목과 선택 login_hint, PKCE S256, 길이·중복·인코딩 검사를 공유한다.
    다른 port, scheme, host, path, userinfo, query, fragment는 로컬 웹 예외가 아니다.
 4. 다른 query·body·header·URI 탐지, geo/IP/rate 차단과 로그 보호를 유지한다. 전체 Allow는 추가하지 않는다.
-5. CLI token body 예외에는 웹 주소를 추가하지 않는다. Cognito 자체 callback은 기존 dev API 주소를 유지한다.
+5. 정확한 POST `/api/v1/auth/token`과 위 고정 웹 콜백의 조합에만 ADR 0045의 두 Body label 예외를 추가한다.
+   기존 CLI 경로는 기존 loopback 콜백만 허용한다. 경로와 콜백을 교차 적용하지 않는다.
+   세 필수 문자열 필드·원문 JSON 전체·1KB·code/PKCE 형식·content type·oversize 검사를 공유한다.
+   추가/중복/누락 필드·escape·잘린 JSON은 예외가 아니다. 다른 Body label은 계속 차단한다.
+6. Cognito 자체 callback은 기존 dev API 주소를 유지한다.
 
 ## Alternatives Considered
 

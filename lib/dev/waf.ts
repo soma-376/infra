@@ -72,7 +72,7 @@ const OIDC_QUERY_LABELS = [
   `${CONTENT_RULES.common.prefix}GenericRFI_QueryArguments`,
 ] as const;
 
-const CLI_TOKEN_BODY_LABELS = [
+const TOKEN_BODY_LABELS = [
   `${CONTENT_RULES.common.prefix}EC2MetaDataSSRF_Body`,
   `${CONTENT_RULES.common.prefix}GenericRFI_Body`,
 ] as const;
@@ -271,8 +271,8 @@ function buildRules(): CfnWebACL.RuleProperty[] {
       and([app, not(otlp), or([
         ...Object.values(CONTENT_RULES).flatMap(group => group.body
           .map(([, suffix]) => `${group.prefix}${suffix}`))
-          .filter(key => !CLI_TOKEN_BODY_LABELS.some(exception => exception === key)).map(label),
-        and([or(CLI_TOKEN_BODY_LABELS.map(label)), not(validCliTokenBody())]),
+          .filter(key => !TOKEN_BODY_LABELS.some(exception => exception === key)).map(label),
+        and([or(TOKEN_BODY_LABELS.map(label)), not(validTokenBody())]),
       ])]),
       { block: {} },
     ),
@@ -304,11 +304,11 @@ function buildRules(): CfnWebACL.RuleProperty[] {
 }
 
 /**
- * JSONBody 파서의 부분/관대한 파싱 대신 작은 원문 JSON 전체를 검사한다. (ADR-0045)
+ * JSONBody 파서의 부분/관대한 파싱 대신 작은 원문 JSON 전체를 검사한다. (ADR-0045·0054)
  * 정확히 세 항목 + 세 필수 key/value의 구조 경계를 함께 확인하므로 순서는 자유지만
  * 추가·누락·중복 키와 escaped key/value는 예외가 아니다. oversize는 양성 조건부터 닫는다.
  */
-function validCliTokenBody(): Statement {
+function validTokenBody(): Statement {
   const bodyField = { body: { oversizeHandling: 'NO_MATCH' } };
   const body = (regexString: string): Statement => ({ regexMatchStatement: {
     regexString, fieldToMatch: bodyField,
@@ -320,7 +320,11 @@ function validCliTokenBody(): Statement {
     `(?:\\{|,)${whitespace}"${key}"${whitespace}:${whitespace}"${value}"${whitespace}(?:,|\\})`,
   );
   return and([
-    path('/api/v1/auth/cli/token'),
+    // 경로와 콜백을 묶어 웹/CLI 예외가 서로 확장되지 않도록 한다.
+    or([
+      and([path('/api/v1/auth/cli/token'), field('redirect_uri', CLI_LOOPBACK_REDIRECT)]),
+      and([path('/api/v1/auth/token'), field('redirect_uri', 'http://localhost:3000/auth/callback')]),
+    ]),
     { byteMatchStatement: { fieldToMatch: { method: {} }, positionalConstraint: 'EXACTLY',
       searchString: 'POST', textTransformations: [{ priority: 0, type: 'NONE' }] } },
     { regexMatchStatement: {
@@ -334,7 +338,6 @@ function validCliTokenBody(): Statement {
     body(`\\A${whitespace}\\{${whitespace}${pair}(?:,${whitespace}${pair}){2}\\}${whitespace}\\z`),
     field('code', 'uac_[A-Za-z0-9_-]{43}'),
     field('code_verifier', '[A-Za-z0-9._~-]{43,128}'),
-    field('redirect_uri', CLI_LOOPBACK_REDIRECT),
     field('redirect_uri', '[A-Za-z0-9.:/\\[\\]]{1,256}'),
   ]);
 }
