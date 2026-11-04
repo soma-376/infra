@@ -17,7 +17,7 @@ prod는 BFF 단일 프로세스 desired=1/min=0/max=100을 유지한다. dev는 
 기존 CDK 전용 테스트 규칙은 그대로 유지하고, 새 Terraform은 fmt·validate·mock test로 검증한다.
 기존 CDK 리소스를 Terraform에 import하거나 같은 리소스를 두 도구가 수정하지 않는다.
 실제 apply는 리뷰·머지 후 보호된 CI에서 수행한다. 최초 bootstrap CI 역할 준비는 관리자 작업이다. 이후 bootstrap 변경은 ADR-0050에 따라 develop에서 전용 plan/apply 역할과 Environment 승인을 거친다.
-다음 미사용 ADR은 **0051**다.
+다음 미사용 ADR은 **0056**이다. ADR 0054는 로컬 OIDC callback PR에서 예약했고 0055는 공유 Valkey다.
 
 [ADR-0044](docs/adr/0044-dev-waf-cli-oidc-loopback-query-exception.md)에 따라 정확한 CLI OIDC authorize GET과
 검증된 loopback query에만 SSRF·RFI 두 label의 후속 Block을 제외한다.
@@ -212,11 +212,19 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 - 스킬이 보이지 않으면 형제 `../agent-skills` 클론 여부를 확인하고, 없으면 사용자에게 클론을 안내한다.
 - **사용자의 명시 요청 없이 `git push` 하지 않는다.**
 
+생성된 dev values는 비공개 `soma-376/infra-generated-values`의 `dev/generated/`에 동기화 사본으로 둔다.
+PROJ-277은 Argo 인계 전 수동 공급·사용 절차다. 입력·생성기·chart는 infra가 소유하며, 수동 단계에서는
+infra 운영자가 생성·검증·공급·배포를 담당한다. 사본 직접 편집·역방향 동기화는 하지 않는다.
+인계 후에는 채택된 후속 GitOps 공급 계약을 따르며 배포 선택·공통 상태 metadata를 수동 복사로 덮어쓰지 않는다.
+[공급 계약(변경 중)](https://github.com/soma-376/docs/blob/docs/PROJ-276-generated-values-sync-contract/contracts/generated-values-sync.md)과
+[수동 배포 런북](docs/runbooks/dev-eks-manual-deployment.md#2-2-1-generated-values의-private-사본-동기화)을 따른다.
+사본은 `dev/infra-commit.txt`의 infra revision과 함께 사용한다. 사본 게시를 Argo CD 연결·배포 완료로 해석하지 않는다.
+
 **이 장은 1장 이하의 규칙을 대체하지 않는다.** 코드를 만지기 전에 3장(불변 규칙)과 5장(남은 작업)을 읽는 것은 그대로다.
 
 **ADR 우선 원칙은 이 레포의 기존 규칙과 같다** — 1장의 "코드와 ADR이 어긋나면 ADR이 기준이다"가
 전 레포 공통 규칙이며, 크로스레포 결정만 `../docs/adr/`가 소유한다. 스코프 판정은 `adr-new` 스킬이 안내한다.
-단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0050`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
+단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0056`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
 기존 병행 브랜치의 ADR `0028`·`0029`·`0030`은 번호가 겹치므로 파일명과 링크를 보존한다.
 프론트엔드 Terraform 절은 프론트엔드 ADR을, dashboard·EKS·기존 CDK 절은 해당 백엔드 ADR을 가리킨다.
 인용할 때는 번호와 함께 범위·제목 또는 파일 링크를 사용하며, 전체 목록은 [ADR 인덱스](docs/adr/README.md)를 따른다.
