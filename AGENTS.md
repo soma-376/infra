@@ -87,6 +87,17 @@ Environment 승인 → 같은 SHA·Assembly 배포 순서이고, 최신 SHA·bas
 dev 네 스택의 후속 업데이트만 대상으로 하며 최초 설치·ECS 철거·Helm·prod·frontend는 별도 절차다.
 GitHub 보호 설정과 실제 OIDC·승인·배포 검증은 로컬 구현의 완료 증거에 포함하지 않는다.
 
+## PROJ-279 generated values 자동 공급
+
+기본 스위치 `GENERATED_VALUES_SYNC_ENABLED`는 비활성이다. IAM/RBAC·GitHub App 준비 뒤 새 plan에서
+활성화한다. 승인 plan에 backend 성공 run/attempt·네 ARM64 digest와 활성 여부를 고정하고 CDK 성공 후
+13개 YAML과 infra SHA만 private main에 게시한다. backend 로그는 정식 GitOps manifest가 아니다.
+`EksValuesReaderRoleArn`은 기존 deploy 역할만 assume하며, base RBAC는 Strimzi main Secret 5개의 get만
+허용한다. 수집기는 metadata-only 응답을 강제한다. RBAC가 응답 필드 권한을 제공하는 것은 아니다.
+사본 재시도는 원본 plan/deploy 성공·artifact/receipt·현재 baseline을 검증하며 CDK attempt 검증은 유지한다.
+원문 조회·kubeconfig·Secret data는 게시하지 않는다. 실제 최초 게시·OIDC/TLS/RBAC 검증은 별도 운영 수락이며
+[활성화·재시도 런북](docs/runbooks/dev-cloudformation-cicd.md#7-proj-279-generated-values-자동-공급)을 따른다.
+
 ## PROJ-267 dev SES 초대 메일
 
 [ADR-0043](docs/adr/0043-dev-invitation-mail-via-ses-and-csi.md)에 따라 관리 응답·메일 키 원본 두 개를
@@ -234,8 +245,8 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 - **사용자의 명시 요청 없이 `git push` 하지 않는다.**
 
 생성된 dev values는 비공개 `soma-376/infra-generated-values`의 `dev/generated/`에 동기화 사본으로 둔다.
-PROJ-277은 Argo 인계 전 수동 공급·사용 절차다. 입력·생성기·chart는 infra가 소유하며, 수동 단계에서는
-infra 운영자가 생성·검증·공급·배포를 담당한다. 사본 직접 편집·역방향 동기화는 하지 않는다.
+PROJ-279는 Argo 인계 전 CD 자동 사본 공급을 구현한다. 최초 실제 사본도 CD가 생성·검증·게시하고,
+운영자는 고정 사본과 infra SHA를 선택해 수동 Helm을 적용한다. 입력·생성기·chart는 infra가 소유한다. 사본 직접 편집·역방향 동기화는 하지 않는다.
 인계 후에는 backend가 네 앱 이미지 갱신·롤백, infra가 설정 생성·게시를 맡고 두 게시기가 공통 잠금으로 직렬화한다.
 배포 선택·공통 상태 metadata를 수동 복사로 덮어쓰지 않는다.
 [공급 계약(변경 중)](https://github.com/soma-376/docs/blob/docs/PROJ-281-dev-gitops-contract/contracts/generated-values-sync.md)과

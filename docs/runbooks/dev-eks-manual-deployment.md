@@ -272,104 +272,30 @@ SSM Agent 기동, public IPv4·Internet Gateway 경로, 443 아웃바운드를 �
 
 ### 2-2-1. generated values의 private 사본 동기화
 
-이 절은 **Argo 인계 전 수동 사본 공급**에만 적용한다. 인계 후 이미지·설정 게시와 복구는 채택된 후속
-GitOps 공급 계약을 따른다. `dev/bundle.json`·`dev/desired.yaml`·`dev/applications/`·`dev/delivery-state.json`이
-있는 저장소는 아래 허용목록 검사에서 거부한다. 검사를 우회하거나 해당 metadata를 지우고 복사하지 않는다.
+PROJ-279는 **Argo 인계 전 CD 자동 사본 공급**을 구현한다. 최초 실제 사본부터 성공한
+`Dev CDK Deploy`의 `publish` job이 생성·검증·게시한다. 운영자가 로컬에서 실제 values를 생성해
+private main에 수동 커밋하는 절차는 사용하지 않는다. 최초 설치·권한 준비는 아래와 분리한다.
 
-[공급 계약(변경 중)](https://github.com/soma-376/docs/blob/docs/PROJ-281-dev-gitops-contract/contracts/generated-values-sync.md)에 따라
-[infra-generated-values](https://github.com/soma-376/infra-generated-values)의 `dev/generated/`에는 생성된
-values 사본을 둔다. 입력·생성기·chart는 infra가 소유한다. 이 수동 단계의 공급·배포는 infra 운영자가
-담당하며, 값을 바꾸려면 원본을 수정하고 같은 입력 묶음으로 재생성한다. 사본 직접 편집·역방향 동기화는 하지 않는다.
+1. [CD 활성화 절차](dev-cloudformation-cicd.md#7-proj-279-generated-values-자동-공급)에 따라 reader IAM과
+   base chart RBAC, GitHub App, 보호된 Environment를 준비한다. 기존 수동 Helm 설치는 유지한다.
+2. `GENERATED_VALUES_SYNC_ENABLED=true`인 새 develop plan을 만들고 고정 backend run/attempt·SHA·
+   네 ARM64 digest를 검토한다. CDK 배포 뒤 runner가 현재 Outputs·Strimzi main metadata를 조회한다.
+3. 생성기·추적 runtime 입력은 승인한 infra SHA로 고정한다. 전체 YAML 13개를 실제 Helm으로 렌더한 뒤
+   `dev/infra-commit.txt`와 함께 private main에 한 commit으로 게시한다. 같은 내용은 no-op이다.
+4. `publish` Summary의 private commit SHA와 `dev/infra-commit.txt`의 infra SHA를 함께 선택해 §2-2-2를 따른다.
+   사본 게시 성공은 Pod 변경·수집 성공·Argo 인수 완료의 증거가 아니다.
 
-현재 Strimzi의 생성은 [Strimzi 런북](dev-strimzi-kafka.md)의 profile·output·인증서 metadata 절차를 따른다.
-MSK bootstrap/list-nodes 입력은 사용하지 않는다. 생성 결과·이미지 digest·고정 Secret 버전을 검토한 뒤, infra 루트의 **Bash**에서
-아래 블록을 실행한다. `$VALUES_REPO`는 접근 권한을 가진 private 레포의 깨끗한 로컬 checkout이다.
-private checkout을 만들기 전에 `umask 077`을 적용한다. 블록은 Git 루트를 확인한 즉시 checkout 디렉터리를
-`0700`으로 제한하므로 뒤의 SHA·파일 검증이 실패해도 다른 로컬 사용자의 디렉터리 접근은 차단한다.
-`$RUN_DIR/infra-commit.txt`를 기록한 후 입력·생성기·chart를 수정했다면 기록만 고치지 말고 해당 revision으로
-처음부터 다시 생성한다. 생성 디렉터리를 실행 간 재사용하지 않는다. SHA는 생성기·chart revision을 식별할 뿐,
-live AWS 조회와 외부 입력까지 재현한다는 증거는 아니다.
+private 저장소의 허용 파일은 루트 `README.md`·`AGENTS.md`, `dev/infra-commit.txt`, 그리고
+`dev/generated/`의 `base.yaml`, `lbc.yaml`, `runtime.yaml`, `enrollment-api.yaml`, `telemetry-ingest.yaml`,
+`telemetry-gateway.yaml`, `telemetry-kafka-admin.yaml`, `dashboard-api.yaml`, `clickhouse.yaml`,
+`fluent-bit.yaml`, `ascp.yaml`, `observability.yaml`, `kafka-strimzi.yaml`이다. 최초 문서만 있는 저장소 또는
+완전한 14개 사본만 허용하며 부분 묶음·추가 파일·symlink는 게시를 중단한다.
 
-<!-- generated-values-sync:start -->
-```bash
-(
-set -euo pipefail
-: "${RUN_DIR:?같은 실행에서 생성한 결과 디렉터리 절대 경로}"
-: "${VALUES_REPO:?infra-generated-values checkout 절대 경로}"
-test "$(git -C "$VALUES_REPO" rev-parse --show-toplevel)" = "$(cd "$VALUES_REPO" && pwd -P)"
-chmod 700 "$VALUES_REPO"
-GENERATED_VALUES_FILES=(
-  base.yaml lbc.yaml runtime.yaml enrollment-api.yaml telemetry-ingest.yaml
-  telemetry-gateway.yaml telemetry-kafka-admin.yaml dashboard-api.yaml
-  clickhouse.yaml fluent-bit.yaml ascp.yaml observability.yaml kafka-strimzi.yaml
-)
-test -f "$RUN_DIR/infra-commit.txt"
-test ! -L "$RUN_DIR/infra-commit.txt"
-test "$(cat "$RUN_DIR/infra-commit.txt")" = "$(git rev-parse HEAD)"
-test -z "$(git status --porcelain --untracked-files=all -- config scripts lib bin helm package.json package-lock.json cdk.json)"
-test -z "$(git -C "$VALUES_REPO" status --porcelain --untracked-files=all)"
-test -d "$RUN_DIR/generated"
-test ! -L "$RUN_DIR/generated"
-test ! -L "$VALUES_REPO/dev"
-test ! -L "$VALUES_REPO/dev/generated"
-test ! -L "$VALUES_REPO/dev/infra-commit.txt"
-
-# 누락·빈 파일·symlink와 허용목록 밖 파일을 복사 전에 거부한다.
-for file in "${GENERATED_VALUES_FILES[@]}"; do
-  test -s "$RUN_DIR/generated/$file"
-  test -f "$RUN_DIR/generated/$file"
-  test ! -L "$RUN_DIR/generated/$file"
-done
-shopt -s nullglob dotglob
-for entry in "$VALUES_REPO/dev"/*; do
-  case "${entry##*/}" in
-    generated|infra-commit.txt) ;;
-    *) printf '허용하지 않은 dev 항목: %s\n' "${entry##*/}" >&2; exit 1 ;;
-  esac
-done
-for directory in "$RUN_DIR/generated" "$VALUES_REPO/dev/generated"; do
-  for entry in "$directory"/*; do
-    name=${entry##*/}
-    case " ${GENERATED_VALUES_FILES[*]} " in
-      *" $name "*)
-        test -f "$entry"
-        test ! -L "$entry"
-        ;;
-      *) printf '허용하지 않은 generated 항목: %s\n' "$name" >&2; exit 1 ;;
-    esac
-  done
-done
-if test -e "$VALUES_REPO/dev/infra-commit.txt"; then
-  test -f "$VALUES_REPO/dev/infra-commit.txt"
-fi
-
-umask 077
-mkdir -p "$VALUES_REPO/dev/generated"
-chmod 700 "$VALUES_REPO" "$VALUES_REPO/dev" "$VALUES_REPO/dev/generated"
-SYNC_PATHS=(dev/infra-commit.txt)
-for file in "${GENERATED_VALUES_FILES[@]}"; do
-  install -m 600 "$RUN_DIR/generated/$file" "$VALUES_REPO/dev/generated/$file"
-  cmp -s "$RUN_DIR/generated/$file" "$VALUES_REPO/dev/generated/$file"
-  SYNC_PATHS+=("dev/generated/$file")
-done
-install -m 600 "$RUN_DIR/infra-commit.txt" "$VALUES_REPO/dev/infra-commit.txt"
-cmp -s "$RUN_DIR/infra-commit.txt" "$VALUES_REPO/dev/infra-commit.txt"
-git -C "$VALUES_REPO" add -- "${SYNC_PATHS[@]}"
-git -C "$VALUES_REPO" diff --cached --check
-git -C "$VALUES_REPO" diff --cached --stat
-)
-```
-<!-- generated-values-sync:end -->
-
-실패하면 commit·push하지 않는다. 복사 도중 실패한 경우 staged/unstaged 사본을 확인하고 같은 검증된
-입력 묶음으로 다시 준비한다. 이전 사본과 새 사본을 부분 commit하지 않는다. 생성 디렉터리에 새로운 파일이
-추가되면 허용목록을 임의로 넓히지 말고 허브 계약과 생성기 변경을 먼저 리뷰한다.
-
-운영자는 private checkout의 staged diff에서 YAML 13개와 `dev/infra-commit.txt` 이외의 변경이 없고
-Secret 원문이 없는지 검토한다. AWS 조회 JSON·kubeconfig·로그·이미지 조회 산출물·검증 증거는 private 레포에도
-올리지 않는다. `git add .`나 `$RUN_DIR` 전체 복사는 사용하지 않는다. 검토된 전체 묶음은 해당 운영 티켓의
-커밋 한 개로 게시한다. private 레포의 기본 브랜치는 `main`이며 commit·push는 운영자가 명시적으로 수행한다.
-실제 values 최초 게시와 Argo CD 인증·연결·Application·자동 sync 설정은 이 문서 변경의 완료 범위가 아니다.
+생성·게시 실패 시 기존 사본은 유지한다. 원본 plan/deploy 성공 증거와 baseline이 유효하면 `publish`만
+재실행한다. 증거 만료·baseline 변경은 새 plan이 필요하며 로컬 수동 사본으로 우회하지 않는다.
+`dev/bundle.json`·`dev/desired.yaml`·`dev/applications/`·`dev/delivery-state.json` 등 GitOps 인계 표식이
+있으면 이 writer는 중단한다. 표식을 삭제하거나 검사를 우회하지 않는다. 인계 후 공급은
+[허브 계약](https://github.com/soma-376/docs/blob/docs/PROJ-281-dev-gitops-contract/contracts/generated-values-sync.md)을 따른다.
 
 ### 2-2-2. private 사본을 기존 수동 배포에 사용
 

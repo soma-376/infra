@@ -155,16 +155,92 @@ function makeHarness(event = 'push') {
     }
     throw new Error(`테스트가 허용하지 않은 외부 호출: ${executable} ${args.join(' ')}`);
   };
-  const pipeline = () => createPipeline({ root, directory, env, runner });
+  const generatedValues: Json = { enabled: false };
+  const pipeline = () => createPipeline({ root, directory, env, runner, generatedValues,
+    validateImages: (value: Json) => { if (value?.fixture !== 'approved-four-images') throw new Error('이미지 fixture 불일치'); } });
   const run = (operation: string) => { activeOperation = operation; return pipeline().execute(operation); };
   const approve = () => {
     env.PLAN_ARTIFACT_ID = '987'; env.DOWNLOADED_ARTIFACT_ID = '987';
     env.PLAN_SHA256 = sha256(fs.readFileSync(path.join(directory, 'plan.json')));
   };
   const plan = () => { run('plan'); approve(); return read(path.join(directory, 'plan.json')); };
-  return { directory, env, state, calls, runner, run, approve, plan,
+  return { directory, env, state, calls, runner, run, approve, plan, pipeline,
+    enable: () => { env.GENERATED_VALUES_SYNC_ENABLED = 'true'; generatedValues.enabled = true; generatedValues.backend = { fixture: 'approved-four-images' }; },
     intercept: (handler: typeof intercept) => { intercept = handler; } };
 }
+
+describe('generated values 승인과 publisher 전용 재시도', () => {
+  function receipt(h: ReturnType<typeof makeHarness>) {
+    const file = path.join(h.directory, 'deployment-receipt.json');
+    h.env.RECEIPT_ARTIFACT_ID = '988';
+    h.env.RECEIPT_SHA256 = sha256(fs.readFileSync(file));
+    return read(file);
+  }
+  test('비활성 plan은 backend 없이 완료하며 승인 후 변수만 바꿔도 게시하지 않는다', () => {
+    const h = makeHarness(); const plan = h.plan();
+    expect(plan.generatedValues).toEqual({ enabled: false });
+    h.env.GENERATED_VALUES_SYNC_ENABLED = 'true';
+    h.run('deploy');
+    expect(fs.existsSync(path.join(h.directory, 'deployment-receipt.json'))).toBe(false);
+    expect(() => h.run('verify-publish')).toThrow(/receipt/);
+  });
+  test('활성 여부와 네 이미지 입력을 승인 plan에 고정하고 성공 deploy만 receipt를 쓴다', () => {
+    const h = makeHarness(); h.enable(); const plan = h.plan();
+    expect(plan.generatedValues).toEqual({ enabled: true, backend: { fixture: 'approved-four-images' } });
+    h.run('deploy');
+    const proof = receipt(h);
+    expect(proof).toMatchObject({ sourceSha: sha, runId: '12345', runAttempt: '1', planArtifactId: '987', planSha256: h.env.PLAN_SHA256 });
+    expect(proof.baselineSha256).toBe(sha256(canonical(h.pipeline().captureBaseline(context(h.env)))));
+    expect(JSON.stringify(proof)).not.toMatch(/Outputs|Parameters|database\.example/);
+  });
+  test('원본 deploy 성공 뒤 publisher만 새 attempt에서 재시도하고 최신 develop 이동을 허용한다', () => {
+    const h = makeHarness(); h.enable(); h.plan(); h.run('deploy'); const proof = receipt(h);
+    h.env.GITHUB_RUN_ATTEMPT = '2'; h.state.remote = otherSha; h.state.identityRole = 'deploy';
+    const before = h.calls.length;
+    expect(() => h.run('verify-publish')).not.toThrow();
+    h.pipeline().checkPublicationBaseline(context(h.env), proof);
+    expect(h.calls.slice(before).some(call => call.args[0] === 'ls-remote')).toBe(false);
+    expect(() => h.run('deploy')).toThrow(/runAttempt/);
+  });
+  test.each(['sourceSha', 'runId', 'runAttempt', 'planArtifactId', 'planSha256', 'baselineSha256'])('receipt %s 변조를 거부한다', key => {
+    const h = makeHarness(); h.enable(); h.plan(); h.run('deploy'); const proof = receipt(h);
+    proof[key] = 'invalid'; write(path.join(h.directory, 'deployment-receipt.json'), proof);
+    expect(() => h.run('verify-publish')).toThrow(/receipt hash/);
+  });
+  test('배포 후 baseline이 달라지면 publisher를 차단한다', () => {
+    const h = makeHarness(); h.enable(); h.plan(); h.run('deploy'); const proof = receipt(h);
+    h.state.identityRole = 'deploy'; h.state.stacks.DevDataStack.LastUpdatedTime = '2026-11-01T00:00:00Z';
+    expect(() => h.pipeline().checkPublicationBaseline(context(h.env), proof)).toThrow(/배포 후 baseline 변경/);
+  });
+  test('원본 plan·artifact 변조와 다른 checkout, 미래 receipt attempt를 거부한다', () => {
+    const h = makeHarness(); h.enable(); h.plan(); h.run('deploy'); const proof = receipt(h);
+    h.state.head = otherSha;
+    expect(() => h.run('verify-publish')).toThrow(/checkout SHA/);
+    h.state.head = sha;
+    proof.runAttempt = '3'; write(path.join(h.directory, 'deployment-receipt.json'), proof); receipt(h);
+    expect(() => h.run('verify-publish')).toThrow(/원본 attempt/);
+    proof.runAttempt = '1'; write(path.join(h.directory, 'deployment-receipt.json'), proof); receipt(h);
+    fs.appendFileSync(path.join(h.directory, 'payload/diff.txt'), 'changed');
+    expect(() => h.run('verify-publish')).toThrow(/inventory/);
+  });
+  test('실패한 deploy에는 재시도 receipt를 만들지 않는다', () => {
+    const h = makeHarness(); h.enable(); h.plan(); h.state.deployError = true;
+    expect(() => h.run('deploy')).toThrow();
+    expect(fs.existsSync(path.join(h.directory, 'deployment-receipt.json'))).toBe(false);
+  });
+  test('CDK 실행 중 외부에서 다른 템플릿을 적용하면 receipt를 만들지 않는다', () => {
+    const h = makeHarness(); h.enable(); h.plan();
+    h.intercept(call => {
+      if (call.args[1] === 'deploy') {
+        h.state.templates.DevNetworkStack.Description = 'unapproved external change';
+        return { status: 0, stdout: 'completed' };
+      }
+      return undefined;
+    });
+    expect(() => h.run('deploy')).toThrow(/배포 후 승인 template/);
+    expect(fs.existsSync(path.join(h.directory, 'deployment-receipt.json'))).toBe(false);
+  });
+});
 
 describe('dev Cloud Assembly 실행 경계', () => {
   test('실제 네 dev 스택과 file/zip asset을 의존 순서로 허용한다', () => {
