@@ -2,7 +2,8 @@ import {
   BlockDeviceVolume, EbsDeviceVolumeType, Instance,
   InstanceType, ISecurityGroup, IVpc, MachineImage,
 } from 'aws-cdk-lib/aws-ec2';
-import { AccountPrincipal, ManagedPolicy, PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
+import { AccountPrincipal, ArnPrincipal, ManagedPolicy, PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
+import { DELIVERY_CONTRACT } from '../common/delivery-contract';
 import { CfnDocument } from 'aws-cdk-lib/aws-ssm';
 import { ArnFormat, Stack } from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
@@ -23,6 +24,7 @@ export class DevDbRelay extends Construct {
   public readonly operatorRole: Role;
   public readonly postgresSessionDocument: CfnDocument;
   public readonly clickHouseSessionDocument: CfnDocument;
+  public readonly deliveryReaderRole: Role;
 
   constructor(scope: Construct, id: string, props: DevDbRelayProps) {
     super(scope, id);
@@ -108,5 +110,22 @@ export class DevDbRelay extends Construct {
         'ssm:resourceTag/aws:ssmmessages:target-id': this.instance.instanceId,
       } },
     }));
+    this.deliveryReaderRole = new Role(this, 'DeliveryReaderRole', {
+      roleName: DELIVERY_CONTRACT.databaseReaderRoleName,
+      description: 'Dev delivery read-only database tunnel entrypoint',
+      assumedBy: new ArnPrincipal(stack.formatArn({ service: 'iam', region: '', resource: 'role',
+        resourceName: DELIVERY_CONTRACT.promotionRoleName, arnFormat: ArnFormat.SLASH_RESOURCE_NAME })),
+    });
+    this.deliveryReaderRole.addToPolicy(new PolicyStatement({ actions: ['ssm:StartSession'],
+      resources: [arn('ec2', 'instance', this.instance.instanceId)],
+      conditions: { BoolIfExists: { 'ssm:SessionDocumentAccessCheck': 'true' } } }));
+    this.deliveryReaderRole.addToPolicy(new PolicyStatement({ actions: ['ssm:StartSession'],
+      resources: [this.postgresSessionDocument, this.clickHouseSessionDocument].map(document => arn('ssm', 'document', document.ref)) }));
+    this.deliveryReaderRole.addToPolicy(new PolicyStatement({ actions: ['ssmmessages:OpenDataChannel', 'ssm:ResumeSession', 'ssm:TerminateSession'],
+      resources: [arn('ssm', 'session', '${aws:userid}-*')] }));
+    // DB 읽기 전용 자격만 담는 별도 원본이다. PIT·OIDC probe 자격과 앱 DB owner는 읽지 않는다.
+    this.deliveryReaderRole.addToPolicy(new PolicyStatement({ actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+      resources: [stack.formatArn({ service: 'secretsmanager', resource: 'secret',
+        resourceName: 'pulsemetry/dev/deployment-verifier-db-reader-??????', arnFormat: ArnFormat.COLON_RESOURCE_NAME })] }));
   }
 }

@@ -51,3 +51,17 @@ tracing:
 # 기존 앱 이미지와의 호환을 위해 관측 이미지 배포 때만 활성화한다.
 metrics:
   enabled: false
+
+# PROJ-310 인계·별도 verifier 준비 후 bootstrap만 활성화한다. 앱 Pod template에는 nonce를 넣지 않는다.
+deliveryVerification:
+  enabled: false
+  image:
+    repository: ""
+    digest: ""
+  operationNonce: ""
+  infraCommit: ""
+  bundleManifestSha256: ""
+  imageDigest: ""
+  contractSha256: ""
+  contract: ""
+  config: {}

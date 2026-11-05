@@ -1,0 +1,9 @@
+**
+!scripts/
+!scripts/deployment-verifier/
+!scripts/deployment-verifier/*.py
+scripts/deployment-verifier/test_*.py
+scripts/deployment-verifier/__pycache__
+scripts/deployment-verifier/**/*.pyc
+!scripts/deployment-verifier/vendor/
+!scripts/deployment-verifier/vendor/*.whl

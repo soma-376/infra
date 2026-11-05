@@ -1,0 +1,84 @@
+{{- $v := .Values.deliveryVerification -}}
+{{- if $v.enabled -}}
+{{- if ne (.Values.environment | default "dev") "dev" -}}{{- fail "deliveryVerification은 dev 전용이다" -}}{{- end -}}
+{{- if not (regexMatch "^[a-z0-9][a-z0-9-]{15,62}$" $v.operationNonce) -}}{{- fail "검증 operationNonce가 필요하다" -}}{{- end -}}
+{{- if not (regexMatch "^[a-f0-9]{40}$" $v.infraCommit) -}}{{- fail "검증 infraCommit은 고정 SHA여야 한다" -}}{{- end -}}
+{{- range $hash := list $v.bundleManifestSha256 $v.contractSha256 -}}
+{{- if not (regexMatch "^[a-f0-9]{64}$" $hash) -}}{{- fail "검증 hash는 SHA256이어야 한다" -}}{{- end -}}
+{{- end -}}
+{{- if ne $v.contractSha256 (sha256sum $v.contract) -}}{{- fail "검증 계약 원본의 hash가 다르다" -}}{{- end -}}
+{{- if ne $v.imageDigest .Values.image.digest -}}{{- fail "검증 후보 imageDigest가 workload와 다르다" -}}{{- end -}}
+{{- if not (regexMatch "^sha256:[a-f0-9]{64}$" $v.image.digest) -}}{{- fail "verifier image는 고정 digest가 필요하다" -}}{{- end -}}
+{{- $_ := required "verifier repository가 필요하다" $v.image.repository -}}
+{{- $_ := required "verifier config가 필요하다" $v.config -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-verification
+  namespace: {{ .Release.Namespace }}
+data:
+  contract.json: {{ $v.contract | quote }}
+  config.json: {{ $v.config | toJson | quote }}
+  binding.json: {{ dict "schemaVersion" 1 "operationNonce" $v.operationNonce "stage" .Values.workload "infraCommit" $v.infraCommit "bundleManifestSha256" $v.bundleManifestSha256 "imageDigest" $v.imageDigest "contractSha256" $v.contractSha256 | toJson | quote }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-verify
+  namespace: {{ .Release.Namespace }}
+  labels:
+    pulsemetry.dev/operation-nonce: {{ $v.operationNonce | quote }}
+    pulsemetry.dev/verification-stage: {{ .Values.workload | quote }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        pulsemetry.dev/operation-nonce: {{ $v.operationNonce | quote }}
+        pulsemetry.dev/verification-stage: {{ .Values.workload | quote }}
+    spec:
+      serviceAccountName: deployment-verifier
+      automountServiceAccountToken: true
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/arch: arm64
+        karpenter.sh/nodepool: pulsemetry-dev-apps
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: verifier
+          image: {{ printf "%s@%s" $v.image.repository $v.image.digest | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["python3", "/opt/verifier/verify.py"]
+          args: ["--input-dir", "/verification", "--probe-file", "/probe/probe.json", "--termination-file", "/dev/termination-log"]
+          terminationMessagePolicy: File
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: inputs, mountPath: /verification, readOnly: true}
+            - {name: probe, mountPath: /probe, readOnly: true}
+            - {name: scratch, mountPath: /tmp}
+      volumes:
+        - name: inputs
+          configMap: {name: {{ .Release.Name }}-verification}
+        - name: probe
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes: {secretProviderClass: deployment-verifier}
+        - name: scratch
+          emptyDir: {medium: Memory, sizeLimit: 8Mi}
+{{- end -}}

@@ -680,6 +680,9 @@
         },
         "environment": {
           "const": "dev"
+        },
+        "deliveryVerification": {
+          "$ref": "#/definitions/deliveryVerification"
         }
       },
       "allOf": [
@@ -1573,6 +1576,20 @@
               ]
             }
           }
+        },
+        "deliveryVerification": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/deliveryVerification"
+            },
+            {
+              "properties": {
+                "enabled": {
+                  "const": false
+                }
+              }
+            }
+          ]
         }
       },
       "allOf": [
@@ -2043,5 +2060,193 @@
         }
       ]
     }
-  ]
+  ],
+  "definitions": {
+    "deliveryVerification": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": {
+              "type": "string"
+            },
+            "digest": {
+              "type": "string"
+            }
+          },
+          "required": []
+        },
+        "operationNonce": {
+          "type": "string"
+        },
+        "infraCommit": {
+          "type": "string"
+        },
+        "bundleManifestSha256": {
+          "type": "string"
+        },
+        "imageDigest": {
+          "type": "string"
+        },
+        "contractSha256": {
+          "type": "string"
+        },
+        "contract": {
+          "type": "string",
+          "maxLength": 262143
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1
+            },
+            "postgres": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "host": {
+                  "type": "string"
+                },
+                "port": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65535
+                },
+                "database": {
+                  "const": "controlplane"
+                },
+                "sslmode": {
+                  "enum": [
+                    "require",
+                    "verify-full"
+                  ]
+                },
+                "sslrootcert": {
+                  "type": "string"
+                }
+              },
+              "required": []
+            },
+            "clickhouse": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "origin": {
+                  "type": "string"
+                },
+                "database": {
+                  "const": "default"
+                }
+              },
+              "required": []
+            },
+            "enrollmentOrigin": {
+              "type": "string"
+            },
+            "gatewayOrigin": {
+              "type": "string"
+            },
+            "dashboardOrigin": {
+              "type": "string"
+            },
+            "oidc": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "idpOrigin": {
+                  "type": "string"
+                },
+                "redirectUri": {
+                  "type": "string"
+                }
+              },
+              "required": []
+            },
+            "prometheus": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "namespace": {
+                  "const": "pulsemetry-observability"
+                },
+                "proxyName": {
+                  "type": "string"
+                },
+                "topic": {
+                  "const": "pulsemetry-dev-telemetry-ingress-main"
+                },
+                "consumerGroup": {
+                  "const": "pulsemetry-dev-telemetry-ingest-main"
+                },
+                "exporterJob": {
+                  "type": "string"
+                },
+                "collectionMaxSeconds": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 60
+                },
+                "scrapeIntervalSeconds": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 60
+                }
+              },
+              "required": []
+            },
+            "archive": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "bucket": {
+                  "type": "string"
+                },
+                "accountId": {
+                  "type": "string",
+                  "pattern": "^[0-9]{12}$"
+                }
+              },
+              "required": []
+            }
+          },
+          "required": []
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "enabled",
+              "image",
+              "operationNonce",
+              "infraCommit",
+              "bundleManifestSha256",
+              "imageDigest",
+              "contractSha256",
+              "contract",
+              "config"
+            ]
+          }
+        }
+      ]
+    }
+  }
 }

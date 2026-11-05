@@ -93,8 +93,8 @@ export function buildGithubOidcSubject(
  *
  * `docker buildx build --push` 가 실제로 호출하는 것만 담는다. `BatchGetImage` 는 이미지
  * manifest 를 push 하는 과정에서도 필요하므로 쓰기 액션들과 같은 ECR 레포 ARN 으로 좁힌다.
- * `GetDownloadUrlForLayer` 는 일부러 빠져 있다 - 워크플로우가
- * `--cache-from type=registry` 를 쓰기 시작할 때 추가할 알려진 스위치다.
+ * `GetDownloadUrlForLayer` 는 공통 push 집합에 넣지 않는다. dev backend의 실제 이미지 계약
+ * 검사에 필요한 pull 권한은 해당 역할의 네 저장소에만 별도로 추가한다.
  *
  * `Repository.grantPullPush()` 를 쓰지 않는 이유는 액션 목록이 CDK 버전에 따라 조용히
  * 바뀌는 암묵 계약이 되어, ADR 과 테스트에 "무엇을 허용했는지" 적을 수 없기 때문이다.

@@ -1,0 +1,7 @@
+[
+  "pulsemetry-dev-base", "pulsemetry-dev-cert-manager", "pulsemetry-dev-lbc", "pulsemetry-dev-csi",
+  "pulsemetry-dev-ascp", "pulsemetry-dev-fluent-bit", "pulsemetry-dev-runtime", "pulsemetry-dev-strimzi-operator",
+  "pulsemetry-dev-kafka", "pulsemetry-dev-clickhouse", "pulsemetry-dev-observability", "pulsemetry-dev-loki",
+  "pulsemetry-dev-tempo", "pulsemetry-dev-otel-platform", "pulsemetry-dev-enrollment-api", "pulsemetry-dev-telemetry-ingest",
+  "pulsemetry-dev-telemetry-gateway", "pulsemetry-dev-dashboard-api"
+]

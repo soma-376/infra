@@ -1,0 +1,10 @@
+# 실제 inventory·고정 Secret metadata를 검토한 bootstrap만 활성화한다.
+enabled: false
+applicationNames: []
+jobNames: []
+workloadNames: [enrollment-api, telemetry-ingest, telemetry-gateway, dashboard-api]
+prometheus:
+  namespace: pulsemetry-observability
+  proxyName: ""
+probeSecretArn: ""
+probeSecretVersionId: ""

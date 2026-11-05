@@ -128,6 +128,7 @@ export class DevNetworkStack extends Stack {
     const ch = this.eksClickhouseNodeSecurityGroup;
     const validation = this.eksValidationAlbSecurityGroup;
     const obs = this.eksObservabilityNodeSecurityGroup;
+    obs.addIngressRule(cp, Port.tcp(9090), 'Prometheus read-only Kubernetes service proxy');
     for (const nodes of [apps, ch, obs]) {
       cp.addIngressRule(nodes, Port.tcp(443), 'Kubernetes API from nodes');
       nodes.addIngressRule(cp, Port.tcp(10250), 'Kubelet from control plane');

@@ -5,6 +5,7 @@ import { DevEksRuntime } from './eks-runtime';
 import { DevEksLbc } from './eks-lbc';
 import { DevEksRelay } from './eks-relay';
 import { DevEksValuesReader } from './eks-values-reader';
+import { DevEksDeliveryObserver } from './eks-delivery-observer';
 import { DevEksMsk } from './eks-msk';
 import { DevEksTelemetryAlarms } from './eks-telemetry-alarms';
 import { CfnOutput, Stack, StackProps } from 'aws-cdk-lib/core';
@@ -109,6 +110,14 @@ export class DevEksStack extends Stack {
       clusterEndpoint: this.cluster.attrEndpoint, operatorRole: this.operatorRole,
     });
     const valuesReader = new DevEksValuesReader(this, 'ValuesReader', { cluster: this.cluster, relay });
+    const deliveryObserver = new DevEksDeliveryObserver(this, 'DeliveryObserver', {
+      cluster: this.cluster, relay, bucket: props.rawSignalBucket, archivePrefix: props.config.archivePrefix,
+      runtimeSecretArns: [props.dbSecret, props.tokenHashSecret, props.adminApiTokenSecret,
+        props.dashboardRdsSourceSecret, props.dashboardRdsCacheSecret, props.dashboardClickHouseSourceSecret, props.dashboardClickHouseCacheSecret,
+        props.managementResponseKeySecret, props.mailEncryptionKeySecret, props.userJwtPrivateKeySecret, props.userJwtPublicKeysSecret,
+        props.telemetryJwtPrivateKeySecret, props.telemetryJwtPublicKeysSecret, ...Object.values(props.oidcClientSecrets ?? {})]
+        .map(secret => secret.secretArn),
+    });
     new DevEksLbc(this, 'Lbc', { clusterName: this.cluster.ref });
     const stage = devTelemetryStage(props.config.archivePrefix);
     if (props.config.mskRetirementStage === 'retain') {
@@ -172,6 +181,8 @@ export class DevEksStack extends Stack {
       EksNodeRoleArn: this.nodeRole.roleArn, EksNodeRoleName: this.nodeRole.roleName,
       EksOperatorRoleArn: this.operatorRole.roleArn, EksOperatorRoleName: this.operatorRole.roleName,
       EksValuesReaderRoleArn: valuesReader.role.roleArn,
+      EksDeliveryObserverRoleArn: deliveryObserver.role.roleArn,
+      DeploymentVerifierRoleArn: deliveryObserver.verifierRole.roleArn,
       EksRelayInstanceId: relay.instance.instanceId,
       EksRelaySessionDocumentName: relay.sessionDocument.ref,
       KafkaProvider: props.config.kafkaProvider,
