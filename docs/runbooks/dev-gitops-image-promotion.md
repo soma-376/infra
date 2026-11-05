@@ -270,9 +270,9 @@ python3 -m unittest discover -s scripts/deployment-verifier -p 'test_*.py'
 python3 tools/deployment-verifier/argocd-integration.py --kind kind --helm helm
 ```
 
-두 앱 fixture·두 source·현재 custom health·retry 0으로 7개 검사를 통과했다. 같은 이미지의 새 nonce가
+두 앱 fixture·두 source·현재 custom health·자동 sync와 selfHeal 활성·retry 0으로 9개 검사를 통과했다. 같은 이미지의 새 nonce가
 Job UID만 바꾸고 앱 Pod UID는 보존했으며, 실패 PostSync는 다음 wave의 이전 V/Job을 유지하고 root
-operation을 Failed로 종료했다. 실패 Job 보존도 확인했다. 이 kind 검증은 dev AWS·18개 실운영
+operation을 Failed로 종료했다. 15초 동안 실패 Job UID와 root Failed 유지도 확인했다. 이 kind 검증은 dev AWS·18개 실운영
 Application·인증/수집 경로의 운영 수락을 대신하지 않는다.
 
 보호된 backend 승격 workflow는 검증한 파일을 다음 진입점에 전달한다. 이는 별도 로컬 운영 우회 경로가

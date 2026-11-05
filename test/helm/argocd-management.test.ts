@@ -167,6 +167,7 @@ renderSuite('Argo 관리 chart의 적용·거부 범위', () => {
     const workload = projects.find(p => p.metadata.name === 'pulsemetry-dev-workloads');
     expect(workload.spec.destinations).toEqual([{ server: 'https://kubernetes.default.svc', namespace: 'pulsemetry-dev' }]);
     expect(workload.spec.namespaceResourceWhitelist.map((v: any) => v.kind)).not.toContain('Secret');
+    expect(workload.spec.namespaceResourceWhitelist).toContainEqual({ group: 'batch', kind: 'Job' });
     const platform = projects.find(p => p.metadata.name === 'pulsemetry-dev-platform');
     expect(platform.spec.destinations).toContainEqual({ server: 'https://kubernetes.default.svc', namespace: 'cert-manager' });
     expect(platform.spec.namespaceResourceWhitelist).toEqual(expect.arrayContaining([

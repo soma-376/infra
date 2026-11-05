@@ -143,7 +143,7 @@ describe('DeployStack', () => {
       );
 
       imported.resourceCountIs('AWS::IAM::OIDCProvider', 0);
-      imported.resourceCountIs('AWS::IAM::Role', 7);
+      imported.resourceCountIs('AWS::IAM::Role', 8);
 
       for (const role of Object.values(
         imported.findResources('AWS::IAM::Role'),
@@ -160,8 +160,8 @@ describe('DeployStack', () => {
   // 신뢰 정책 - 배포 권한의 실질적 경계
   // ============================================================
   describe('신뢰 정책', () => {
-    test('기존 앱 역할 4개와 infra dev 역할 2개, 랜딩 역할 1개를 분리한다', () => {
-      template.resourceCountIs('AWS::IAM::Role', 7);
+    test('기존 앱 역할 4개와 infra dev 역할 2개, 랜딩 역할 1개, GitOps 게시 역할 1개를 분리한다', () => {
+      template.resourceCountIs('AWS::IAM::Role', 8);
       expect(Object.keys(deploy.deployRoles)).toHaveLength(4);
       expect(Object.values(deploy.deployRoles).map(role => deploy.resolve(role.roleArn))).toEqual(
         expect.arrayContaining(ALL_ROLES.map(name => ({ 'Fn::GetAtt': [roleResource(name)[0], 'Arn'] }))),
@@ -256,7 +256,7 @@ describe('DeployStack', () => {
       (roleName) => {
         const statement = statementWithAction(roleName, 'ecr:PutImage');
         expect((asArray(statement.Action) as string[]).sort()).toEqual(
-          [...ECR_PUSH_ACTIONS].sort(),
+          [...ECR_PUSH_ACTIONS, ...(roleName === DASHBOARD_DEV ? ['ecr:GetDownloadUrlForLayer'] : [])].sort(),
         );
       },
     );
@@ -277,9 +277,7 @@ describe('DeployStack', () => {
             `:repository/${ECR_NAMESPACE}/`,
           );
         }
-        expect(actionsFor(roleName)).not.toContain(
-          'ecr:GetDownloadUrlForLayer',
-        );
+        expect(actionsFor(roleName).includes('ecr:GetDownloadUrlForLayer')).toBe(roleName === DASHBOARD_DEV);
       },
     );
 
@@ -391,7 +389,7 @@ describe('DeployStack', () => {
 
     test('backend dev 역할은 ECR 공급만 허용하고 ECS·EKS 배포 권한이 없다', () => {
       expect(actionsFor(DASHBOARD_DEV).sort()).toEqual(
-        ['ecr:GetAuthorizationToken', ...ECR_PUSH_ACTIONS].sort(),
+        ['ecr:GetAuthorizationToken', ...ECR_PUSH_ACTIONS, 'ecr:GetDownloadUrlForLayer'].sort(),
       );
       expect(resourceTextFor(DASHBOARD_DEV)).not.toContain(':service/');
       expect(resourceTextFor(DASHBOARD_DEV)).not.toContain(RETIRED_DEV_CLUSTER);
@@ -489,11 +487,12 @@ describe('DeployStack', () => {
   });
 
   // 앱 레포에 넘겨줄 값. 논리 ID 가 바뀌면 핸드오프 문서가 낡는다.
-  test('기존 역할 ARN 4개를 유지하고 infra dev ARN 2개와 랜딩 ARN 1개를 더한다', () => {
+  test('기존 역할 ARN 4개와 infra dev ARN 2개에 랜딩 ARN과 GitOps 게시 ARN을 더한다', () => {
     const outputs = template.findOutputs('*');
     expect(Object.keys(outputs).sort()).toEqual([
       'AiTelemetryPipelineDevDeployRoleArn',
       'AiTelemetryPipelineProdDeployRoleArn',
+      'GitOpsPromotionRoleArn',
       'InfraDevDeployRoleArn',
       'InfraDevDiffRoleArn',
       'PulsemetryBackendDevDeployRoleArn',

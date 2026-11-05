@@ -184,10 +184,15 @@ describe('DevDataStack', () => {
     template.resourceCountIs('AWS::SecretsManager::SecretTargetAttachment', 1);
     template.resourceCountIs('AWS::SecretsManager::ResourcePolicy', 0);
     // 버킷 자동 정리용 기존 역할·정책에는 Secret 조회를 추가하지 않는다.
-    const iam = {
+    const allIam = {
       ...template.findResources('AWS::IAM::Role'),
       ...template.findResources('AWS::IAM::Policy'),
     };
+    const reader = Object.entries(allIam).find(([, resource]) => resource.Properties.RoleName === 'soma-376-dev-delivery-db-reader');
+    expect(reader).toBeDefined();
+    // PROJ-311 전용 조회 역할만 분리한다. 기존 EC2·operator·버킷 정리 역할은 계속 Secret을 읽지 않는다.
+    const iam = Object.fromEntries(Object.entries(allIam).filter(([id, resource]) => id !== reader![0]
+      && !resource.Properties.Roles?.some((role: any) => role.Ref === reader![0])));
     expect(JSON.stringify(iam)).not.toContain('secretsmanager:');
     const outputs = JSON.stringify(template.findOutputs('*'));
     expect(outputs).not.toMatch(/SecretString|resolve:secretsmanager|BEGIN (PRIVATE|PUBLIC) KEY/);

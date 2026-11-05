@@ -69,6 +69,20 @@ describe('Argo 3.5.7과 같은 gopher-lua 1.1.2의 실제 health 실행', () => 
     expect(health(fixture)).toBe(expected);
   });
 
+  test('앱은 현재 C/V의 PostSync operation을 요구하고 정적 platform의 no-op 비교는 유지한다', () => {
+    const app: any = application();
+    app.metadata.name = 'pulsemetry-dev-enrollment-api';
+    expect(health(app)).toBe('Progressing');
+    app.status.operationState.syncResult = { revisions: ['a'.repeat(40), 'c'.repeat(40)] };
+    expect(health(app)).toBe('Progressing');
+    app.status.operationState.syncResult.revisions[1] = 'b'.repeat(40);
+    expect(health(app)).toBe('Healthy');
+    delete app.status.operationState;
+    expect(health(app)).toBe('Progressing');
+    app.metadata.name = 'pulsemetry-dev-base';
+    expect(health(app)).toBe('Healthy');
+  });
+
   test('Kafka는 현재 generation의 Ready만 통과시키고 NotReady를 우선한다', () => {
     const fixture: any = { metadata: { generation: 3 }, status: { observedGeneration: 3, conditions: [{ type: 'Ready', status: 'True' }] } };
     expect(health(fixture, kafkaScript)).toBe('Healthy');
