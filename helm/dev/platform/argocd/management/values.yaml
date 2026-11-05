@@ -1,4 +1,4 @@
-# bootstrap과 별도 수동 Helm release다. 실제 인계 전 reconciliation을 열지 않는다.
+# bootstrap과 별도 수동 Helm release다. 적용용 생성기의 명시적 opt-in 전에는 연결하지 않는다.
 reconciliationEnabled: false
 controllerServiceAccount: argocd-application-controller
 serverServiceAccount: argocd-server
