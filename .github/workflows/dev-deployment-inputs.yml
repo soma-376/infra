@@ -10,9 +10,14 @@ on:
       - 'scripts/eks-values.mjs'
       - 'scripts/backend-image-inputs.mjs'
       - 'scripts/dev-generated-values*.mjs'
+      - 'scripts/dev-argocd-*.mjs'
+      - 'scripts/strimzi-operator-post-render.mjs'
+      - 'scripts/observability-platform-trace-validate.mjs'
       - 'scripts/validate-generated-values.mjs'
       - 'scripts/generated-values-github.mjs'
       - 'helm/dev/**'
+      - 'helm/observability/**'
+      - '.gitignore'
       - 'test/**'
       - 'package*.json'
       - 'cdk.json'
@@ -72,3 +77,47 @@ jobs:
         run: |
           node -e 'require("node:fs").writeFileSync("cdk.context.json", JSON.stringify({"availability-zones:account=111111111111:region=ap-northeast-2":["ap-northeast-2a","ap-northeast-2b","ap-northeast-2c","ap-northeast-2d"]}))'
           npm run synth:dev -- --no-lookups --output "$RUNNER_TEMP/cdk-dev"
+
+  argocd:
+    # AWS·클러스터·GitHub App 인증 없이 fixture와 고정 공개 의존성만 검증한다.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: 고정 렌더러·Lua 런타임 준비
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gitops-tools/helm3" "$RUNNER_TEMP/gitops-tools/helm4"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://get.helm.sh/helm-v3.22.0-linux-amd64.tar.gz -o "$RUNNER_TEMP/gitops-tools/helm3/archive.tgz"
+          echo "1e4ab49e429626cf6c6958d914248b78c9730803c2751b87627e171dc800e7bb  $RUNNER_TEMP/gitops-tools/helm3/archive.tgz" | sha256sum --check
+          curl --fail --silent --show-error --location --retry 3 \
+            https://get.helm.sh/helm-v4.2.1-linux-amd64.tar.gz -o "$RUNNER_TEMP/gitops-tools/helm4/archive.tgz"
+          echo "479dca836e5b45e8bd222400c5591b0e3a647378f03ff96597180db97c17fdae  $RUNNER_TEMP/gitops-tools/helm4/archive.tgz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/gitops-tools/helm3/archive.tgz" -C "$RUNNER_TEMP/gitops-tools/helm3"
+          tar -xzf "$RUNNER_TEMP/gitops-tools/helm4/archive.tgz" -C "$RUNNER_TEMP/gitops-tools/helm4"
+          {
+            echo "HELM_BIN=$RUNNER_TEMP/gitops-tools/helm3/linux-amd64/helm"
+            echo "ARGOCD_NATIVE_HELM_BIN=$RUNNER_TEMP/gitops-tools/helm4/linux-amd64/helm"
+            echo "GOCACHE=$RUNNER_TEMP/gitops-tools/go-cache"
+            echo "GOMODCACHE=$RUNNER_TEMP/gitops-tools/go-mod"
+          } >> "$GITHUB_ENV"
+          go version
+      - name: 고정 chart 원본·소스 검사
+        run: |
+          node scripts/dev-argocd-prepare-charts.mjs --check
+          npm run build
+      - name: CMP 로컬 이미지 빌드
+        run: |
+          docker build -t pulsemetry-strimzi-cmp:ci helm/dev/platform/argocd/cmp
+          echo 'PULSEMETRY_CMP_IMAGE=pulsemetry-strimzi-cmp:ci' >> "$GITHUB_ENV"
+      - name: Application·권한·Lua·Helm3/4·CMP 검증
+        run: npm test -- --runInBand test/scripts/dev-argocd-applications.test.ts test/scripts/dev-argocd-renderers.test.ts test/helm/argocd.test.ts test/helm/argocd-management.test.ts test/helm/argocd-health.test.ts test/helm/platform-trace-stack.test.ts

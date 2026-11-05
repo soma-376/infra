@@ -1,0 +1,10 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ConfigManagementPlugin
+metadata:
+  name: pulsemetry-strimzi
+spec:
+  version: v1
+  preserveFileMode: false
+  provideGitCreds: false
+  generate:
+    command: [node, /opt/pulsemetry/bin/render-strimzi.mjs]

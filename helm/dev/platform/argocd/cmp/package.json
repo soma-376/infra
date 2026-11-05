@@ -1,0 +1,7 @@
+{
+  "name": "pulsemetry-strimzi-cmp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": { "js-yaml": "5.2.3" }
+}

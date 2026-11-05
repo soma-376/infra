@@ -1,0 +1,11 @@
+# bootstrap과 별도 수동 Helm release다. 실제 인계 전 reconciliation을 열지 않는다.
+reconciliationEnabled: false
+controllerServiceAccount: argocd-application-controller
+serverServiceAccount: argocd-server
+# 고정 C의 실제 release inventory로 렌더한 RBAC 이름만 생성기가 채운다.
+managedRbac:
+  clusterRoles: []
+  clusterRoleBindings: []
+  roles: {}
+  roleBindings: {}
+  hookServiceAccounts: {}

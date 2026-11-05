@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reconciliationEnabled", "controllerServiceAccount", "serverServiceAccount", "managedRbac"],
+  "properties": {
+    "reconciliationEnabled": {"const": false},
+    "controllerServiceAccount": {"const": "argocd-application-controller"},
+    "serverServiceAccount": {"const": "argocd-server"},
+    "managedRbac": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clusterRoles", "clusterRoleBindings", "roles", "roleBindings", "hookServiceAccounts"],
+      "properties": {
+        "clusterRoles": {"$ref": "#/definitions/names"},
+        "clusterRoleBindings": {"$ref": "#/definitions/names"},
+        "roles": {"$ref": "#/definitions/namespaces"},
+        "roleBindings": {"$ref": "#/definitions/namespaces"},
+        "hookServiceAccounts": {"$ref": "#/definitions/namespaces"}
+      }
+    }
+  },
+  "definitions": {
+    "names": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.:-]{0,251}[a-z0-9]$", "not": {"pattern": "^(argocd|system:)"}}},
+    "namespaces": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "kube-system": {"$ref": "#/definitions/names"},
+        "pulsemetry-dev": {"$ref": "#/definitions/names"},
+        "pulsemetry-dev-logs": {"$ref": "#/definitions/names"},
+        "pulsemetry-observability": {"$ref": "#/definitions/names"},
+        "strimzi-system": {"$ref": "#/definitions/names"}
+      }
+    }
+  }
+}

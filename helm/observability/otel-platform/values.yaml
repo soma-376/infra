@@ -49,7 +49,8 @@ collector:
       enabled: false
     metrics:
       enabled: true
-  config:
+  # subchart 기본값과 병합하지 않는 upstream 입력이다. Helm 3·4 모두 아래의 완전한 설정만 렌더한다.
+  alternateConfig:
     extensions:
       health_check:
         endpoint: ${env:MY_POD_IP}:13133
@@ -59,12 +60,8 @@ collector:
         create_directory: true
         timeout: 2s
     receivers:
-      jaeger: null
-      zipkin: null
-      prometheus: null
       otlp:
         protocols:
-          grpc: null
           http:
             endpoint: 0.0.0.0:4318
     processors:
@@ -73,9 +70,7 @@ collector:
         check_interval: 1s
         limit_mib: 400
         spike_limit_mib: 80
-        # upstream 기본 비율 값을 지운다. MiB 값과 비율 값을 함께 두지 않는다.
-        limit_percentage: null
-        spike_limit_percentage: null
+        # MiB 값만 쓴다. alternateConfig에는 upstream 기본 비율 값이 병합되지 않는다.
       # 앱이 허용목록 밖 속성을 실수로 보내도 저장하지 않는다(ADR 0069의 금지 항목).
       attributes/drop-sensitive:
         actions:
@@ -106,7 +101,6 @@ collector:
         send_batch_size: 512
         timeout: 5s
     exporters:
-      debug: null
       otlp_grpc/tempo:
         endpoint: pulsemetry-tempo.pulsemetry-observability.svc:4317
         tls:
@@ -124,6 +118,14 @@ collector:
     service:
       extensions: [health_check, file_storage]
       telemetry:
+        # 기존 config 병합으로 공급되던 self-metrics 자원 속성을 명시적으로 보존한다.
+        resource:
+          host.name: ${env:OTEL_K8S_NODE_NAME}
+          k8s.namespace.name: ${env:OTEL_K8S_NAMESPACE}
+          k8s.node.ip: ${env:OTEL_K8S_NODE_IP}
+          k8s.node.name: ${env:OTEL_K8S_NODE_NAME}
+          k8s.pod.ip: ${env:OTEL_K8S_POD_IP}
+          k8s.pod.name: ${env:OTEL_K8S_POD_NAME}
         metrics:
           readers:
             - pull:
@@ -132,8 +134,6 @@ collector:
                     host: ${env:MY_POD_IP}
                     port: 8888
       pipelines:
-        logs: null
-        metrics: null
         traces:
           receivers: [otlp]
           processors: [memory_limiter, attributes/drop-sensitive, transform/drop-exception-detail, batch]
