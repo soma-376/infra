@@ -162,6 +162,7 @@ generated/
 # 검증한 upstream Helm archive는 버전·checksum과 함께 보관한다.
 !helm/dev/platform/lbc/vendor/aws-load-balancer-controller-3.6.0.tgz
 !helm/dev/platform/argocd/vendor/argo-cd-10.11.7.tgz
+!helm/dev/platform/cert-manager/vendor/cert-manager-v1.21.3.tgz
 # PROJ-287: Argo가 네트워크 의존성 해석 없이 소비하는 고정 archive다.
 !helm/dev/runtime/vendor/secrets-store-csi-driver-1.6.1.tgz
 !helm/dev/runtime/vendor/secrets-store-csi-driver-provider-aws-3.1.4.tgz

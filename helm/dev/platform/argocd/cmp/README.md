@@ -26,13 +26,14 @@ Git credential·ServiceAccount token을 CMP에 mount하지 않고 `provideGitCre
 
 Argo 3.5.7 공식 소스의 native renderer는 Helm 4.2.1이다. 위 Helm 3.22.0은 Strimzi CMP 전용이다.
 `ARGOCD_NATIVE_HELM_BIN`에 검증한 4.2.1을 지정하면 테스트가 native chart fixture의 3.22.0 결과와 비교한다.
-LBC의 매 렌더 인증서 재생성과 observability의 Helm hook은 테스트에서 차단 조건으로 남기며 자동 보정하지 않는다.
+PROJ-310은 LBC의 cert-manager 경로에서 반복 렌더 동일성을 검사하고, cert-manager startup과
+observability의 Helm hook은 phase·RBAC·반복 실행 계약을 검사한다. 실제 인증서 전환과 반복 sync는 별도 수락이다.
 이 로컬 비교는 실제 release inventory·live manifest·PVC·인증서·기능의 인계 검증을 대신하지 않는다.
 
 ## vendored chart 갱신
 
 `scripts/dev-argocd-prepare-charts.mjs --write --archive <공식 tgz>`는 기존 버전 파일의 checksum에
-맞는 입력만 받는다. LBC·CSI driver·ASCP·Fluent Bit은 native Application이 읽도록 풀어 두고,
+맞는 입력만 받는다. LBC·cert-manager·CSI driver·ASCP·Fluent Bit은 native Application이 읽도록 풀어 두고,
 observability wrapper의 의존성 archive 4개는 원본 바이트 그대로 보관한다. `--check`는 네트워크 없이
 checksum과 풀어 둔 모든 파일의 집합·내용을 대조하며 source를 수정하지 않는다.
 Argo는 dependency update나 runtime 다운로드 없이 이 고정 checkout을 렌더한다.

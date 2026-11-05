@@ -19,9 +19,9 @@ const runCmp = (options = {}) => invoke(process.execPath, [wrapper], {
 });
 
 describe('Argo 오프라인 chart·CMP 의존성', () => {
-  test('고정 archive 8개와 풀어 둔 chart의 파일 집합·내용을 대조한다', () => {
+  test('고정 archive 9개와 풀어 둔 chart의 파일 집합·내용을 대조한다', () => {
     const result = invoke(process.execPath, [script, '--check']);
-    expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({ status: 0, stdout: 'Argo 고정 chart 8개 검증 완료\n', stderr: '' });
+    expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({ status: 0, stdout: 'Argo 고정 chart 9개 검증 완료\n', stderr: '' });
   });
 
   test.each(['archive', 'expanded', 'extra'])('%s 변경을 검출하고 source를 보정하지 않는다', mutation => {
@@ -31,7 +31,7 @@ describe('Argo 오프라인 chart·CMP 의존성', () => {
       import { join, dirname } from 'node:path'; import { tmpdir } from 'node:os';
       const source = ${JSON.stringify(root)}, dest = mkdtempSync(join(tmpdir(), 'chart-tamper-'));
       try {
-        for (const path of ['helm/dev/platform/lbc/SOURCE.json', 'helm/dev/runtime/versions.json', 'helm/observability/dependencies.lock.json']) {
+        for (const path of ['helm/dev/platform/lbc/SOURCE.json', 'helm/dev/platform/cert-manager/SOURCE.json', 'helm/dev/runtime/versions.json', 'helm/observability/dependencies.lock.json']) {
           mkdirSync(dirname(join(dest, path)), {recursive:true}); cpSync(join(source,path),join(dest,path));
         }
         for (const target of chartTargets(source)) for (const path of [target.archive, target.expanded].filter(Boolean)) {
@@ -111,6 +111,7 @@ const paritySuite = process.env.HELM_BIN && process.env.ARGOCD_NATIVE_HELM_BIN ?
 paritySuite('Argo native Helm4와 기존 Helm3 렌더 비교', () => {
   let generated: string;
   const targets: Array<[string, string, string, string[]]> = [
+    ['cert-manager', 'helm/dev/platform/cert-manager/chart', 'cert-manager', ['-f', 'helm/dev/platform/cert-manager/values.yaml']],
     ['secrets-store-csi-driver', 'helm/dev/runtime/vendor/secrets-store-csi-driver-1.6.1', 'kube-system', ['-f', 'helm/dev/runtime/csi-driver-values.yaml']],
     ['secrets-provider-aws', 'helm/dev/runtime/vendor/secrets-store-csi-driver-provider-aws-3.1.4', 'kube-system', ['-f', 'helm/dev/runtime/ascp-values.yaml']],
     ['fluent-bit', 'helm/dev/runtime/vendor/fluent-bit-0.58.3', 'pulsemetry-dev-logs', ['-f', 'helm/dev/runtime/fluent-bit-values.yaml', '-f', 'helm/dev/runtime/fluent-bit-loki-values.yaml']],
@@ -146,7 +147,7 @@ paritySuite('Argo native Helm4와 기존 Helm3 렌더 비교', () => {
   test.each(targets)('%s의 고정 fixture는 두 렌더러가 동일하다', (release, chart, namespace, args) => {
     expect(render(process.env.ARGOCD_NATIVE_HELM_BIN!, [release, chart, namespace, args])).toEqual(render(process.env.HELM_BIN!, [release, chart, namespace, args]));
   });
-  test('합성 generated 13개 소비 경로를 비교하고 LBC의 비결정적 인증서를 별도로 검출한다', () => {
+  test('합성 generated 13개 소비 경로가 LBC 인증서 선언까지 동일하다', () => {
     const native: Array<[string,string,string,string,string[]]> = [
       ['base.yaml','pulsemetry-dev-platform','helm/dev/platform/base','kube-system',[]],
       ['runtime.yaml','runtime-config','helm/dev/runtime/chart','pulsemetry-dev',[]],
@@ -163,22 +164,20 @@ paritySuite('Argo native Helm4와 기존 Helm3 렌더 비교', () => {
     for(const [file,release,chart,namespace,staticValues] of native) {
       const target: typeof targets[number] = [release,chart,namespace,[...staticValues,join(generated,file)].flatMap(path=>['-f',path])];
       const oldDocs = render(process.env.HELM_BIN!,target), argoDocs = render(process.env.ARGOCD_NATIVE_HELM_BIN!,target);
-      if(file === 'lbc.yaml') {
-        const cert=(docs:any[])=>docs.find(doc=>doc.kind==='Secret'&&doc.type==='kubernetes.io/tls');
-        expect(cert(oldDocs).data).not.toEqual(cert(argoDocs).data);
-      } else {
-        expect({file,docs:argoDocs}).toEqual({file,docs:oldDocs});
-      }
+      expect({file,docs:argoDocs}).toEqual({file,docs:oldDocs});
+      if(file === 'lbc.yaml') expect(argoDocs.some((doc:any)=>doc.kind==='Secret')).toBe(false);
     }
   });
-  test('LBC의 인증서 재생성과 관측 hook은 인계 전 별도 해결할 차단 조건으로 검출한다', () => {
+  test('LBC 인증서 선언은 반복 렌더가 같고 관측 hook 계약을 보존한다', () => {
     const lbc: typeof targets[number] = ['aws-load-balancer-controller', 'helm/dev/platform/lbc/chart', 'kube-system', [
       '-f', 'helm/dev/platform/lbc/values.yaml', '--set', 'clusterName=fixture,region=ap-northeast-2,vpcId=vpc-0123456789abcdef0',
     ]];
     const first = render(process.env.ARGOCD_NATIVE_HELM_BIN!, lbc);
     const second = render(process.env.ARGOCD_NATIVE_HELM_BIN!, lbc);
-    const cert = (docs: any[]) => docs.find(doc => doc.kind === 'Secret' && doc.type === 'kubernetes.io/tls');
-    expect(cert(first)).toBeDefined(); expect(cert(first).data).not.toEqual(cert(second).data);
+    expect(first).toEqual(second);
+    expect(first.some((doc:any)=>doc.kind==='Secret')).toBe(false);
+    expect(first.filter((doc:any)=>doc.kind==='Certificate')).toHaveLength(2);
+    expect(first.filter((doc:any)=>doc.kind==='Issuer')).toHaveLength(2);
     const target: typeof targets[number] = ['observability', 'helm/observability/pulsemetry-observability', 'pulsemetry-observability', ['-f', 'helm/observability/tests/generated-values.yaml']];
     const hooks = (docs: any[]) => docs.filter((doc: any) => doc.metadata.annotations?.['helm.sh/hook']);
     const firstHooks = hooks(render(process.env.ARGOCD_NATIVE_HELM_BIN!, target));

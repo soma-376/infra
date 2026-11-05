@@ -14,10 +14,12 @@ const json = path => JSON.parse(readFileSync(path, 'utf8'));
 
 export function chartTargets(root = defaultRoot) {
   const lbc = json(join(root, 'helm/dev/platform/lbc/SOURCE.json')).chart;
+  const certificates = json(join(root, 'helm/dev/platform/cert-manager/SOURCE.json')).chart;
   const runtime = json(join(root, 'helm/dev/runtime/versions.json'));
   const monitoring = json(join(root, 'helm/observability/dependencies.lock.json'));
   return [
     { ...lbc, archive: `helm/dev/platform/lbc/vendor/${lbc.name}-${lbc.version}.tgz`, expanded: 'helm/dev/platform/lbc/chart' },
+    { ...certificates, archive: `helm/dev/platform/cert-manager/vendor/${certificates.name}-${certificates.version}.tgz`, expanded: 'helm/dev/platform/cert-manager/chart' },
     ...Object.entries({ csiDriver: 'secrets-store-csi-driver', ascp: 'secrets-store-csi-driver-provider-aws', fluentBit: 'fluent-bit' }).map(([key, name]) => ({
       ...runtime[key], name, archive: `helm/dev/runtime/vendor/${name}-${runtime[key].version}.tgz`, expanded: `helm/dev/runtime/vendor/${name}-${runtime[key].version}`,
     })),

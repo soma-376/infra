@@ -5,8 +5,9 @@ PROJ-274의 [고정 설치 구성·로컬 검증·접속 절차](../../helm/dev/
 2026-11-04 운영자가 실제 dev 클러스터 설치 완료를 확인했다. 이 변경에서는 live 상태를 재조회하지 않았다.
 **UI 로그인·재기동·권한 거부의 검증 근거, workflow 구현과 기존 Helm 인계는 별도로 확인한다.**
 도입 전에는 [EKS 수동 런북](dev-eks-manual-deployment.md)과 [Strimzi 런북](dev-strimzi-kafka.md)을 따른다.
-PROJ-287은 Application·권한·렌더·GitHub App 연결의 로컬 구성을 준비한다. 아래 인계·자동 배포 절차는
-PROJ-310의 실제 Git 연결·클러스터 검증과 남은 운영 관문을 갖춘 뒤 수행한다.
+PROJ-287의 검토 구성 위에 PROJ-310은 [ADR 0058](../adr/0058-dev-lbc-cert-manager-and-argocd-handoff.md)의
+cert-manager와 적용용 수동 인계 산출물을 추가한다. 이번 변경은 코드·로컬 검증·절차 작성이며 실제 Git 연결·
+이미지 게시·클러스터 적용은 수행하지 않는다. 아래 운영 절차는 실제 수락 근거를 갖춘 뒤 수행한다.
 
 ## 1. 기준과 책임
 
@@ -38,14 +39,14 @@ PROJ-287의 관리 구성은 bootstrap과 별도로 선택한다. private Git �
 
 ### 2.0.1 PROJ-287 로컬 구성과 배포 입력
 
-`helm/dev/gitops/`의 catalog는 하위 Application 17개를 정의한다. `scripts/dev-argocd-applications.mjs`는
+`helm/dev/gitops/`의 catalog는 PROJ-310에서 cert-manager를 더한 하위 Application 18개를 정의한다. `scripts/dev-argocd-applications.mjs`는
 infra C 전체 SHA, private H/V 전체 SHA, 실제 release inventory를 받아 로컬 검토 산출물을 만든다.
 root·platform·workload Project와 관리 RBAC는 `helm/dev/platform/argocd/management/`에서 별도로 준비한다.
 기본 bootstrap만 적용하면 로컬 클러스터 관리는 계속 비활성이다.
 
 | 관리 묶음 | 대상 |
 |---|---|
-| 기반·런타임 | base, LBC, CSI driver, ASCP, Fluent Bit, runtime-config |
+| 기반·런타임 | base, cert-manager(신규), LBC, CSI driver, ASCP, Fluent Bit, runtime-config |
 | 데이터 | Strimzi Operator, Kafka CR, ClickHouse |
 | 관측 | observability, Loki, Tempo, otel-platform |
 | 앱 | enrollment, ingest, Gateway, dashboard |
@@ -55,14 +56,14 @@ inventory의 namespace·releaseName은 `helm list --all-namespaces`와 기존 �
 fixture inventory는 로컬 검증 전용이며 운영 기본값이 아니다. Application 이름과 기존 Helm release 이름은
 다를 수 있고 annotation 기반 tracking을 유지한다.
 
-입력 JSON은 다음 필드를 사용한다. `inventory`의 `id`는 catalog의 17개 항목과 정확히 대응해야 한다.
+입력 JSON은 다음 필드를 사용한다. `inventory`의 `id`는 catalog의 18개 항목과 정확히 대응해야 한다.
 
 | 필드 | 요구사항 |
 |---|---|
 | `schemaVersion` | `1` |
 | `mode` | `handoff` 또는 `gitops` |
 | `infraRevision` | C의 40자리 전체 SHA |
-| `inventory` | `{id, releaseName, namespace}` 객체 17개 |
+| `inventory` | 기존 `{id, releaseName, namespace}` 17개와 `{id: "cert-manager", releaseName: "cert-manager", namespace: "cert-manager", installation: "new"}` 1개 |
 | `handoffRevision` | `handoff`에서만 H 전체 SHA; V/B 필드는 금지 |
 | `valuesRevision`, `bundleManifestSha256` | `gitops`에서만 V 전체 SHA와 B의 64자리 SHA-256; H 필드는 금지 |
 
@@ -76,7 +77,7 @@ node scripts/dev-argocd-applications.mjs \
 
 출력 디렉터리는 새 경로여야 한다. `application-review.json`은 Kubernetes manifest가 아닌 검토 보고서다.
 `readiness.status=blocked`, `deployable=false`, `deployableApplicationCount=0`을 유지한다.
-17개 정의는 `review-only` 또는 LBC의 `quarantined` 상태이고, 모든 하위 선언과 gitops root 템플릿은
+18개 정의는 `review-only` 상태이고, 모든 하위 선언과 gitops root 템플릿은
 `skip-reconcile=true`다. `handoff`의 `rootTemplate`은 null이다. 생성기에 자동화 활성화·차단 우회 옵션은 없다.
 이 보고서를 `kubectl apply`하거나 private main에 그대로 게시하지 않는다.
 
@@ -96,16 +97,18 @@ node scripts/dev-argocd-management.mjs \
 수동 release `argocd-management`의 입력이다. 실제 게시 전 CMP digest를 운영값으로 꾸며 넣지 않는다.
 관리 chart는 root/platform/workload Project와 controller Role·server 조회 Role을 분리한다.
 `resource.respectRBAC=strict`와 명시된 관리 namespace를 사용하며 cluster-scoped 리소스도 필요한 종류로 제한한다.
-PROJ-287의 overlay는 `cluster.inClusterEnabled=false`를 유지하고 관리 chart도 `reconciliationEnabled=false`만
-허용하므로 cluster Secret을 렌더하지 않는다. cluster Secret의 `skip-reconcile` annotation을 비활성화 수단으로
+검토 생성기의 overlay는 `cluster.inClusterEnabled=false`, 관리 values는 `reconciliationEnabled=false`를
+유지하므로 cluster Secret을 렌더하지 않는다. 적용용 활성화 출력은 §2.0.4의 별도 생성기를 사용한다. cluster Secret의 `skip-reconcile` annotation을 비활성화 수단으로
 사용하지 않는다. 해당 annotation은 Application용이다.
-후속 PROJ-310의 코드 리뷰를 거친 활성화에 사용할 연결 템플릿은 `argocd-dev-in-cluster`이며 별도 bearer token이나
+PROJ-310의 적용용 출력에 사용하는 연결 템플릿은 `argocd-dev-in-cluster`이며 별도 bearer token이나
 PEM 없이 `config: {}`와 기존 in-cluster ServiceAccount token·CA를 사용한다. Git reader repository Secret과는
-다른 구성 객체다. 현 단계의 값 override만으로 이 연결을 활성화할 수 없다.
+다른 구성 객체다. 두 관리 입력은 동일한 인계 생성 결과를 함께 사용하고 검토 출력에 임의 override를 추가하지 않는다.
 
 권한 생성기는 렌더 결과의 RBAC 이름만 출력에 사용하고 Secret data를 복사하지 않는다. `bind`·`escalate`는
 렌더에서 확인한 Role/ClusterRole 이름으로 제한한다. CSI·관측의 hook 재실행·정리에 필요한 ServiceAccount
 삭제는 렌더에서 확인한 hook 이름에만 허용하며 일반 ServiceAccount·Pod·PVC·Secret 삭제로 확대하지 않는다.
+기존 `generated-values-reader` Group 연결은 정확한 binding과 Secret 5개 `get` 규칙만 보존한다.
+다른 Group이나 확대된 reader 권한이 발견되면 인계 생성을 거부한다.
 다만 Kubernetes `create`는 `resourceNames`로 제한할 수
 없고 cluster-scoped 권한도 종류 단위의 범위가 있으므로 이를 강한 테넌트 격리로 설명하지 않는다.
 AppProject 제한과 Kubernetes RBAC는 다른 계층이며 실제 거부 검증이 모두 필요하다.
@@ -126,7 +129,7 @@ PROJ-279 사본 writer가 중단하므로, 실제 최초 게시·writer 전환�
 공개 infra는 인증 없이 읽고 publisher App 개인키를 Argo에 등록하지 않는다. App ID와 Installation ID는
 다른 값이며 실제 선택 저장소·권한과 함께 대조한다. OAuth/SSO와 webhook은 이 등록에 포함하지 않는다.
 
-다음은 **PROJ-310에서 운영자가 수행하는 절차**다. PROJ-287 로컬 검증·CI·에이전트 도구에서는 실행하지 않는다.
+다음은 **운영자가 실제 인계 시 수행하는 절차**다. PROJ-310의 이번 구현·로컬 검증·CI·에이전트 도구에서는 실행하지 않는다.
 운영자는 기존 SSM/private EKS 경로에서 확인한 Argo context로 로그인하고 TLS 검증과 loopback 접속을 유지한다.
 GitHub에서 발급한 PEM 파일은 운영자만 읽을 수 있도록 보관하며 화면 공유·명령 추적·세션 기록을 끈다.
 
@@ -157,7 +160,7 @@ App 개인키 폐기가 이미 발급한 token을 즉시 폐기한다고 가정�
 잔여 수명을 함께 확인한다. Secret 소실 시에는 새 키를 발급해 복구하며 publisher 키나 PAT로 대체하지 않는다.
 Argo native token 갱신을 사용하므로 갱신 CronJob이나 별도 token Secret은 만들지 않는다.
 
-### 2.0.3 렌더러와 아직 닫히지 않은 인계 관문
+### 2.0.3 렌더러와 운영 수락 관문
 
 Argo 자체 설치용 Helm 3.22.0과 repo-server의 native Helm은 다르다. Argo CD 3.5는 native Helm 4를 사용하며
 `spec.source.helm.version: v3`로 이전 버전을 선택할 수 없다. 고정 이미지의 실제 바이너리 버전을 확인하고
@@ -175,18 +178,151 @@ post-render script를 사용하고 오류·빈 결과는 실패다. 이미지 �
 선택은 구분한다. CMP에 Kubernetes credential이나 Git reader Secret을 mount하지 않으며
 `preserveFileMode=false`, `provideGitCreds=false`와 repo-server와 분리된 임시 디렉터리를 유지한다.
 
-| 관문 | PROJ-287의 처리 | PROJ-310에서 필요한 증거 |
+| 관문 | 로컬 구성의 처리 | 실제 인계에서 필요한 증거 |
 |---|---|---|
-| LBC webhook 인증서 | native offline 렌더의 `lookup` 실패 시 TLS Secret·CA가 매번 생성되는 것을 검출하고 LBC 선언을 격리한다. 전체 인계 가능 판정은 실패로 남긴다. | 기존 인증서의 소유권·회전·Secret/CA 한쪽 소실 복구를 결정하고 동일성·실제 webhook 요청을 검증한다. |
+| cert-manager와 LBC 인증서 | ADR 0058에 따라 Certificate·Issuer 선언과 cainjector CA 주입을 사용해 랜덤 Secret/CA 렌더를 제거한다. | CRD·startup API check, 기존 TLS Secret 보존 전환, leaf/root 회전·부분 소실 복구, 실제 webhook 요청을 검증한다. |
 | 관측 webhook hook | 기존 인증서 생성/patch hook·RBAC·phase·삭제 정책과 반복 실행 계약을 검증한다. | 실제 hook 재실행·권한·인증서 정합, patch Job 소유 `caBundle`·`failurePolicy`의 차이 처리를 확인한다. |
 | 상태·기능 | 목표 spec/comparedTo/revision과 Synced·Healthy·operation·Kafka generation을 검사한다. | Flyway, 로그인·조회, ACK→consume→commit→저장을 목표 revision에 연결한다. |
 
-LBC의 Secret 또는 `caBundle`만 무시하거나 둘을 광범위하게 무시해 인계를 통과시키지 않는다. 인증서 개인키를
-Git values에 복사하지 않는다. 관측 hook을 일괄 제거하거나 patch Job만 끄지 않는다. Grafana의 기존 CSI 암호
+LBC와 cert-manager의 정확한 webhook 이름에서 cainjector 소유 `caBundle` 필드만 차이 처리한다.
+Secret 전체·webhook 전체·다른 controller 필드를 무시하지 않는다. 인증서 개인키를 Git values에 복사하지 않는다. 관측 hook을 일괄 제거하거나 patch Job만 끄지 않는다. Grafana의 기존 CSI 암호
 공급과 비활성 CRD upgrade Job을 유지한다. Loki의 live `lookup` 기반 hook을 Argo의 스토리지 변경 복구로 사용하지 않는다.
 
-위 표의 로컬 검증은 실제 인증·권한·TLS·기능 성공을 증명하지 않는다. LBC 관문이 남아 있는 동안 root를 포함한
-전체 관리 인계를 활성화하지 않으며, bootstrap과 기존 수동 Helm 운영을 유지한다.
+위 표의 로컬 검증은 실제 인증·권한·TLS·기능 성공을 증명하지 않는다. 적용용 생성이 성공해도 운영 수락은
+`pending`이다. 실제 인계를 완료한 대상만 일반 수동 Helm 운영을 종료하며 root·자동화 활성화는 후속 계약을 따른다.
+
+### 2.0.4 PROJ-310 적용용 수동 인계 출력
+
+이 절의 생성 명령은 로컬 파일만 작성한다. 실제 App 설치·키 등록·CMP 이미지 게시·AWS/클러스터 변경과
+private main 게시를 수행하지 않는다. 운영 수락은 항상 `pending`이며 생성 성공을 실제 인계 완료로 보고하지 않는다.
+
+입력 JSON은 §2.0.1의 `mode: handoff`, 고정 C/H, 실제 17개 기존 release inventory와 신규 cert-manager 항목을
+사용한다. cert-manager 항목은 `id`, `releaseName`, `namespace` 모두 `cert-manager`이고 `installation: new`를
+명시한다. 기존 release를 같은 이름의 신규 설치로 취급하지 않는다. CMP 이미지에는 검증한 `repository@sha256:`를 쓴다.
+
+`--rendered-manifests`는 **디렉터리**다. 동일 입력을 담은 `input.json`과 catalog ID별 `<id>.yaml` 18개를
+준비한다. C의 chart·정적 values 뒤에 H의 generated values를 넣고 실제 releaseName/namespace로 렌더한다.
+Strimzi Operator만 같은 C의 vendor·Helm 3.22.0·post-render/CMP 경로를 사용한다. cert-manager는 고정
+정적 values만 사용한다. 생성기는 외부 checkout·Git 조회를 하지 않으므로 운영자가 입력 출처와 SHA를 먼저
+대조해야 한다. 다른 C/H의 렌더를 재라벨링하거나 빈 manifest를 넣지 않는다. 렌더 원문은 접근 제한 경로에
+두고 출력 보고서에는 SHA-256과 리소스 식별자만 남긴다. Secret data는 원칙적으로 거부한다. 예외는 고정 관측
+chart의 `pulsemetry-observability/pulsemetry-monitoring-prometheus-scrape-confg` 하나이며 `Opaque`, 단일
+`additional-scrape-configs.yaml` data가 정규 base64/UTF-8의 YAML 빈 배열일 때만 비인증 설정으로 허용한다.
+MSK scrape 설정·다른 key·인증값은 거부하고 이 data를 출력 보고서에 복제하지 않는다.
+
+```bash
+set -euo pipefail
+: "${ARGOCD_HANDOFF_INPUT:?검토한 C/H와 실제 inventory의 JSON 파일}"
+: "${ARGOCD_HANDOFF_RENDERS:?input.json과 ID별 YAML 18개가 있는 디렉터리}"
+: "${ARGOCD_CMP_IMAGE:?검증한 CMP repository@sha256 digest}"
+ARGOCD_HANDOFF_PARENT="$(mktemp -d)"
+node scripts/dev-argocd-handoff.mjs \
+  --input "$ARGOCD_HANDOFF_INPUT" \
+  --rendered-manifests "$ARGOCD_HANDOFF_RENDERS" \
+  --cmp-image "$ARGOCD_CMP_IMAGE" \
+  --output-dir "$ARGOCD_HANDOFF_PARENT/handoff"
+```
+
+출력은 `applications/<id>.yaml` 18개, `argocd-values.yaml`, `management-values.yaml`,
+`handoff-report.json`이다. 출력은 새 디렉터리를 사용하고 기존 검토/인계 결과를 덮어쓰지 않는다.
+적용용 Application에는 `skip-reconcile`이 없지만 자동 sync·self-heal·prune·allowEmpty는 모두 꺼져 있고
+삭제 finalizer도 없다. H 인계에서는 root, `bundle`, `desired`, `delivery-state`를 만들지 않는다.
+이 파일들을 private `dev/applications/`에 수동 복사해 PROJ-279 writer 중단을 대신하지 않는다.
+
+관리 overlay와 management values는 한 묶음이다. overlay의 `cluster.inClusterEnabled=true`와
+management chart의 `reconciliationEnabled=true`가 함께 활성화된다. 연결 Secret의 `config: {}`는 기존
+controller/server ServiceAccount의 in-cluster token·CA를 사용하며 입력이나 출력에 인증 원문을 추가하지 않는다.
+server에는 조회, controller에는 필요한 쓰기를 부여한다. cert-manager namespace는 추가하지만 임의 namespace나
+reader repository credential을 CMP에 공급하는 권한은 주지 않는다.
+
+운영 적용은 §2.1의 context·identity·C/H 검증과 §2.0.2의 실제 Git 인증이 완료된 뒤에만 진행한다.
+관리 chart의 namespaced Role 생성 전에 같은 C의 cert-manager 렌더에서 `Namespace/cert-manager` 한 개만
+분리해 먼저 적용한다. namespace가 이미 있다면 소유권·기존 사용자를 확인하며 삭제·강제 인수하지 않는다.
+이 namespace의 선언 소유자는 cert-manager chart이고, 이후 cert-manager Application이 추적한다. base나
+management chart에 중복 선언하지 않는다. 그런 다음 `argocd-management`를 같은 C의 management chart와 생성한 values로 적용해 Project/RBAC·연결 Secret을
+준비하고, Argo 자체는 고정 chart에 bootstrap values 다음으로 생성한 overlay를 전달해 수동 Helm 적용한다.
+관측의 비인증 빈 scrape 설정 Secret에만 이름을 한정한 update/patch를 허용하며 create/delete를 추가하지 않는다.
+그 외 Secret 쓰기나 인증 원문 비복제 경계는 유지한다. 인계 전에 기존
+`pulsemetry-observability/pulsemetry-monitoring-prometheus-scrape-confg`의 존재를 metadata-only 조회로
+확인한다. SSA의 새 리소스 생성에도 create 권한이 필요하므로 controller는 이 Secret을 자동 재생성할 수 없다.
+소실했다면 운영자가 동일 C/H에서 렌더·검증한 비인증 빈 배열 설정 Secret 한 개만 명시적으로 복구한 뒤
+sync를 재개한다. 인증 Secret 복사나 controller의 일반 Secret create 권한 추가로 우회하지 않는다.
+기존 Argo release와 overlay가 아닌 다른 values를 혼합하거나 `--reuse-values`로 대체하지 않는다.
+Application 등록 후에도 수동 sync만 허용한다. 이후 일반 Helm과 Argo가 같은 workload를 동시에 변경하지 않는다.
+
+| 순서 | 다음 대상으로 넘어가기 전 운영 관문 |
+|---|---|
+| base | 기존 namespace·NodeClass/NodePool·StorageClass·리소스 식별자 보존 |
+| cert-manager | chart가 소유하는 cert-manager namespace, 6개 CRD Established, controller/webhook/cainjector Ready, startup API check 성공, 실제 webhook 호출·ARM64 imageID 확인 |
+| LBC | §2.0.5의 별도 인증서 전환·CA 주입·serving certificate·실제 admission 성공 |
+| 기존 controller/CSI·runtime·데이터·관측 | CSI/ASCP·Strimzi/CRD·Kafka Ready/observedGeneration·PVC 보존, 관측 hook의 반복 실행과 필수 endpoint 준비 |
+| enrollment → ingest → Gateway → dashboard | 각 단계에서 목표 revision·Synced·Healthy·operation 종료와 §4의 Flyway·기능 증거 확인 |
+
+H 인계에는 root가 없어서 서로 다른 Application의 wave가 위 순서를 강제하지 않는다. 운영자가 각 관문을
+기록하고 다음 Application을 수동 sync한다. cert-manager startup API check와 관측 인증서 hook은 phase·RBAC·
+삭제 정책까지 검증하며 `--no-hooks`로 우회하지 않는다. cert-manager startup hook의 SA/RBAC은
+weight -5, Job은 1이며 `post-install,post-upgrade`는 Argo PostSync로 실행한다. `before-hook-creation,hook-succeeded`
+정리 정책과 반복 sync 성공을 실제 수락으로 확인한다. Certificate·Issuer health는 현재 generation의 Ready와
+발급 상태를 확인하고 오래된 Ready를 성공으로 보지 않는다. 실제 TLS·기능 검증은 Lua health 밖의 별도 증거다.
+
+### 2.0.5 LBC 인증서 전환·회전·부분 소실 복구
+
+[ADR 0058](../adr/0058-dev-lbc-cert-manager-and-argocd-handoff.md)의 cert-manager 도입은 인증서 소유권을
+바꾸는 유지보수다. 일반 drift 인계에 섞어 자동 sync하지 않는다. C의 LBC 렌더에서 root/serving Certificate,
+Issuer, Secret 이름과 DNS SAN·Service·webhook 이름을 확인하고 기존 release의 값과 대조한다.
+TLS Secret 원문과 Helm release Secret 원문은 추출하지 않는다. 서명 키를 백업 artifact나 values로 복사하지 않는다.
+
+1. PROJ-279의 `GENERATED_VALUES_SYNC_ENABLED`를 비활성으로 두고 진행 중 plan/deploy/copy와 재시도 실행이
+   모두 종료됐음을 확인한다. 새 승인 plan에도 비활성을 고정한다. 다른 게시기나 Argo 자동 sync가 이미 있으면
+   §5에 따라 공통 상태·상위/하위 reconcile도 멈춘다. H 단계에 없는 `delivery-state`를 가짜로 만들지 않는다.
+2. cert-manager를 먼저 준비하고 CRD·API webhook·startup check를 통과시킨다. LBC의 기존 TLS Secret 이름을
+   현재 Deployment mount와 신규 Certificate의 `spec.secretName`으로 대조한다. 같은 Secret을 사용해야 한다.
+3. 기존 Secret의 UID/resourceVersion·보존 annotation 등 metadata만 기록한다. 운영자가 확인한 dev context에서
+   해당 Secret에 `helm.sh/resource-policy=keep`을 먼저 붙이고 metadata 조회로 반영을 확인한다.
+   Helm 3.22.0의 upgrade 삭제 경로는 live 객체의 annotation을 다시 읽는다. 이 보존은 Secret 내용이나
+   전체 release rollback 안전성을 보장하지 않는다. `keepTLSSecret` 값은 Helm resource-policy와 다른 기능이다.
+4. 실제 release 이름과 고정 Helm 3.22.0으로 cert-manager를 켠 LBC chart/values를 적용한다. 이때 생성되는
+   root/serving Certificate·Issuer 외의 workload·selector·Service·TGB 변경이 없는지 먼저 diff를 검토한다.
+   Secret 삭제·`--force`·자동 rollback을 쓰지 않는다. 전환 중 cainjector와 serving certificate가 맞춰지기 전
+   admission 요청이 실패할 수 있으므로 후속 workload sync는 보류한다.
+5. 두 Issuer와 두 Certificate의 현재 generation Ready, leaf 발급 완료·revision·만료 시각, Secret metadata,
+   두 webhook의 CA 주입 참조와 CA hash를 확인한다. 실제 Service에서 제시하는 인증서의 SAN·유효기간·서명
+   chain이 주입 CA와 맞고 실제 LBC admission이 성공해야 한다. 필요 시 승인된 LBC rollout 후 다시 검사한다.
+6. 같은 C/H로 Argo diff를 확인하고 LBC만 수동 인계한다. 인증서 Secret은 Argo 직접 소유 목록에 없어야 하고,
+   차이 처리는 정확한 Mutating/ValidatingWebhookConfiguration의 `webhooks[].clientConfig.caBundle`만이다.
+   cert-manager 자체 webhook도 cainjector가 관리하는 같은 필드로 한정하며 failurePolicy·rules·Service·annotation은 비교한다.
+
+실제 실행 명령은 운영자가 위에서 확인한 이름을 입력한다. 아래 명령은 **문서화한 운영 절차이며 이번 구현에서 실행하지 않는다**.
+
+```bash
+: "${KUBECONFIG:?EKS SSM 전용 kubeconfig}"
+: "${EKS_CONTEXT_NAME:?확인한 dev SSM context}"
+: "${LBC_TLS_SECRET:?기존 Deployment와 새 Certificate에서 대조한 Secret 이름}"
+kubectl --kubeconfig "$KUBECONFIG" --context "$EKS_CONTEXT_NAME" -n kube-system \
+  annotate secret "$LBC_TLS_SECRET" helm.sh/resource-policy=keep --overwrite
+kubectl --kubeconfig "$KUBECONFIG" --context "$EKS_CONTEXT_NAME" -n kube-system \
+  get secret "$LBC_TLS_SECRET" \
+  -o go-template='{{.metadata.uid}} {{.metadata.resourceVersion}} {{index .metadata.annotations "helm.sh/resource-policy"}}{{"\n"}}'
+```
+
+인증서 장애는 아래를 구분한다. 시험에서 실자원을 임의 삭제하지 않으며 소실 복구는 승인된 격리 검증 또는
+실제 사고 절차로 확인한다. 로그에는 PEM·개인키를 남기지 않고 Certificate/Issuer 이름·generation/revision·
+Secret metadata·공개 인증서 fingerprint·만료 시각·CA hash·실제 요청 결과만 남긴다.
+
+| 상황 | 복구와 수락 기준 |
+|---|---|
+| 정상 leaf 갱신 | cert-manager 자동 발급을 관찰하고 새 revision·유효기간, LBC가 실제 제시하는 새 serving certificate와 admission 성공을 대조한다. Secret mount 갱신만으로 완료 처리하지 않는다. |
+| leaf Secret 소실 | 기존 Certificate/Issuer 선언·root를 유지한다. cert-manager의 동일 이름 재발급·새 Secret metadata·LBC reload/필요한 rollout·실제 admission을 확인한다. 원문 수동 복제로 복구하지 않는다. |
+| webhook CA 주입 소실 | 정확한 inject-ca annotation과 cainjector Ready·RBAC·원본 Certificate/Secret 참조를 검사한다. cainjector의 재주입과 serving chain 일치를 확인한다. validation을 끄거나 광범위 ignore를 추가하지 않는다. |
+| root 교체·소실 | maintenance를 유지하고 root Certificate와 self-signed Issuer 복구·발급을 확인한다. CA Issuer의 Secret 변경만으로 기존 leaf가 재발급되지 않으므로 `cmctl renew`로 serving Certificate를 명시 갱신한다. 새 root/leaf·주입 CA·실제 serving chain·admission을 모두 확인한다. |
+| cert-manager 자체 webhook 장애 | cert-manager Deployment·동적 CA Secret의 metadata·cainjector 주입·API startup check를 검사한다. LBC Certificate 조작을 먼저 반복하거나 CRD를 삭제하지 않는다. |
+
+root는 leaf보다 오래 유효해야 하며 root/leaf 각각의 만료·갱신 실패·Ready/Issuing 상태를 운영 관측에 포함한다.
+`cmctl renew`는 보호된 operator context에서 정확한 serving Certificate 하나에 실행하고 명령 성공 뒤에도
+새 revision과 실제 serving certificate를 확인한다. 인계 후 과거 Helm history를 그대로 rollback하면 cert-manager
+소유 Secret과 충돌할 수 있다. 실패 시 현재 소유권·C/H·실제 인증서 상태를 보존한 채 선언·controller를 복구하고,
+전체 수집 기능과 Git 정합을 확인한 뒤 일반 운영을 재개한다. 새 자동 publisher·root 활성화는 PROJ-311 및
+별도 infra 설정 publisher/CAS 구현·수락 이후다.
 
 ### 2.1 인계 전 준비
 
@@ -221,7 +357,7 @@ Git values에 복사하지 않는다. 관측 hook을 일괄 제거하거나 patc
 3. Strimzi는 기존 Helm post-render 이후 결과와 CMP 결과를 비교한다. Operator 하나, `strimzi-system`,
    감시 namespace `pulsemetry-dev`, CRD/RBAC와 vendor checksum이 같아야 한다.
    CRD의 Established와 Operator Ready 후 Kafka CR을 인계한다. Operator 생성 리소스는 직접 추적하지 않는다.
-4. 플랫폼 → controller/CSI·runtime·데이터·관측 의존성 → enrollment → ingest → Gateway → dashboard
+4. base → cert-manager 준비 → LBC 및 controller/CSI·runtime·데이터·관측 의존성 → enrollment → ingest → Gateway → dashboard
    순서로 수동 sync하고 목표 revision·rollout·기능을 확인한다. Kafka/Topic/User의 Ready와
    observedGeneration도 확인한다. 예상 밖 교체·삭제·권한 오류는 다음 단계 진행을 막는다.
 5. 기존 Helm release를 uninstall하지 않는다. Helm metadata는 과거 기록으로 보존하되 인계 이후의

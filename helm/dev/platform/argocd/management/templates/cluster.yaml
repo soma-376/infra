@@ -12,7 +12,7 @@ type: Opaque
 stringData:
   name: pulsemetry-dev
   server: https://kubernetes.default.svc
-  namespaces: argocd,kube-system,pulsemetry-dev,pulsemetry-dev-logs,pulsemetry-observability,strimzi-system
+  namespaces: argocd,kube-system,cert-manager,pulsemetry-dev,pulsemetry-dev-logs,pulsemetry-observability,strimzi-system
   clusterResources: "true"
   config: '{}'
 {{- end }}

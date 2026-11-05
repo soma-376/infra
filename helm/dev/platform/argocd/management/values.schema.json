@@ -4,7 +4,7 @@
   "additionalProperties": false,
   "required": ["reconciliationEnabled", "controllerServiceAccount", "serverServiceAccount", "managedRbac"],
   "properties": {
-    "reconciliationEnabled": {"const": false},
+    "reconciliationEnabled": {"type": "boolean"},
     "controllerServiceAccount": {"const": "argocd-application-controller"},
     "serverServiceAccount": {"const": "argocd-server"},
     "managedRbac": {
@@ -26,6 +26,7 @@
       "type": "object", "additionalProperties": false,
       "properties": {
         "kube-system": {"$ref": "#/definitions/names"},
+        "cert-manager": {"$ref": "#/definitions/names"},
         "pulsemetry-dev": {"$ref": "#/definitions/names"},
         "pulsemetry-dev-logs": {"$ref": "#/definitions/names"},
         "pulsemetry-observability": {"$ref": "#/definitions/names"},
