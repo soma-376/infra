@@ -1,0 +1,92 @@
+# ADR 0058: 신규 cert-manager release만 사용한다. 이미지 원문 provenance는 SOURCE.json이다.
+namespace: cert-manager
+crds:
+  enabled: true
+  keep: true
+global:
+  nodeSelector:
+    kubernetes.io/os: linux
+    kubernetes.io/arch: arm64
+    karpenter.sh/nodepool: pulsemetry-dev-apps
+  rbac:
+    create: true
+    aggregateClusterRoles: false
+  leaderElection:
+    namespace: cert-manager
+
+# Certificate 삭제가 운영 인증서 Secret 삭제로 이어지지 않는다.
+enableCertificateOwnerRef: false
+replicaCount: 1
+image:
+  digest: sha256:e396f69ba33cf623694dcfb1f7c637911b06d71984350fb44158e0f7938f5a80
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+webhook:
+  replicaCount: 1
+  hostNetwork: false
+  securePort: 10250
+  image:
+    digest: sha256:acef59f95954b7e94a7f8a3bcccd65608bec579db567ad5e2b5a1d38c4b75f62
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+cainjector:
+  enabled: true
+  replicaCount: 1
+  image:
+    digest: sha256:02d5ccb77275b12db6ab5a6275860be90d334be70def56e16b49e4eb7d96f142
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+
+# 현재 LBC는 CA Issuer만 사용한다. 향후 HTTP01을 쓰더라도 가변 이미지를 사용하지 않는다.
+acmesolver:
+  image:
+    digest: sha256:40e58d6cce5a382461f82b1049aa0ea325b4971cdbf426d1a984edf5491cd0e0
+
+startupapicheck:
+  enabled: true
+  timeout: 2m
+  image:
+    digest: sha256:4049a9f87997def0396a82bcff58197870947ded66d6af0b1674ccce02f5391e
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 64Mi
+  # Argo PostSync로 매 sync 재검사한다. Helm upgrade에서도 같은 검사를 수행한다.
+  jobAnnotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "1"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+  rbac:
+    annotations:
+      helm.sh/hook: post-install,post-upgrade
+      helm.sh/hook-weight: "-5"
+      helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+  serviceAccount:
+    annotations:
+      helm.sh/hook: post-install,post-upgrade
+      helm.sh/hook-weight: "-5"
+      helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+
+# helm template는 --create-namespace를 출력하지 않는다. 이 Application이 신규 namespace를 소유한다.
+extraObjects:
+  - |
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: cert-manager
