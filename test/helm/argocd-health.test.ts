@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 const root = resolve(__dirname, '../..');
 const applicationScript = readFileSync(join(root, 'helm/dev/gitops/health/application.lua'), 'utf8');
 const kafkaScript = readFileSync(join(root, 'helm/dev/gitops/health/kafka.lua'), 'utf8');
+const certificateScript = readFileSync(join(root, 'helm/dev/gitops/health/certificate.lua'), 'utf8');
 const source = (sha = 'a'.repeat(40)) => ({ repoURL: 'https://github.com/soma-376/infra.git', targetRevision: sha, path: 'helm/dev/workloads/spring-app' });
 const destination = { server: 'https://kubernetes.default.svc', namespace: 'pulsemetry-dev' };
 const application = () => ({
@@ -83,5 +84,25 @@ describe('Argo 3.5.7과 같은 gopher-lua 1.1.2의 실제 health 실행', () => 
 
   test('파일·프로세스·네트워크 표준 library를 열지 않는다', () => {
     expect(health({}, 'if os ~= nil or io ~= nil or package ~= nil or string ~= nil then error("표준 library가 열렸다") end return { status = "Healthy", message = "" }')).toBe('Healthy');
+  });
+
+  test.each(['Certificate', 'Issuer'])('%s는 현재 Ready condition만 통과시키고 재발급·실패·상태 누락을 구분한다', kind => {
+    const fixture = () => ({ kind, metadata: { generation: 3 } as any, status: { conditions: [{ type: 'Ready', status: 'True', observedGeneration: 3 }] as any[] } });
+    expect(health(fixture(), certificateScript)).toBe('Healthy');
+    const stale = fixture(); stale.status.conditions[0].observedGeneration = 2;
+    expect(health(stale, certificateScript)).toBe('Progressing');
+    const missingGeneration = fixture(); delete missingGeneration.status.conditions[0].observedGeneration;
+    expect(health(missingGeneration, certificateScript)).toBe('Progressing');
+    const failing = fixture(); failing.status.conditions[0].status = 'False';
+    expect(health(failing, certificateScript)).toBe('Degraded');
+    const unknown = fixture(); unknown.status.conditions[0].status = 'Unknown';
+    expect(health(unknown, certificateScript)).toBe('Progressing');
+    const issuing = fixture(); issuing.status.conditions.push({ type: 'Issuing', status: 'True', observedGeneration: 3 });
+    expect(health(issuing, certificateScript)).toBe('Progressing');
+    issuing.status.conditions.reverse();
+    expect(health(issuing, certificateScript)).toBe('Progressing');
+    const deleting = fixture(); deleting.metadata.deletionTimestamp = '2026-11-05T00:00:00Z';
+    expect(health(deleting, certificateScript)).toBe('Progressing');
+    expect(health({ kind }, certificateScript)).toBe('Progressing');
   });
 });
