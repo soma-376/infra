@@ -10,7 +10,7 @@ const moduleUrl = pathToFileURL(join(root, 'scripts/dev-argocd-applications.mjs'
 const input = (mode = 'handoff') => ({
   schemaVersion: 1, mode, infraRevision: 'a'.repeat(40),
   ...(mode === 'handoff' ? { handoffRevision: 'b'.repeat(40) } : { valuesRevision: 'c'.repeat(40), bundleManifestSha256: 'd'.repeat(64) }),
-  inventory: catalog.map((entry: any) => ({ id: entry.id, releaseName: `existing-${entry.id}`, namespace: entry.namespace })),
+  inventory: catalog.map((entry: any) => ({ id: entry.id, releaseName: entry.id === 'cert-manager' ? 'cert-manager' : `existing-${entry.id}`, namespace: entry.namespace, ...(entry.id === 'cert-manager' ? { installation: 'new' } : {}) })),
 });
 const generate = (value: any) => {
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
@@ -23,12 +23,12 @@ const generate = (value: any) => {
 };
 
 describe('dev Application 정의의 인계 경계', () => {
-  test('17개 실제 release를 보존하고 관리 Job·Argo 자체를 카탈로그에 넣지 않는다', () => {
+  test('기존 17개와 신규 cert-manager release를 보존하고 관리 Job·Argo 자체를 카탈로그에 넣지 않는다', () => {
     const fixture = input();
     fixture.inventory[0].releaseName = 'actual-platform-release';
     const { status, error, review } = generate(fixture);
     expect({ status, error }).toEqual({ status: 0, error: '' });
-    expect(review.definitions).toHaveLength(17);
+    expect(review.definitions).toHaveLength(18);
     expect(catalog.map((entry: any) => entry.id)).not.toContain('telemetry-kafka-admin');
     expect(catalog.map((entry: any) => entry.id)).not.toContain('argocd');
     for (const definition of review.definitions) {
@@ -67,16 +67,16 @@ describe('dev Application 정의의 인계 경계', () => {
         helm: { releaseName: 'existing-enrollment-api', kubeVersion: '1.36.0', valueFiles: ['../enrollment-api.yaml', '$values/dev/generated/enrollment-api.yaml'], ignoreMissingValueFiles: false, skipCrds: false, skipTests: true } },
       { repoURL: 'https://github.com/soma-376/infra-generated-values.git', targetRevision: 'c'.repeat(40), ref: 'values' },
     ]);
-    for (const id of ['csi', 'strimzi-operator', 'loki', 'tempo', 'otel-platform']) expect(app(id).spec.sources).toHaveLength(1);
+    for (const id of ['cert-manager', 'csi', 'strimzi-operator', 'loki', 'tempo', 'otel-platform']) expect(app(id).spec.sources).toHaveLength(1);
     const fluent = app('fluent-bit').spec.sources[0].helm.valueFiles;
     expect(fluent).toEqual(['../../fluent-bit-values.yaml', '../../fluent-bit-loki-values.yaml', '$values/dev/generated/fluent-bit.yaml']);
     expect(app('strimzi-operator').spec.sources[0].helm).toBeUndefined();
   });
 
-  test('LBC를 격리하고 모든 인계·자동화·삭제를 차단한 상태로만 출력한다', () => {
+  test('cert-manager 전환 뒤에도 기본 생성기는 검토용 중지 상태로 출력한다', () => {
     const { review } = generate(input('gitops'));
     expect(review.readiness).toMatchObject({ status: 'blocked', deployable: false, deployableApplicationCount: 0 });
-    expect(review.definitions.find((entry: any) => entry.id === 'lbc')).toMatchObject({ state: 'quarantined', deployable: false, blockReason: expect.stringContaining('TLS Secret') });
+    expect(review.definitions.find((entry: any) => entry.id === 'lbc')).toMatchObject({ state: 'review-only', deployable: false, blockReason: null });
     for (const app of [...review.definitions.map((entry: any) => entry.application), review.rootTemplate]) {
       expect(app.metadata.annotations['argocd.argoproj.io/skip-reconcile']).toBe('true');
       expect(app.metadata.annotations['pulsemetry.io/handoff-status']).toBe('blocked');
@@ -88,7 +88,7 @@ describe('dev Application 정의의 인계 경계', () => {
 
   test('필수 기반과 앱 순서를 카탈로그 wave에 보존한다', () => {
     const waves = Object.fromEntries(catalog.map((entry: any) => [entry.id, entry.wave]));
-    for (const [before, after] of [['base', 'csi'], ['csi', 'ascp'], ['ascp', 'runtime'], ['strimzi-operator', 'kafka'], ['kafka', 'enrollment-api'], ['runtime', 'enrollment-api'], ['enrollment-api', 'telemetry-ingest'], ['telemetry-ingest', 'telemetry-gateway'], ['telemetry-gateway', 'dashboard-api']]) {
+    for (const [before, after] of [['base', 'cert-manager'], ['cert-manager', 'lbc'], ['base', 'csi'], ['csi', 'ascp'], ['ascp', 'runtime'], ['strimzi-operator', 'kafka'], ['kafka', 'enrollment-api'], ['runtime', 'enrollment-api'], ['enrollment-api', 'telemetry-ingest'], ['telemetry-ingest', 'telemetry-gateway'], ['telemetry-gateway', 'dashboard-api']]) {
       expect(waves[before]).toBeLessThan(waves[after]);
     }
   });
@@ -97,7 +97,7 @@ describe('dev Application 정의의 인계 경계', () => {
     const { review } = generate(input());
     for (const definition of review.definitions) {
       const app = definition.application;
-      expect(app.spec.syncPolicy.syncOptions.includes('ServerSideApply=true')).toBe(['lbc', 'csi', 'strimzi-operator', 'observability'].includes(definition.id));
+      expect(app.spec.syncPolicy.syncOptions.includes('ServerSideApply=true')).toBe(['cert-manager', 'lbc', 'csi', 'strimzi-operator', 'observability'].includes(definition.id));
       expect(app.spec.syncPolicy.syncOptions).not.toContain('Replace=true');
       expect(app.spec.syncPolicy.syncOptions).not.toContain('Force=true');
       const native = app.spec.sources[0].helm;
@@ -110,12 +110,14 @@ describe('dev Application 정의의 인계 경계', () => {
     ['짧은 H', (v: any) => { v.handoffRevision = 'abcd123'; }],
     ['H와 V 혼합', (v: any) => { v.valuesRevision = 'c'.repeat(40); }],
     ['H와 B 혼합', (v: any) => { v.bundleManifestSha256 = 'd'.repeat(64); }],
+    ['신규 release 오인', (v: any) => { v.inventory.find((i: any) => i.id === 'cert-manager').installation = 'existing'; }],
+    ['cert-manager 이름 변경', (v: any) => { v.inventory.find((i: any) => i.id === 'cert-manager').releaseName = 'other'; }],
     ['부분 inventory', (v: any) => { v.inventory.pop(); }],
     ['중복 id', (v: any) => { v.inventory[1] = { ...v.inventory[0] }; }],
     ['미허용 id', (v: any) => { v.inventory[0].id = 'telemetry-kafka-admin'; }],
     ['다른 namespace', (v: any) => { v.inventory[0].namespace = 'pulsemetry-perf'; }],
     ['빈 release', (v: any) => { v.inventory[0].releaseName = ''; }],
-    ['중복 release', (v: any) => { v.inventory[1].releaseName = v.inventory[0].releaseName; }],
+    ['중복 release', (v: any) => { v.inventory.find((i: any) => i.id === 'lbc').releaseName = v.inventory[0].releaseName; }],
     ['활성화 우회 입력', (v: any) => { v.activate = true; }],
     ['inventory override', (v: any) => { v.inventory[0].targetRevision = 'main'; }],
   ])('%s를 거부한다', (_name, mutate) => {
