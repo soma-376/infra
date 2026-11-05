@@ -74,12 +74,17 @@ snapshot H를 검증한다. 사본에 기록된 최신 성공 이미지가 현�
 |---|---|---|
 | platform/base | 하나 | CDK output·NodeClass/NodePool·namespace 정합 |
 | LBC, CSI driver, ASCP, Fluent Bit | 기존 release마다 하나 | 기반 준비, 필요한 CRD·Pod Identity |
+| cert-manager | 신규 release 하나 | namespace 준비, 고정 CRD·webhook·startup API check |
 | runtime-config | 하나 | CSI/ASCP 준비; 원문 없는 Secret 참조 |
 | Strimzi Operator와 CRD | 하나 | 기반 준비; 고정 renderer 검증 |
 | Kafka CR | Operator와 별도 하나 | CRD Established·Operator Ready; Kafka/Topic/User 상태 검증 |
 | ClickHouse | 하나 | 기존 PVC·AZ·CSI 준비 |
 | observability, Loki, Tempo, otel-platform | 기존 release마다 하나 | 기반·CSI·필요한 CRD 준비 |
 | enrollment, ingest, Gateway, dashboard | 앱마다 하나 | 아래 앱 순서 |
+
+[ADR 0058](0058-dev-lbc-cert-manager-and-argocd-handoff.md)은 cert-manager를 18번째 관리 대상으로 추가하고
+LBC 인증서 소유권·수동 H 인계 출력을 구체화한다. 기존 17개 release 이름과 generated 13개 파일 계약은 유지한다.
+cert-manager 준비·LBC 인증서 전환의 실제 수락 전에는 일반 인계를 진행하지 않는다.
 
 `telemetry-kafka-admin`의 offset reset 등 수동 Job은 자동 sync/hook 대상이 아니다.
 Strimzi가 생성하는 Pod·Service·PVC·Secret을 별도 Application으로 중복 선언하지 않는다.

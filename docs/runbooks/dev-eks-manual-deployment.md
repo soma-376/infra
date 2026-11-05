@@ -493,6 +493,17 @@ NodeClass의 `role`에는 **role 이름**을 쓴다. ARN은 AccessEntry와 Pod I
 helm upgrade --install pulsemetry-dev-platform helm/dev/platform/base \
   --namespace kube-system --values "$RUN_DIR/generated/base.yaml" --wait --timeout 10m
 kubectl get nodeclasses.eks.amazonaws.com,nodepools.karpenter.sh
+```
+
+PROJ-310 이후 LBC의 추적 values는 `enableCertManager=true`다. 아래 LBC 명령 전에
+[Argo 런북 §2.0.4~2.0.5](dev-argocd-operations.md#204-proj-310-적용용-수동-인계-출력)의 cert-manager
+v1.21.3 설치·CRD/webhook/startup API check를 먼저 완료한다. 기존 LBC가 있으면 **TLS Secret 보존 annotation과
+별도 인증서 전환 절차가 필수**다. 기존 Secret을 삭제하거나 인증서 설정을 임의 override하지 않는다.
+새 cert-manager namespace는 cert-manager chart가 소유하며 base에서 중복 선언하지 않는다.
+LBC 인증서 전환 뒤 실제 serving TLS·CA 주입·admission을 검증하기 전 앱/데이터 배포를 진행하지 않는다.
+아래 release 이름도 기존 inventory와 일치할 때만 사용한다.
+
+```bash
 (cd helm/dev/platform/lbc && shasum -a 256 -c SHA256SUMS)
 kubectl apply --server-side -f helm/dev/platform/lbc/crds/
 helm upgrade --install aws-load-balancer-controller \
