@@ -18,7 +18,7 @@ cert-manager와 적용용 수동 인계 산출물을 추가한다. 이번 변경
   CDK 적용 성공이 generated 게시나 앱 배포 성공을 뜻하지 않는다.
 - Argo 자체는 고정된 Helm으로 수동 관리한다. UI/API는 ClusterIP로 두고 기존 SSM EKS 터널과
   별도 kubeconfig·원래 서버 hostname/CA 검증을 유지한다. 새 public ALB/DNS를 만들지 않는다.
-- 배포 단위와 파일 형식은 [허브 generated-values 계약](https://github.com/soma-376/docs/blob/docs/PROJ-281-dev-gitops-contract/contracts/generated-values-sync.md)이
+- 배포 단위와 파일 형식은 [허브 generated-values 계약](https://github.com/soma-376/docs/blob/docs/PROJ-311-gitops-delivery-contract/contracts/generated-values-sync.md)이
   단일 출처다. C=infra/chart SHA, V=generated snapshot commit, B=backend 완료 manifest 원본 바이트의 SHA-256,
   P=배포 선택 commit이다. backend는 이미지 갱신·롤백, infra는 설정 생성·게시, Argo는 적용·self-heal을 맡는다.
 - 두 게시기는 후속 `dev/delivery-state.json`의 owner·generation·기준 P와 main HEAD를 CAS로 검증한다.
@@ -322,7 +322,7 @@ root는 leaf보다 오래 유효해야 하며 root/leaf 각각의 만료·갱신
 새 revision과 실제 serving certificate를 확인한다. 인계 후 과거 Helm history를 그대로 rollback하면 cert-manager
 소유 Secret과 충돌할 수 있다. 실패 시 현재 소유권·C/H·실제 인증서 상태를 보존한 채 선언·controller를 복구하고,
 전체 수집 기능과 Git 정합을 확인한 뒤 일반 운영을 재개한다. 새 자동 publisher·root 활성화는 PROJ-311 및
-별도 infra 설정 publisher/CAS 구현·수락 이후다.
+별도 infra 설정 publisher/CAS 구현·수락 이후다. [이미지 승격 런북](dev-gitops-image-promotion.md)의 기본 비활성·운영 준비 조건을 함께 확인한다.
 
 ### 2.1 인계 전 준비
 
@@ -398,6 +398,10 @@ chart·runtime만 바뀐 경우에도 C/V를 새로 검증해 함께 선택한�
 
 ## 4. 순차 적용과 성공 판정
 
+PROJ-311의 앱별 PostSync gate·읽기 전용 관측·정제된 증거·초기화 조건은
+[이미지 승격 런북](dev-gitops-image-promotion.md)을 따른다. 일반 health 200을 기능 성공으로 승격하지 않는다.
+
+
 상위 Application의 wave는 하위 Application custom health와 연결한다. **현재 원하는 C/V의 적용 성공과
 Healthy**를 모두 확인하기 전에는 다음 wave로 넘어가지 않는다. status가 없거나 과거 revision, OutOfSync,
 진행 중 operation, 실패 operation이면 대기/실패로 남긴다. sync wave annotation만으로 순서가 보장됐다고 하지 않는다.
@@ -405,10 +409,10 @@ Healthy**를 모두 확인하기 전에는 다음 wave로 넘어가지 않는다
 | 단계 | 진행 조건 | 증명하지 못하는 것 |
 |---|---|---|
 | 기반·runtime·데이터 | NodePool/CSI·필요 CRD·SPC·PVC, Kafka/Topic/User 현재 generation Ready | 실제 앱의 권한·인증서 파일 읽기 |
-| enrollment | 목표 digest rollout·init 검사, 해당 schema의 Flyway 성공 | ingest/조회 경로의 성공 |
+| enrollment | 목표 digest rollout, enrollment·telemetry_ops Flyway와 PIT·설치 bootstrap | ingest/조회 경로의 성공 |
 | ingest | 목표 digest·현재 schema/TLS 연결, 이전 Kafka envelope 호환 | Gateway ACK만으로 실제 저장 |
-| Gateway | 목표 digest·Kafka 접속, 인증 요청의 ACK | consume·commit·적재 완료 |
-| dashboard | 목표 digest·cache DDL/조회 연결, 로그인과 대표 조회 | 전체 데이터 정합·SLO |
+| Gateway | 목표 digest, 고유 OTLP ACK·CH 기대 행·S3 metadata·Kafka commit watermark | 최대 부하·전체 데이터 정합 |
+| dashboard | 목표 digest·dashboard_cache Flyway, 실제 OIDC 로그인과 대표 조회 | 전체 데이터 정합·SLO |
 
 앱 health 200·Pod Ready만으로 schema 적용이나 적재를 완료 처리하지 않는다. 실제 검증기는 rollout 상태와
 enrollment migration 결과, 인증·로그인·대표 조회, 고유 식별 요청의 ACK→consume→commit→S3/ClickHouse를

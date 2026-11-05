@@ -172,7 +172,7 @@ Pod·TLS·OIDC·DB·수집 E2E 성공을 선언하지 않는다.
 조회·GitHub App 없이 기존 CDK 경로로 실행된다. 다음 준비를 완료한 뒤 **새 plan**에서 활성화한다.
 
 1. 관리자 경로로 `env=cicd`의 deploy 역할 AssumeRole 정책을 반영한다. dev CDK 배포로
-   `soma-376-dev-eks-values-reader`와 `EksValuesReaderRoleArn` output을 준비한다. 기존 DeployStack 역할 수는 6개다.
+   `soma-376-dev-eks-values-reader`와 `EksValuesReaderRoleArn` output을 준비한다. PROJ-279 당시 DeployStack 역할은 앱 4개·infra 2개로 6개다. PROJ-311의 별도 승격 역할을 포함한 현재 코드 기준은 7개이며 이 사본 reader의 역할과 구분한다.
 2. 운영자가 현재 고정된 dev base values로 base chart를 수동 upgrade하여 `pulsemetry-dev`의
    `generated-values-reader` Role·RoleBinding을 설치한다. 최초 RBAC는 새 publisher에 의존하지 않는다.
 3. GitHub App을 backend와 private 사본 저장소에 설치한다. backend `Actions: read`, `Contents: read`,

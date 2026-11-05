@@ -2,14 +2,14 @@
 
 ## Status
 
-Accepted (PROJ-280 설계 채택; Git 관리 자격증명 공급은 [ADR 0057](0057-dev-argocd-github-app-authentication.md)로 부분 대체한다. C/B/V/P·CSI·게시 권한 계약은 유지하며 실제 GitOps 인계는 별도 운영 수락 대상이다.)
+Accepted (PROJ-280 설계와 PROJ-311 검증 경계 채택; Git 관리 자격증명 공급은 [ADR 0057](0057-dev-argocd-github-app-authentication.md)로 부분 대체한다. C/B/V/P·CSI·게시 권한 계약은 유지하며 실제 GitOps 인계는 별도 운영 수락 대상이다.)
 
 [ADR 0028의 EKS 수동 Helm 전환](0028-dev-eks-auto-mode-transition.md) 중 인계된 리소스의
 일반 배포 주체와 Argo 제외 결정을 부분 대체한다. CDK의 AWS 소유권, Auto Mode의 노드 관리,
 ARM64·스토리지·Secret·private API 경계는 유지한다. [ADR 0049](0049-dev-strimzi-kafka-and-staged-msk-retirement.md)의
 Strimzi 토폴로지·KafkaTopic 소유권·인증서 명시적 재배포도 유지하고 그 적용 주체만 인계 후 Argo로 바꾼다.
-레포 간 계약은 [허브 ADR 0031](https://github.com/soma-376/docs/blob/docs/PROJ-281-dev-gitops-contract/adr/0031-dev-gitops-delivery.md)과
-[generated-values 계약](https://github.com/soma-376/docs/blob/docs/PROJ-281-dev-gitops-contract/contracts/generated-values-sync.md)이 소유한다.
+레포 간 계약은 [허브 ADR 0035](https://github.com/soma-376/docs/blob/docs/PROJ-311-gitops-delivery-contract/adr/0035-dev-gitops-delivery.md)과
+[generated-values 계약](https://github.com/soma-376/docs/blob/docs/PROJ-311-gitops-delivery-contract/contracts/generated-values-sync.md)이 소유한다.
 PROJ-277의 private 사본 공급·사용 절차 위에 이 결정을 쌓는다. 입력·생성기 소유권과 접근 제한은 계승하고,
 인계된 대상의 수동 게시·Helm 적용 경로는 검증한 C/V/B/P 승격·Argo 적용으로 확장한다.
 
@@ -98,7 +98,7 @@ Kafka CR은 Ready와 observedGeneration을 함께 검사한다. 일반 배포 �
 특수 순서를 대체하지 않으며, 그 변경은 일반 승격을 보류하고 별도 단계로 적용한다.
 
 네 앱의 Git 선택은 한 번에 바꾸지만 Kubernetes 교체는 순차적이다. replica 1·Recreate를 유지하므로
-중단과 혼합 버전 구간이 있을 수 있다. Flyway 성공·필수 기능 증거를 수집하는 검증기는 후속 구현에 포함하되,
+중단과 혼합 버전 구간이 있을 수 있다. Flyway 성공·필수 기능 증거를 수집하는 검증기는 PostSync Job으로 검사하되,
 DDL 자체를 migration Job이나 Argo hook으로 옮기지 않는다. gate가 없는 상태에서는 자동화를 활성화하지 않는다.
 
 ### 3. 두 게시기와 revision 승격
@@ -110,7 +110,7 @@ V(private generated snapshot commit), P(protected main의 배포 선택 commit)�
    완료 manifest를 게시하고 **최종 성공한 뒤**, 별도의 backend 승격 workflow가 원본 실행·artifact·B를 검증한다.
    태그 감시나 manifest의 자기 선언은 성공 증거가 아니다. 누락·혼합·변조·과거 실행은 거부한다.
 2. backend 게시기는 현재 C와 V의 비이미지 설정을 보존하고 네 앱의 `image.repository`·`image.digest`와
-   관련 B/배포 metadata만 바꾼다. repository는 기존 앱별 허용값을 유지한다. `image.digest`는 bare `sha256:<64 lowercase hex>`이고 기존 CLI의
+   관련 B/배포 metadata만 바꾼다. 비이미지 예외는 네 앱의 `deliveryVerification` 아래 `operationNonce`, `infraCommit`, `bundleManifestSha256`, `imageDigest`, `contractSha256`, `contract` 여섯 leaf뿐이다. 검증기 이미지·권한·Secret 참조·timeout은 현재 값을 보존한다. repository는 기존 앱별 허용값을 유지한다. `image.digest`는 bare `sha256:<64 lowercase hex>`이고 기존 CLI의
    `repository@digest`, ARM64 및 initContainer/앱 동일 이미지 검증을 유지한다. 이미지 overlay를 추가하지 않는다.
 3. infra 게시기는 C의 chart·profile·runtime과 현재 AWS output/Strimzi metadata를 검증해 generated를 만든다.
    설정 변경에서는 현재 선택된 B의 네 이미지를 그대로 주입한다. 새 ECR 태그를 발견해도 이미지 묶음을 바꾸지 않는다.
@@ -119,7 +119,7 @@ V(private generated snapshot commit), P(protected main의 배포 선택 commit)�
    이후 P 한 commit에서 `dev/desired.yaml`과 `dev/applications/`의 영향을 받는 모든 하위 Application C/V를 함께 바꾼다.
    상위 Argo는 private main의 Application 선언을, 하위 Argo는 고정 C/V를 읽는다. V 이후 P 이전 실패는
    기존 배포 선택을 유지하며, P의 선택을 조회해 게시 성공 여부를 확정하기 전에는 다음 배포를 시작하지 않는다.
-5. `dev/delivery-state.json`의 공통 잠금을 두 게시기가 공유한다. 이 파일은 **후속 구현 계약이며 이번에는 만들지 않는다.**
+5. `dev/delivery-state.json`의 공통 잠금을 두 게시기가 공유한다. PROJ-311의 공통 모듈과 별도 infra 설정 publisher가 이 계약을 공유한다.
    `schemaVersion: 1`, `state`(`idle|deploying|rolling_back|blocked`), 단조 증가 `generation`,
    `owner`(`repository`, `workflowRef`, `workflowRunId`, `workflowRunAttempt`), `expectedDesiredP`,
    `operation.kind`(`image|config|rollback`), `lastKnownGood`(`infraCommit`, `valuesCommit`,
@@ -184,7 +184,9 @@ Git/Argo 관리 자격증명은 애플리케이션 Secret과 분리하고 원문
 owner 소실 또는 복구 실패는 `blocked`로 남기며 자동 재복구·잠금 탈취를 하지 않는다. DB downgrade·PVC·
 Kafka offset 복원은 자동화하지 않는다.
 
-확정 실패는 durable CAS commit으로 `failedRelease`와 `resumeFence`에 기록한다. 복구 성공 후에도 실패 B와
+확정 실패는 먼저 `fenceSealed: false`인 durable CAS로 `failedRelease`와 `resumeFence`에 기록한다.
+그 게시 성공 응답을 확인한 뒤의 시각으로 `fenceSealed: true`를 별도 CAS에 남긴다. unsealed 이력은 자동
+재개를 막고 같은 실패 B/벡터의 가장 늦은 기록 시각을 보존한다. 복구 성공 후에도 실패 B와
 동일한 네 이미지 조합을 차단한다. 후속 실패나 새 정상 배포가 이전 실패 거부 이력을 지우지 않는다. 자동 재개는 실패 source의 **엄격한 develop 후속 commit**이며, 실패 기록
 이후 새로 생성된 **원본 생산 run**에서 정상 완료한 묶음부터 허용한다. 재시도 attempt의 시작 시각이나 새 B로의
 재포장으로 차단을 우회하지 못한다. fence commit ID는 Git 이력으로 추적하며 자기 SHA를 파일에 넣지 않는다.
@@ -195,6 +197,45 @@ offset reset·인증서/JWT 교체 등의 수동 maintenance는 공통 상태를
 진행 중 operation 종료를 확인한다. Pod만 scale down한 상태는 중지 상태로 인정하지 않는다.
 복구가 설정까지 바꾸거나 소유권을 잃었다면 운영자가 실제 상태·호환성·기존 실행 종료를 확인하고 새 generation으로
 명시적으로 회복한다. Git 정합과 실제 기능을 확인한 뒤 보류를 해제한다. 상세 절차는 운영 런북을 따른다.
+
+### 6. PROJ-311 검증기와 읽기 전용 관측
+
+생산의 기존 ECR push 역할과 별도 `dev-gitops` Environment의 승격 역할을 분리한다. `workflow_run`의
+workflow/ref는 default branch에 속하며 생산 develop SHA가 아니다. 검토된 승격 코드가 원본 생산
+workflow·run/attempt·최종 성공·artifact를 API로 대조한다. 공통 infra tooling도 desired C와 독립적으로
+검토한 full SHA를 사용한다. 공개 artifact에는 account 없는 repository·digest·배포 계약만 담는다.
+
+runner는 별도 읽기 전용 역할로 기존 SSM EKS API·DB relay를 사용한다. values reader나 관리자 DB 역할의
+권한을 확대하지 않는다. Kubernetes/Argo 변경, exec·port-forward는 허용하지 않는다. 필요한 Application·
+workload·Job·인증서 metadata와 기존 Prometheus의 정확한 services/proxy GET만 관측한다. 관련 SG는
+Network가 소유한다. PostgreSQL은 세 Flyway 이력과 catalog fingerprint, ClickHouse는 synthetic tenant의
+기대 관측과 schema만 읽는다. S3는 기대 archive key의 ListObjectsV2 metadata만 확인하고 원문은 읽지 않는다.
+
+spring-app의 opt-in PostSync Job은 infra 소유 검증기 이미지를 digest로 고정한다. 후보 이미지를
+인증정보가 있는 initContainer로 실행하지 않는다. producer가 이미지에 포장한 계약과 B의 원본 계약 hash를
+대조한다. 새 V와 rollback V는 네 gate의 nonce를 새로 만들지만 Deployment Pod template에는 넣지 않는다.
+root와 18개 child는 `syncPolicy.retry.limit: 0`으로 같은 게시 operation의 자동 재시도를 끄고 PostSync 중복 검증을 막는다.
+Job은 BeforeHookCreation으로 다음 검사 때만 교체하며 성공·실패 직후 자동 삭제하지 않는다.
+Job은 자신의 Application 완료를 기다리지 않는다. 앱의 실제 기능을 검사한 뒤 runner와 parent health가
+현재 operation·C/V/P·Job UID·Pod imageID를 결합한다. selective sync로 gate를 우회하지 않는다.
+
+전용 synthetic tenant/member/installation의 PIT로 telemetry JWT를 발급하고 실제 OIDC 로그인으로
+새 user session을 만든다. 서명키·자체 JWT·DB session 생성이나 재사용 refresh token으로 대체하지 않는다.
+한 번의 OTLP 입력을 ClickHouse 기대 행·S3 정확한 key metadata·Kafka commit watermark와 연결한다.
+Kafka는 ACK 이후의 전체 end-offset 벡터 이상인 신선한 committed-offset 벡터를 요구하고 lag 0으로
+대신하지 않는다. Job termination message는 4KiB 미만 고정 schema이고 잘림·결측·deadline·조회 장애는 unknown이다.
+
+key/TLS 비교에는 다음 Pod의 Secret 선택도 포함한다. verifier 역할과 runner DB reader 역할은 허용된
+앱 Secret 원본 ARN의 `DescribeSecret` metadata만 추가로 읽고 SPC의 고정 objectVersion 또는 AWSCURRENT
+VersionId를 실제 CSI mount와 대조한다. 선택 metadata를 fingerprint에 포함하며 stage가 이동했지만 mount가
+이전 버전이면 unknown으로 보류한다. 앱 Secret 원문 GetSecretValue 권한은 늘리지 않는다.
+
+자동 복구 v1은 실패 시 재조회한 실제 schema/migration·현재 runtime·key/TLS metadata·envelope fingerprint가
+lastKnownGood과 모두 같은 경우에만 한 번 허용한다. schema 변경의 하위 호환성을 추정하지 않는다.
+정제된 검증 증거는 private `dev/evidence/<operationNonce>.json`과 해시로 연결하고 공개 artifact에 올리지 않는다.
+`dev/activation.json`의 PROJ-310 인수·정상 B·별도 infra 설정 publisher/CAS 수락은 운영 준비의 입력이다.
+H-only 생성기는 자동 root·bundle·desired·delivery state를 만들지 않으며 initializer는 정상 B와 수락 증거를 요구한다.
+운영 준비와 검증 명령은 [PROJ-311 런북](../runbooks/dev-gitops-image-promotion.md)을 따른다.
 
 ## Alternatives Considered
 
@@ -220,9 +261,7 @@ Argo 자체는 초기 비 HA이며 데이터 복구나 네 앱의 동시 교체�
 
 ## Follow-up
 
-허브 PROJ-281 계약 이후 PROJ-280·286의 문서를 정합화한다. 후속 구현에서 backend 완료 manifest와
-별도 승격·복구 workflow, infra 설정 게시기, 공통 상태·CAS·실패 fence, Git 보호·권한, Argo 고정 설치,
-CMP·Application·health, maintenance·검증 결과 기록을 구현한다. 기존 repository/digest 입력을 유지한다. [운영 런북](../runbooks/dev-argocd-operations.md)의 인계 수락 조건을
+허브 ADR 0035와 backend ADR 0079에 맞춰 PROJ-311의 이미지 공급·공통 CAS·검증 경계를 유지한다. 별도 infra 설정 게시기, Git 보호·권한과 최초 정상 B를 준비하고 실제 상호 운용·maintenance·복구를 수락한다. 기존 repository/digest 입력을 유지한다. [운영 런북](../runbooks/dev-argocd-operations.md)의 인계 수락 조건을
 통과하기 전에는 기존 Helm 운영을 유지한다. PROJ-279의 사본 job 구현·활성화와 실제 게시 증거를
 각각 확인하고, 이를 정식 publisher·Argo 인수 완료로 표현하지 않는다.
 
@@ -239,4 +278,4 @@ Git 게시, Synced, Healthy, 실제 로그인·조회·Gateway ACK→consume→c
 - [Argo Application health](https://argo-cd.readthedocs.io/en/stable/operator-manual/health/#argocd-app)
 - [Argo CMP](https://argo-cd.readthedocs.io/en/stable/operator-manual/config-management-plugins/)
 - [Argo 자동 sync와 rollback 경계](https://argo-cd.readthedocs.io/en/stable/user-guide/auto_sync/)
-- [backend ADR 0076](https://github.com/soma-376/pulsemetry-backend/blob/docs/PROJ-286-backend-image-delivery-adr/docs/adr/0076-dev-앱-이미지는-검증한-묶음으로-GitOps에-인계한다.md)
+- [backend ADR 0079](https://github.com/soma-376/pulsemetry-backend/blob/feature/PROJ-311-backend-image-promotion/docs/adr/0079-dev-앱-이미지는-검증한-묶음으로-GitOps에-인계한다.md)
