@@ -24,7 +24,8 @@ describe('Argo 3.5.7과 같은 gopher-lua 1.1.2의 실제 health 실행', () => 
       cwd: join(root, 'test/helm/health-lua'), encoding: 'utf8', timeout: 120_000,
       env: { ...process.env, GOCACHE: process.env.GOCACHE ?? join(tmpdir(), 'pulsemetry-argocd-health-go-cache'), GOMODCACHE: process.env.GOMODCACHE ?? join(tmpdir(), 'pulsemetry-argocd-health-mod') },
     });
-    expect({ status: built.status, error: built.error?.message, stderr: built.stderr }).toEqual({ status: 0, error: undefined, stderr: '' });
+    // 최초 의존성 다운로드 안내는 stderr에 기록되므로 빌드 종료 코드로 성공을 판정한다.
+    expect({ status: built.status, error: built.error?.message, stderr: built.stderr }).toMatchObject({ status: 0, error: undefined });
   }, 130_000);
   afterAll(() => { if (temporary) rmSync(temporary, { recursive: true, force: true }); });
 
