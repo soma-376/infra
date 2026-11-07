@@ -1,4 +1,5 @@
-{{- range $name := list "telemetry-gateway" "telemetry-ingest" "clickhouse" }}
+{{- /* 앱 관리 포트 9404(backend ADR 0068·0079)와 ClickHouse exporter. 이름은 workload label·job·service 값이다. */}}
+{{- range $name := list "telemetry-gateway" "telemetry-ingest" "enrollment-api" "dashboard-api" "clickhouse" }}
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor

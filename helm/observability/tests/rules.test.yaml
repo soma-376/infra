@@ -366,11 +366,46 @@ tests:
       - eval_time: 3m
         alertname: PipelineCommitFailure
         exp_alerts: []
+  # API 앱 관리 포트 scrape(backend ADR 0079). 실패한 target과 대상 없음은 1분 뒤 경보하고 정상 target은 울리지 않는다.
+  - interval: 10s
+    input_series:
+      - series: up{job="dashboard-api",pod="a"}
+        values: 0+0x30
+      - series: up{job="enrollment-api",pod="a"}
+        values: 1+0x30
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: DashboardApiMetricsUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: dashboard-api
+              pod: a
+            exp_annotations:
+              summary: dashboard-api 지표를 수집할 수 없다
+      - eval_time: 2m
+        alertname: EnrollmentApiMetricsUnavailable
+        exp_alerts: []
+  - interval: 10s
+    input_series: []
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: EnrollmentApiMetricsUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: enrollment-api
+            exp_annotations:
+              summary: enrollment-api 지표를 수집할 수 없다
   # 구성요소별 수집 상태: 정상·일부 실패·전체 실패·대상 없음·기대 target 수 미달·k6 수신 유무를 서로 다른 값으로 구분한다.
   - interval: 10s
     input_series:
       - series: up{job="telemetry-ingest",pod="a"}
         values: 1+0x30
+      - series: up{job="enrollment-api",pod="a"}
+        values: 1+0x30
+      - series: up{job="dashboard-api",pod="a"}
+        values: 0+0x30
       - series: up{job="clickhouse",pod="a"}
         values: 1+0x30
       - series: up{job="clickhouse",pod="b"}
@@ -395,6 +430,10 @@ tests:
             value: -1
           - labels: pulsemetry:collection_state{component="telemetry-ingest",dashboard="pulsemetry-pipeline"}
             value: 2
+          - labels: pulsemetry:collection_state{component="enrollment-api",dashboard="pulsemetry-api"}
+            value: 2
+          - labels: pulsemetry:collection_state{component="dashboard-api",dashboard="pulsemetry-api"}
+            value: 0
           - labels: pulsemetry:collection_state{component="clickhouse",dashboard="pulsemetry-clickhouse"}
             value: 1
           - labels: pulsemetry:collection_state{component="msk-jmx",dashboard="pulsemetry-msk"}

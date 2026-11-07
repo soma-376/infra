@@ -423,7 +423,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "up{job=~\"telemetry-gateway|telemetry-ingest|clickhouse|msk-jmx|msk-node\",cluster=\"$cluster\"}",
+          "expr": "up{job=~\"telemetry-gateway|telemetry-ingest|enrollment-api|dashboard-api|clickhouse|msk-jmx|msk-node\",cluster=\"$cluster\"}",
           "legendFormat": "{{job}} {{instance}}",
           "range": true
         }

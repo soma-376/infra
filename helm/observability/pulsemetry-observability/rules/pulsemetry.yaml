@@ -70,6 +70,49 @@ groups:
         labels:
           component: telemetry-ingest
           dashboard: pulsemetry-pipeline
+      # API 앱(backend ADR 0079). 상세 화면은 Pulsemetry · API다.
+      - record: pulsemetry:collection_state
+        expr: |
+          max(
+            (min(up{job="enrollment-api"}) == 1) * 2
+              or (max(up{job="enrollment-api"}) == 1) * 0 + 1
+              or max(up{job="enrollment-api"}) * 0
+              or absent(up{job="enrollment-api"}) * -1
+          )
+        labels:
+          component: enrollment-api
+          dashboard: pulsemetry-api
+      - record: pulsemetry:collection_success:ratio
+        expr: avg(up{job="enrollment-api"})
+        labels:
+          component: enrollment-api
+          dashboard: pulsemetry-api
+      - record: pulsemetry:collection_last_success:timestamp
+        expr: max(timestamp(up{job="enrollment-api"}) and up{job="enrollment-api"} == 1)
+        labels:
+          component: enrollment-api
+          dashboard: pulsemetry-api
+      - record: pulsemetry:collection_state
+        expr: |
+          max(
+            (min(up{job="dashboard-api"}) == 1) * 2
+              or (max(up{job="dashboard-api"}) == 1) * 0 + 1
+              or max(up{job="dashboard-api"}) * 0
+              or absent(up{job="dashboard-api"}) * -1
+          )
+        labels:
+          component: dashboard-api
+          dashboard: pulsemetry-api
+      - record: pulsemetry:collection_success:ratio
+        expr: avg(up{job="dashboard-api"})
+        labels:
+          component: dashboard-api
+          dashboard: pulsemetry-api
+      - record: pulsemetry:collection_last_success:timestamp
+        expr: max(timestamp(up{job="dashboard-api"}) and up{job="dashboard-api"} == 1)
+        labels:
+          component: dashboard-api
+          dashboard: pulsemetry-api
       - record: pulsemetry:collection_state
         expr: |
           max(
@@ -290,6 +333,20 @@ groups:
           severity: warning
         annotations:
           summary: Pipeline 지표를 수집할 수 없다
+      - alert: EnrollmentApiMetricsUnavailable
+        expr: absent(up{job="enrollment-api"}) or (up{job="enrollment-api"} == 0)
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: enrollment-api 지표를 수집할 수 없다
+      - alert: DashboardApiMetricsUnavailable
+        expr: absent(up{job="dashboard-api"}) or (up{job="dashboard-api"} == 0)
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: dashboard-api 지표를 수집할 수 없다
       - alert: ClickHouseMetricsUnavailable
         expr: absent(up{job="clickhouse"}) or (up{job="clickhouse"} == 0)
         for: 1m

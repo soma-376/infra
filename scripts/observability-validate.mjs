@@ -67,7 +67,7 @@ assert.equal(find('PersistentVolumeClaim', 'kubernetes-events-state').spec.resou
 assert.deepEqual(find('ClusterRole', 'pulsemetry-observability-events').rules, [{apiGroups:[''],resources:['events'],verbs:['get','list','watch']}]);
 const nodeExporter = resources.find(x => x.kind === 'DaemonSet');
 assert.ok(nodeExporter.spec.template.spec.tolerations.some(x => x.operator === 'Exists' && !x.key));
-for (const [name, path] of [['telemetry-gateway', '/actuator/prometheus'], ['telemetry-ingest', '/actuator/prometheus'], ['clickhouse', '/metrics']]) {
+for (const [name, path] of [['telemetry-gateway', '/actuator/prometheus'], ['telemetry-ingest', '/actuator/prometheus'], ['enrollment-api', '/actuator/prometheus'], ['dashboard-api', '/actuator/prometheus'], ['clickhouse', '/metrics']]) {
   const monitor = find('ServiceMonitor', name).spec;
   assert.deepEqual(monitor.namespaceSelector.matchNames, ['pulsemetry-dev']);
   assert.equal(monitor.endpoints[0].port, 'metrics');
@@ -93,8 +93,9 @@ checked(promtool, ['check', 'config', resolve(temp, 'prometheus.yaml')]);
 checked(promtool, ['check', 'rules', resolve(chart, 'rules/pulsemetry.yaml')]);
 checked(promtool, ['test', 'rules', resolve(fixtures, 'rules.test.yaml')]);
 const dashboards = Object.values(find('ConfigMap', 'pulsemetry-dashboards').data).map(JSON.parse);
-assert.equal(dashboards.length, 9);
+assert.equal(dashboards.length, 10);
 assert.ok(dashboards.some(x => x.uid === 'pulsemetry-traces'), 'trace 대시보드(ADR-0039)');
+assert.ok(dashboards.some(x => x.uid === 'pulsemetry-api'), 'API 앱 대시보드(ADR-0059)');
 // 빈 패널 문구는 이유를 구분하는 고정 집합만 쓴다. 0이나 숫자로 빈값을 덮지 않는다.
 const noValueTexts = new Set([
   '미수집',
@@ -151,8 +152,8 @@ for (const dashboard of dashboards) {
         const expr = target.expr.replaceAll('$__rate_interval', '1m').replaceAll('$__range', '5m');
         expressions.push({record:`dashboard_query_${expressions.length}`,expr});
         for (const metric of expr.match(/\bpulsemetry_[A-Za-z0-9_]+/g) ?? []) usedCustomMetrics.add(metric);
-        for (const metric of expr.match(/\b(?:jvm_|tomcat_|hikaricp_|kafka_producer_|ClickHouse)[A-Za-z0-9_]+/g) ?? []) usedNativeMetrics.add(metric);
-        if (/pulsemetry_|ClickHouse|jvm_|hikaricp_|tomcat_|kafka_producer_/.test(expr)) {
+        for (const metric of expr.match(/\b(?:jvm_|tomcat_|hikaricp_|http_server_|kafka_producer_|ClickHouse)[A-Za-z0-9_]+/g) ?? []) usedNativeMetrics.add(metric);
+        if (/pulsemetry_|ClickHouse|jvm_|hikaricp_|tomcat_|http_server_|kafka_producer_/.test(expr)) {
           for (const label of ['cluster="$cluster"','namespace="$namespace"','pod=~"$pod"']) assert.ok(expr.includes(label), `필터 누락: ${expr}`);
           // ClickHouse 화면은 서버 지표(clickhouse)와 ingest의 앱 지표를 서비스 선택과 분리해 고정 service로 조회한다.
           if (dashboard.uid === 'pulsemetry-clickhouse') {
@@ -197,7 +198,7 @@ const ingestScrape = readFileSync(resolve(fixtures, 'fixtures/ingest-management.
 for (const metric of ['pulsemetry_pipeline_retry_exhausted_total', 'pulsemetry_pipeline_commit_failures_total']) {
   assert.match(ingestScrape, new RegExp(`^${metric}\\{`, 'm'), `ingest scrape에 실패 전 노출된 ${metric}가 없다`);
 }
-const nativeFixture = ['fixtures/gateway-management.prom','fixtures/ingest-management.prom','clickhouse/dashboard-metrics.prom'].map(x => readFileSync(resolve(fixtures,x),'utf8')).join('\n');
+const nativeFixture = ['fixtures/gateway-management.prom','fixtures/ingest-management.prom','fixtures/enrollment-management.prom','fixtures/dashboard-management.prom','clickhouse/dashboard-metrics.prom'].map(x => readFileSync(resolve(fixtures,x),'utf8')).join('\n');
 const nativeNames = new Set(nativeFixture.split('\n').filter(x => x && !x.startsWith('#')).map(x => x.split(/[\s{]/)[0]));
 for (const metric of usedNativeMetrics) assert.ok(nativeNames.has(metric), `실제 local scrape에 없는 metric: ${metric}`);
 // Loki·Tempo·Collector 지표 이름은 고정 이미지의 실제 /metrics에서 뽑은 목록과 대조한다(ADR-0039).
@@ -232,9 +233,9 @@ for (const name of ['fluent-bit','kubernetes-events']) {
   assert.equal(endpoints.length,1);assert.equal(endpoints[0].path,'/api/v2/metrics/prometheus');
 }
 // 실제 Backend scrape의 앱 공통 tag는 target label과 겹친다. honorLabels=false라 exported_* 사본이 생기므로 버린다.
-const appTags = ['gateway-management.prom','ingest-management.prom'].map(x => readFileSync(resolve(fixtures,'fixtures',x),'utf8'));
+const appTags = ['gateway-management.prom','ingest-management.prom','enrollment-management.prom','dashboard-management.prom'].map(x => readFileSync(resolve(fixtures,'fixtures',x),'utf8'));
 for (const tag of ['application','environment','service']) assert.ok(appTags.every(text => text.includes(`${tag}="`)), `앱 scrape에 ${tag} tag 없음`);
-for (const name of ['telemetry-gateway','telemetry-ingest','clickhouse']) {
+for (const name of ['telemetry-gateway','telemetry-ingest','enrollment-api','dashboard-api','clickhouse']) {
   const endpoint=find('ServiceMonitor',name).spec.endpoints[0];
   assert.equal(endpoint.honorLabels,false);
   const dropped = endpoint.metricRelabelings.filter(x => x.action==='labeldrop').map(x => new RegExp(`^(?:${x.regex})$`));
@@ -293,4 +294,4 @@ if (process.env.KUBECONFORM_BIN) {
   const path = resolve(temp, 'monitoring.yaml'); writeFileSync(path, monitoringResources.map(x => dump(x)).join('---\n'));
   checked(process.env.KUBECONFORM_BIN, ['-strict','-summary','-schema-location',`${schemaDir}/{{.ResourceKind}}_{{.Group}}_{{.ResourceAPIVersion}}.json`,path]);
 }
-console.log(`관측 차트/9 dashboards/${expressions.length} PromQL/${load(readFileSync(resolve(chart, "rules/pulsemetry.yaml"), "utf8")).groups.reduce((n,g) => n + g.rules.length, 0)} rules/metric fixture/실패 경계 통과 (live 미실행)`);
+console.log(`관측 차트/10 dashboards/${expressions.length} PromQL/${load(readFileSync(resolve(chart, "rules/pulsemetry.yaml"), "utf8")).groups.reduce((n,g) => n + g.rules.length, 0)} rules/metric fixture/실패 경계 통과 (live 미실행)`);
