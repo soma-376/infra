@@ -159,7 +159,7 @@ const queueMount = rendered['otel-platform'].find(x => x.kind === 'StatefulSet')
 assert.ok(queueMount.some(x => x.name === 'queue' && x.mountPath === '/var/lib/otelcol/queue'));
 
 // 수신 NetworkPolicy(ADR-0039). selector 오타 하나로 정상 송신자가 조용히 막히지 않게 실제 Pod label과 대조한다.
-// Fluent Bit·Prometheus·ingest는 dev 읽기 전용 조회 label, Grafana는 관측 chart 렌더, Gateway는 spring-app의 workload 값이다.
+// Fluent Bit·Prometheus·ingest는 dev 읽기 전용 조회 label, Grafana는 관측 chart 렌더, Gateway·enrollment·dashboard는 spring-app의 workload 값이다.
 const devPods = JSON.parse(readFileSync(resolve(root, 'helm/observability/tests/fixtures/dev-pod-labels.json'), 'utf8')).pods;
 const podOf = wrapper => ({ namespace, labels: rendered[wrapper].find(x => x.kind === 'StatefulSet').spec.template.metadata.labels });
 const observabilityDocs = loadAll(checked(['template', 'observability', resolve(root, 'helm/observability/pulsemetry-observability'), '-n', namespace,
@@ -173,6 +173,8 @@ const senders = {
   loki: podOf('loki'), tempo: podOf('tempo'), collector: podOf('otel-platform'),
   'telemetry-gateway': { namespace: 'pulsemetry-dev', labels: { 'app.kubernetes.io/name': workloadName('telemetry-gateway') } },
   'telemetry-ingest': devPods['telemetry-ingest'],
+  'enrollment-api': { namespace: 'pulsemetry-dev', labels: { 'app.kubernetes.io/name': workloadName('enrollment-api') } },
+  'dashboard-api': { namespace: 'pulsemetry-dev', labels: { 'app.kubernetes.io/name': workloadName('dashboard-api') } },
 };
 const stranger = { namespace: 'pulsemetry-dev', labels: { 'app.kubernetes.io/name': 'np-probe' } };
 const matches = (peer, pod) => peer.namespaceSelector?.matchLabels?.['kubernetes.io/metadata.name'] === pod.namespace
@@ -181,7 +183,7 @@ const matches = (peer, pod) => peer.namespaceSelector?.matchLabels?.['kubernetes
 const ALLOW = {
   loki: { self: 'loki', ports: { 3100: ['fluent-bit', 'grafana', 'prometheus'], 7946: [], 9095: [] } },
   tempo: { self: 'tempo', ports: { 4317: ['collector'], 3200: ['grafana', 'prometheus'], 9411: [], 14268: [], 4318: [] } },
-  'otel-platform': { self: null, ports: { 4318: ['telemetry-gateway', 'telemetry-ingest'], 8888: ['prometheus'], 13133: [] } },
+  'otel-platform': { self: null, ports: { 4318: ['telemetry-gateway', 'telemetry-ingest', 'enrollment-api', 'dashboard-api'], 8888: ['prometheus'], 13133: [] } },
 };
 for (const [wrapper, expected] of Object.entries(ALLOW)) {
   const policy = rendered[wrapper].find(x => x.kind === 'NetworkPolicy');

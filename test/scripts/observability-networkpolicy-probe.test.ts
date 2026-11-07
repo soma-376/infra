@@ -8,7 +8,7 @@ const root = resolve(__dirname, '../..');
 const script = join(root, 'scripts/observability-networkpolicy-probe.mjs');
 const fake = join(root, 'test/scripts/fixtures/fake-kubectl.mjs');
 
-type Run = { status: number | null; evidence: { status: string; failures: string[]; cases?: { target: string; verdict: string }[]; cleanup: Record<string, unknown> }; calls: string[][] };
+type Run = { status: number | null; evidence: { status: string; failures: string[]; cases?: { target: string; verdict: string }[]; controls?: Record<string, { sender: string }[]>; cleanup: Record<string, unknown> }; calls: string[][] };
 
 function probe(phase: 'n2' | 'n5', scenario: Record<string, unknown> = {}, extra: string[] = []): Run {
   const dir = mkdtempSync(join(tmpdir(), 'np-probe-test-'));
@@ -97,6 +97,9 @@ describe('NetworkPolicy N5 시험 스크립트', () => {
     for (const call of deletes) expect(call.join(' ')).toMatch(/pulsemetry\.io\/np-probe-run=[0-9a-f]{6}/);
     // apps 풀에서 Tempo 3200은 SG도 막는 경로라 정책 증거로 세지 않는다.
     expect(run.evidence.cases?.find(c => c.target === 'tempo-3200' && c.verdict === 'SG_ALSO_BLOCKS')).toBeDefined();
+    // Collector 4318의 허용 송신자는 네 앱 모두 실제 trace로 확인한다(backend ADR 0079, ADR-0059).
+    expect(run.evidence.controls?.['collector-4318']?.map(c => c.sender))
+      .toEqual(['telemetry-gateway', 'telemetry-ingest', 'enrollment-api', 'dashboard-api']);
   });
 
   test('Grafana → Loki가 막히면 Prometheus가 닿아도 FAIL이다', () => {

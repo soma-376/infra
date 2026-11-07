@@ -165,11 +165,13 @@ ingressPolicy:
     app.kubernetes.io/name: collector
     component: statefulset-collector
   ingress:
-    # 플랫폼 trace를 보내는 앱은 Gateway·ingest뿐이다(backend ADR 0069).
+    # 플랫폼 trace를 보내는 앱은 Gateway·ingest(backend ADR 0069)와 enrollment·dashboard(backend ADR 0079, ADR-0059)다.
     - ports: [4318]
       from:
         - {namespace: pulsemetry-dev, podLabels: {app.kubernetes.io/name: telemetry-gateway}}
         - {namespace: pulsemetry-dev, podLabels: {app.kubernetes.io/name: telemetry-ingest}}
+        - {namespace: pulsemetry-dev, podLabels: {app.kubernetes.io/name: enrollment-api}}
+        - {namespace: pulsemetry-dev, podLabels: {app.kubernetes.io/name: dashboard-api}}
     # Prometheus self-metrics scrape.
     - ports: [8888]
       from:
