@@ -575,7 +575,7 @@
     {
       "type": "timeseries",
       "title": "HTTP 처리 thread",
-      "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다. busy는 처리 중인 업무·관리 listener thread다. name label로 두 listener를 구분한다.",
+      "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다. 업무 포트 listener의 처리 중(busy)·최대 thread다. 관리 포트(9404) listener는 Tomcat 지표에 잡히지 않는다(로컬 scrape 기준 name label 하나).",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
