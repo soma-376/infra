@@ -50,7 +50,7 @@
 | 0035 (dev EKS 전용) | [dev 백엔드의 ECS를 제거하고 기존 EKS를 단독 실행 환경으로 사용](0035-dev-backend-eks-only.md) | Accepted (PROJ-248 코드·문서·로컬 검증; 실제 철거·Snapshot·기능 검증 별도); DB 공개 접근 관련 부분은 [ADR 0038](0038-dev-databases-private-access-via-ssm-relay.md)로 대체 |
 | 0036 (JVM 차단 목록) | [dev JVM의 임시 인증서 차단 목록을 Helm ConfigMap으로 공급한다](0036-dev-jvm-blocked-certs-configmap.md) | Accepted (PROJ-253 임시 대응; Gateway 포함 네 앱, 실제 배포 별도, 패치 이미지 검증 후 제거) |
 | 0038 | [dev 데이터베이스는 공개 접근을 차단하고 별도 SSM 릴레이로 접속한다](0038-dev-databases-private-access-via-ssm-relay.md) | Accepted (PROJ-254 로컬 구현·검증; 실제 배포·접속 확인 별도) |
-| 0039 | [dev EKS 관측에 Loki·Tempo·플랫폼 trace Collector를 독립 release로 더하고 CloudWatch 로그와 병행한다](0039-dev-loki-tempo-and-platform-trace-collector.md) | Proposed (PROJ-256; 채택 시 0037의 Loki·Tempo·분산 tracing 제외를 대체) |
+| 0039 | [dev EKS 관측에 Loki·Tempo·플랫폼 trace Collector를 독립 release로 더하고 CloudWatch 로그와 병행한다](0039-dev-loki-tempo-and-platform-trace-collector.md) | Proposed (PROJ-256; 채택 시 0037의 Loki·Tempo·분산 tracing 제외를 대체; 송신자 확장은 0059(Proposed)가 제안) |
 | 0040 | [dev 공개 origin과 추가 인증서를 배포 입력으로 보존한다](0040-dev-public-origin-and-additional-certificates.md) | Accepted (추적 profile·runtime·DB TLS 연결) |
 | 0041 | [dev dashboard 조회 권한 복구는 검증된 명시 허용목록으로 분리한다](0041-dev-dashboard-read-grants-repair.md) | Accepted (PROJ-262 수동 복구 준비·로컬 검증; dev 적용 별도 승인) |
 | 0042 | [프론트 관측 스택을 전용 EC2와 영구 EBS에 배포한다](0042-frontend-observability-ec2.md) | Accepted (대시보드 독립 배포 개정; 전환 적용 대기) |
@@ -70,6 +70,7 @@
 | 0053 | [dev 프론트 두 앱을 인증 동시성 검증에 앞서 배치한다](0053-frontend-dev-two-apps-before-auth-validation.md) | Accepted (PROJ-243; 배포 검증 별도) |
 | 0054 | [dev OIDC에 로컬 웹의 고정 콜백을 허용한다](0054-dev-local-web-oidc-callback.md) | Accepted (PROJ-305; 실제 배포·로그인 검증 별도) |
 | 0055 | [프론트 공유 Valkey 기반을 독립 Terraform 상태로 관리한다](0055-shared-frontend-valkey-foundation.md) | Proposed (기반·선택적 BFF 연결; 배포 별도) |
+| 0059 | [dev API 앱도 관리 포트 scrape와 플랫폼 trace 송신자에 포함한다](0059-dev-api-apps-metrics-and-platform-trace-senders.md) | Proposed (PROJ-324; 0037의 9404 scrape 대상과 0039의 trace 송신자를 enrollment·dashboard로 확장 제안; backend ADR 0079와 짝; 배포 별도) |
 
 
 병행 작업에서 사용한 `0035`·`0036`은 각각 파일명·제목·링크를 보존한다. 번호만으로 대상을 식별하지 않는다.
