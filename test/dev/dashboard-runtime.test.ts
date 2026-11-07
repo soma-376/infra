@@ -35,6 +35,34 @@ describe('EKS dashboard runtime 입력', () => {
     expect(() => parseRuntimeInputs(input)).not.toThrow();
   });
 
+  const COPY_LIMITS = ['PULSEMETRY_DASHBOARD_SNAPSHOT_MAX_COPY_ROWS', 'PULSEMETRY_DASHBOARD_SNAPSHOT_MAX_COPY_BYTES'];
+
+  test.each(COPY_LIMITS)('%s는 0(상한 없음)을 각각 허용한다 — backend ADR 0080', key => {
+    const input = fixture(); input.dashboard.settings[key] = '0';
+    expect(parseRuntimeInputs(input).dashboard.settings[key]).toBe('0');
+  });
+
+  test.each(COPY_LIMITS.flatMap(key => ['00', '-1', '', '0.5', 0].map((raw): [string, string | number] => [key, raw])))(
+    '%s의 잘못된 값 %j를 거부한다', (key, raw) => {
+      const input = fixture(); input.dashboard.settings[key] = raw;
+      expect(() => parseRuntimeInputs(input)).toThrow(key);
+    },
+  );
+
+  test.each(COPY_LIMITS)('%s가 없으면 거부한다', key => {
+    const input = fixture(); delete input.dashboard.settings[key];
+    expect(() => parseRuntimeInputs(input)).toThrow(key);
+  });
+
+  test.each([
+    'PULSEMETRY_DASHBOARD_SNAPSHOT_MAX_CONCURRENT_BUILDS',
+    'PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_MAX_RESULT_ROWS',
+    'PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_MAX_RESULT_BYTES',
+  ])('복사 상한이 아닌 %s는 0을 거부한다', key => {
+    const input = fixture(); input.dashboard.settings[key] = '0';
+    expect(() => parseRuntimeInputs(input)).toThrow(key);
+  });
+
   test.each([{}, { enrollment: 'require' }, { ingest: 'require' }, { enrollment: 'require', ingest: 'require' }])(
     '선택적 PostgreSQL TLS 모드 %j를 보존한다', modes => {
       const input = fixture(); input.postgresSslMode = modes;

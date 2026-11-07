@@ -26,6 +26,9 @@
 별도로 `read_rows/read_bytes`, 결과 크기, 쿼리 메모리, 컨테이너 working set·CPU·p95·전체 시간을 기록한다.
 7/28/90일은 이전 기간 비교를 포함하고 180일은 단독 전체 범위를 사용한다.
 
+> PROJ-325 이후 dev `config/dev/runtime.yaml`의 복사 행·바이트는 `'0'`(상한 없음, backend ADR 0080)이다.
+> 위 910,000행 / 367MiB는 PROJ-264 당시의 산정 기록이다. 상한을 다시 걸 때 이 절차로 새로 측정한다.
+
 새로운 metricLog 입력은 아래 두 정수만 허용한다. 자유 형식 engine·다른 숫자·추가 필드는 생성기와 Helm schema가 거부한다.
 이 블록이 없으면 기존 manifest에 metric log 설정·mount·restart checksum이 추가되지 않는다.
 
