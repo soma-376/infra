@@ -1,7 +1,7 @@
 {
   "uid": "pulsemetry-gateway",
   "title": "Pulsemetry · Gateway",
-  "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 수집 경로와 k6 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다. Gateway는 DB를 쓰지 않아 Hikari 지표가 없다. JVM 수집 대상은 Gateway·ingest뿐이며 enrollment·dashboard-api는 수집하지 않는다.",
+  "description": "빈 시계열은 대상 없음·수집 실패·지표 미적용·필터 불일치·표본 부족 중 하나일 수 있다. 수집 경로와 k6 첫 화면의 수집 상태 표로 수집 여부를 먼저 보고, 정상이어도 이벤트 없음으로 단정하지 않는다. 0으로 대체하지 않으며 시각은 UTC다. Gateway는 DB를 쓰지 않아 Hikari 지표가 없다. enrollment·dashboard-api의 JVM·HTTP 지표는 Pulsemetry · API에서 본다.",
   "tags": [
     "pulsemetry",
     "PROJ-191"

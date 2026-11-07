@@ -88,7 +88,7 @@ try {
     ['telemetry-kafka-admin', 'helm/dev/workloads/telemetry-kafka-admin', [join(temp, 'telemetry-kafka-admin.yaml')]],
   ]) {
     const text = render(release, chart, 'pulsemetry-dev', files);
-    if (['telemetry-gateway', 'telemetry-ingest'].includes(release)) {
+    if (['telemetry-gateway', 'telemetry-ingest', 'enrollment-api'].includes(release)) {
       const docs = loadAll(text).filter(Boolean);
       const metrics = docs.find(item => item.kind === 'Service' && item.metadata.name === `${release}-metrics`);
       check(metrics?.spec.type === 'ClusterIP' && metrics.spec.ports.length === 1 && metrics.spec.ports[0].port === 9404, '생성된 metrics는 내부 9404 하나만 노출한다');

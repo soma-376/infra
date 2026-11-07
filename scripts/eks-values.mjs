@@ -312,12 +312,13 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
       telemetryJwt: { privateVersionId: telemetry.privateVersionId, publicVersionId: telemetry.publicVersionId, activeKid: telemetry.activeKid, publicKeys: telemetry.publicKeys },
       oidc, encryption,
     },
+    // 네 앱 모두 관리 포트 9404 scrape와 플랫폼 trace를 같은 runtime 값으로 받는다(backend ADR 0079, ADR-0059).
     'enrollment-api.yaml': {
-      image: image(images.enrollment, 'enrollment image'), vpcId, jwt: jwt(true), userAuth: { ...authSettings, ...(auth.allowedRedirectUris ? { allowedRedirectUris: auth.allowedRedirectUris } : {}) }, oidc,
+      image: image(images.enrollment, 'enrollment image'), vpcId, metrics: { enabled: true }, ...tracing, jwt: jwt(true), userAuth: { ...authSettings, ...(auth.allowedRedirectUris ? { allowedRedirectUris: auth.allowedRedirectUris } : {}) }, oidc,
       runtime: { enabled: true, secretProviderClass: 'enrollment-api-runtime',
         ...(mailFiles.length ? { encryptionRevision: createHash('sha256').update(JSON.stringify(encryption)).digest('hex') } : {}), requiredFiles: [...commonFiles, 'PULSEMETRY_ADMIN_API_TOKEN', ...mailFiles, ...(oidc.enabled ? oidc.clients.map(client => client.alias) : [])] },
       telemetryJwt: telemetryJwt('enrollment-api'),
-      env: { ...mailEnv, PULSEMETRY_DB_URL: postgresUrl('enrollment'), PULSEMETRY_PUBLIC_BASE_URL: publicBaseUrl, PULSEMETRY_BINARIES_DIR: '/app/binaries', PULSEMETRY_MANAGEMENT_ENABLED: String(runtime.dashboard.managementEnabled), PULSEMETRY_MAIL_ENABLED: String(runtime.dashboard.mailEnabled) },
+      env: { ...mailEnv, PULSEMETRY_OBSERVABILITY_ENVIRONMENT: 'dev', PULSEMETRY_DB_URL: postgresUrl('enrollment'), PULSEMETRY_PUBLIC_BASE_URL: publicBaseUrl, PULSEMETRY_BINARIES_DIR: '/app/binaries', PULSEMETRY_MANAGEMENT_ENABLED: String(runtime.dashboard.managementEnabled), PULSEMETRY_MAIL_ENABLED: String(runtime.dashboard.mailEnabled) },
       targetGroupBindings: binding('ValidationEnrollmentApiTargetGroupArn'),
     },
     'telemetry-ingest.yaml': {
@@ -345,10 +346,10 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
       } : { provider, topicInit: { enabled: false }, tls: tlsUsers['offset-admin'] }),
     },
     'dashboard-api.yaml': {
-      image: image(images.dashboard, 'dashboard image'), vpcId, nodePort: Number(dashboardNodePort),
+      image: image(images.dashboard, 'dashboard image'), vpcId, metrics: { enabled: true }, ...tracing, nodePort: Number(dashboardNodePort),
       runtime: { enabled: true, secretProviderClass: 'dashboard-api-runtime', requiredFiles: dashboardFiles },
       jwt: jwt(false), userAuth: authSettings,
-      env: { ...runtime.dashboard.settings, PULSEMETRY_DASHBOARD_PORT: '8081', PULSEMETRY_MANAGEMENT_ENABLED: String(runtime.dashboard.managementEnabled), PULSEMETRY_MAIL_ENABLED: String(runtime.dashboard.mailEnabled), PULSEMETRY_DASHBOARD_RDS_SOURCE_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_DASHBOARD_RDS_CACHE_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_DATABASE: 'default', PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_DATABASE: 'dashboard_cache' }, targetGroupBindings: binding('ValidationDashboardApiTargetGroupArn'),
+      env: { ...runtime.dashboard.settings, PULSEMETRY_OBSERVABILITY_ENVIRONMENT: 'dev', PULSEMETRY_DASHBOARD_PORT: '8081', PULSEMETRY_MANAGEMENT_ENABLED: String(runtime.dashboard.managementEnabled), PULSEMETRY_MAIL_ENABLED: String(runtime.dashboard.mailEnabled), PULSEMETRY_DASHBOARD_RDS_SOURCE_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_DASHBOARD_RDS_CACHE_URL: `jdbc:postgresql://${endpoint}:5432/controlplane`, PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_DASHBOARD_CLICKHOUSE_SOURCE_DATABASE: 'default', PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_URL: 'http://clickhouse.pulsemetry-dev.svc.cluster.local:8123', PULSEMETRY_DASHBOARD_CLICKHOUSE_CACHE_DATABASE: 'dashboard_cache' }, targetGroupBindings: binding('ValidationDashboardApiTargetGroupArn'),
     },
     // 구 CDK output으로도 먼저 Helm TGB를 제거할 수 있다. ClickHouse 공개 TG 참조는 소비하지 않는다. (ADR-0038)
     'clickhouse.yaml': { availabilityZone: zone, observability: { enabled: true },

@@ -51,7 +51,7 @@
         "name": "service",
         "label": "서비스",
         "type": "custom",
-        "query": "telemetry-gateway,telemetry-ingest",
+        "query": "telemetry-gateway,telemetry-ingest,enrollment-api,dashboard-api",
         "includeAll": true,
         "allValue": ".*",
         "multi": true,

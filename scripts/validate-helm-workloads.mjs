@@ -392,7 +392,8 @@ function checkPlatform() {
 // 별도 ClusterIP가 management 포트만 노출한다. 기존 business Service/TGB의 port는 그대로다.
 function checkObservability(chart, clickhouseChart, clickhouseValues) {
   const documents = [];
-  for (const workload of ['telemetry-gateway', 'telemetry-ingest']) {
+  // backend 관리 포트 계약(ADR 0068·0079)을 가진 네 앱 모두 같은 9404 Service를 만든다.
+  for (const workload of ['telemetry-gateway', 'telemetry-ingest', 'enrollment-api', 'dashboard-api']) {
     const rendered = render(workload, chart, { ...appValues(workload), metrics: { enabled: true } });
     const service = find(rendered, 'Service', `${workload}-metrics`);
     const pod = find(rendered, 'Deployment', workload).spec.template.spec;
@@ -404,8 +405,8 @@ function checkObservability(chart, clickhouseChart, clickhouseValues) {
     assert.equal(find(rendered, 'Service', workload).spec.ports.length, 1);
     documents.push(...rendered);
   }
-  rejects('enrollment-api', chart, { ...appValues('enrollment-api'), metrics: { enabled: true } });
   rejects('telemetry-gateway', chart, { ...appValues('telemetry-gateway'), metrics: { enabled: true }, env: { MANAGEMENT_SERVER_PORT: '8082' } });
+  rejects('dashboard-api', chart, { ...appValues('dashboard-api'), metrics: { enabled: true }, env: { MANAGEMENT_SERVER_PORT: '8081' } });
   // GC/safepoint 로그는 고정 문자열 하나만 허용한다. 임의 JVM 옵션 env는 거부한다.
   for (const workload of ['telemetry-gateway', 'telemetry-ingest']) {
     const enabled = render(workload, chart, { ...appValues(workload), jvm: { gcSafepointLog: true } });
@@ -568,7 +569,7 @@ function checkTelemetry(chart) {
     }
   }
 
-  // 플랫폼 trace(ADR-0039): Gateway·ingest만 고정 Collector 주소·cluster·Downward API를 받는다. 직접 env 주입은 거부한다.
+  // 플랫폼 trace(ADR-0039·0059): 네 앱이 고정 Collector 주소·cluster·Downward API를 받는다. 직접 env 주입은 거부한다.
   {
     const tracing = { enabled: true, endpoint: 'http://pulsemetry-otel-platform.pulsemetry-observability.svc:4318/v1/traces', sampleProbability: '0.1', cluster: 'soma-376-dev-eks' };
     const ingestValues = {
@@ -595,7 +596,14 @@ function checkTelemetry(chart) {
       { ...ingestValues, env: { ...ingestValues.env, OTEL_EXPORTER_OTLP_ENDPOINT: 'http://x:4318' } },
       { ...ingestValues, env: { ...ingestValues.env, POD_NAME: 'fixed' } },
     ]) rejects('telemetry-ingest', chart, invalid);
-    rejects('enrollment-api', chart, { ...appValues('enrollment-api'), tracing });
+    // API 앱(backend ADR 0079)도 같은 env를 받는다. env로 직접 주입하는 길은 막혀 있다.
+    for (const workload of ['enrollment-api', 'dashboard-api']) {
+      const api = environment(render(workload, chart, { ...appValues(workload), tracing }), workload);
+      assert.equal(api.PULSEMETRY_TRACING_ENABLED, 'true', `${workload} trace`);
+      assert.equal(api.PULSEMETRY_TRACING_OTLP_TRACES_ENDPOINT, tracing.endpoint, `${workload} endpoint`);
+      assert.equal(api.PULSEMETRY_TRACING_CLUSTER, 'soma-376-dev-eks', `${workload} cluster`);
+      rejects(workload, chart, { ...appValues(workload), tracing, env: { ...(appValues(workload).env ?? {}), OTEL_EXPORTER_OTLP_ENDPOINT: 'http://x:4318' } });
+    }
   }
 
   // enrollment: 사용자 JWT·OIDC 맵을 유지하고 telemetry JWT 서명 설정을 같은 SPRING_APPLICATION_JSON에 합친다.

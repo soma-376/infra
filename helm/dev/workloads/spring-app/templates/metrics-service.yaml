@@ -1,5 +1,6 @@
 {{- if .Values.metrics.enabled }}
-{{- if not (has .Values.workload (list "telemetry-gateway" "telemetry-ingest")) }}{{ fail "metrics는 Gateway·ingest만 지원한다" }}{{ end }}
+{{- /* backend 관리 포트 9404 계약(backend ADR 0068·0079)을 가진 앱만 연다. */}}
+{{- if not (has .Values.workload (list "telemetry-gateway" "telemetry-ingest" "enrollment-api" "dashboard-api")) }}{{ fail "metrics는 Gateway·ingest·enrollment·dashboard만 지원한다" }}{{ end }}
 apiVersion: v1
 kind: Service
 metadata:

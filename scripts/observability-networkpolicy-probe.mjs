@@ -74,6 +74,9 @@ const FUNCTIONAL_CONTROLS = [
   { sender: 'collector', target: 'tempo-4317', ok: 'sum(increase(otelcol_exporter_sent_spans{exporter="otlp_grpc/tempo"}[15m]))', bad: 'sum(increase(otelcol_exporter_send_failed_spans{exporter="otlp_grpc/tempo"}[15m]))' },
   { sender: 'telemetry-gateway', target: 'collector-4318', tempoService: 'telemetry-gateway' },
   { sender: 'telemetry-ingest', target: 'collector-4318', tempoService: 'telemetry-ingest' },
+  // API 앱(backend ADR 0079, ADR-0059). trace를 켠 뒤 sampled 요청이 있어야 OK다.
+  { sender: 'enrollment-api', target: 'collector-4318', tempoService: 'enrollment-api' },
+  { sender: 'dashboard-api', target: 'collector-4318', tempoService: 'dashboard-api' },
 ];
 
 // busybox 시험 스크립트. TARGETS의 각 대상에 이름 해석 → nc 연결을 하고 JSON 한 줄씩 낸다.

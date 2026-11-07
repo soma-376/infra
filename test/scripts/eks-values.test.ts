@@ -202,7 +202,10 @@ describe('배포 output→values 변환', () => {
     expect(ingest.kafka.topic).toBe('pulsemetry-dev-telemetry-ingress-main');
     expect(gateway.kafka.topic).toBe('pulsemetry-dev-telemetry-ingress-main');
     expect(ingest.kafka.consumerGroup).toBe('pulsemetry-dev-telemetry-ingest-main');
-    for (const app of [ingest, gateway]) {
+    // 네 앱 모두 9404 scrape와 같은 플랫폼 trace 값을 받는다(backend ADR 0068·0069·0079).
+    for (const app of [ingest, gateway, enrollment, dashboard]) {
+      expect(app.metrics).toEqual({ enabled: true });
+      expect(app.env.PULSEMETRY_OBSERVABILITY_ENVIRONMENT).toBe('dev');
       expect(app.tracing.enabled).toBe(runtime.platformTracing.enabled);
       expect(app.tracing.sampleProbability).toBe(String(runtime.platformTracing.sampleProbability));
     }
@@ -1240,14 +1243,15 @@ describe('플랫폼 trace 입력', () => {
       for (const file of ['telemetry-gateway.yaml', 'telemetry-ingest.yaml']) expect(output.read(file).tracing).toBeUndefined();
     }
   });
-  test('켜면 Gateway·ingest에만 고정 endpoint·cluster·sampling을 넣는다', () => {
+  // 송신자는 네 앱이다(backend ADR 0069·0079, ADR-0039·0059). 관리 Job·ClickHouse values에는 넣지 않는다.
+  test('켜면 네 앱에 같은 고정 endpoint·cluster·sampling을 넣는다', () => {
     const on = run({ enabled: true });
     expect(on.result.status).toBe(0);
-    for (const file of ['telemetry-gateway.yaml', 'telemetry-ingest.yaml']) expect(on.read(file).tracing).toEqual({
+    for (const file of ['telemetry-gateway.yaml', 'telemetry-ingest.yaml', 'enrollment-api.yaml', 'dashboard-api.yaml']) expect(on.read(file).tracing).toEqual({
       enabled: true, endpoint: 'http://pulsemetry-otel-platform.pulsemetry-observability.svc:4318/v1/traces',
       sampleProbability: '0.1', cluster: on.read('lbc.yaml').clusterName,
     });
-    for (const file of ['enrollment-api.yaml', 'dashboard-api.yaml']) expect(on.read(file).tracing).toBeUndefined();
+    for (const file of ['telemetry-kafka-admin.yaml', 'clickhouse.yaml']) expect(on.read(file).tracing).toBeUndefined();
     expect(run({ enabled: true, sampleProbability: 1 }).read('telemetry-ingest.yaml').tracing.sampleProbability).toBe('1');
   });
   test('잘못된 입력은 파일 생성 전에 거부한다', () => {

@@ -26,6 +26,26 @@
       "source": "apps/telemetry-ingest/build/management-scrape.prom",
       "scope": "Boot 4.1.0 실제 ingest HTTP management scrape, 로컬 통합 테스트",
       "sha256": "9da0f529a5b38a840a1d9658f2253dbbc403c302b65633b284c1156d910e37cd"
+    },
+    {
+      "file": "enrollment-management.prom",
+      "source": "apps/enrollment-api/build/management-scrape.prom",
+      "repository": "soma-376/pulsemetry-backend",
+      "branch": "feature/PROJ-324-api-observability",
+      "commit": "b8a38075646b70668e3e94f7be157177a96dbdcc",
+      "regenerate": "./gradlew :apps:enrollment-api:test --tests '*MetricsEndpointTest'",
+      "scope": "Boot 4.1.0 실제 enrollment-api HTTP management scrape, 로컬 통합 테스트(backend ADR 0079). 위 source.commit과 다른 commit이다",
+      "sha256": "c60829c8baa330c2839186ff117b2096c4e4726e8b231e84410f7dab2af7c0c5"
+    },
+    {
+      "file": "dashboard-management.prom",
+      "source": "apps/dashboard-api/build/management-scrape.prom",
+      "repository": "soma-376/pulsemetry-backend",
+      "branch": "feature/PROJ-324-api-observability",
+      "commit": "b8a38075646b70668e3e94f7be157177a96dbdcc",
+      "regenerate": "./gradlew :apps:dashboard-api:test --tests '*MetricsEndpointTest'",
+      "scope": "Boot 4.1.0 실제 dashboard-api HTTP management scrape, 로컬 통합 테스트(backend ADR 0079). 위 source.commit과 다른 commit이다",
+      "sha256": "f0efb50ee50bae08db3ff4cc4342a45d996710598cd5d7a5a5fccf2c40581a0a"
     }
   ],
   "clickhouse": {

@@ -98,7 +98,7 @@
         "name": "application",
         "label": "앱",
         "type": "custom",
-        "query": "telemetry-gateway,telemetry-ingest",
+        "query": "telemetry-gateway,telemetry-ingest,enrollment-api,dashboard-api",
         "includeAll": true,
         "allValue": ".*",
         "multi": true,
@@ -115,7 +115,7 @@
           "type": "prometheus",
           "uid": "pulsemetry-prometheus"
         },
-        "query": "label_values(up{cluster=\"$cluster\",namespace=\"$namespace\",job=~\"telemetry-gateway|telemetry-ingest|clickhouse\"}, service)",
+        "query": "label_values(up{cluster=\"$cluster\",namespace=\"$namespace\",job=~\"telemetry-gateway|telemetry-ingest|enrollment-api|dashboard-api|clickhouse\"}, service)",
         "refresh": 2,
         "includeAll": true,
         "allValue": ".*",
@@ -133,7 +133,7 @@
           "type": "prometheus",
           "uid": "pulsemetry-prometheus"
         },
-        "query": "label_values(up{cluster=\"$cluster\",namespace=\"$namespace\",service=~\"$service\",job=~\"telemetry-gateway|telemetry-ingest|clickhouse\"}, pod)",
+        "query": "label_values(up{cluster=\"$cluster\",namespace=\"$namespace\",service=~\"$service\",job=~\"telemetry-gateway|telemetry-ingest|enrollment-api|dashboard-api|clickhouse\"}, pod)",
         "refresh": 2,
         "includeAll": true,
         "allValue": ".*",
