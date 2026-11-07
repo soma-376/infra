@@ -68,7 +68,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if ne (toJson $keys) (toJson (sortAlpha $keys)) -}}{{- fail "OIDC client key는 정렬되어야 한다" -}}{{- end -}}
 {{- end -}}
 {{- if .Values.tracing.enabled -}}
-{{- if not (has .Values.workload (list "telemetry-gateway" "telemetry-ingest")) -}}{{- fail "플랫폼 trace는 telemetry-gateway·telemetry-ingest만 켠다" -}}{{- end -}}
+{{- /* 플랫폼 trace sender는 backend ADR 0069·0079와 infra ADR 0039·0059가 정한 네 앱이다. Collector 수신 정책과 함께 바꾼다. */ -}}
+{{- if not (has .Values.workload (list "telemetry-gateway" "telemetry-ingest" "enrollment-api" "dashboard-api")) -}}{{- fail "플랫폼 trace는 telemetry-gateway·telemetry-ingest·enrollment-api·dashboard-api만 켠다" -}}{{- end -}}
 {{- if or (not .Values.tracing.endpoint) (not .Values.tracing.cluster) -}}{{- fail "tracing.endpoint·tracing.cluster는 생성기가 공급한다" -}}{{- end -}}
 {{- end -}}
 {{- range $name, $value := .Values.env -}}
