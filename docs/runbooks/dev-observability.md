@@ -371,12 +371,13 @@ enrollment-api·dashboard-api에 9404 scrape와 플랫폼 trace를 켠다(backen
 |---|---|---|
 | L0 | 없음 | 네 앱·observability·otel-platform release revision, 앱 imageID, Prometheus target 수, Collector 정책을 기록한다(복구 기준) |
 | L1 | backend 관리 포트가 있는 두 앱 이미지(backend ADR 0079) | Pod Ready, 업무 포트 `/actuator` 404. 이 단계에서는 9404가 열리기만 하고 tracing은 꺼져 있다 |
-| L2 | otel-platform release(`ingressPolicy` 4318 송신자 추가) | `observability-networkpolicy-probe.mjs --phase n2`·기존 송신자 회귀 없음 |
+| L2 | otel-platform release(`ingressPolicy` 4318 송신자 추가) | `node scripts/observability-networkpolicy-probe.mjs --phase n2 --output <새 증거 파일>`, 기존 송신자 회귀 없음 |
 | L3 | 두 앱 release(generated values의 `metrics`·`tracing`) | Pod spec의 `MANAGEMENT_SERVER_PORT`·`PULSEMETRY_TRACING_*`, `*-metrics` Service 9404 |
 | L4 | observability release(ServiceMonitor·규칙·`Pulsemetry · API`) | target UP, Overview 수집 상태 표의 두 API, 지표 부재 경보 inactive |
-| L5 | 없음 | 실제 요청의 trace(dashboard는 ClickHouse child span), span에 조직 ID·URL·SQL 없음, Grafana 로그↔trace 왕복, `--phase n5`, 30분 관찰 |
+| L5 | 없음 | 실제 요청의 trace(dashboard는 ClickHouse child span), span에 조직 ID·URL·SQL 없음, Grafana 로그↔trace 왕복, `node scripts/observability-networkpolicy-probe.mjs --phase n5 --output <새 증거 파일>`, 30분 관찰 |
 
 L4를 L3보다 먼저 적용하면 target이 down이라 `EnrollmentApiMetricsUnavailable`·`DashboardApiMetricsUnavailable`이 울린다.
+되돌릴 때는 적용의 역순이다. observability release(ServiceMonitor·경보·수집 상태 규칙·대시보드)를 L0 revision으로 먼저 되돌린 뒤 두 앱 release, otel-platform, backend 이미지 순서로 되돌린다. 앱 release만 먼저 되돌리면 `*-metrics` Service가 사라져 1분 뒤 지표 부재 경보가 울리고 수집 상태 표에 대상 없음으로 남는다. 관리 포트가 없는 이전 이미지는 앱 release의 `metrics`·`tracing`을 끈 뒤에만 쓴다.
 sampling 0.1이라 trace 확인에는 여러 번 요청한다. RDS 구간에는 span이 없다 — 요청 span에서 ClickHouse child span을 뺀 구간이 앱·RDS 시간이다.
 
 ## 로그 손실 경계와 회귀 검증
