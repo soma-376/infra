@@ -193,7 +193,7 @@ Grafana admin password는 Secrets Manager 서버 측 생성값을 Pod Identity +
 | Traces | Gateway→Kafka→ingest→ClickHouse 플랫폼 span, Loki 로그와 같은 trace의 양방향 탐색 |
 
 공통 `cluster`는 **EKS cluster**, `kafka_cluster`는 **Strimzi Kafka cluster**다. `msk_cluster`는 MSK 호환 경로에서만 쓴다. app/CH ServiceMonitor가
-`application`과 `service`를 `telemetry-gateway`, `telemetry-ingest`, `clickhouse`로 정규화한다.
+`application`과 `service`를 `telemetry-gateway`, `telemetry-ingest`, `enrollment-api`, `dashboard-api`, `clickhouse`로 정규화한다(두 API는 ADR-0059).
 `honorLabels: false`이므로 앱 공통 tag(`application`·`environment`·`service`)는 `exported_*` 사본이 된다.
 target label이 기준이므로 metricRelabelings가 이 세 사본을 버린다. env/cluster/namespace/service/pod
 필터는 실제 앱·CH 질의에, K8s는 cluster/namespace/pod에, Kafka/node는 해당 cluster 범위에 적용한다.

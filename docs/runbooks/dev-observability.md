@@ -112,6 +112,7 @@ safepoint 줄은 부하에 비례해 늘어나므로 dev 상시 운영에서는 
 | 대상 | 수집 경로 | 첫 확인 |
 |---|---|---|
 | Gateway/ingest | ClusterIP `*-metrics:9404/actuator/prometheus` | scrape UP, `environment`·`cluster`·`service` label, business port에서 actuator 접근 차단 |
+| enrollment/dashboard (ADR-0059, Proposed) | ClusterIP `*-metrics:9404/actuator/prometheus` | 위와 같다. `Pulsemetry · API`의 route별 요청률·p95·Hikari 풀이 채워진다 |
 | ClickHouse | `clickhouse-metrics:9363/metrics` | native metrics/events/async/errors 노출, 기존 8123 health/적재 정상 |
 | Strimzi Kafka | broker JMX 3개·Kafka exporter 1개(9404), Cluster Operator 1개(8080), Topic/User Operator 각 1개(8080/8081), 10초 scrape | 7 target UP, ISR/min ISR/offline·TLS 실패·commit 기준 lag·CA 만료/갱신 지표 |
 | Kubernetes | kubelet/cAdvisor·kube-state-metrics·node-exporter | 앱/CH/관측/Kafka 노드 전부 관측, broker Pod·PVC 3개와 restart/termination reason 지표 |
@@ -257,7 +258,7 @@ PVC는 Retain이라 uninstall·rollback으로 지워지지 않는다.
 | Tempo | 4317 | Collector |
 | Tempo | 3200 | Grafana, Prometheus |
 | Tempo | 모든 포트 | Tempo(자기 자신) |
-| Collector | 4318 | telemetry-gateway·telemetry-ingest(`pulsemetry-dev`) |
+| Collector | 4318 | telemetry-gateway·telemetry-ingest·enrollment-api·dashboard-api(`pulsemetry-dev`, 두 API는 ADR-0059) |
 | Collector | 8888 | Prometheus |
 
 2026-10-25 조회 당시 dev NodeClass 셋은 `networkPolicy: DefaultAllow`였다.
@@ -361,6 +362,22 @@ smoke는 Fluent Bit 병행 배송·Grafana UI 클릭·실제 앱 요청·Network
 실제 삭제 worker의 `block_retention`도 48h여야 한다. 결과의 범위는 **dev 설정·상태 확인 및 동일 버전 격리 환경의 자동 삭제 검증**으로 명시한다.
 수신 상한·장시간 메모리·burst·WAL 복구 부하는 `HELM_BIN=... node scripts/observability-loki-capacity.mjs --output <새 파일>`(약 50분),
 Fluent Bit 병행 배송은 `HELM_BIN=... node scripts/observability-fluent-bit-loki-harness.mjs --output <새 파일>`(CloudWatch는 로컬 대역)이 맡는다.
+
+## PROJ-324 API 앱 지표·trace 적용 (ADR-0059, Proposed)
+
+enrollment-api·dashboard-api에 9404 scrape와 플랫폼 trace를 켠다(backend ADR 0079). 단계마다 승인을 받고, 앞 단계가 정상이 아니면 멈춘다.
+
+| 단계 | 적용 | 확인 |
+|---|---|---|
+| L0 | 없음 | 네 앱·observability·otel-platform release revision, 앱 imageID, Prometheus target 수, Collector 정책을 기록한다(복구 기준) |
+| L1 | backend 관리 포트가 있는 두 앱 이미지(backend ADR 0079) | Pod Ready, 업무 포트 `/actuator` 404. 이 단계에서는 9404가 열리기만 하고 tracing은 꺼져 있다 |
+| L2 | otel-platform release(`ingressPolicy` 4318 송신자 추가) | `observability-networkpolicy-probe.mjs --phase n2`·기존 송신자 회귀 없음 |
+| L3 | 두 앱 release(generated values의 `metrics`·`tracing`) | Pod spec의 `MANAGEMENT_SERVER_PORT`·`PULSEMETRY_TRACING_*`, `*-metrics` Service 9404 |
+| L4 | observability release(ServiceMonitor·규칙·`Pulsemetry · API`) | target UP, Overview 수집 상태 표의 두 API, 지표 부재 경보 inactive |
+| L5 | 없음 | 실제 요청의 trace(dashboard는 ClickHouse child span), span에 조직 ID·URL·SQL 없음, Grafana 로그↔trace 왕복, `--phase n5`, 30분 관찰 |
+
+L4를 L3보다 먼저 적용하면 target이 down이라 `EnrollmentApiMetricsUnavailable`·`DashboardApiMetricsUnavailable`이 울린다.
+sampling 0.1이라 trace 확인에는 여러 번 요청한다. RDS 구간에는 span이 없다 — 요청 span에서 ClickHouse child span을 뺀 구간이 앱·RDS 시간이다.
 
 ## 로그 손실 경계와 회귀 검증
 

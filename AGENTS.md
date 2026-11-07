@@ -121,6 +121,13 @@ Grafana 로그↔trace UI 왕복, 같은 digest 격리 저장소의 보존 삭�
 observability revision 8·Tempo revision 2에서 G8 API·실제 UI, 1,800.808초·31표본 관찰과 종료 후 자원 보존 대조를 통과했다.
 완료조건 검증은 PASS이며 실제 상태는 각 Jira에서 확인한다.
 
+## PROJ-324 API 앱 지표·trace (Proposed)
+
+[ADR-0059](docs/adr/0059-dev-api-apps-metrics-and-platform-trace-senders.md)는 enrollment-api·dashboard-api를 9404 scrape와
+플랫폼 trace 송신자에 더한다(backend ADR 0079와 짝). spring-app chart·생성기·ServiceMonitor·수집 상태 규칙·Collector `ingressPolicy`·
+검증기 허용 표·probe 기능 대조를 함께 바꾼다. 두 앱의 Pod label은 workload 값에서 유도하고 2026-10-25 dev label fixture는 고치지 않는다.
+새 대시보드는 `pulsemetry-api`다. 적용 순서는 backend 이미지 → Collector 정책 → 앱 release → 관측 release이며 [관측 런북](docs/runbooks/dev-observability.md)의 PROJ-324 절을 따른다. dev 적용·검증은 별도다.
+
 ## PROJ-191 관측 현행과 완료 검증
 
 [ADR-0037](docs/adr/0037-dev-observability-and-system-diagnostics.md)은 전용 관측 NodePool·SG,
