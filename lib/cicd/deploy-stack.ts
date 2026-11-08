@@ -16,6 +16,7 @@ import {
 } from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 import { createInfraDevRoles, InfraDevRoles } from './infra-dev-roles';
+import { createLandingDeployRole } from './landing-deploy-role';
 import {
   DeployEnv,
   DEPLOY_ENVS,
@@ -40,9 +41,9 @@ export interface DeployStackProps extends StackProps {
 }
 
 /**
- * 앱과 infra 레포의 GitHub Actions가 맡을 배포 역할 스택 (ADR-0024·0048).
+ * 앱과 infra 레포의 GitHub Actions가 맡을 배포 역할 스택 (ADR-0024·0048·0060).
  *
- * GitHub OIDC 공급자 1개 + 기존 앱 역할 4개 + infra dev 역할 2개를 만든다.
+ * GitHub OIDC 공급자 1개 + 기존 앱 역할 4개 + infra dev 역할 2개 + 랜딩 배포 역할 1개를 만든다.
  * prod는 이미지 push와 ECS 강제 재배포, dev backend는 이미지 push만 허용한다.
  * prod 태스크 정의는 ApplicationStack이 소유하고 dev EKS 배포는 수동 Helm을 쓴다.
  *
@@ -60,6 +61,8 @@ export class DeployStack extends Stack {
   public readonly deployRoles: Readonly<Record<string, Role>>;
   /** infra CloudFormation 역할은 기존 앱 역할 맵과 분리한다. */
   public readonly infraDevRoles: InfraDevRoles;
+  /** 랜딩 정적 사이트 배포 역할도 기존 앱 역할 맵과 분리한다 (ADR-0060). */
+  public readonly landingDeployRole: Role;
 
   constructor(scope: Construct, id: string, props: DeployStackProps) {
     super(scope, id, props);
@@ -76,6 +79,7 @@ export class DeployStack extends Stack {
 
     this.deployRoles = roles;
     this.infraDevRoles = createInfraDevRoles(this, oidcProvider);
+    this.landingDeployRole = createLandingDeployRole(this, oidcProvider);
   }
 
   /**
