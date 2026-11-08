@@ -54,6 +54,8 @@ oidc:
   clients:
     - key: cognito-a
       versionId: 542ab95f-7809-4fd7-8f01-770f1b2a574a
+    - key: cognito-soma
+      versionId: b1d26076-8663-4e42-bd2b-3449b036609b
   enabled: true
   failureRedirectUri: https://dev.pulsemetry.co.kr/auth/callback
 platformTracing:
