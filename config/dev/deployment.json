@@ -12,7 +12,7 @@
     ]
   },
   "context": {
-    "devOidcClientKeys": ["cognito-a", "cognito-b"],
+    "devOidcClientKeys": ["cognito-a", "cognito-b", "cognito-soma"],
     "devAllowedCidr": "0.0.0.0/0",
     "devHttpRedirectEnabled": true,
     "devEksArchivePrefix": "eks",
