@@ -84,7 +84,7 @@ const oidcArn = (key: string) => secret(`soma-376/dev/oidc/clients/${key}`);
 function oidcOutputs(prefix = 'eks_validation', otlpTarget = 'ingest') {
   const source = outputs(prefix, otlpTarget);
   return { ...source, DevDataStack: { ...source.DevDataStack, OidcClientSecretArns: JSON.stringify(Object.fromEntries(
-    ['cognito-a', 'cognito-b', 'unused'].map(key => [key, oidcArn(key)]),
+    ['cognito-a', 'cognito-b', 'cognito-soma', 'unused'].map(key => [key, oidcArn(key)]),
   )) } };
 }
 function oidcRuntime(enabled = true, scheme: 'http' | 'https' = 'https') {
