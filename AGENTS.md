@@ -57,7 +57,7 @@ ingest와 offset-admin의 Kafka Group Read는 commit/reset을 함께 허용한�
 [ADR-0048](docs/adr/0048-dev-cloudformation-cicd.md)·[운영 런북](docs/runbooks/dev-cloudformation-cicd.md)은
 PROJ-270 문서 → PROJ-271 IAM → PROJ-272 workflow 순서의 도입 계약이다. 문서·코드·로컬 검증과
 실제 관리자 설정·AWS 배포는 구분한다. 기존 앱 역할 4개를 유지하고 infra diff/deploy 역할 2개를 더한다.
-도입 후 `DeployStack`의 역할은 총 6개이며 `env=cicd`는 계속 관리자 수동 배포다.
+도입 후 `DeployStack`의 역할은 총 6개였고 ADR-0060 랜딩 역할을 더해 7개이며 `env=cicd`는 계속 관리자 수동 배포다.
 PR과 CD plan은 AWS baseline을 읽은 뒤 local `cdk diff --template`을 실행한다. CD는 plan →
 Environment 승인 → 같은 SHA·Assembly 배포 순서이고, 최신 SHA·baseline·artifact 해시가 다르면 중단한다.
 경로 필터 밖 변경으로 계획이 오래되면 develop 전용 `workflow_dispatch`로 새 plan·승인을 진행한다.
@@ -65,6 +65,13 @@ Environment 승인 → 같은 SHA·Assembly 배포 순서이고, 최신 SHA·bas
 기존 bootstrap 관리자급 실행 권한을 재사용하므로 dev/prod IAM 격리를 제공한다고 표현하지 않는다.
 dev 네 스택의 후속 업데이트만 대상으로 하며 최초 설치·ECS 철거·Helm·prod·frontend는 별도 절차다.
 GitHub 보호 설정과 실제 OIDC·승인·배포 검증은 로컬 구현의 완료 증거에 포함하지 않는다.
+
+## PROJ-327 랜딩 정적 사이트 배포 역할
+
+[ADR-0060](docs/adr/0060-landing-static-site-deploy-role.md)에 따라 `DeployStack`에 `github-deploy-pulsemetry-landing-prod`를 더한다.
+랜딩 저장소 main의 immutable subject만 신뢰하고 `s3:ListBucket`·`PutObject`·`DeleteObject`와 단일 배포의 `CreateInvalidation`만 준다.
+버킷 `pulsemetry-landing-prod`·CloudFront `EQE94IEKI2ZPY`는 외부 생성 리소스이며 `LANDING_DEPLOY` 상수가 이름의 단일 출처다.
+기존 앱 역할 4개·infra 역할 2개의 trust·권한·output은 바꾸지 않는다. 실제 cicd 배포와 첫 자동 배포 확인은 별도다.
 
 ## PROJ-267 dev SES 초대 메일
 
@@ -354,7 +361,7 @@ dev WAF는 ALB 전체에 적용한다. 국가·악성 IP·URI·헤더 Block, 정
 
 | 스택 | 파일 | 주요 리소스 |
 |---|---|---|
-| `DeployStack` | `lib/cicd/deploy-stack.ts` | GitHub OIDC 공급자 1개(**RETAIN**), 기존 앱 역할 4개. ADR-0048 도입 후 infra 역할 2개와 ARN output을 추가해 총 6개 |
+| `DeployStack` | `lib/cicd/deploy-stack.ts` | GitHub OIDC 공급자 1개(**RETAIN**), 기존 앱 역할 4개. ADR-0048 도입 후 infra 역할 2개, ADR-0060 랜딩 역할 1개와 ARN output을 추가해 총 7개 |
 
 앱 인프라를 전혀 참조하지 않으므로 **언제든 따로 배포할 수 있다.** `cdk deploy --all`(무인자 = prod)은 이 스택을 앱 트리에 담지 않으므로 건드리지 않고, `-c env=cicd`로 `--all`을 돌려도 운영 4스택은 조립되지 않는다. IAM 변경과 앱 인프라 변경이 서로 다른 배포에 속하는 것이 이 분리의 목적이다 (ADR-0024 1번).
 
