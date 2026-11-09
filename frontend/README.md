@@ -181,7 +181,7 @@ aws ssm get-parameter --region ap-northeast-2 \
 9. runtime 설정 PR을 검토한 뒤 develop 또는 main에 머지하고 해당 Environment 승인 후 적용한다. 자동 배포 활성화 전까지 image digest도 이 파일의 PR로 변경한다. 자동 배포 전환은 아래 절차를 따른다.
 10. 해당 환경의 `terraform output -json application`에서 `alb_dns_name`을 확인하고, 외부 DNS에 **프론트 도메인 → ALB DNS 이름** CNAME을 등록한다. 대상에는 `https://`나 경로를 넣지 않는다. 앞의 ACM 검증 CNAME과 별개이며 두 레코드를 유지한다. DNS가 반영되면 실제 HTTPS 접속과 로그인을 확인한다.
 
-ALB는 public subnet 두 개, 앱 ingress는 ALB SG의 TCP 3000만 허용한다. 개발 EC2는
+ALB는 public subnet 두 개, 앱 ingress는 ALB SG의 TCP 3000만 허용한다. dev는 동적 hostPort용 TCP 32768-65535도 ALB SG에서만 허용한다. 개발 EC2는
 ECS EC2/bridge 모드이며 public IP는 외부 통신에 사용한다. SSH는 열지 않고 SSM으로 관리한다.
 운영은 private subnet Fargate, public IP 없음, NAT를 통한 HTTPS egress다.
 로그는 [ADR 0020](../docs/adr/0020-frontend-log-retention-policy.md)에 따라 dev 14일/prod 30일 보존하고
@@ -190,9 +190,9 @@ ALB health check는 `/health`의 캐시되지 않는 200 응답으로 HTTP 서�
 
 `/login`에서 전환할 때는 먼저 프론트 이미지를 배포하고, 인증 쿠키 없이 `/health`가 200과 `Cache-Control: no-store`를 반환하는지 확인한 뒤 이 Terraform 변경을 적용한다. 공유 모듈이므로 dev와 prod 각각 해당 환경의 이미지가 준비되어야 한다. 인프라를 먼저 적용하면 구 이미지의 404 응답으로 대상이 unhealthy가 될 수 있다. 백엔드·DB 연결 검사는 이 경로에 포함하지 않는다.
 
-dev는 사용자 요청에 따라 인증 동시성 검증보다 먼저 **태스크 2개**를 실행한다. `distinctInstance`와 AZ spread로 기존 2a·2c에 하나씩 배치하고 ECS가 ALB에 각 호스트의 3000 포트를 자동 등록한다.
-배포 비율은 dev min 50% / max 100%로 최소 한 개를 유지하며 기존 태스크를 먼저 종료한다. 새 태스크를 먼저 추가 실행하는 무중단 배포나 AZ 장애 시 다른 호스트에 두 개를 배치하는 구성은 아니다.
-BFF의 프로세스 내부 토큰 갱신 중복 방지는 두 앱 사이에서 공유되지 않는다. 동시 갱신·세션 오류를 배포 후 검증하고, 문제가 확인되면 dev desired=1과 2a memberOf 제약, min=0을 복구하는 PR로 롤백한다. prod는 태스크 1개, min 0% / max 100%를 유지한다.
+dev는 **태스크 2개**를 실행한다(ADR-0053). [ADR-0061](../docs/adr/0061-frontend-dev-dynamic-port-prestart-rolling.md)에 따라 bridge 동적 hostPort를 사용하고, ECS가 실제 호스트 포트를 instance 대상 그룹에 등록한다.
+배포 비율은 dev min 100% / max 200%다. 새 태스크 두 개를 기존 태스크와 같은 EC2에 먼저 띄우고, healthy 판정 뒤 기존 두 개를 함께 드레이닝·종료한다. `distinctInstance`는 쓰지 않으며 AZ spread로 평상시 2a·2c에 나누어 배치한다. spread는 선호 조건이라 용량 부족이나 호스트 장애 뒤에는 두 앱이 한 EC2에 몰릴 수 있다.
+t4g.small 한 대에 앱 두 개와 host-alloy가 함께 떠도 예약은 1280MiB/1280 CPU로 등록 용량(1846MiB/2048) 안이다. 드레이닝·health check·circuit breaker 값은 바꾸지 않는다. 교체 중 세션 오류가 확인되면 이 변경을 revert해 ADR-0053 설정(min 50% / max 100%, `distinctInstance`, hostPort 3000)으로 되돌린다. prod는 태스크 1개, min 0% / max 100%, hostPort 3000을 유지한다.
 개발 EC2도 AMI/user data 변경 시 기존 인스턴스를 제거하고 교체한다.
 
 상태 S3 key는 호환성을 위해 계속 `network/terraform.tfstate`다. **이름에 network가 있어도
