@@ -6,6 +6,8 @@ locals {
   execution_role_arn = "arn:aws:iam::${var.aws_account_id}:role/${local.name}-execution"
   image_repository   = "${var.aws_account_id}.dkr.ecr.${local.region}.amazonaws.com/soma-376/pulsemetry-frontend-${var.environment}"
   image              = var.runtime.automatic_image_deployment ? "${local.image_repository}:deploy" : "${local.image_repository}@${var.runtime.image_digest}"
+  # ECS bridge 동적 포트 권장 범위. ECS 최적화 AMI의 ephemeral 범위(32768-60999)를 포함한다.
+  dynamic_host_port_range = { from = 32768, to = 65535 }
 }
 
 data "aws_secretsmanager_secret" "bff" {
@@ -54,6 +56,26 @@ resource "aws_vpc_security_group_egress_rule" "alb" {
   ip_protocol                  = "tcp"
   from_port                    = 3000
   to_port                      = 3000
+  tags                         = local.tags
+}
+# dev bridge 동적 hostPort(ADR-0061). 교체 중 같은 EC2의 새·기존 태스크가 서로 다른 호스트 포트를 쓴다.
+# 3000 규칙은 prod와 공유하며 기존 태스크가 교체될 때까지 대상 연결을 유지한다.
+resource "aws_vpc_security_group_ingress_rule" "app_dynamic" {
+  count                        = local.is_dev ? 1 : 0
+  security_group_id            = aws_security_group.app.id
+  referenced_security_group_id = aws_security_group.alb.id
+  ip_protocol                  = "tcp"
+  from_port                    = local.dynamic_host_port_range.from
+  to_port                      = local.dynamic_host_port_range.to
+  tags                         = local.tags
+}
+resource "aws_vpc_security_group_egress_rule" "alb_dynamic" {
+  count                        = local.is_dev ? 1 : 0
+  security_group_id            = aws_security_group.alb.id
+  referenced_security_group_id = aws_security_group.app.id
+  ip_protocol                  = "tcp"
+  from_port                    = local.dynamic_host_port_range.from
+  to_port                      = local.dynamic_host_port_range.to
   tags                         = local.tags
 }
 resource "aws_vpc_security_group_egress_rule" "app_https" {
@@ -150,8 +172,9 @@ resource "aws_ecs_task_definition" "frontend" {
     essential          = true
     cpu                = 512
     memory             = local.is_dev ? 512 : 1024
-    portMappings       = [{ containerPort = 3000, hostPort = 3000, protocol = "tcp" }]
-    stopTimeout        = 30
+    # dev bridge는 hostPort 0으로 Docker가 빈 호스트 포트를 고르고 ECS가 대상 그룹에 등록한다. awsvpc는 3000을 유지한다.
+    portMappings = [{ containerPort = 3000, hostPort = local.is_dev ? 0 : 3000, protocol = "tcp" }]
+    stopTimeout  = 30
     environment = concat([
       { name = "NODE_ENV", value = "production" },
       { name = "PORT", value = "3000" },
@@ -266,27 +289,23 @@ resource "aws_instance" "dev" {
 }
 
 resource "aws_ecs_service" "frontend" {
-  name                               = local.name
-  cluster                            = aws_ecs_cluster.frontend.id
-  task_definition                    = aws_ecs_task_definition.frontend.arn
-  launch_type                        = local.is_dev ? "EC2" : "FARGATE"
-  platform_version                   = local.is_dev ? null : "1.4.0"
-  desired_count                      = local.is_dev ? 2 : 1
-  deployment_minimum_healthy_percent = local.is_dev ? 50 : 0
-  deployment_maximum_percent         = 100
+  name             = local.name
+  cluster          = aws_ecs_cluster.frontend.id
+  task_definition  = aws_ecs_task_definition.frontend.arn
+  launch_type      = local.is_dev ? "EC2" : "FARGATE"
+  platform_version = local.is_dev ? null : "1.4.0"
+  desired_count    = local.is_dev ? 2 : 1
+  # dev(ADR-0061): 새 태스크 두 개를 먼저 띄워 정상 판정 후 기존 두 개를 함께 내린다.
+  deployment_minimum_healthy_percent = local.is_dev ? 100 : 0
+  deployment_maximum_percent         = local.is_dev ? 200 : 100
   health_check_grace_period_seconds  = 120
   wait_for_steady_state              = true
   deployment_circuit_breaker {
     enable   = true
     rollback = true
   }
-  # dev 선행 검증: 두 EC2에 한 개씩 배치한다. 인증 동시성은 후속 검증 대상이다.
-  dynamic "placement_constraints" {
-    for_each = local.is_dev ? [true] : []
-    content {
-      type = "distinctInstance"
-    }
-  }
+  # dev는 교체 중 한 EC2에 새·기존 태스크를 함께 두므로 distinctInstance를 쓰지 않는다.
+  # AZ spread는 선호 조건이며 평상시 두 EC2에 나누어 배치한다.
   dynamic "ordered_placement_strategy" {
     for_each = local.is_dev ? [true] : []
     content {
@@ -314,7 +333,7 @@ resource "aws_ecs_service" "frontend" {
     }
   }
   tags       = local.tags
-  depends_on = [aws_lb_listener.https, aws_instance.dev]
+  depends_on = [aws_lb_listener.https, aws_instance.dev, aws_vpc_security_group_ingress_rule.app_dynamic, aws_vpc_security_group_egress_rule.alb_dynamic]
   timeouts {
     create = "20m"
     update = "20m"

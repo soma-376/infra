@@ -3,6 +3,7 @@
 ## Status
 
 Accepted — PROJ-243. 사용자가 dev에 먼저 앱 두 개를 실행하고 이후 문제를 해결하는 순서를 요청했다. 실제 배포 완료를 의미하지 않는다.
+부분 대체: [ADR 0061](0061-frontend-dev-dynamic-port-prestart-rolling.md)(Proposed)이 dev 배포 비율(min=50/max=100)·`distinctInstance`·고정 hostPort를 대체한다. 두 앱 배치와 prod 단일 앱 결정은 유효하다.
 
 ## Context
 

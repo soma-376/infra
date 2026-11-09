@@ -71,12 +71,13 @@
 | 0054 | [dev OIDC에 로컬 웹의 고정 콜백을 허용한다](0054-dev-local-web-oidc-callback.md) | Accepted (PROJ-305; 실제 배포·로그인 검증 별도) |
 | 0055 | [프론트 공유 Valkey 기반을 독립 Terraform 상태로 관리한다](0055-shared-frontend-valkey-foundation.md) | Proposed (기반·선택적 BFF 연결; 배포 별도) |
 | 0059 | [dev API 앱도 관리 포트 scrape와 플랫폼 trace 송신자에 포함한다](0059-dev-api-apps-metrics-and-platform-trace-senders.md) | Proposed (PROJ-324; 0037의 9404 scrape 대상과 0039의 trace 송신자를 enrollment·dashboard로 확장 제안; backend ADR 0079와 짝; 배포 별도) |
+| 0061 | [dev 프론트는 동적 포트로 새 태스크를 먼저 띄운 뒤 교체한다](0061-frontend-dev-dynamic-port-prestart-rolling.md) | Proposed (PROJ-328; 0053의 배포 비율·distinctInstance·고정 hostPort 대체; 배포 별도) |
 | 0060 | [랜딩 정적 사이트는 외부 생성 S3·CloudFront에 DeployStack의 전용 OIDC 역할로 배포한다](0060-landing-static-site-deploy-role.md) | Accepted (PROJ-327; 역할 배포·첫 자동 배포 검증은 별도) |
 
 
 병행 작업에서 사용한 `0035`·`0036`은 각각 파일명·제목·링크를 보존한다. 번호만으로 대상을 식별하지 않는다.
 
-새 ADR을 작성할 때는 다음 미사용 번호(`0061-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
+새 ADR을 작성할 때는 다음 미사용 번호(`0062-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
 
 섹션 순서는 다음과 같다. 괄호로 표시한 것은 내용이 있을 때만 둔다.
 
