@@ -1,4 +1,4 @@
-# PROJ-311 dev 이미지 승격·기능 검증 운영
+# PROJ-311 dev 이미지 승격·Argo 상태 관측 운영
 
 이 런북은 backend의 네 앱 이미지 묶음을 private Git으로 선택하고 Argo가 적용하는 경로를 다룬다.
 [ADR 0056](../adr/0056-dev-argocd-gitops-operations.md),
@@ -7,20 +7,18 @@
 
 ## 1. 현재 범위와 활성화 관문
 
-PROJ-311은 backend 생산 manifest·승격 workflow와 infra의 공통 상태/CAS·검증기 연결을 준비한다.
-실제 AWS/클러스터 배포, verifier 이미지 게시, GitHub App 등록·키 입력, synthetic 계정·DB 사용자 생성,
-private 저장소 게시와 운영 기능 검증은 이 로컬 구현의 완료 근거에 포함하지 않는다.
-자동 스위치와 spring-app의 검증 Job은 기본 비활성이다.
+PROJ-311은 backend 생산 manifest·승격 workflow와 infra의 공통 상태/CAS·Argo 관측 연결을 준비한다.
+실제 AWS/클러스터 배포, GitHub App 등록·키 입력, private 저장소 게시와 운영 수락은 이 로컬 구현의
+완료 근거에 포함하지 않는다. 자동 스위치는 기본 비활성이며 spring-app의 PostSync 검증 Job은 제거한다.
 
 다음 수락 근거가 모두 있어야 자동화를 켠다.
 
 | 관문 | 필요한 근거 |
 |---|---|
 | PROJ-310 | 18개 수동 인계, cert-manager/LBC 인증서·admission, private Git 읽기, CMP, 실제 첫 sync·기능 검증 |
-| 최초 정상 B | 새 배포 계약을 포함한 같은 SHA/run/attempt의 네 ARM64 이미지, 현재 schema와 전체 기능의 성공 증거 |
+| 최초 정상 B | 새 배포 계약을 포함한 같은 SHA/run/attempt의 네 ARM64 이미지, 원본 출처·이미지 계약과 현재 Argo 상태의 수락 증거 |
 | 별도 infra 설정 publisher | 현재 B 보존·같은 공통 CAS·비이미지 소유권·충돌·owner 유실·복구 상태의 상호 운용 수락 |
-| 배포 검증기 | 검토된 infra tooling full SHA, 게시한 verifier ARM64 digest, 고정 의존성 검증 |
-| 권한·identity | 보호된 dev-gitops Environment, publisher Git 권한, 전용 observer·DB reader·synthetic 계정, 실제 허용/거부 검사 |
+| 권한·identity | 보호된 dev-gitops Environment, publisher Git 권한, 전용 Argo observer, 실제 허용/거부 검사 |
 | 운영 복구 | blocked 회복·키 회전·maintenance·원래 실행 종료 확인 절차와 담당자 |
 
 `dev/activation.json`에는 수락 결과와 비밀 없는 evidence hash를 기록한다. true 값을 수동으로 채워
@@ -33,8 +31,8 @@ private 저장소 게시와 운영 기능 검증은 이 로컬 구현의 완료 
 초기화 입력 JSON은 private 경로에 보관한다. `schemaVersion: 1`, `infraCommit`, `expectedHead`,
 32자리 hex `operationNonce`, infra 실행의 `owner`, 검증한 생산 `provenance`, `activation`,
 `normalBundleManifestSha256`, `normalBundleEvidenceSha256`, `renderEvidenceSha256`을 요구한다.
-마지막 두 값은 이미 수행한 정상 B 기능 검증과 같은 C 렌더 검증의 증거 hash다. provenance에는 원본 run/attempt뿐 아니라 숫자 문자열 artifactId와 원본 artifact archive의 bare SHA-256 artifactSha256이 필요하다. B는 archive hash가 아니라 안에 든 완료 manifest 원본 바이트의 hash다.
-generated 13개는 현재 실제 정상 B의 이미지를 선택하고 검증기 image도 activation과 같아야 한다.
+마지막 두 값은 정상 B의 운영 수락과 같은 C 렌더 검증의 증거 hash다. provenance에는 원본 run/attempt뿐 아니라 숫자 문자열 artifactId와 원본 artifact archive의 bare SHA-256 artifactSha256이 필요하다. B는 archive hash가 아니라 안에 든 완료 manifest 원본 바이트의 hash다.
+generated 13개는 현재 정상 B의 이미지를 선택한다. 검증기 image·probe·deliveryVerification 입력은 사용하지 않는다.
 
 ```text
 node scripts/dev-gitops/initialize.mjs --input initialization.json --candidate completion.json --generated-dir generated --output-dir NEW_REVIEW_DIR
@@ -54,9 +52,9 @@ root가 준비되면 명시적인 `DELIVERY_INITIALIZATION_ENABLED=true` 운영 
 Actions 조회용 `GH_TOKEN`, 기존 네 ECR에 대한 read-only AWS identity, Docker가 필요하다. 수동 readiness
 hash는 원본 출처·artifact·실제 이미지 계약 검증을 대체하지 않는다.
 초기화는 V → P → 배포 중 상태 순으로 게시하고 실제
-18개 child의 현재 C/V·기능 검증이 끝나야 첫 lastKnownGood과 idle을 기록한다. backend는 root를 apply하지 않는다.
+root와 18개 child의 현재 revision·Synced·Healthy·진행/현재 실패 operation 부재 관측이 끝나야 첫 lastKnownGood과 idle을 기록한다. backend는 root를 apply하지 않는다.
 
-관측 불명·실패는 초기화 owner와 선택을 보존한 blocked다. root·접근·검증 fixture를 복구한 뒤
+관측 불명·실패는 초기화 owner와 선택을 보존한 blocked다. root·접근·Application 상태를 복구한 뒤
 `expectedHead`, 같은 `owner`, 같은 `generation`의 private 재수락 입력으로 다음을 실행한다.
 
 ```text
@@ -97,102 +95,29 @@ workflow_run·수동 실행·30분 schedule 모두 승격하지 않는다. 활�
 
 ## 3. 운영 입력과 읽기 경계
 
-원문 credential은 Git·Helm values·공개 artifact·로그에 기록하지 않는다. AWS Secret은 runtime의
-`asm-exec` 참조 또는 기존 CSI의 고정 버전 파일로 공급한다. 운영자가 값을 준비하며 모델 컨텍스트로
-읽어 들이지 않는다. registry/Git writer, Argo reader, synthetic API identity와 DB reader는 분리한다.
+runner는 기존 private EKS SSM 터널과 원래 EKS hostname·CA 검증을 유지하며 별도 read-only AccessEntry와
+RBAC로 `argocd` namespace의 Application만 읽는다. operator·values-reader 권한은 확대하지 않는다.
+DB relay·DB credential·synthetic 계정·Prometheus proxy·S3·앱 Secret metadata와 원문을 관측하지 않는다.
+Kubernetes/Argo 쓰기·exec·port-forward 권한은 주지 않는다.
 
-| 관측 대상 | 허용 경로 | 허용하지 않는 대체 |
-|---|---|---|
-| EKS/Argo | 기존 private EKS SSM 터널, 원래 hostname·CA 검증, 전용 read-only AccessEntry/RBAC | operator/values-reader 확대, Kubernetes 쓰기, exec/port-forward |
-| PostgreSQL | 기존 DB relay·5432, 전용 reader의 세 Flyway 이력과 catalog fingerprint | master·앱 DB 계정, 데이터 DML·일반 운영자 권한 |
-| ClickHouse | 기존 DB relay·8123, schema와 synthetic tenant의 검증 행만 읽기 | 전체 고객 데이터·암호화 credential 조회 |
-| Prometheus | 기존 Service의 정확한 services/proxy GET, 신선한 exporter/offset 지표 | 새 공개 endpoint·광범위 Service proxy |
-| S3 | 정확한 archive key를 Prefix로 한 ListObjectsV2, MaxKeys=1 | GetObject·archive 본문 다운로드 |
-| 인증 기능 | 전용 tenant/member/installation PIT, 실행마다 새 OIDC 로그인 | JWT 자체 서명, DB session INSERT, 고정 refresh token 재사용 |
-
-PostgreSQL 이력은 `enrollment.flyway_schema_history`, `telemetry_ops.flyway_schema_history`,
-`dashboard_cache.flyway_schema_history`다. 현재 catalog fingerprint와 migration 성공·checksum을 함께
-검사한다. 검증 reader의 사용자 생성·grant·row policy 적용 후 실제 거부 검증을 별도로 남긴다.
-기존 reader의 과도한 grant를 발견해도 자동 REVOKE하지 않는다.
-
-### 3.1 infra 지원 chart와 역할
-
-[`helm/dev/platform/delivery-verification`](../../helm/dev/platform/delivery-verification/)은 observer RBAC와
-검증 Job의 전용 ServiceAccount·SecretProviderClass를 준비하는 별도 bootstrap 구성이다. 18개 기존
-Application inventory와 generated 13개 목록을 늘리지 않는다. 적용 전 실제 Application 18개·Job 4개·
-workload 4개의 이름을 고정하고 기존 Prometheus의 정확한 Service proxy 이름을 확인한다.
-observer는 이 18개 child와 고정 `pulsemetry-dev-root` 하나를 읽는다. root는 별도 bootstrap이며 child inventory 수에 포함하지 않는다.
-기본값의 빈 목록·빈 proxy/Secret 입력으로 활성화하지 않는다.
+[`helm/dev/platform/delivery-observer`](../../helm/dev/platform/delivery-observer/)는 observer RBAC만 준비하는
+별도 bootstrap chart다. `enabled`와 실제 `applicationNames` 18개를 입력하고 고정 `pulsemetry-dev-root`
+하나를 함께 허용한다. root는 별도 bootstrap이며 child inventory 수에 포함하지 않는다. 18개 Application과
+generated 13개 파일 목록은 늘리지 않는다. Job·ServiceAccount·SecretProviderClass·Pod Identity는 만들지 않는다.
 
 | 구성 | 입력/역할 |
 |---|---|
-| 지원 chart | `enabled`, `applicationNames`, `jobNames`, `workloadNames`, `prometheus.namespace`, `prometheus.proxyName`, `probeSecretArn`, `probeSecretVersionId` |
 | 승격 IAM 역할 | `soma-376-backend-dev-gitops`; backend의 `dev-gitops` Environment |
 | EKS 관측 IAM 역할 | `soma-376-dev-eks-delivery-observer`; 별도 `pulsemetry:dev:gitops-observer` group |
-| DB 조회 IAM 역할 | `soma-376-dev-delivery-db-reader`; 기존 고정 relay 경로 |
-| 검증 Pod | `pulsemetry-dev/deployment-verifier`; 앱의 ServiceAccount와 분리 |
-| 검증 Job credential 원본 | 운영자가 준비하는 기존 `pulsemetry/dev/deployment-verifier`; chart는 ARN·고정 VersionId만 참조 |
-| runner DB credential 원본 | 기존 `pulsemetry/dev/deployment-verifier-db-reader`; 고정 VersionId와 `gitops-` version stage를 교차 확인 |
+| `activation.observer.roleArn` | `EksDeliveryObserverRoleArn` |
+| `activation.observer.relayInstanceId` | 기존 EKS API relay |
 
-원본 Secret을 이 변경에서 생성하거나 값을 조회하지 않는다. `probeSecretVersionId` 변경은 infra 설정
-변경이며 일반 이미지 승격이 임의 회전하지 않는다. IAM·RBAC의 조회 권한이 응답 필드를 제한한다고
-표현하지 않는다. Secret 조회는 metadata-only 요청을 강제하고 원문 fallback을 하지 않는다.
+`dev/activation.json`의 readiness는 handoffAccepted·infraPublisherAccepted·normalBundleAccepted와
+acceptanceEvidenceSha256을, inventory는 실제 18개 id/releaseName/namespace/installation을 사용한다.
+cert-manager만 고정 releaseName·installation=new이며 나머지는 기존 release inventory를 따른다.
+verifier·databaseObserver·probe 설정을 제공하지 않는다. 기존 앱의 Secret/CSI 공급과 운영자 DB 접근은 그대로다.
 
-### 3.2 private activation·검증 입력
-
-`dev/activation.json`의 `readiness`에는 handoffAccepted·infraPublisherAccepted·normalBundleAccepted와
-acceptanceEvidenceSha256을, `inventory`에는 실제 18개 id/releaseName/namespace/installation을 둔다.
-cert-manager만 고정 releaseName과 installation=new이며 나머지는 기존 release inventory를 따른다.
-추가 runtime 입력은 다음과 같다. 실제 ARN·host·bucket/account 값은 private 파일에서만 공급한다.
-
-| 객체 | 필드와 조건 |
-|---|---|
-| `verifier` | `repository`, `digest`, `arm64ManifestDigest`; 동일한 검토된 도구 이미지의 root·ARM64 child digest |
-| `observer` | `roleArn`은 EksDeliveryObserverRoleArn, `relayInstanceId`는 기존 EKS API relay |
-| `databaseObserver` | `roleArn`은 DeliveryDbReaderRoleArn, `relayInstanceId`는 기존 DB relay |
-| `databaseObserver`의 Secret 참조 | `probeSecretName`=`pulsemetry/dev/deployment-verifier-db-reader`, 고정 `probeSecretVersionId`와 `gitops-`로 시작하는 `probeSecretVersionStage` |
-| `databaseObserver.postgres` | 현재 RDS `host`, `database`=`controlplane`, `sslmode`=`require` 또는 `verify-full` |
-| `databaseObserver.clickhouse` | 현재 schema 원본 `database`; host는 현재 Ready ClickHouse Pod 하나를 EKS에서 읽어 고정 SSM document에 전달 |
-
-runner는 EKS의 원래 hostname·CA, PostgreSQL의 원래 host와 TLS mode를 유지하고 연결 주소만 loopback으로
-바꾼다. DB Secret은 `DescribeSecret`으로 VersionId↔stage를 검사한 뒤 고정된 asm-exec로 runtime에서만
-해석하며 검사 뒤에도 stage를 재확인한다. caller가 resolver endpoint·Python 실행 경로를 바꾸지 못한다.
-DB reader Secret JSON은 postgres와 clickhouse 각각의 username/password만 포함한다. 일반 사용자·PIT·
-OIDC credential은 runner DB reader에 공급하지 않는다.
-
-네 앱의 고정 `deliveryVerification.config`는 schemaVersion 1과 postgres(host/port/database/sslmode),
-clickhouse(origin/database), enrollmentOrigin·gatewayOrigin·dashboardOrigin을 담는다.
-prometheus는 namespace·proxyName·topic·consumerGroup·exporterJob·collectionMaxSeconds·scrapeIntervalSeconds,
-archive는 bucket·accountId, oidc는 idpOrigin·redirectUri를 사용한다. 수집/스크레이프 지연 합은 0초 초과
-90초 이하이며 이 값보다 신선한 실제 sample을 요구한다. redirectUri는 계약에 등록한 127.0.0.1 loopback이다.
-
-Job용 probe.json에는 synthetic tenantId·installationId·installationToken·유효 invitationCode,
-postgres/clickhouse username/password와 oidc username/password를 둔다. 실제 값을 values나 문서에 쓰지
-않고 고정 버전 CSI 파일로만 공급한다. invitation 만료·PIT 회수·IdP MFA/추가 동의/지원하지 않는 로그인
-화면은 unknown으로 중단한다. 운영자가 fixture와 공급 버전을 검토·갱신하며 자동화를 위해 인증을 우회하지 않는다.
-
-앱 Secret의 현재 mount만으로 rollback 호환성을 판정하지 않는다. verifier와 runner DB reader가 허용된
-원본 ARN의 DescribeSecret metadata로 고정 objectVersion 또는 AWSCURRENT의 선택 VersionId를 읽고
-현재 Pod들의 CSI mount 버전과 대조한다. 선택 metadata도 지문에 포함한다. stage 이동 뒤 Pod 재시작 전
-불일치는 unknown/blocked이며, 복구 Pod가 새 키를 읽을 수 있으므로 이전 이미지 자동 복구를 시작하지 않는다.
-이 권한은 앱 Secret 원문 읽기를 허용하지 않으며 기존 probe credential의 runtime 공급과 구분한다.
-
-### 3.3 최소 DB 권한 검토
-
-아래는 SQL을 출력할 뿐 실행하지 않는다. 실제 synthetic tenant와 installation UUID를 넣어 별도 DB
-관리자가 검토·적용한다. reader LOGIN·암호·ClickHouse readonly profile과 제한 view의 owner 준비는
-운영 작업이며 기존 master·앱 사용자 계정을 재사용하지 않는다.
-
-```bash
-python3 scripts/deployment-verifier/grants.py --tenant '<tenant UUID>' --installation '<installation UUID>' --database postgres
-python3 scripts/deployment-verifier/grants.py --tenant '<tenant UUID>' --installation '<installation UUID>' --database clickhouse
-```
-
-ClickHouse는 전용 `deployment_verification.telemetry_events` view의 tenant·installation 조건과 허용
-column만 읽는다. 원천 테이블의 전체 SELECT나 INSERT/ALTER 권한은 주지 않는다. 실제 적용 뒤 다른
-tenant·원천·쓰기·추가 session 경로의 거부를 확인한다.
-
-## 4. Git 게시와 gate
+## 4. Git 게시와 Argo 성공 판정
 
 공통 publisher는 private main의 owner/generation·현재 P·예상 HEAD를 CAS로 비교한다. 한 owner가
 V append, P 선택, 배포 관측, 필요한 한 번 rollback까지 잠금을 유지한다. 정상 fast-forward만 허용하고
@@ -202,78 +127,65 @@ V는 generated 13개·원본 bundle을 보존한다. 별도 P는 desired와 관�
 선택한다. P 자신의 SHA를 P 안에 넣지 않으며 같은 owner가 후속 상태 commit으로 expectedDesiredP와
 currentSelection을 갱신한다. owner를 잃은 실행은 blocked 기록도 쓰지 않는다.
 
-image publisher는 현재 C와 비이미지 바이트를 보존한다. 예외는 네 앱의 deliveryVerification 아래
-operationNonce·infraCommit·bundleManifestSha256·imageDigest·contractSha256·contract 여섯 leaf뿐이다.
-검증기 image·ServiceAccount·Secret·endpoint·timeout을 바꾸려면 infra 설정 경로를 사용한다.
-nonce는 검증 Job 입력에만 반영하고 Deployment Pod template에는 반영하지 않는다.
+image publisher는 현재 C와 generated의 비이미지 바이트를 보존한다. `deliveryVerification` metadata 예외를
+제거하며 nonce는 desired·state·evidence에만 사용한다. Deployment Pod template에는 넣지 않는다.
+producer의 immutable 이미지에 포장된 계약과 B의 원본 계약 hash 검증은 유지한다. 후보 이미지 코드를
+검사 프로세스로 실행하지 않는다.
 
-| wave | PostSync의 기능 확인 |
-|---|---|
-| enrollment | 두 Flyway 이력, PIT의 telemetry JWT 발급, 고정 설치 bootstrap 자산 |
-| ingest | 목표 digest workload·schema·저장 경로·TLS 준비 |
-| Gateway | 고유 OTLP 한 번 ACK, ClickHouse 기대 관측 한 행, 정확한 archive key의 S3 metadata, Kafka commit watermark |
-| dashboard | cache Flyway, 전용 사용자 실제 OIDC 로그인과 대표 조회 |
+플랫폼 준비 뒤 enrollment → ingest → Gateway → dashboard 순서를 유지한다. 모든 child에서 다음을 확인한다.
 
-활성화한 root와 18개 child는 `syncPolicy.retry.limit: 0`을 명시한다. 동일 게시 operation을 자동
-재시도해 PostSync 검증을 중복 실행하지 않도록 하며, 재검증은 새 nonce의 다음 게시나 명시적 운영 절차로 한다.
-고정 이름의 Job은 BeforeHookCreation·backoffLimit 0을 사용하고 성공·실패 직후 삭제하지 않는다.
-다음 검사가 시작될 때 이전 Job을 교체하므로 runner는 현재 nonce와 UID를 반드시 확인한다. 동일 이미지의
-새 V와 rollback V도 네 gate를 다시 실행한다. selective sync·ApplyOutOfSyncOnly를 사용하지 않는다.
-후보 이미지 코드를 검사 프로세스로 실행하지 않고 신뢰한 verifier가 계약을 대조한다.
-Job은 자신의 Application operation 성공을 기다리지 않는다. Job 종료 뒤 runner·parent health가 현재
-C/V와 Synced·Healthy·완료 operation을 확인한다. root의 Synced·Healthy·Succeeded와 실제 resolved revision도 확인하며 그 Git 이력에 현재 P가 포함돼야 한다.
+- spec과 `status.sync.comparedTo`의 source가 현재 C/V에 고정되고 resolved revision도 일치한다.
+- `Synced`·`Healthy`이며 진행 중 operation과 현재 목표 revision에 귀속된 실패 operation이 없다.
+- root도 현재 P를 포함하는 resolved revision의 `Synced`·`Healthy`이며 해당 revision의 desired/Application
+  파일이 현재 선택과 같아야 한다.
 
-Kafka 성공은 ACK 이후의 모든 partition end-offset 벡터와 그 이상인 이후 committed-offset 벡터를
-신선한 sample에서 대조한다. topic/group·partition 집합·exporter UP이 맞아야 한다. lag 0이나 처리 로그는
-commit 증거가 아니다. ACK 불명확 때 OTLP를 재송신하지 않는다. CH 기대 행과 archive reference로 S3
-Key·Size·LastModified를 확인한다. synthetic 검사 성공을 전체 고객 데이터 정합·최대 부하 검증으로 확대하지 않는다.
+같은 manifest의 새 V나 main 상태-only commit은 새 sync를 만들지 않을 수 있다. operationState가 없거나
+과거 terminal operation이어도 현재 spec·comparedTo·resolved revision과 상태가 맞으면 성공할 수 있다.
+현재 revision에 귀속된 완료 Failed/Error는 성공보다 우선하며, 진행 중/관측 불명 상태에서는 보류한다.
+root와 18개 child의 `syncPolicy.retry.limit: 0`은 유지한다.
+PostSync Job·termination message·Job UID·실제 Pod imageID·Flyway 이력·로그인·수집·저장 성공은 검사하지 않는다.
+같은 이미지의 새 V나 rollback V도 목표 revision의 Argo 상태를 다시 관측한다.
 
 ## 5. 증거·실패·복구
 
-termination message는 4KiB 미만 schemaVersion 1이며 nonce·stage·C·B·image digest·contract hash,
-result·checks·checkedAt·evidence hash를 연결한다. runner가 실제 Job UID·Pod imageID·현재 Argo operation·
-V/P를 추가로 대조한다. 정제된 root 증거는 선택적으로 uid·revision·startedAt·finishedAt만 기록한다. 메시지 잘림·결측·deadline·예상하지 않은 exit·조회 또는 IdP 장애는 unknown이다.
-Job Failed나 timeout만으로 이미지의 확정 실패를 만들지 않는다.
+private `dev/evidence/<operationNonce>.json`에는 정제된 결과·reason code·C/V/P/B·Application UID·
+operation 시각·resolved revision을 둔다. state는 경로와 원본 바이트 hash로 연결한다. 원문 API 응답과
+자격증명을 기록하지 않는다. `configurationFingerprint`는 generated의 비이미지 바이트 보존 확인용이며
+실제 DB·runtime·키·TLS의 상태나 호환성 증거가 아니다.
 
-private `dev/evidence/<operationNonce>.json`에는 정제된 결과·reason code·revision·검사 시각·fingerprint만
-둔다. state는 경로와 원본 바이트 hash로 연결한다. 원문 HTTP/SQL/Prometheus 응답·token·사용자 데이터·
-AWS 조회 전체·archive 본문은 남기지 않는다. Git 게시·Synced·Healthy·기능 성공은 각각 별도 증거다.
+현재 C/V와 완료 operation의 revision이 일치하는 `Failed` 또는 `Error`만 확정 실패다. root와 모든 child의
+진행 중 operation이 없어야 복구를 시작한다. 과거 상태·`Degraded` 단독 상태·조회 장애·불명확한 응답·timeout은
+unknown이며 blocked로 보류한다. 초기화/config 실패도 자동 이미지 rollback 대상이 아니다.
 
-현재 P의 확정 실패이고 진행 operation이 끝났을 때 실패 B·전체 이미지 벡터·source·failure fence를 먼저
-CAS로 기록한다. 신규 기록은 먼저 fenceSealed=false로 영속화하고 그 게시 성공 응답을 확인한 뒤의
-시각으로 fenceSealed=true를 별도 CAS 기록한다. unsealed 기록만 남으면 자동 재개를 막는다. 전체 Git
-이력에서 같은 실패 B/벡터의 가장 늦은 시각을 보존해 오래된 레코드가 fence를 낮추지 못하게 한다.
-실패 시 재조회한 schema/migration, C/runtime, key/TLS metadata, envelope fingerprint가
-배포 전 lastKnownGood과 모두 같을 때만 같은 owner가 이전 정상 이미지로 새 V/P를 한 번 선택한다.
-schema 변경의 하위 호환성을 추정하지 않는다. 일반 이미지 rollback은 Argo sync/self-heal을 유지한다.
+현재 이미지 배포의 확정 실패라면 실패 B·전체 이미지 벡터·source·failure fence를 먼저 CAS로 기록한다.
+신규 기록은 fenceSealed=false로 영속화하고 그 게시 성공 응답 뒤의 시각으로 fenceSealed=true를 별도 CAS
+기록한다. unsealed 기록만 남으면 자동 재개를 막는다. 같은 실패 B/벡터의 가장 늦은 기록 시각을 보존한다.
 
-unknown·config 실패·정상 B 부재·fingerprint 변경/조회 실패·owner 소실·복구 실패는 blocked다.
-DB downgrade·PVC 복원·Kafka offset reset을 수행하지 않는다. 복구 성공 뒤에도 누적 실패 B와 이미지
-벡터를 보존한다. 실패 source의 strict descendant이며 failure fence 뒤에 원본 run이 새로 생성된 정상
-후보만 재개한다. rerun attempt의 시작 시각이나 manifest 재포장으로 우회하지 않는다. unlock 시 이미
-끝난 적격 후보도 다시 평가한다. 차단 해제는 원래 workflow와 Argo operation 종료·실제 상태를 확인한
-운영자가 새 generation의 CAS로 수행하며 시간 경과만으로 잠금을 탈취하지 않는다.
+마지막 Argo 정상 B가 있으면 같은 owner가 현재 C와 비이미지 설정을 보존한 이전 이미지로 새 V/P를 **한 번**
+선택한다. 실제 schema/migration·키·TLS·Kafka backlog 호환성은 확인하지 않는다. 이미 적용된 migration이나
+변경된 runtime과 이전 이미지가 맞지 않아 복구가 실패하거나 기능 장애가 지속될 수 있는 위험을 수용한다.
+일반 이미지 rollback은 Argo sync/self-heal을 유지한다. 복구도 §4의 Argo 성공 기준을 만족해야 lastKnownGood을
+갱신하고 잠금을 해제한다. 이 성공은 실제 로그인·조회·수집·저장 성공을 보장하지 않는다.
+
+unknown·config 실패·정상 B 부재·owner 소실·복구 실패는 blocked다. DB downgrade·PVC 복원·Kafka offset
+reset은 수행하지 않는다. 복구 성공 뒤에도 실패 B와 이미지 벡터를 보존한다. 실패 source의 strict descendant이며
+failure fence 뒤에 원본 run이 새로 생성된 정상 후보만 재개한다. rerun attempt나 manifest 재포장으로 우회하지
+않는다. unlock 시 이미 끝난 적격 후보도 다시 평가한다. 차단 해제는 원래 workflow와 Argo operation 종료·실제
+상태를 확인한 운영자가 새 generation의 CAS로 수행하며 시간 경과만으로 잠금을 탈취하지 않는다.
 
 ## 6. 로컬 검증과 workflow 진입점
 
-로컬 검증은 외부 저장소 대신 임시 bare Git을 사용한다. 실제 동시 CAS·push 응답 유실·V/P 사이 실패,
-owner 소실·unknown·schema 변경·한 번 복구·누적 실패 fence와 비이미지 바이트 보존을 검사한다.
+로컬 검증은 외부 저장소 대신 임시 bare Git을 사용한다. 동시 CAS·push 응답 유실·V/P 사이 실패,
+owner 소실·unknown·한 번 복구·누적 실패 fence와 비이미지 바이트 보존을 검사한다. Argo 관측 테스트는
+현재/과거 revision·완료/진행 operation·Synced/Healthy·root P 이력을 대조한다.
 
 ```bash
 node --test test/dev-gitops/*.test.mjs
-python3 -m unittest discover -s scripts/deployment-verifier -p 'test_*.py'
+npm test -- --runInBand
 ```
 
-고정 Helm 3.22.0·kind·kubectl·Docker를 준비한 환경에서는 다음으로 실제 Argo 3.5.7 격리 시험을 재현한다.
-
-```bash
-python3 tools/deployment-verifier/argocd-integration.py --kind kind --helm helm
-```
-
-두 앱 fixture·두 source·현재 custom health·자동 sync와 selfHeal 활성·retry 0으로 9개 검사를 통과했다. 같은 이미지의 새 nonce가
-Job UID만 바꾸고 앱 Pod UID는 보존했으며, 실패 PostSync는 다음 wave의 이전 V/Job을 유지하고 root
-operation을 Failed로 종료했다. 15초 동안 실패 Job UID와 root Failed 유지도 확인했다. 이 kind 검증은 dev AWS·18개 실운영
-Application·인증/수집 경로의 운영 수락을 대신하지 않는다.
+과거 PostSync Job을 사용한 kind 시험은 제거된 설계의 기록이며 현재 Argo 상태 전용 경로의 live 수락
+증거로 재사용하지 않는다. 로컬 단위·렌더·합성 검증과 실제 dev Argo/IAM/TLS 수락은 구분한다.
 
 보호된 backend 승격 workflow는 검증한 파일을 다음 진입점에 전달한다. 이는 별도 로컬 운영 우회 경로가
 아니며 `DELIVERY_ENABLED=true`, 허용 main workflow identity, 전용 Git credential과 observer 입력을 모두
@@ -286,6 +198,5 @@ node scripts/dev-gitops/promote.mjs --candidate completion.json --provenance pro
 종료 코드 0은 passed·no-op·superseded, 2는 blocked, 1은 안전하게 완료하지 못한 실행이다.
 P 선택 전에 더 새로운 성공 생산 run이 있으면 이전 후보는 superseded다. 같은 owner·HEAD·원래 P를
 확인해 잠금을 idle로 해제하고 backend가 최신 후보를 재평가한다. 미선택 V가 남아도 기존 P는 유지한다.
-이 후보 교체를 일반적인 게시·관측 실패의 잠금 해제 근거로 확대하지 않는다. 공개 로그는 결과와
-reason code만 남긴다. 실패 시 private 상태·현재 owner·실제 원하는 P를 먼저 확인하며 새 실행으로 잠금을
-덮어쓰지 않는다. 로컬 단위/렌더 검증과 실제 Argo 3.5.7 wave·IAM/TLS·OIDC·DB/Kafka/S3 인수는 구분한다.
+후보 교체를 일반적인 게시·관측 실패의 잠금 해제 근거로 확대하지 않는다. 공개 로그는 결과와 reason code만
+남긴다. 실패 시 private 상태·현재 owner·실제 원하는 P를 확인하며 새 실행으로 잠금을 덮어쓰지 않는다.

@@ -76,11 +76,12 @@ PROJ-279 writer 종료, Git 권한/키 회전, 첫 sync·Flyway·수집 기능�
 backend가 원본 생산 run/attempt의 네 ARM64 이미지 완료 manifest B를 만들고, 별도 default-branch 승격
 workflow가 검증한 B를 공통 CAS로 선택한다. 기존 ECR push와 보호된 `dev-gitops` 승격 역할을 분리한다.
 공통 infra tooling은 C와 별도의 검토된 SHA로 고정한다. backend에 CDK·Helm·Kubernetes·Argo 쓰기를 주지 않는다.
-image 변경은 현재 C와 비이미지 바이트를 보존하며 deliveryVerification의 nonce·C·B·imageDigest·contractSha256·contract 여섯 leaf만 검증 metadata 예외다.
-앱별 opt-in PostSync Job과 읽기 전용 observer는 현재 revision·Job UID와 실제 Flyway·인증·저장·Kafka commit을
-결합한다. 같은 이미지도 새 V에서 검사하되 nonce로 앱 Pod를 재시작하지 않는다. 원문은 공개 artifact·Git에 넣지 않는다.
-unknown과 확정 실패를 구분하고 실제 schema/runtime/key/TLS/envelope가 마지막 정상과 모두 같을 때만 한 번 자동 복구한다.
-key/TLS는 허용 원본 ARN의 DescribeSecret metadata로 고정 objectVersion/AWSCURRENT와 실제 CSI mount 버전을 대조한다. stage 이동·mount 불일치는 unknown으로 보류하며 앱 Secret 원문 조회 권한을 더하지 않는다.
+image 변경은 현재 C와 generated의 비이미지 바이트를 보존한다. `deliveryVerification` 예외와 앱별 PostSync
+Job은 제거한다. 읽기 전용 observer는 root·18개 child Application의 현재 C/V·Synced·Healthy·진행/현재 실패 operation 부재와
+root revision의 P 이력·현재 desired/Application 파일 일치만 판정한다. Job·Pod·DB·Prometheus·S3·Secret 관측과 전용 probe/DB reader는 제거한다.
+unknown과 현재 operation의 확정 Failed/Error를 구분한다. 확정 실패 시 이전 Argo 정상 B로 한 번 자동 복구하며
+실제 schema/runtime/key/TLS 호환성은 검사하지 않는다. 기능 장애 미탐지·migration 후 비호환 위험을 수용한다.
+nonce는 Git 상태·증거에만 남고 앱 Pod를 재시작하지 않는다. 기능 성공을 Argo 성공으로 표현하지 않는다.
 PROJ-310의 실제 인계·contract를 가진 정상 B·별도 infra 설정 publisher/CAS 운영 수락 전 자동화는 비활성이다.
 H 생성기와 검토용 Application의 기본 비활성은 유지한다. 이번 로컬 작업은 배포·GitHub App 키 등록·private 게시를 수행하지 않는다.
 
@@ -117,13 +118,14 @@ backend는 같은 SHA·run·attempt의 네 ARM64 이미지 생산 workflow가 �
 설정 변경은 현재 B를 보존하며 C/B/V/P를 결합해 V 게시 뒤 P에서 desired/Application 참조를 함께 바꾼다.
 두 게시기는 후속 `dev/delivery-state.json`의 owner·generation·기준 P와 예상 main HEAD를 공통 CAS로
 검증한다. 배포·복구 판정까지 잠금을 유지하고 force push·시간 기반 탈취는 하지 않는다.
-현재 이미지 배포의 확정 실패만 실제 schema·설정·키·인증서 호환성을 재확인해 같은 owner가 새 V/P로
-한 번 복구한다. 관측 불가·설정 실패·정상 B 부재·owner 소실·복구 실패는 보류한다. 일반 이미지 복구는
+현재 이미지 배포의 Argo 확정 실패만 같은 owner가 현재 C·비이미지 설정을 보존한 이전 정상 이미지의 새 V/P로
+한 번 복구한다. 실환경 호환성 검사는 제거하고 그 위험을 수용한다. 관측 불가·설정 실패·정상 B 부재·owner 소실·복구 실패는 보류한다. 일반 이미지 복구는
 Argo sync를 유지한다. 실패 B/동일 이미지 조합은 차단하고 실패 source 이후 develop 후속 commit 및
 실패 기록 뒤 생성된 원본 생산 run의 정상 묶음부터 자동 재개한다. unlock 시 대기 후보를 다시 평가한다.
 Strimzi CMP는 vendor·Helm 3.22.0·post-render 검증을 보존한다. offset reset·키/인증서 교체는 두 게시기와
 필요한 상위/하위 self-heal을 먼저 중지하고 Git 정합·실제 기능 확인 뒤 재개한다. backend에 CDK·Helm·
-Kubernetes·Argo 변경 권한을 추가하지 않는다. Git 게시·Synced·Healthy·기능 성공은 각각 증거를 남긴다.
+Kubernetes·Argo 변경 권한을 추가하지 않는다. Git 게시·현재 revision의 Synced·Healthy·진행/현재 실패 operation 부재를 기록하며
+실제 기능 성공은 자동 배포 판정에 포함하지 않는다.
 기존 Strimzi·관측 완료 근거와 ADR 0039의 Proposed 상태는 유지한다.
 
 ## PROJ-282 dev Strimzi 전환
