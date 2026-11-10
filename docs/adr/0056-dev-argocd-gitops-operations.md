@@ -266,7 +266,7 @@ Argo 자체는 초기 비 HA이며 데이터 복구나 네 앱의 동시 교체�
 
 ## Follow-up
 
-허브 ADR 0035와 backend ADR 0079에 맞춰 PROJ-311의 이미지 공급·공통 CAS·검증 경계를 유지한다. 별도 infra 설정 게시기, Git 보호·권한과 최초 정상 B를 준비하고 실제 상호 운용·maintenance·복구를 수락한다. 기존 repository/digest 입력을 유지한다. [운영 런북](../runbooks/dev-argocd-operations.md)의 인계 수락 조건을
+허브 ADR 0035와 backend ADR 0081에 맞춰 PROJ-311의 이미지 공급·공통 CAS·검증 경계를 유지한다. 별도 infra 설정 게시기, Git 보호·권한과 최초 정상 B를 준비하고 실제 상호 운용·maintenance·복구를 수락한다. 기존 repository/digest 입력을 유지한다. [운영 런북](../runbooks/dev-argocd-operations.md)의 인계 수락 조건을
 통과하기 전에는 기존 Helm 운영을 유지한다. PROJ-279의 사본 job 구현·활성화와 실제 게시 증거를
 각각 확인하고, 이를 정식 publisher·Argo 인수 완료로 표현하지 않는다.
 
@@ -284,4 +284,4 @@ PostSync Job·probe 입력 없이 현재 root/child Argo 상태로 성공하고,
 - [Argo Application health](https://argo-cd.readthedocs.io/en/stable/operator-manual/health/#argocd-app)
 - [Argo CMP](https://argo-cd.readthedocs.io/en/stable/operator-manual/config-management-plugins/)
 - [Argo 자동 sync와 rollback 경계](https://argo-cd.readthedocs.io/en/stable/user-guide/auto_sync/)
-- [backend ADR 0079](https://github.com/soma-376/pulsemetry-backend/blob/feature/PROJ-311-backend-image-promotion/docs/adr/0079-dev-앱-이미지는-검증한-묶음으로-GitOps에-인계한다.md)
+- [backend ADR 0081](https://github.com/soma-376/pulsemetry-backend/blob/feature/PROJ-311-backend-image-promotion/docs/adr/0081-dev-앱-이미지는-검증한-묶음으로-GitOps에-인계한다.md)
