@@ -1,0 +1,2 @@
+# checksum 검증을 위해 upstream chart의 원본 공백을 보존한다.
+helm/dev/runtime/vendor/fluent-bit-0.58.3/templates/NOTES.txt -whitespace

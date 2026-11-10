@@ -13,20 +13,20 @@ tempo:
     resources:
       requests: {cpu: 250m, memory: 512Mi}
       limits: {cpu: "1", memory: 1Gi}
-    # upstream Service 템플릿이 jaeger 항목을 nil 검사 없이 읽는다. Helm은 빈 맵을 기본값과 병합하므로 endpoint를 null로 지워 포트만 비운다.
+    # upstream Service 템플릿은 비어 있지 않은 endpoint만 노출한다. 빈 문자열은 Helm 3·4의 null 병합 차이 없이 포트를 비운다.
     # 실제 수신 설정은 아래 `config`가 OTLP/gRPC 하나로 고정하므로 이 값은 Tempo 설정에 들어가지 않는다.
     receivers:
       jaeger:
         protocols:
-          grpc: {endpoint: null}
-          thrift_binary: {endpoint: null}
-          thrift_compact: {endpoint: null}
-          thrift_http: {endpoint: null}
+          grpc: {endpoint: ""}
+          thrift_binary: {endpoint: ""}
+          thrift_compact: {endpoint: ""}
+          thrift_http: {endpoint: ""}
       otlp:
         protocols:
           grpc:
             endpoint: "0.0.0.0:4317"
-          http: null
+          http: {endpoint: ""}
     securityContext:
       allowPrivilegeEscalation: false
       readOnlyRootFilesystem: true

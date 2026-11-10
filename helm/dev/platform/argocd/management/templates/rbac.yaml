@@ -1,0 +1,174 @@
+{{- $namespaces := list "kube-system" "pulsemetry-dev" "pulsemetry-dev-logs" "pulsemetry-observability" "strimzi-system" -}}
+{{- range $namespace := $namespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argocd-dev-manager
+  namespace: {{ $namespace }}
+rules:
+  # cache와 UI 조회. 원문을 가져오는 별도 운영자 도구에 이 권한을 공유하지 않는다.
+  - apiGroups: [""]
+    resources: [pods, services, endpoints, configmaps, secrets, serviceaccounts, persistentvolumeclaims, events]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets, statefulsets, daemonsets, controllerrevisions]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, watch]
+  {{- range $item := list (list "" "services" "configmaps" "serviceaccounts" "persistentvolumeclaims") (list "apps" "deployments" "statefulsets" "daemonsets") (list "batch" "jobs") (list "networking.k8s.io" "networkpolicies") (list "policy" "poddisruptionbudgets") (list "secrets-store.csi.x-k8s.io" "secretproviderclasses") (list "elbv2.k8s.aws" "targetgroupbindings") (list "kafka.strimzi.io" "kafkas" "kafkanodepools" "kafkatopics" "kafkausers") (list "monitoring.coreos.com" "prometheuses" "servicemonitors" "podmonitors" "prometheusrules") }}
+  - apiGroups: [{{ first $item | quote }}]
+    resources: {{ rest $item | toJson }}
+    verbs: [get, list, watch, create, update, patch]
+  {{- end }}
+  # hook 재실행에만 필요한 삭제 종류다. PVC·Secret·Kafka·Pod 삭제 권한은 없다.
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [delete]
+  {{- $hookAccounts := index $.Values.managedRbac.hookServiceAccounts $namespace | default list }}
+  {{- if $hookAccounts }}
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    resourceNames: {{ $hookAccounts | toJson }}
+    verbs: [delete]
+  {{- end }}
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    verbs: [get, list, watch]
+  {{- $roles := index $.Values.managedRbac.roles $namespace | default list }}
+  {{- $bindings := index $.Values.managedRbac.roleBindings $namespace | default list }}
+  {{- if $roles }}
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles]
+    verbs: [create]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles]
+    resourceNames: {{ $roles | toJson }}
+    verbs: [update, patch, delete, bind, escalate]
+  {{- end }}
+  {{- if $bindings }}
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings]
+    verbs: [create]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings]
+    resourceNames: {{ $bindings | toJson }}
+    verbs: [update, patch, delete]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argocd-dev-manager
+  namespace: {{ $namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argocd-dev-manager
+subjects:
+  - kind: ServiceAccount
+    name: {{ $.Values.controllerServiceAccount }}
+    namespace: argocd
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argocd-dev-viewer
+  namespace: {{ $namespace }}
+rules:
+  {{- range $item := list (list "" "pods" "services" "endpoints" "configmaps" "serviceaccounts" "persistentvolumeclaims" "events") (list "apps" "deployments" "replicasets" "statefulsets" "daemonsets" "controllerrevisions") (list "batch" "jobs") (list "rbac.authorization.k8s.io" "roles" "rolebindings") (list "networking.k8s.io" "networkpolicies") (list "policy" "poddisruptionbudgets") (list "secrets-store.csi.x-k8s.io" "secretproviderclasses") (list "elbv2.k8s.aws" "targetgroupbindings") (list "kafka.strimzi.io" "kafkas" "kafkanodepools" "kafkatopics" "kafkausers") (list "monitoring.coreos.com" "prometheuses" "servicemonitors" "podmonitors" "prometheusrules") }}
+  - apiGroups: [{{ first $item | quote }}]
+    resources: {{ rest $item | toJson }}
+    verbs: [get, list, watch]
+  {{- end }}
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argocd-dev-viewer
+  namespace: {{ $namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argocd-dev-viewer
+subjects:
+  - kind: ServiceAccount
+    name: {{ $.Values.serverServiceAccount }}
+    namespace: argocd
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: argocd-dev-manager
+rules:
+  {{- range $item := list (list "" "namespaces") (list "apiextensions.k8s.io" "customresourcedefinitions") (list "storage.k8s.io" "storageclasses" "csidrivers") (list "eks.amazonaws.com" "nodeclasses") (list "karpenter.sh" "nodepools") (list "admissionregistration.k8s.io" "mutatingwebhookconfigurations" "validatingwebhookconfigurations") }}
+  - apiGroups: [{{ first $item | quote }}]
+    resources: {{ rest $item | toJson }}
+    verbs: [get, list, watch, create, update, patch]
+  {{- end }}
+  - apiGroups: [""]
+    resources: [nodes, persistentvolumes]
+    verbs: [get, list, watch]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles, clusterrolebindings]
+    verbs: [get, list, watch]
+  {{- if .Values.managedRbac.clusterRoles }}
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles]
+    verbs: [create]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles]
+    resourceNames: {{ .Values.managedRbac.clusterRoles | toJson }}
+    verbs: [update, patch, delete, bind, escalate]
+  {{- end }}
+  {{- if .Values.managedRbac.clusterRoleBindings }}
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterrolebindings]
+    verbs: [create]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterrolebindings]
+    resourceNames: {{ .Values.managedRbac.clusterRoleBindings | toJson }}
+    verbs: [update, patch, delete]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: argocd-dev-manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: argocd-dev-manager
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.controllerServiceAccount }}
+    namespace: argocd
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: argocd-dev-viewer
+rules:
+  {{- range $item := list (list "" "namespaces" "nodes" "persistentvolumes") (list "apiextensions.k8s.io" "customresourcedefinitions") (list "storage.k8s.io" "storageclasses" "csidrivers") (list "eks.amazonaws.com" "nodeclasses") (list "karpenter.sh" "nodepools") (list "admissionregistration.k8s.io" "mutatingwebhookconfigurations" "validatingwebhookconfigurations") (list "rbac.authorization.k8s.io" "clusterroles" "clusterrolebindings") }}
+  - apiGroups: [{{ first $item | quote }}]
+    resources: {{ rest $item | toJson }}
+    verbs: [get, list, watch]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: argocd-dev-viewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: argocd-dev-viewer
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.serverServiceAccount }}
+    namespace: argocd

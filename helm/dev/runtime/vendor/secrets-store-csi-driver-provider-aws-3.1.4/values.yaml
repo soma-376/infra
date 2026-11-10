@@ -1,0 +1,81 @@
+image:
+  repository: public.ecr.aws/aws-secrets-manager/secrets-store-csi-driver-provider-aws
+  pullPolicy: IfNotPresent
+  tag: 3.1.4
+
+awsRegion: ""
+nameOverride: ""
+fullnameOverride: ""
+providerVolume: "/var/run/secrets-store-csi-providers"
+kubeletPath: "/var/lib/kubelet"
+
+driverWritesSecrets: false
+
+commonLabels: {}
+podLabels: {}
+podAnnotations: {}
+
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: "eks.amazonaws.com/compute-type"
+              operator: NotIn
+              values:
+                - fargate
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 100Mi
+  limits:
+    cpu: 50m
+    memory: 100Mi
+
+priorityClassName: ""
+nodeSelector: {}
+
+tolerations: []
+
+port: 8989
+
+updateStrategy:
+  type: RollingUpdate
+
+imagePullSecrets: []
+
+rbac:
+  install: true
+
+securityContext:
+  privileged: false
+  allowPrivilegeEscalation: false
+
+useFipsEndpoint: false
+
+podIdentityHttpTimeout:
+
+dnsConfig: {}
+
+secrets-store-csi-driver:
+  install: true
+  fullnameOverride: secrets-store-csi-driver
+  tokenRequests:
+    - audience: "sts.amazonaws.com"
+    - audience: "pods.eks.amazonaws.com"
+
+  linux:
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: type
+                  operator: NotIn
+                  values:
+                    - virtual-kubelet
+                - key: eks.amazonaws.com/compute-type
+                  operator: NotIn
+                  values:
+                    - fargate

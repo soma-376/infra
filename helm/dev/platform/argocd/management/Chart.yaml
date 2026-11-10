@@ -1,0 +1,5 @@
+apiVersion: v2
+name: pulsemetry-argocd-management
+description: dev Argo 관리 범위와 명시적 인계 관문
+type: application
+version: 0.1.0

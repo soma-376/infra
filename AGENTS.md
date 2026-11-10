@@ -17,7 +17,7 @@ prod는 BFF 단일 프로세스 desired=1/min=0/max=100을 유지한다. dev는 
 기존 CDK 전용 테스트 규칙은 그대로 유지하고, 새 Terraform은 fmt·validate·mock test로 검증한다.
 기존 CDK 리소스를 Terraform에 import하거나 같은 리소스를 두 도구가 수정하지 않는다.
 실제 apply는 리뷰·머지 후 보호된 CI에서 수행한다. 최초 bootstrap CI 역할 준비는 관리자 작업이다. 이후 bootstrap 변경은 ADR-0050에 따라 develop에서 전용 plan/apply 역할과 Environment 승인을 거친다.
-다음 미사용 ADR은 **0057**이다. ADR 0054는 로컬 OIDC callback PR에서 예약했고 0055는 공유 Valkey다.
+다음 미사용 ADR은 **0058**이다. ADR 0054는 로컬 OIDC callback PR에서 예약했고 0055는 공유 Valkey다.
 
 [ADR-0044](docs/adr/0044-dev-waf-cli-oidc-loopback-query-exception.md)에 따라 정확한 CLI OIDC authorize GET과
 검증된 loopback query에만 SSRF·RFI 두 label의 후속 Block을 제외한다.
@@ -43,8 +43,29 @@ namespace/release는 `argocd`, 접근은 TLS ClusterIP와 기존 SSM/private EKS
 default Project 제한은 Helm 설치·CRD Established 확인 뒤 별도 추적 YAML로 적용한다.
 초기 admin 원문은 운영자 로컬 터미널에서만 처리하고 모델 컨텍스트·로그에 넣지 않는다.
 2026-11-04 운영자가 실제 dev 클러스터 설치 완료를 확인했다. 이 변경에서 live 상태를 재조회하지 않았으며,
-UI 로그인·재기동·권한 거부 검증 결과는 별도 근거로 확인한다. private Git 읽기·Application·
-관리 RBAC/AppProject·CMP와 중앙 관측 연결은 후속이며 기존 workload는 계속 수동 Helm으로 관리한다.
+UI 로그인·재기동·권한 거부 검증 결과는 별도 근거로 확인한다. PROJ-287은 별도 관리 구성을 준비하지만,
+private Git 읽기·Application·관리 RBAC/AppProject·CMP의 실제 연결과 인계는 PROJ-310의 운영 수락 대상이다.
+중앙 관측 연결도 후속이며 기존 workload는 계속 수동 Helm으로 관리한다.
+
+## PROJ-287 Application·GitHub App 로컬 구성
+
+[ADR 0057](docs/adr/0057-dev-argocd-github-app-authentication.md)과 [Argo 운영 런북](docs/runbooks/dev-argocd-operations.md)의
+PROJ-287 절을 따른다. 기존 bootstrap과 별도의 관리 구성을 두며 하위 Application 17개·root 템플릿과
+Project/RBAC·health·Strimzi CMP를 로컬에서 검증한다. 실제 release inventory와 C/H 또는 C/V를 명시적으로
+입력하고 예시 release 이름을 운영값으로 추정하지 않는다. 초기 자동 sync·self-heal·prune·allowEmpty와
+연쇄 삭제 finalizer는 끈다. 수동 Kafka 관리 Job은 자동 관리하지 않는다.
+관리 overlay도 `cluster.inClusterEnabled=false`를 유지하고 관리 chart는 cluster Secret을 렌더하지 않는다.
+실제 연결 활성화는 PROJ-310의 코드 리뷰·운영 수락 대상이며 cluster Secret에 Application용 skip-reconcile을 붙여 대신하지 않는다.
+Argo CD 3.5의 native 렌더러는 Helm 4다. 설치용 Helm 3.22.0과 혼동하지 않고 동일성 검증을 거친다.
+Strimzi CMP만 별도 고정 Helm 3.22.0·vendor·post-render를 유지한다. LBC는 offline 렌더에서 TLS Secret/CA가
+다시 생성되므로 정의를 격리하고 전체 인계를 차단한다. 인증서 소유권·회전·복구가 후속에서 해결되기 전에는
+차이 무시로 우회하지 않는다. 관측 인증서 hook의 phase·RBAC·반복 실행도 별도 수락 관문이다.
+Git reader는 private `infra-generated-values` 하나에 `Contents: read`로 설치하는 전용 GitHub App이다.
+공개 infra는 익명 읽기이며 publisher 키와 분리한다. ADR 0057의 한정 예외로 운영자가 로컬 PEM을 native CLI로
+등록해 `argocd` namespace의 해당 repository Secret에 저장한다. 원문은 Git·Helm values·로그·artifact·모델
+컨텍스트에 넣지 않고 CMP에도 공급하지 않는다. 새 AWS Secret/IAM이나 token 갱신 CronJob은 만들지 않는다.
+실제 App 설치·키 등록/회전·Git 권한·CMP 이미지 게시·values 연결·클러스터 sync와 기능 검증은 PROJ-310이다.
+PROJ-287에서 private main을 게시하거나 PROJ-279 writer의 GitOps 중단 표식을 만들지 않는다.
 
 ## PROJ-280 dev Argo CD GitOps 설계
 
@@ -284,7 +305,7 @@ PROJ-279는 Argo 인계 전 CD 자동 사본 공급을 구현한다. 최초 실�
 
 **ADR 우선 원칙은 이 레포의 기존 규칙과 같다** — 1장의 "코드와 ADR이 어긋나면 ADR이 기준이다"가
 전 레포 공통 규칙이며, 크로스레포 결정만 `../docs/adr/`가 소유한다. 스코프 판정은 `adr-new` 스킬이 안내한다.
-단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0057`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
+단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0058`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
 기존 병행 브랜치의 ADR `0028`·`0029`·`0030`은 번호가 겹치므로 파일명과 링크를 보존한다.
 프론트엔드 Terraform 절은 프론트엔드 ADR을, dashboard·EKS·기존 CDK 절은 해당 백엔드 ADR을 가리킨다.
 인용할 때는 번호와 함께 범위·제목 또는 파일 링크를 사용하며, 전체 목록은 [ADR 인덱스](docs/adr/README.md)를 따른다.
@@ -304,7 +325,8 @@ dev는 제품 수집용 OTel Collector를 배포하지 않고 `pulsemetry-backen
   ADR 0056 인계 후 선언의 적용·drift 복구는 Argo가 맡고 일반 수동 Helm과 동시에 관리하지 않는다.
 - EKS 운영자 role은 CDK가 생성하며 계정 IAM이 운영자에게 대상 role의 `sts:AssumeRole`을 부여한다.
   role은 `eks:DescribeCluster`·전용 SSM 터널·AccessEntry 기반 Kubernetes 관리를 담당한다. 릴레이 EC2에는 EKS 권한이 없다.
-- Secret 원문·Kubernetes Secret 복제 없이 ASCP/CSI/configtree를 사용한다. 고정 JWT/OIDC 버전과 명시적 재배포를 유지한다.
+- AWS 애플리케이션 Secret은 원문·Kubernetes Secret 복제 없이 ASCP/CSI/configtree를 사용한다. 고정 JWT/OIDC 버전과 명시적 재배포를 유지한다.
+  Argo Git 관리 인증만 ADR 0057의 전용 reader repository Secret 예외를 따르며 앱·publisher·CMP로 확대하지 않는다.
 - archive prefix를 바꿀 때 S3 PutObject IAM과 generated workload 값을 함께 바꾼다. PROJ-248은 기존 prefix를 바꾸지 않는다.
 - 인계 전 설치·검증·복구는 [EKS 런북](docs/runbooks/dev-eks-manual-deployment.md), 인계 후는
   [Argo 런북](docs/runbooks/dev-argocd-operations.md)을 따른다. 과거 Canary 수치는 검증된 SLO가 아니다.
@@ -610,7 +632,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0057`**)를 쓰되 작성 직전 인덱스·예약을 확인한다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급, `0033`은 외부 ACM 기반 dev HTTPS, `0034`는 dev EKS SSM 릴레이 접근, `0035`는 MSK 배치와 dev EKS 전용 전환, `0036`은 telemetry Gateway·MSK IAM과 임시 blocked.certs 공급, `0037`은 관측 구성, `0038`은 dev DB 비공개 접근, `0039`는 Loki·Tempo·플랫폼 trace(Proposed), `0040`은 dev 공개 origin 영속화, `0041`은 dashboard 조회 권한 복구, `0042`는 프론트 관측 EC2, `0043`은 dev SES 초대 메일, `0044`는 정상 CLI OIDC loopback의 두 query label 예외, `0045`는 CLI token 교환의 두 Body label 예외, `0046`은 승인 태그 SES 수신 identity 권한, `0047`은 실제 진단 후 고정 발신 주소 SES identity 권한, `0048`은 dev CloudFormation CI/CD로 이미 쓰였다. `0020`은 프론트엔드 로그 정책이며, 프론트엔드 `0028`·`0029`·`0030`은 각각 Terraform 실행 환경·외부 DNS와 기존 인증서·독립 기반 상태를 다룬다. 중복 번호는 [ADR 인덱스](docs/adr/README.md)의 제목과 파일 링크로 구분하고, 기존 CDK 로그 정책 미결 사항은 위 (F)를 따른다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0058`**)를 쓰되 작성 직전 인덱스·예약을 확인한다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급, `0033`은 외부 ACM 기반 dev HTTPS, `0034`는 dev EKS SSM 릴레이 접근, `0035`는 MSK 배치와 dev EKS 전용 전환, `0036`은 telemetry Gateway·MSK IAM과 임시 blocked.certs 공급, `0037`은 관측 구성, `0038`은 dev DB 비공개 접근, `0039`는 Loki·Tempo·플랫폼 trace(Proposed), `0040`은 dev 공개 origin 영속화, `0041`은 dashboard 조회 권한 복구, `0042`는 프론트 관측 EC2, `0043`은 dev SES 초대 메일, `0044`는 정상 CLI OIDC loopback의 두 query label 예외, `0045`는 CLI token 교환의 두 Body label 예외, `0046`은 승인 태그 SES 수신 identity 권한, `0047`은 실제 진단 후 고정 발신 주소 SES identity 권한, `0048`은 dev CloudFormation CI/CD로 이미 쓰였다. `0020`은 프론트엔드 로그 정책이며, 프론트엔드 `0028`·`0029`·`0030`은 각각 Terraform 실행 환경·외부 DNS와 기존 인증서·독립 기반 상태를 다룬다. 중복 번호는 [ADR 인덱스](docs/adr/README.md)의 제목과 파일 링크로 구분하고, 기존 CDK 로그 정책 미결 사항은 위 (F)를 따른다.
    형식은 `docs/adr/0000-adr-template.md`를 따른다.
 3. 상수는 **"이 값이 dev에서 달라야 할 이유가 있는가"**로 위치를 정한다 — 없으면 `lib/common/config.ts`, 운영 전용이면 `lib/prod/config.ts`, dev 전용이면 `lib/dev/config.ts`. 스택에서는 import만 한다 (4장).
 4. `test/prod/*.test.ts` / `test/dev/*.test.ts` / `test/cicd/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`(prod), `buildDevApp()`(dev), `buildCicdApp()`(cicd)를 재사용한다.

@@ -4,12 +4,14 @@
 PROJ-274는 고정 설치 구성·로컬 검사·운영 절차를 제공한다.
 2026-11-04 운영자가 실제 dev 클러스터 설치 완료를 확인했다. 이 변경에서는 live 상태를 재조회하지 않았으며,
 UI 로그인·재기동·권한 거부 검증 결과는 별도 근거로 확인한다.
-기존 workload의 Helm 인계, private Git 연결, 관리 대상 AppProject/RBAC, Strimzi CMP와 중앙 관측 연결은 후속 작업이다.
+PROJ-287은 별도 관리 구성·Application·CMP와 GitHub App 연결 절차를 준비한다. 실제 private Git 연결과
+기존 workload의 Helm 인계는 PROJ-310이며, 중앙 관측 연결도 별도 운영 수락 대상이다.
 
 ## 고정 입력과 초기 권한
 
-- release와 namespace는 모두 `argocd`다. 공식 chart **10.11.7**, Argo CD **v3.5.7**, 실행 도구 **Helm 3.22.0**을 사용한다.
+- release와 namespace는 모두 `argocd`다. 공식 chart **10.11.7**, Argo CD **v3.5.7**, 설치 실행 도구 **Helm 3.22.0**을 사용한다.
   `vendor/`의 원본 archive와 `SOURCE.json`·`SHA256SUMS`를 함께 관리하고, 실행 이미지는 ARM64를 확인한 digest로 고정한다.
+  Argo 3.5의 native 렌더러는 Helm 4이며 설치 도구와 다르다. 일반 chart의 렌더 동일성을 검증하고 Strimzi CMP만 별도 Helm 3.22.0을 사용한다.
 - `values.yaml`은 기존 `pulsemetry-dev-apps` ARM64 노드의 비 HA 구성이다. server는 TLS를 유지한 ClusterIP이며
   공개 ALB·Ingress·DNS와 별도 NodePool은 만들지 않는다. 실제 설치 전 apps 풀의 가용 자원·Pod requests를 확인한다.
 - `createClusterRoles=false`·`createAggregateRoles=false`로 광역 역할을 만들지 않는다. Argo 내부 Role은 `argocd`의
@@ -136,10 +138,16 @@ default Project 제한·관리 Application 부재, ServiceAccount의 대상 밖 
 CRD 자동 downgrade 또는 과거 revision으로의 무조건적인 rollback을 복구 명령으로 사용하지 않는다.
 `crds.keep=true`는 전체 복구 보장을 의미하지 않는다.
 
-PROJ-287/310에서 private Git 읽기·관리 RBAC·AppProject·Application/CMP와 인계 조건을 준비한 뒤에만
-로컬 클러스터 관리를 활성화한다. 그전에는 기존 앱 배포를 수동 Helm으로 유지한다. 현재 Fluent Bit 수집 목록에
+PROJ-287의 별도 관리 구성은 [Argo 운영 런북 §2.0.1~2.0.3](../../../../docs/runbooks/dev-argocd-operations.md#201-proj-287-로컬-구성과-배포-입력)을 따른다.
+`values.yaml`의 bootstrap 경계는 유지한다. PROJ-310에서 private Git 읽기·관리 RBAC·AppProject·Application/CMP와
+인계 조건을 실제 검증한 뒤에만 로컬 클러스터 관리를 활성화한다. LBC 인증서 관문이 남은 상태에서 전체 root 인계를
+활성화하지 않는다. 그전에는 기존 앱 배포를 수동 Helm으로 유지한다. 현재 Fluent Bit 수집 목록에
 `argocd`는 없으며 이 변경은 중앙 로그·metrics 연결을 추가하지 않는다. 전체 인계·배포·복구 계약은
 [Argo 운영 런북](../../../../docs/runbooks/dev-argocd-operations.md)이 소유한다.
+
+Git 읽기는 [ADR 0057](../../../../docs/adr/0057-dev-argocd-github-app-authentication.md)의 전용 reader GitHub App을
+사용한다. 운영자가 보호된 PEM 파일 경로로 native repository credential을 등록하며 키 원문은 Helm 입력이나
+이 디렉터리의 tracked 파일에 넣지 않는다. 이 인증은 Git 읽기용이며 Argo UI의 SSO 설정과 별개다.
 
 참고: [namespace 설치](https://argo-cd.readthedocs.io/en/stable/operator-manual/installation/),
 [default Project 제한](https://argo-cd.readthedocs.io/en/stable/user-guide/projects/#the-default-project),
