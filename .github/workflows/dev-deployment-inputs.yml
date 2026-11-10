@@ -12,8 +12,6 @@ on:
       - 'scripts/dev-generated-values*.mjs'
       - 'scripts/dev-argocd-*.mjs'
       - 'scripts/dev-gitops/**'
-      - 'scripts/deployment-verifier/**'
-      - 'tools/deployment-verifier/**'
       - 'scripts/strimzi-operator-post-render.mjs'
       - 'scripts/observability-platform-trace-validate.mjs'
       - 'scripts/validate-generated-values.mjs'
@@ -124,25 +122,5 @@ jobs:
           echo 'PULSEMETRY_CMP_IMAGE=pulsemetry-strimzi-cmp:ci' >> "$GITHUB_ENV"
       - name: Application·권한·Lua·Helm3/4·CMP 검증
         run: npm test -- --runInBand test/scripts/dev-argocd-applications.test.ts test/scripts/dev-argocd-handoff.test.ts test/scripts/dev-argocd-renderers.test.ts test/helm/cert-manager.test.ts test/helm/argocd.test.ts test/helm/argocd-management.test.ts test/helm/argocd-health.test.ts test/helm/platform-trace-stack.test.ts
-      - name: 이미지 게시 CAS·검증기·PostSync 경계 검사
-        run: npm test -- --runInBand test/scripts/dev-gitops.test.ts test/scripts/deployment-verifier.test.ts test/helm/delivery-verification.test.ts
-
-  delivery-verifier:
-    # 공개 고정 이미지·합성 fixture만 사용한다. AWS 인증·실제 cluster 접속은 없다.
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 20
-    env:
-      AWS_EC2_METADATA_DISABLED: 'true'
-      PYTHONDONTWRITEBYTECODE: '1'
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-      - name: 고정 ARM64 검증기 빌드
-        run: docker build --platform linux/arm64 -t pulsemetry-deployment-verifier:proj311-local -f tools/deployment-verifier/Dockerfile .
-      - name: 네트워크 없는 OIDC·AWS metadata API fixture
-        run: docker run --rm --network none --entrypoint python3 pulsemetry-deployment-verifier:proj311-local -m unittest discover -s /opt/verifier -p 'test_*.py'
-      - name: 실제 PG TLS·ClickHouse와 Kafka commit 경계
-        run: |
-          python3 tools/deployment-verifier/integration.py
-          python3 tools/deployment-verifier/kafka-integration.py
+      - name: 이미지 게시 CAS·Argo 상태·단일 복구 검사
+        run: npm test -- --runInBand test/scripts/dev-gitops.test.ts test/helm/delivery-observer.test.ts

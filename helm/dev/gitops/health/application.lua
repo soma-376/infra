@@ -26,10 +26,25 @@ end
 local spec = obj.spec or {}
 local status = obj.status or {}
 if obj.operation ~= nil then return state("Progressing", "동기화 요청이 진행 중이다") end
-if status.operationState ~= nil then
-  local phase = status.operationState.phase
-  if phase == "Failed" or phase == "Error" then return state("Degraded", "최근 동기화 operation이 실패했다") end
-  if phase ~= "Succeeded" then return state("Progressing", "동기화 operation의 완료를 확인하지 못했다") end
+local operation = status.operationState
+if operation ~= nil then
+  local phase = operation.phase
+  if phase ~= "Succeeded" and phase ~= "Failed" and phase ~= "Error" then
+    return state("Progressing", "동기화 operation의 완료를 확인하지 못했다")
+  end
+  if phase == "Failed" or phase == "Error" then
+    local result = operation.syncResult or {}
+    local current = false
+    if type(spec.sources) == "table" and type(result.revisions) == "table" and #spec.sources == #result.revisions then
+      current = #spec.sources > 0
+      for index, source in ipairs(spec.sources) do
+        if source.targetRevision ~= result.revisions[index] then current = false end
+      end
+    elseif spec.source ~= nil then
+      current = immutable(spec.source.targetRevision) and result.revision == spec.source.targetRevision
+    end
+    if current then return state("Degraded", "현재 revision의 동기화 operation이 실패했다") end
+  end
 end
 local errors = { ComparisonError = true, InvalidSpecError = true, SyncError = true, UnknownError = true }
 for _, condition in ipairs(status.conditions or {}) do
@@ -39,24 +54,8 @@ for _, condition in ipairs(status.conditions or {}) do
 end
 local sync = status.sync or {}
 local compared = sync.comparedTo or {}
--- 앱은 nonce ConfigMap으로 매 V에 PostSync가 실행되므로 같은 C/V operation을 요구한다.
--- 정적 platform은 렌더 결과가 같으면 자동 sync가 생략될 수 있어 기존 비교 증거를 유지한다.
-local gated = {
-  ["pulsemetry-dev-enrollment-api"] = true, ["pulsemetry-dev-telemetry-ingest"] = true,
-  ["pulsemetry-dev-telemetry-gateway"] = true, ["pulsemetry-dev-dashboard-api"] = true
-}
-if gated[metadata.name] then
-  local operation = status.operationState or {}
-  local result = operation.syncResult or {}
-  if operation.phase ~= "Succeeded" or type(spec.sources) ~= "table" or type(result.revisions) ~= "table" or #result.revisions ~= #spec.sources then
-    return state("Progressing", "현재 앱 revision의 PostSync operation 증거가 없다")
-  end
-  for index, source in ipairs(spec.sources) do
-    if result.revisions[index] ~= source.targetRevision then
-      return state("Progressing", "이전 앱 revision의 operation은 기능 gate를 대체하지 않는다")
-    end
-  end
-end
+-- 렌더 결과가 같으면 새 V에도 자동 sync가 생략될 수 있다.
+-- 이전 terminal operation 또는 operation 부재를 허용하고 현재 source·비교 revision·건강 상태를 확인한다.
 if not same(spec.destination, compared.destination) then return state("Progressing", "현재 destination의 비교 결과가 없다") end
 if spec.sources ~= nil then
   if #spec.sources == 0 or spec.source ~= nil or not same(spec.sources, compared.sources) then
@@ -79,4 +78,4 @@ if sync.status ~= "Synced" then return state("Progressing", "원하는 revision�
 local health = (status.health or {}).status
 if health == "Degraded" then return state("Degraded", "하위 리소스가 Degraded 상태다") end
 if health ~= "Healthy" then return state("Progressing", "하위 리소스의 Healthy를 확인하지 못했다") end
-return state("Healthy", "현재 고정 revision이 Synced·Healthy다. 별도 기능 검증은 대체하지 않는다")
+return state("Healthy", "현재 고정 revision이 Synced·Healthy다. 별도 기능 검증은 수행하지 않는다")

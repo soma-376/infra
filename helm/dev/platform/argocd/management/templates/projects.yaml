@@ -56,8 +56,7 @@ spec:
       namespace: pulsemetry-dev
   clusterResourceWhitelist: []
   namespaceResourceWhitelist:
-    {{/* PROJ-311의 고정 PostSync 검증 Job을 workload Application에 허용한다. */}}
-    {{- range $item := list (list "" "ConfigMap") (list "" "Service") (list "" "ServiceAccount") (list "apps" "Deployment") (list "batch" "Job") (list "elbv2.k8s.aws" "TargetGroupBinding") }}
+    {{- range $item := list (list "" "ConfigMap") (list "" "Service") (list "" "ServiceAccount") (list "apps" "Deployment") (list "elbv2.k8s.aws" "TargetGroupBinding") }}
     - group: {{ index $item 0 | quote }}
       kind: {{ index $item 1 }}
     {{- end }}

@@ -1,11 +1,10 @@
-// YAML 전체를 다시 직렬화하지 않고 이미지와 검증용 여섯 scalar만 바꾼다.
+// YAML 전체를 다시 직렬화하지 않고 이미지 digest만 바꾼다.
 import { load, JSON_SCHEMA } from 'js-yaml';
 import { CATALOG, INFRA_REPOSITORY, VALUES_REPOSITORY, generateApplications } from '../dev-argocd-applications.mjs';
-import { APPS, SHA, HASH, NONCE, assert, json, sha256, validateManifest, validateSelection } from './contract.mjs';
+import { APPS, SHA, NONCE, assert, json, sha256, validateManifest, validateSelection } from './contract.mjs';
 
 // 수동 offset-admin values도 사본 13개 계약에 포함하지만 Application으로 관리하지 않는다.
 export const GENERATED = [...CATALOG.applications.filter(entry => entry.generatedFile).map(entry => entry.generatedFile), 'telemetry-kafka-admin.yaml'];
-export const METADATA = ['operationNonce', 'infraCommit', 'bundleManifestSha256', 'imageDigest', 'contractSha256', 'contract'];
 export function yaml(text) {
   assert(typeof text === 'string' && Buffer.byteLength(text) < 2 * 1024 * 1024, 'YAML 크기 오류');
   const value = load(text, { schema: JSON_SCHEMA });
@@ -42,28 +41,18 @@ export function replaceScalar(text, section, key, value) {
   return `${text.slice(0, range.start)}${JSON.stringify(value)}${text.slice(range.end)}`;
 }
 export function stripMutable(text) {
-  let result = replaceScalar(text, 'image', 'digest', '<image>');
-  for (const key of METADATA) result = replaceScalar(result, 'deliveryVerification', key, '<metadata>');
-  return result;
+  return replaceScalar(text, 'image', 'digest', '<image>');
 }
 export function updateImageValues(text, app, bundle, selection) {
   const previous = yaml(text);
   const canonical = bundle.manifest.images[app].repository;
   assert(typeof previous.image?.repository === 'string' && new RegExp(`^\\d{12}\\.dkr\\.ecr\\.ap-northeast-2\\.amazonaws\\.com/${canonical}$`).test(previous.image.repository), '현재 V의 ECR repository가 앱 허용값과 다르다');
-  assert(previous.deliveryVerification?.enabled === true, '고정 verifier가 활성화된 정상 V가 필요하다');
-  assert(SHA.test(selection.infraCommit) && NONCE.test(selection.operationNonce), '검증 metadata 오류');
-  const values = {
-    operationNonce: selection.operationNonce, infraCommit: selection.infraCommit,
-    bundleManifestSha256: bundle.B, imageDigest: bundle.manifest.images[app].digest,
-    contractSha256: bundle.manifest.deploymentContracts[app].sha256,
-    contract: bundle.manifest.deploymentContracts[app].content,
-  };
-  let updated = replaceScalar(text, 'image', 'digest', bundle.manifest.images[app].digest);
-  for (const key of METADATA) updated = replaceScalar(updated, 'deliveryVerification', key, values[key]);
+  assert(previous.deliveryVerification === undefined, '기존 검증 Job 설정은 infra 설정 변경으로 먼저 제거해야 한다');
+  assert(SHA.test(selection.infraCommit) && NONCE.test(selection.operationNonce), '배포 선택 metadata 오류');
+  const updated = replaceScalar(text, 'image', 'digest', bundle.manifest.images[app].digest);
   assert(stripMutable(updated) === stripMutable(text), '비이미지 설정 byte 불변 위반');
   const decoded = yaml(updated);
-  assert(decoded.image.repository === previous.image.repository && decoded.image.digest === values.imageDigest, '이미지 치환 오류');
-  for (const key of METADATA) assert(decoded.deliveryVerification[key] === values[key], '검증 scalar 치환 오류');
+  assert(decoded.image.repository === previous.image.repository && decoded.image.digest === bundle.manifest.images[app].digest, '이미지 치환 오류');
   return updated;
 }
 export function snapshotFiles(current, bundle, selection) {
@@ -90,8 +79,8 @@ export function pinApplications(files, selection) {
     assert(app.metadata.annotations?.['argocd.argoproj.io/skip-reconcile'] !== 'true', '비활성 인계 Application은 자동 승격할 수 없다');
     const policy = app.spec.syncPolicy;
     assert(policy?.automated?.enabled === true && policy.automated.selfHeal === true && policy.automated.prune === false && policy.automated.allowEmpty === false, '수락된 자동 sync 설정이 필요하다');
-    assert(policy.retry?.limit === 0, '게시별 기능 검증을 반복하지 않도록 retry.limit=0이 필요하다');
-    assert(!policy.syncOptions?.some(option => /^(ApplyOutOfSyncOnly|Force|Replace)=true$/.test(option)), '검증 hook을 우회하는 sync 옵션');
+    assert(policy.retry?.limit === 0, '확정 실패와 단일 복구를 구분하도록 retry.limit=0이 필요하다');
+    assert(!policy.syncOptions?.some(option => /^(ApplyOutOfSyncOnly|Force|Replace)=true$/.test(option)), '일반 배포에서 허용하지 않는 sync 옵션');
     assert(app.spec.sources?.length === (entry.generatedFile ? 2 : 1), 'Application source 개수 오류');
     const source = app.spec.sources[0];
     assert(source.repoURL === INFRA_REPOSITORY && source.path === entry.chart, '고정 infra source 오류');

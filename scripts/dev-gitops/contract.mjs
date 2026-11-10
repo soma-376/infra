@@ -93,16 +93,3 @@ export function acquire(state, owner, nonce) {
   assert(NONCE.test(nonce), '배포 nonce 오류');
   return { ...state, generation: state.generation + 1, owner, state: 'deploying', operation: { kind: 'image', nonce, rollbackAttempted: false } };
 }
-export function classifyReceipt(receipt, expected) {
-  if (!object(receipt) || Buffer.byteLength(JSON.stringify(receipt)) >= 4096 || receipt.schemaVersion !== 1) return 'unknown';
-  for (const key of ['operationNonce', 'stage', 'infraCommit', 'bundleManifestSha256', 'imageDigest', 'contractSha256']) {
-    if (receipt[key] !== expected[key]) return 'unknown';
-  }
-  if (!['passed', 'failed', 'unknown'].includes(receipt.result) || !Array.isArray(receipt.checks) || !Number.isFinite(Date.parse(receipt.checkedAt))) return 'unknown';
-  if (receipt.result !== 'unknown' && (!HASH.test(receipt.evidenceSha256) || !receipt.checks.length)) return 'unknown';
-  return receipt.result;
-}
-export const FINGERPRINTS = ['schemaFingerprint', 'runtimeFingerprint', 'keyTlsFingerprint', 'envelopeFingerprint'];
-export function compatible(previous, current) {
-  return object(previous) && object(current) && FINGERPRINTS.every(key => HASH.test(previous[key]) && previous[key] === current[key]);
-}

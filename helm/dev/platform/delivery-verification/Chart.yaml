@@ -1,5 +1,0 @@
-apiVersion: v2
-name: delivery-verification
-description: PROJ-311 전용 관측 권한과 검증 입력 연결
-type: application
-version: 0.1.0

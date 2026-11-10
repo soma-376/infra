@@ -25,7 +25,7 @@ export function createDeliveryPromotionRole(stack: Stack, provider: IOidcProvide
   role.addToPolicy(new PolicyStatement({ actions: ['ecr:GetAuthorizationToken'], resources: ['*'] }));
   role.addToPolicy(new PolicyStatement({
     actions: ['sts:AssumeRole'],
-    resources: [DELIVERY_CONTRACT.observerRoleName, DELIVERY_CONTRACT.databaseReaderRoleName]
+    resources: [DELIVERY_CONTRACT.observerRoleName]
       .map(name => stack.formatArn({ service: 'iam', region: '', resource: 'role', resourceName: name, arnFormat: ArnFormat.SLASH_RESOURCE_NAME })),
   }));
   new CfnOutput(stack, 'GitOpsPromotionRoleArn', { value: role.roleArn });

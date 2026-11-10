@@ -1,0 +1,20 @@
+{{- if .Values.enabled -}}
+{{- if ne (len .Values.applicationNames) 18 -}}{{- fail "관측 bootstrap에는 실제 Application 18개가 필요하다" -}}{{- end -}}
+{{- $applications := .Files.Get "applications.json" | fromJsonArray -}}
+{{- if or (ne (len (uniq .Values.applicationNames)) 18) (ne (toJson (sortAlpha .Values.applicationNames)) (toJson (sortAlpha $applications))) -}}{{- fail "관측 Application은 catalog 18개와 정확히 같아야 한다" -}}{{- end -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: gitops-delivery-observer, namespace: argocd}
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    resourceNames: {{ append .Values.applicationNames "pulsemetry-dev-root" | uniq | toJson }}
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: gitops-delivery-observer, namespace: argocd}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: gitops-delivery-observer}
+subjects:
+  - {kind: Group, name: "pulsemetry:dev:gitops-observer", apiGroup: rbac.authorization.k8s.io}
+{{- end -}}

@@ -1,0 +1,3 @@
+# 실제 Application inventory를 검토한 bootstrap만 활성화한다.
+enabled: false
+applicationNames: []

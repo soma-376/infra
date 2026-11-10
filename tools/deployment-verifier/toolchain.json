@@ -1,8 +1,0 @@
-{
-  "schemaVersion": 1,
-  "platform": "linux/arm64",
-  "python": {"version": "3.12.16", "image": "docker.io/library/python@sha256:df540bfd30bd380e89a349611ce42aa67bcb542d58c047706616eb6ba2f86a1b"},
-  "postgresqlClient": {"version": "16.15", "image": "docker.io/library/postgres@sha256:fb4a48f09f19618d307deb5d153a0b11768d37d5c3592ad0c63737dbe52c78ce"},
-  "awsCli": {"version": "2.31.39", "image": "public.ecr.aws/aws-cli/aws-cli@sha256:89743b80682740ba1c751cb2089014a8a0da5ee84a425bb0ff18187cce9ef250"},
-  "pyyaml": {"version": "6.0.3", "sha256": "9149cad251584d5fb4981be1ecde53a1ca46c891a79788c0df828d2f166bda28", "source": "https://pypi.org/project/PyYAML/6.0.3/", "loader": "vendored wheel zipimport pure Python SafeLoader"}
-}

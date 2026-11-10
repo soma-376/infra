@@ -2,7 +2,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { APPS, SHA, HASH, NONCE, DIGEST, assert, parse, json, sha256, validateManifest, validateOwner, validateState, ownerEqual } from './contract.mjs';
+import { APPS, SHA, HASH, NONCE, assert, parse, json, sha256, validateManifest, validateOwner, validateState, ownerEqual } from './contract.mjs';
 import { GENERATED, yaml, snapshotFiles, activationApplications, activationRoot, pinApplications, configurationFingerprint, validateCurrent } from './release.mjs';
 import { validateActivation, safeEvidence } from './engine.mjs';
 import { GitStore } from './git-store.mjs';
@@ -14,18 +14,14 @@ export function prepareInitialization(input, candidateBytes, generated) {
   validateOwner(input.owner);
   assert(input.owner.repository === 'soma-376/infra', '초기화는 infra 운영 경로가 소유한다');
   const activation = validateActivation(input.activation);
-  assert(typeof activation.verifier?.repository === 'string' && DIGEST.test(activation.verifier.digest) && DIGEST.test(activation.verifier.arm64ManifestDigest), '고정 verifier root/ARM64 digest가 필요하다');
-  assert(HASH.test(input.normalBundleEvidenceSha256) && HASH.test(input.renderEvidenceSha256), '정상 B 기능·동일 C 렌더 수락 증거가 필요하다');
+  assert(HASH.test(input.normalBundleEvidenceSha256) && HASH.test(input.renderEvidenceSha256), '정상 B Argo 상태·동일 C 렌더 수락 증거가 필요하다');
   assert(input.provenance && /^[1-9]\d*$/.test(input.provenance.artifactId) && HASH.test(input.provenance.artifactSha256), '원본 artifact provenance가 필요하다');
   const bundle = validateManifest(candidateBytes, input.provenance);
   assert(bundle.B === input.normalBundleManifestSha256, '운영 수락한 정상 B와 다르다');
   for (const app of APPS) {
     const value = yaml(generated.get(`dev/generated/${app}.yaml`));
     assert(value.image?.digest === bundle.manifest.images[app].digest, '현재 실행한 정상 이미지 묶음이어야 한다');
-    assert(value.deliveryVerification?.enabled === true && HASH.test(value.deliveryVerification.image?.digest?.replace(/^sha256:/, '')),
-      '운영 수락한 고정 verifier 이미지가 필요하다');
-    assert(value.deliveryVerification.image.repository === activation.verifier.repository && value.deliveryVerification.image.digest === activation.verifier.digest,
-      '정상 V와 수락한 verifier 이미지 불일치');
+    assert(value.deliveryVerification === undefined, '검증 Job 설정을 제거한 generated values가 필요하다');
   }
   const snapshot = snapshotFiles(generated, bundle, { infraCommit: input.infraCommit, operationNonce: input.operationNonce });
   return { input, activation, bundle, snapshot };
@@ -49,18 +45,18 @@ export async function initialize({ prepared, store, observe }) {
     expectedDesiredP: P, currentSelection: selection, operation: { kind: 'config', nonce: input.operationNonce, rollbackAttempted: false },
     lastKnownGood: null, failedReleases: [], resumeFence: null };
   let head = await store.writeState(P, state, '[PROJ-311] bind initial desired revision');
-  // root/child 모두 이 실제 V/P에 도달하고 기능 gate를 통과한 뒤에만 첫 정상 선택을 확정한다.
+  // root/child 모두 이 실제 V/P에 도달하고 Argo 성공 조건을 만족한 뒤에만 첫 정상 선택을 확정한다.
   let observation;
   try { observation = await observe({ selection, bundle, activation, runtimeFingerprint: configurationFingerprint(snapshot) }); }
   catch { observation = { result: 'unknown', terminal: false, reason: 'initial_observation_unavailable', observedAt: new Date().toISOString(), applications: [] }; }
   const evidence = safeEvidence(observation, selection);
-  const passed = observation.result === 'passed' && observation.terminal === true && observation.fingerprints;
+  const passed = observation.result === 'passed' && observation.terminal === true;
   state = passed ? { ...state, state: 'idle', owner: null, operation: null,
-    lastKnownGood: { ...selection, evidenceSha256: sha256(evidence), fingerprints: observation.fingerprints,
+    lastKnownGood: { ...selection, evidenceSha256: sha256(evidence),
       configurationFingerprint: configurationFingerprint(snapshot) } } :
     { ...state, state: 'blocked', operation: { ...state.operation, blockedReason: 'initial_acceptance_incomplete' } };
   assert(await store.refresh() === head, '초기화 관측 중 HEAD 변경: 기존 owner를 덮어쓰지 않는다');
-  await store.cas(head, new Map([['dev/delivery-state.json', json(state)], [`dev/evidence/${input.operationNonce}.json`, evidence]]), '[PROJ-311] record initial functional acceptance');
+  await store.cas(head, new Map([['dev/delivery-state.json', json(state)], [`dev/evidence/${input.operationNonce}.json`, evidence]]), '[PROJ-311] record initial Argo acceptance');
   return { result: passed ? 'passed' : 'blocked' };
 }
 export async function acceptInitialization({ store, input, observe }) {
@@ -78,9 +74,9 @@ export async function acceptInitialization({ store, input, observe }) {
   const observation = await observe({ selection: state.currentSelection, bundle, activation, runtimeFingerprint: configHash });
   const evidence = safeEvidence(observation, state.currentSelection);
   assert(await store.refresh() === head, '수락 재시도 중 owner/HEAD 변경');
-  const passed = observation.result === 'passed' && observation.terminal === true && observation.fingerprints;
+  const passed = observation.result === 'passed' && observation.terminal === true;
   const next = passed ? { ...state, state: 'idle', owner: null, operation: null, lastKnownGood: {
-    ...state.currentSelection, evidenceSha256: sha256(evidence), configurationFingerprint: configHash, fingerprints: observation.fingerprints } } :
+    ...state.currentSelection, evidenceSha256: sha256(evidence), configurationFingerprint: configHash } } :
     { ...state, state: 'blocked', operation: { ...state.operation, blockedReason: 'initial_acceptance_incomplete' } };
   await store.cas(head, new Map([['dev/delivery-state.json', json(next)], [`dev/evidence/${state.currentSelection.operationNonce}.json`, evidence]]), '[PROJ-311] accept initial current release');
   return { result: passed ? 'passed' : 'blocked' };
