@@ -65,16 +65,11 @@ async function localPort() {
 }
 
 /** 자신이 생성한 AWS CLI·Session Manager plugin 프로세스만 종료한다. */
-export async function startSsmTunnel({ instanceId, documentName, env, remoteHost }) {
-  // PROJ-311: 기존 DB document의 CH host 한 필드만 확장한다. EKS/PG 목적지는 document가 고정한다.
-  if (remoteHost !== undefined && (documentName !== 'soma-376-dev-db-clickhouse-tunnel' ||
-      !/^10\.1\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/.test(remoteHost))) {
-    throw failure('CH 터널 목적지 오류');
-  }
+export async function startSsmTunnel({ instanceId, documentName, env }) {
   const port = await localPort();
   const child = spawn('aws', ['--region', REGION, '--no-cli-pager', 'ssm', 'start-session',
     '--target', instanceId, '--document-name', documentName,
-    '--parameters', JSON.stringify({ localPortNumber: [String(port)], ...(remoteHost ? { host: [remoteHost] } : {}) }),
+    '--parameters', JSON.stringify({ localPortNumber: [String(port)] }),
   ], { env, stdio: 'ignore', detached: process.platform !== 'win32' });
   let ended = false, closing;
   const endedPromise = new Promise(resolve => {
