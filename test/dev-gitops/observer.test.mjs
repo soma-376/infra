@@ -1,106 +1,229 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { safeEvidence } from '../../scripts/dev-gitops/engine.mjs';
 import { CATALOG } from '../../scripts/dev-argocd-applications.mjs';
 import { currentApplication, evaluateStage, observeDeployment, credentialEnv } from '../../scripts/dev-gitops/observer.mjs';
-import { json, sha256, validateManifest } from '../../scripts/dev-gitops/contract.mjs';
-import { C, makeBundle } from './fixtures.mjs';
 
-function stage() {
-  const entry = CATALOG.applications.find(value => value.id === 'enrollment-api'), bundle = makeBundle();
-  const selection = { infraCommit: C, valuesCommit: 'd'.repeat(40), bundleManifestSha256: bundle.B,
-    desiredCommit: 'e'.repeat(40), operationNonce: 'f'.repeat(32) };
-  const revisions = [C, selection.valuesCommit], digest = bundle.manifest.images[entry.id].digest;
-  const receipt = { schemaVersion: 1, operationNonce: selection.operationNonce, stage: entry.id, infraCommit: C,
-    bundleManifestSha256: bundle.B, imageDigest: digest, contractSha256: bundle.manifest.deploymentContracts[entry.id].sha256,
-    result: 'passed', checks: ['flyway', 'bootstrap'], checkedAt: '2026-11-06T01:02:00Z', evidenceSha256: sha256('verified stage') };
-  const app = { metadata: { name: entry.name, uid: 'a1-a2' }, spec: { sources: revisions.map(targetRevision => ({ targetRevision })) },
-    status: { sync: { comparedTo: { sources: revisions.map(targetRevision => ({ targetRevision })) }, revisions, status: 'Synced' },
-      health: { status: 'Healthy' }, operationState: { phase: 'Succeeded', startedAt: '2026-11-06T01:00:00Z',
-        finishedAt: '2026-11-06T01:03:00Z', syncResult: { revisions } } } };
-  const job = { metadata: { uid: 'b1-b2', labels: { 'pulsemetry.dev/operation-nonce': selection.operationNonce } },
-    status: { startTime: '2026-11-06T01:01:00Z', succeeded: 1 } };
-  const verifier = { repository: 'example.invalid/verified-tool', digest: `sha256:${'1'.repeat(64)}`, arm64ManifestDigest: `sha256:${'2'.repeat(64)}` };
-  const pods = [{ metadata: { uid: 'c1-c2', ownerReferences: [{ kind: 'Job', uid: job.metadata.uid }],
-    labels: { 'pulsemetry.dev/operation-nonce': selection.operationNonce } },
-    spec: { containers: [{ name: 'verifier', image: `${verifier.repository}@${verifier.digest}` }] },
-    status: { containerStatuses: [{ name: 'verifier', imageID: `${verifier.repository}@${verifier.arm64ManifestDigest}`, state: { terminated: { exitCode: 0, message: json(receipt) } } }] } }];
-  const workloadPods = [{ metadata: { uid: 'd1-d2' }, spec: { containers: [{ name: entry.id, image: `example.invalid/enrollment@${digest}` }] },
-    status: { phase: 'Running', containerStatuses: [{ name: entry.id, ready: true, imageID: `example.invalid/enrollment@${digest}` }] } }];
-  return { app, job, pods, workloadPods, entry, selection, bundle, verifier, now: Date.parse('2026-11-06T01:04:00Z') };
+const C = 'c'.repeat(40), V = 'd'.repeat(40), P = 'e'.repeat(40), ROOT_REVISION = 'f'.repeat(40);
+const selection = { infraCommit: C, valuesCommit: V, desiredCommit: P, operationNonce: 'a'.repeat(32) };
+function application(entry) {
+  const revisions = entry.generatedFile ? [C, V] : [C];
+  const sources = revisions.map(targetRevision => ({ targetRevision }));
+  return { metadata: { name: entry.name, uid: 'a1-a2' }, spec: { sources: structuredClone(sources) },
+    status: { sync: { comparedTo: { sources: structuredClone(sources) }, revisions: [...revisions], status: 'Synced' },
+      health: { status: 'Healthy' }, operationState: { phase: 'Succeeded', startedAt: '2026-11-10T01:00:00Z',
+        finishedAt: '2026-11-10T01:03:00Z', syncResult: { revisions: [...revisions] } } } };
+}
+function stage(id = 'enrollment-api') {
+  const entry = CATALOG.applications.find(value => value.id === id);
+  return { app: application(entry), entry, selection };
+}
+function deployment() {
+  const applications = CATALOG.applications.map(application);
+  const source = { repoURL: 'https://github.com/soma-376/infra-generated-values.git', targetRevision: 'main', path: 'dev/applications' };
+  const parent = { metadata: { name: 'pulsemetry-dev-root', uid: 'b1-b2' }, spec: { source: structuredClone(source) },
+    status: { sync: { comparedTo: { source: structuredClone(source) }, revision: ROOT_REVISION, status: 'Synced' },
+      health: { status: 'Healthy' }, operationState: { phase: 'Succeeded', startedAt: '2026-11-10T01:00:00Z',
+        finishedAt: '2026-11-10T01:04:00Z', syncResult: { revision: ROOT_REVISION } } } };
+  let clock = 0;
+  const paths = [];
+  const client = { get: async path => {
+    paths.push(path);
+    const app = [...applications, parent].find(value => path === `/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/${value.metadata.name}`);
+    assert.ok(app, 'Application 외의 API를 조회하지 않는다');
+    return structuredClone(app);
+  } };
+  const input = { client, selection, rootRevisionContainsSelection: async (revision, selected) => revision === ROOT_REVISION && selected === P,
+    now: () => clock, timeoutMs: 10, intervalMs: 5, sleep: async ms => { clock += ms; } };
+  return { applications, parent, paths, input };
 }
 
-test('동일한 C/V·nonce·Job UID·operation·실행 digest의 종료 성공만 stage 성공이다', () => {
-  const input = stage(), result = evaluateStage(input);
-  assert.equal(currentApplication(input.app, input.entry, input.selection), true);
-  assert.equal(result.result, 'passed'); assert.equal(result.evidence.jobUid, input.job.metadata.uid);
-  assert.equal(result.evidence.podUid, input.pods[0].metadata.uid);
-  assert.equal(result.evidence.receiptSha256, sha256(input.pods[0].status.containerStatuses[0].state.terminated.message));
-});
-
-test('이전 V·retained Job·이전 UID·진행 중 operation과 다른 실제 imageID는 unknown이다', () => {
-  for (const mutate of [
-    value => value.app.status.sync.revisions[1] = '0'.repeat(40),
-    value => value.app.status.operationState.syncResult.revisions = [C, '0'.repeat(40)],
-    value => value.job.metadata.labels['pulsemetry.dev/operation-nonce'] = '0'.repeat(32),
-    value => value.pods[0].metadata.ownerReferences[0].uid = 'old-job',
-    value => value.job.status.startTime = '2026-11-06T00:59:59Z',
-    value => value.app.operation = { sync: {} },
-    value => value.app.status.operationState.phase = 'Running',
-    value => value.workloadPods[0].status.containerStatuses[0].imageID = 'example.invalid/old@sha256:' + '0'.repeat(64),
-    value => value.pods[0].spec.containers[0].image = 'example.invalid/untrusted@' + value.verifier.digest,
-    value => value.pods[0].status.containerStatuses[0].imageID = 'example.invalid/untrusted@sha256:' + '0'.repeat(64),
-    value => value.workloadPods.push(structuredClone(value.workloadPods[0])),
-  ]) {
-    const input = stage(); mutate(input); assert.equal(evaluateStage(input).result, 'unknown');
+test('현재 C/V의 Synced·Healthy와 진행 중 operation 부재로 stage 성공을 판정한다', () => {
+  for (const id of ['enrollment-api', 'cert-manager']) {
+    const input = stage(id), result = evaluateStage(input);
+    assert.equal(currentApplication(input.app, input.entry, selection), true);
+    assert.equal(result.result, 'passed');
+    assert.deepEqual(result.evidence.revisions, input.entry.generatedFile ? [C, V] : [C]);
+    assert.equal(result.evidence.phase, 'Succeeded');
+    assert.equal(result.evidence.uid, input.app.metadata.uid);
+    assert.equal(result.evidence.jobUid, undefined);
   }
 });
 
-test('deadline·잘린 receipt·의미 없는 exit는 Job 실패만으로 이미지 확정 실패가 되지 않는다', () => {
+test('이전 spec·comparedTo·resolved revision·진행 중 상태는 unknown이다', () => {
   for (const mutate of [
-    value => value.pods[0].status.containerStatuses[0].state.terminated.exitCode = 137,
-    value => value.pods[0].status.containerStatuses[0].state.terminated.message = '{"schemaVersion":',
-    value => value.pods[0].status.containerStatuses[0].state.terminated.message += ' '.repeat(4096),
-    value => delete value.pods[0].status.containerStatuses[0].state.terminated,
+    app => app.spec.sources[1].targetRevision = '0'.repeat(40),
+    app => app.status.sync.comparedTo.sources[1].targetRevision = '0'.repeat(40),
+    app => app.status.sync.revisions[1] = '0'.repeat(40),
+    app => app.operation = { sync: {} },
+    app => app.status.operationState.phase = 'Running',
+    app => app.status.operationState.phase = 'Terminating',
+    app => app.status.sync.status = 'OutOfSync',
+    app => app.status.health.status = 'Degraded',
+    app => delete app.metadata.uid,
   ]) {
-    const input = stage(); input.app.status.operationState.phase = 'Failed'; input.job.status = { ...input.job.status, failed: 1 };
-    delete input.job.status.succeeded; mutate(input);
+    const input = stage(); mutate(input.app); assert.equal(evaluateStage(input).result, 'unknown');
+  }
+});
+
+test('현재 revision에 귀속된 완료 Failed/Error만 확정 실패다', () => {
+  for (const phase of ['Failed', 'Error']) {
+    const input = stage(); input.app.status.operationState.phase = phase;
+    input.app.status.sync.status = 'OutOfSync'; input.app.status.health.status = 'Degraded';
+    assert.equal(evaluateStage(input).result, 'failed');
+    input.app.status.operationState.syncResult.revisions[1] = '0'.repeat(40);
     assert.equal(evaluateStage(input).result, 'unknown');
   }
 });
 
-
-test('index digest의 PodSpec과 검증된 ARM64 child imageID를 구분한다', () => {
-  const input = stage(), app = input.entry.id, child = `sha256:${'9'.repeat(64)}`;
-  input.bundle.manifest.images[app].arm64ManifestDigest = child;
-  input.bundle = validateManifest(json(input.bundle.manifest));
-  input.selection.bundleManifestSha256 = input.bundle.B;
-  const termination = input.pods[0].status.containerStatuses[0].state.terminated;
-  const receipt = JSON.parse(termination.message); receipt.bundleManifestSha256 = input.bundle.B;
-  termination.message = json(receipt);
-  input.workloadPods[0].status.containerStatuses[0].imageID = `example.invalid/enrollment@${child}`;
-  assert.notEqual(child, input.bundle.manifest.images[app].digest);
-  assert.equal(evaluateStage(input).result, 'passed');
-  input.workloadPods[0].status.containerStatuses[0].imageID = `example.invalid/enrollment@${input.bundle.manifest.images[app].digest}`;
-  assert.equal(evaluateStage(input).result, 'unknown');
+test('root와 18 child의 현재 Argo 완료 상태만 읽어 성공을 판정한다', async () => {
+  const value = deployment(), result = await observeDeployment(value.input);
+  assert.equal(result.result, 'passed'); assert.equal(result.terminal, true);
+  assert.equal(result.applications.length, 18); assert.equal(value.paths.length, 19);
+  assert.equal(result.root.revision, ROOT_REVISION); assert.equal(result.root.phase, 'Succeeded');
+  assert.equal(result.fingerprints, undefined);
+  assert.deepEqual(JSON.parse(safeEvidence(result, value.input.selection)).applications, result.applications);
+  assert.ok(value.paths.every(path => path.startsWith('/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/')));
 });
 
-test('현재 operation의 명시적인 실패 receipt와 exit 1만 확정 실패다', () => {
-  const input = stage(); input.app.status.operationState.phase = 'Failed';
-  input.job.status.failed = 1; delete input.job.status.succeeded;
-  const termination = input.pods[0].status.containerStatuses[0].state.terminated;
-  const receipt = JSON.parse(termination.message); receipt.result = 'failed';
-  termination.message = json(receipt); termination.exitCode = 1;
-  assert.equal(evaluateStage(input).result, 'failed');
-  termination.exitCode = 2; assert.equal(evaluateStage(input).result, 'unknown');
+test('operation 없는 최초 수락과 과거 operation 증거도 publisher가 저장할 수 있다', async () => {
+  for (const absent of [true, false]) {
+    const value = deployment();
+    for (const app of [...value.applications, value.parent]) {
+      if (absent) delete app.status.operationState;
+      else if (app === value.parent) app.status.operationState.syncResult.revision = '0'.repeat(40);
+      else app.status.operationState.syncResult.revisions = app.status.sync.revisions.map(() => '0'.repeat(40));
+    }
+    const result = await observeDeployment(value.input);
+    assert.equal(result.result, 'passed');
+    const evidence = JSON.parse(safeEvidence(result, value.input.selection));
+    assert.equal(evidence.root.phase, absent ? undefined : 'Succeeded');
+    assert.equal(evidence.applications.length, 18);
+  }
 });
 
-test('조회 장애가 관측 deadline까지 지속되면 failed가 아니라 unknown이다', async () => {
-  let clock = 0, called = 0;
-  const result = await observeDeployment({ client: { get: async () => { called++; throw new Error('simulated private API failure'); } },
-    ...stage(), activation: { inventory: [] }, runtimeFingerprint: 'a'.repeat(64), fingerprints: async () => { throw new Error('must not reach'); },
-    now: () => clock, timeoutMs: 10, intervalMs: 5, sleep: async ms => { clock += ms; } });
-  assert.equal(result.result, 'unknown'); assert.equal(result.terminal, false);
-  assert.equal(result.reason, 'observation_deadline'); assert.ok(called >= 18);
+test('알 수 없는 operation phase는 현재 Healthy여도 성공 또는 rollback으로 판정하지 않는다', async () => {
+  for (const phase of ['Pending', undefined]) {
+    const value = deployment(); value.parent.status.operationState.phase = phase;
+    assert.equal((await observeDeployment(value.input)).result, 'unknown');
+    const input = stage(); input.app.status.operationState.phase = phase;
+    assert.equal(evaluateStage(input).result, 'unknown');
+  }
+});
+
+test('root의 source·comparedTo·P 선택 증명이 다르면 성공하지 않는다', async () => {
+  for (const mutate of [
+    value => value.parent.spec.source.repoURL = 'https://example.invalid/repo.git',
+    value => value.parent.spec.source.targetRevision = 'stale',
+    value => value.parent.status.sync.comparedTo.source.path = 'old/applications',
+    value => value.input.rootRevisionContainsSelection = async () => false,
+  ]) {
+    const value = deployment(); mutate(value);
+    assert.equal((await observeDeployment(value.input)).result, 'unknown');
+  }
+});
+
+test('현재 child의 확정 실패는 후속 wave가 이전 revision에 남아도 모두 종료됐으면 실패다', async () => {
+  const value = deployment();
+  value.applications[14].status.operationState.phase = 'Failed';
+  for (const app of value.applications.slice(15)) {
+    app.spec.sources[1].targetRevision = '0'.repeat(40);
+    app.status.sync.comparedTo.sources[1].targetRevision = '0'.repeat(40);
+    app.status.sync.revisions[1] = '0'.repeat(40);
+    app.status.operationState.syncResult.revisions[1] = '0'.repeat(40);
+  }
+  const result = await observeDeployment(value.input);
+  assert.equal(result.result, 'failed'); assert.equal(result.terminal, true);
+  assert.equal(result.applications.find(app => app.id === 'enrollment-api').phase, 'Failed');
+});
+
+test('root 자신의 현재 Failed/Error는 확정 실패이며 stale 실패는 현재 Healthy를 막지 않는다', async () => {
+  for (const phase of ['Failed', 'Error']) {
+    const value = deployment(); value.parent.status.operationState.phase = phase;
+    assert.equal((await observeDeployment(value.input)).result, 'failed');
+    value.parent.status.operationState.syncResult.revision = '0'.repeat(40);
+    assert.equal((await observeDeployment(value.input)).result, 'passed');
+  }
+});
+
+test('child 실패가 있어도 root 또는 다른 child의 진행 중 operation이 있으면 unknown이다', async () => {
+  for (const mutate of [
+    value => value.parent.operation = { sync: {} },
+    value => value.parent.status.operationState.phase = 'Running',
+    value => value.applications[0].status.operationState.phase = 'Terminating',
+  ]) {
+    const value = deployment(); value.applications[14].status.operationState.phase = 'Failed'; mutate(value);
+    const result = await observeDeployment(value.input);
+    assert.equal(result.result, 'unknown'); assert.equal(result.terminal, false);
+  }
+});
+
+test('Degraded 단독 상태·관측 장애는 확정 실패로 바꾸지 않는다', async () => {
+  for (const mutate of [
+    value => value.applications[14].status.health.status = 'Degraded',
+    value => value.input.client.get = async () => { throw new Error('simulated private API failure'); },
+  ]) {
+    const value = deployment(); mutate(value);
+    const result = await observeDeployment(value.input);
+    assert.equal(result.result, 'unknown'); assert.equal(result.reason, 'observation_deadline');
+  }
+});
+
+
+test('manifest가 같은 새 V는 이전 Succeeded/Failed/Error operation으로도 현재 Healthy면 성공한다', () => {
+  for (const phase of ['Succeeded', 'Failed', 'Error']) {
+    const input = stage(); input.app.status.operationState.phase = phase;
+    input.app.status.operationState.syncResult.revisions[1] = '0'.repeat(40);
+    const result = evaluateStage(input);
+    assert.equal(result.result, 'passed');
+    assert.deepEqual(result.evidence.revisions, [C, V]);
+    assert.deepEqual(result.evidence.operationRevisions, [C, '0'.repeat(40)]);
+  }
+});
+
+test('최초 no-op 인수는 root와 child operation이 없어도 현재 Synced Healthy면 성공한다', async () => {
+  const value = deployment();
+  for (const app of [...value.applications, value.parent]) delete app.status.operationState;
+  const result = await observeDeployment(value.input);
+  assert.equal(result.result, 'passed'); assert.equal(result.terminal, true);
+  assert.equal(result.root.phase, undefined); assert.equal(result.root.operationRevision, undefined);
+  assert.equal(result.applications[0].phase, undefined); assert.equal(result.applications[0].startedAt, undefined);
+});
+
+test('root가 state-only HEAD를 비교해도 마지막 Succeeded operation은 P에 남을 수 있다', async () => {
+  const value = deployment(); value.parent.status.operationState.syncResult.revision = P;
+  const result = await observeDeployment(value.input);
+  assert.equal(result.result, 'passed'); assert.equal(result.root.revision, ROOT_REVISION);
+  assert.equal(result.root.operationRevision, P);
+});
+
+test('root 실패 operation이 현재 P 선언을 유지한 revision이면 state-only HEAD에서도 실패다', async () => {
+  const value = deployment(); value.parent.status.operationState.syncResult.revision = P;
+  value.parent.status.operationState.phase = 'Failed';
+  const checked = [];
+  value.input.rootRevisionContainsSelection = async (revision, selected) => {
+    checked.push([revision, selected]); return [ROOT_REVISION, P].includes(revision) && selected === P;
+  };
+  const result = await observeDeployment(value.input);
+  assert.equal(result.result, 'failed'); assert.deepEqual(checked, [[ROOT_REVISION, P], [P, P]]);
+});
+
+test('root 실패 operation의 Git 귀속 조회 장애는 stale 실패로 오인해 성공 처리하지 않는다', async () => {
+  const value = deployment(); value.parent.status.operationState.syncResult.revision = P;
+  value.parent.status.operationState.phase = 'Failed';
+  value.input.rootRevisionContainsSelection = async revision => {
+    if (revision === ROOT_REVISION) return true;
+    throw new Error('simulated operation revision lookup failure');
+  };
+  assert.equal((await observeDeployment(value.input)).result, 'unknown');
+});
+
+test('현재 실패는 완료 시각을 요구하고 미실행 후속 wave의 operation 부재는 실패 판정을 막지 않는다', async () => {
+  const value = deployment(); value.applications[14].status.operationState.phase = 'Failed';
+  delete value.applications[15].status.operationState;
+  assert.equal((await observeDeployment(value.input)).result, 'failed');
+  delete value.applications[14].status.operationState.finishedAt;
+  assert.equal((await observeDeployment(value.input)).result, 'unknown');
 });
 
 test('관측 역할 환경은 원래 AWS profile·web identity·임의 endpoint를 상속하지 않는다', () => {

@@ -2,7 +2,6 @@ import { Template } from 'aws-cdk-lib/assertions';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildDevApp } from '../helpers';
-import { DELIVERY_CONTRACT } from '../../lib/common/delivery-contract';
 const { load } = require('js-yaml');
 const { parseRuntimeInputs } = require('../../lib/dev/runtime-input.cjs');
 
@@ -138,40 +137,20 @@ describe('빈 원본 bootstrap과 소비자 권한', () => {
     }
     expect(JSON.stringify(data.Outputs.OidcClientSecretArns)).toContain('cognito-a');
     const baseline = Template.fromStack(buildDevApp().data).toJSON();
-    const readerRole = Object.keys(baseline.Resources).find(id =>
-      baseline.Resources[id].Type === 'AWS::IAM::Role'
-      && baseline.Resources[id].Properties.RoleName === DELIVERY_CONTRACT.databaseReaderRoleName);
-    expect(readerRole).toBeDefined();
     for (const [id, resource] of Object.entries(baseline.Resources)) {
-      const actual = structuredClone(data.Resources[id]);
-      if (actual.Type === 'AWS::IAM::Policy'
-        && actual.Properties.Roles.some((role: any) => role.Ref === readerRole)) {
-        // OIDC 원본 추가는 지정 DB reader의 버전 metadata 대상만 확장한다.
-        const metadata = actual.Properties.PolicyDocument.Statement.filter((statement: any) =>
-          statement.Action === 'secretsmanager:DescribeSecret');
-        expect(metadata).toHaveLength(1);
-        const oidcRefs = metadata[0].Resource.filter((ref: any) => Object.hasOwn(sources, ref.Ref));
-        expect(oidcRefs).toEqual(Object.keys(sources).sort().map(Ref => ({ Ref })));
-        metadata[0].Resource = metadata[0].Resource.filter((ref: any) => !Object.hasOwn(sources, ref.Ref));
-      }
-      expect(actual).toEqual(resource);
+      expect(data.Resources[id]).toEqual(resource);
     }
   });
   test('재정렬·다른 client 추가가 기존 logical ID와 속성을 바꾸지 않는다', () => {
     const after = Template.fromStack(build(['Cognito_C', 'cognito-a', 'cognito-b']).data).toJSON();
     for (const [id, source] of Object.entries(sources)) expect(after.Resources[id]).toEqual(source);
   });
-  test('enrollment Pod Identity만 선언 원문을 읽으며 검증 Pod는 metadata만 조회한다', () => {
+  test('enrollment Pod Identity만 선언한 OIDC 원본을 읽는다', () => {
     const associations = Object.values(eks.Resources).filter((r: any) =>
       r.Type === 'AWS::EKS::PodIdentityAssociation' && r.Properties.ServiceAccount === 'enrollment-api') as any[];
     expect(associations).toHaveLength(1);
     expect(associations[0].Properties.Namespace).toBe('pulsemetry-dev');
     const enrollmentRole = associations[0].Properties.RoleArn['Fn::GetAtt'][0];
-    const verifiers = Object.values(eks.Resources).filter((r: any) =>
-      r.Type === 'AWS::EKS::PodIdentityAssociation'
-      && r.Properties.ServiceAccount === DELIVERY_CONTRACT.serviceAccount) as any[];
-    expect(verifiers).toHaveLength(1);
-    const verifierRole = verifiers[0].Properties.RoleArn['Fn::GetAtt'][0];
     let enrollmentPolicies = 0;
     for (const [id, policy] of Object.entries(eks.Resources) as [string, any][]) {
       if (policy.Type !== 'AWS::IAM::Policy') continue;
@@ -184,14 +163,7 @@ describe('빈 원본 bootstrap과 소비자 권한', () => {
         expect(read.Resource).toHaveLength(11);
         for (const key of ['cognitoa', 'cognitob']) expect(JSON.stringify(read.Resource)).toContain(`DevOidcClientSecret${key}`);
       } else {
-        const metadata = policy.Properties.PolicyDocument.Statement.filter((statement: any) =>
-          JSON.stringify(statement.Resource).includes('OidcClientSecret'));
-        if (metadata.length) {
-          expect(policy.Properties.Roles).toEqual([{ Ref: verifierRole }]);
-          expect(metadata).toHaveLength(1);
-          expect(metadata[0].Action).toBe('secretsmanager:DescribeSecret');
-          expect(metadata[0].Effect).toBe('Allow');
-        }
+        expect(JSON.stringify(policy.Properties.PolicyDocument.Statement)).not.toContain('OidcClientSecret');
       }
     }
     expect(enrollmentPolicies).toBe(1);

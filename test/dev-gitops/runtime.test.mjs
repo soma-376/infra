@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { eligible, promote } from '../../scripts/dev-gitops/engine.mjs';
-import { producerChecks } from '../../scripts/dev-gitops/runtime.mjs';
+import { producerChecks, rootRevisionContainsSelection } from '../../scripts/dev-gitops/runtime.mjs';
 import { sourceRequest, verifySourceBundle } from '../../scripts/dev-gitops/source-proof.mjs';
 import { sha256 } from '../../scripts/dev-gitops/contract.mjs';
 import { makeBundle, observation, promotionArgs, provenance, repository } from './fixtures.mjs';
@@ -152,4 +152,21 @@ test('서명된 artifact URL에는 GitHub token을 전달하지 않고 다른 ho
   assert.equal(blobSeen, true);
   wrongHost = true;
   await assert.rejects(sourceRequest('actions/artifacts/789/zip', { env: { GH_TOKEN: 'synthetic' }, binary: true }), /host/);
+});
+
+
+test('root revision은 P와 같은 desired/Application tree를 유지한 state-only 후속 commit만 수락한다', async t => {
+  const fixture = await repository(t);
+  assert.equal(await rootRevisionContainsSelection(fixture.store, fixture.P, fixture.P), true);
+  assert.equal(await rootRevisionContainsSelection(fixture.store, fixture.Q, fixture.P), true);
+  assert.equal(await rootRevisionContainsSelection(fixture.store, fixture.V, fixture.P), false);
+  const path = 'dev/applications/enrollment-api.yaml';
+  const changed = await fixture.store.cas(fixture.Q, new Map([[path, (await fixture.store.read(fixture.Q, path)).replace(fixture.V, '0'.repeat(40))]]), 'different selected application');
+  assert.equal(await rootRevisionContainsSelection(fixture.store, changed, fixture.P), false);
+  const changedDesired = await fixture.store.cas(changed, new Map([
+    [path, await fixture.store.read(fixture.P, path)],
+    ['dev/desired.yaml', (await fixture.store.read(fixture.P, 'dev/desired.yaml')).replace(fixture.V, '0'.repeat(40))],
+  ]), 'different desired selection');
+  assert.equal(await rootRevisionContainsSelection(fixture.store, changedDesired, fixture.P), false);
+  await assert.rejects(rootRevisionContainsSelection({ refresh: async () => { throw new Error('unavailable'); } }, fixture.P, fixture.P), /unavailable/);
 });

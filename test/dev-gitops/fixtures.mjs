@@ -37,23 +37,15 @@ export function provenance(bundle, overrides = {}) {
     artifactId: '301', artifactSha256: sha256(`artifact archive:${bundle.B}`), ...overrides };
 }
 export function values(app, bundle, newline = '\n') {
-  const image = bundle.manifest.images[app], contract = bundle.manifest.deploymentContracts[app];
+  const image = bundle.manifest.images[app];
   return [`# 원래 주석·줄바꿈·인용을 보존한다`, `image:`,
     `  repository: "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/soma-376/${app}"`,
-    `  digest: '${image.digest}'  # 빌드 digest`, `deliveryVerification:`, `  enabled: true`,
-    `  operationNonce: "${INITIAL_NONCE}"`, `  infraCommit: '${C}'`,
-    `  bundleManifestSha256: '${bundle.B}'`, `  imageDigest: '${image.digest}'`,
-    `  contractSha256: '${contract.sha256}'`, `  contract: ${JSON.stringify(contract.content)}`,
-    `  image:`, `    repository: 'verifier.example.invalid/fixed'`, `    digest: 'sha256:${'f'.repeat(64)}'`,
+    `  digest: '${image.digest}'  # 빌드 digest`,
     `runtime:`, `  literal: 'value # 원래 문자열'`, `  replicas: 1`, ``].join(newline);
 }
-export function fingerprints(runtimeFingerprint) {
-  return { schemaFingerprint: sha256('schema'), runtimeFingerprint,
-    keyTlsFingerprint: sha256('key versions and TLS metadata'), envelopeFingerprint: sha256('envelope') };
-}
-export function observation({ runtimeFingerprint, result = 'passed', terminal = true, ...overrides }) {
-  return { result, terminal, reason: result === 'passed' ? 'verified' : 'verification_failed',
-    observedAt: '2026-11-06T04:00:00Z', fingerprints: fingerprints(runtimeFingerprint), applications: [], ...overrides };
+export function observation({ result = 'passed', terminal = true, ...overrides } = {}) {
+  return { result, terminal, reason: result === 'passed' ? 'argo_healthy' : 'argo_operation_failed',
+    observedAt: '2026-11-06T04:00:00Z', applications: [], ...overrides };
 }
 function rawGit(directory, args) {
   return execFileSync('git', args, { cwd: directory, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
@@ -78,7 +70,7 @@ export const inventory = () => CATALOG.applications.map(entry => ({ id: entry.id
   releaseName: entry.id, installation: entry.id === 'cert-manager' ? 'new' : 'existing' }));
 export const activation = () => ({ schemaVersion: 1, readiness: { handoffAccepted: true,
   infraPublisherAccepted: true, normalBundleAccepted: true, acceptanceEvidenceSha256: sha256('local accepted fixture') },
-  inventory: inventory(), verifier: { repository: 'verifier.example.invalid/fixed', digest: `sha256:${'f'.repeat(64)}`, arm64ManifestDigest: `sha256:${'f'.repeat(64)}` } });
+  inventory: inventory() });
 export async function repository(t, { handoffOnly = false } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'proj311-local-git-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -115,7 +107,7 @@ export async function repository(t, { handoffOnly = false } = {}) {
   const runtimeFingerprint = configurationFingerprint(files);
   const state = { schemaVersion: 1, state: 'idle', generation: 0, owner: null, operation: null,
     currentSelection: selection, expectedDesiredP: P, lastKnownGood: { ...selection,
-      evidenceSha256: sha256('initial accepted evidence'), configurationFingerprint: runtimeFingerprint, fingerprints: fingerprints(runtimeFingerprint) },
+      evidenceSha256: sha256('initial accepted evidence'), configurationFingerprint: runtimeFingerprint },
     failedReleases: [], resumeFence: null };
   const Q = await commitFiles(seed, new Map([['dev/delivery-state.json', json(state)]]), 'bind initial desired');
   rawGit(seed, ['push', '--quiet', 'origin', 'main']);
@@ -125,7 +117,6 @@ export function promotionArgs(fixture, overrides = {}) {
   const candidate = makeBundle(); let sequence = 1;
   return { store: fixture.store, candidateBytes: candidate.bytes, provenance: provenance(candidate), owner: OWNER,
     observe: async ({ runtimeFingerprint }) => observation({ runtimeFingerprint }),
-    compatibility: async ({ runtimeFingerprint }) => ({ terminal: true, fingerprints: fingerprints(runtimeFingerprint) }),
     isDescendant: async () => true, now: () => '2026-11-06T05:00:00Z',
     nonce: () => String(sequence++).repeat(32), ...overrides };
 }

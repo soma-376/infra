@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { promote } from '../../scripts/dev-gitops/engine.mjs';
 import { json, parse, sha256 } from '../../scripts/dev-gitops/contract.mjs';
-import { repository, promotionArgs, observation, fingerprints, makeBundle, provenance, OWNER } from './fixtures.mjs';
+import { repository, promotionArgs, observation, makeBundle, provenance, OWNER } from './fixtures.mjs';
 
 async function commits(store) {
   const head = await store.refresh();
@@ -84,40 +84,35 @@ test('owner 유실 뒤 이전 실행은 blocked 기록도 덮어쓰지 않는다
 });
 
 for (const terminal of [true, false]) test(`unknown 또는 미종료 실패는 자동 복구하지 않는다 (terminal=${terminal})`, async t => {
-  const fixture = await repository(t); let compatibilityCalls = 0;
+  const fixture = await repository(t); let observations = 0;
   const result = await promote(promotionArgs(fixture, {
-    observe: async ({ runtimeFingerprint }) => observation({ runtimeFingerprint, result: terminal ? 'unknown' : 'failed', terminal }),
-    compatibility: async () => { compatibilityCalls++; throw new Error('must not recover unknown'); },
+    observe: async () => { observations++; return observation({ result: terminal ? 'unknown' : 'failed', terminal }); },
   }));
   assert.equal(result.result, 'blocked'); assert.equal(result.reason, 'observation_unknown');
-  assert.equal(compatibilityCalls, 0);
+  assert.equal(observations, 1);
   const state = await fixture.store.state(await fixture.store.refresh());
   assert.equal(state.failedReleases.length, 0); assert.equal(state.operation.rollbackAttempted, false);
 });
 
-test('실패 시 실제 schema가 변했으면 실패 fence를 남기고 rollback을 시작하지 않는다', async t => {
+test('마지막 정상 이미지가 없으면 확정 실패도 자동 복구하지 않는다', async t => {
   const fixture = await repository(t); let observations = 0;
+  await fixture.store.writeState(fixture.Q, { ...fixture.state, lastKnownGood: null }, 'missing baseline');
   const result = await promote(promotionArgs(fixture, {
-    observe: async ({ runtimeFingerprint }) => { observations++; return observation({ runtimeFingerprint, result: 'failed' }); },
-    compatibility: async ({ runtimeFingerprint }) => ({ terminal: true,
-      fingerprints: { ...fingerprints(runtimeFingerprint), schemaFingerprint: '0'.repeat(64) } }),
+    observe: async () => { observations++; return observation({ result: 'failed' }); },
   }));
-  assert.equal(result.result, 'blocked'); assert.equal(result.reason, 'compatibility_unknown_or_changed');
+  assert.equal(result.result, 'blocked'); assert.equal(result.reason, 'no_matching_baseline');
   assert.equal(observations, 1);
   const state = await fixture.store.state(await fixture.store.refresh());
-  assert.equal(state.resumeFence.active, true); assert.equal(state.failedReleases.length, 1);
-  assert.equal(state.failedReleases[0].bundleManifestSha256, makeBundle().B);
-  assert.equal(state.operation.rollbackAttempted, false);
+  assert.equal(state.failedReleases.length, 1); assert.equal(state.operation.rollbackAttempted, false);
 });
 
-test('호환 가능한 확정 실패는 새 nonce·V/P로 한 번 복구하고 누적 실패와 fence를 보존한다', async t => {
-  const fixture = await repository(t), seen = []; let compatibilityCalls = 0;
+test('Argo 확정 실패는 DB 조회 없이 새 V/P로 한 번 복구하고 실패 fence를 보존한다', async t => {
+  const fixture = await repository(t), seen = [];
   const result = await promote(promotionArgs(fixture, {
     observe: async input => { seen.push(input); return observation({ runtimeFingerprint: input.runtimeFingerprint,
       result: seen.length === 1 ? 'failed' : 'passed' }); },
-    compatibility: async ({ runtimeFingerprint }) => { compatibilityCalls++; return { terminal: true, fingerprints: fingerprints(runtimeFingerprint) }; },
   }));
-  assert.equal(result.result, 'passed'); assert.equal(seen.length, 2); assert.equal(compatibilityCalls, 1);
+  assert.equal(result.result, 'passed'); assert.equal(seen.length, 2);
   assert.equal(seen[1].bundle.B, fixture.baseline.B);
   assert.notEqual(seen[0].selection.operationNonce, seen[1].selection.operationNonce);
   assert.notEqual(seen[0].selection.valuesCommit, seen[1].selection.valuesCommit);
@@ -133,13 +128,12 @@ test('호환 가능한 확정 실패는 새 nonce·V/P로 한 번 복구하고 �
 });
 
 test('복구도 실패하면 세 번째 선택 없이 blocked에 잠금을 보존한다', async t => {
-  const fixture = await repository(t); let observations = 0, compatibilityCalls = 0;
+  const fixture = await repository(t); let observations = 0;
   const result = await promote(promotionArgs(fixture, {
     observe: async ({ runtimeFingerprint }) => { observations++; return observation({ runtimeFingerprint, result: 'failed' }); },
-    compatibility: async ({ runtimeFingerprint }) => { compatibilityCalls++; return { terminal: true, fingerprints: fingerprints(runtimeFingerprint) }; },
   }));
   assert.equal(result.result, 'blocked'); assert.equal(result.reason, 'rollback_failed_or_unknown');
-  assert.equal(observations, 2); assert.equal(compatibilityCalls, 1);
+  assert.equal(observations, 2);
   const state = await fixture.store.state(await fixture.store.refresh());
   assert.equal(state.operation.rollbackAttempted, true); assert.deepEqual(state.owner, OWNER);
   assert.equal((await commits(fixture.store)).filter(entry => entry.message.includes('select image snapshot')).length, 2);

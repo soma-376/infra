@@ -24,10 +24,8 @@ describe('PROJ-311 게시·관측 역할 경계', () => {
     expect(actions).toEqual(['ecr:BatchGetImage', 'ecr:DescribeImages', 'ecr:GetAuthorizationToken', 'ecr:GetDownloadUrlForLayer', 'sts:AssumeRole']);
     expect(statements.filter(s => s.Resource === '*')).toEqual([{ Effect: 'Allow', Action: 'ecr:GetAuthorizationToken', Resource: '*' }]);
     expect(actions.some(action => /Put|Upload|Initiate|Complete|Delete/.test(action))).toBe(false);
-    expect(statements.find(s => ([].concat(s.Action) as string[]).includes('sts:AssumeRole')).Resource.sort()).toEqual([
-      `arn:aws:iam::${TEST_ENV.account}:role/${D.observerRoleName}`,
-      `arn:aws:iam::${TEST_ENV.account}:role/${D.databaseReaderRoleName}`,
-    ].sort());
+    expect(statements.find(s => ([].concat(s.Action) as string[]).includes('sts:AssumeRole')).Resource).toBe(
+      `arn:aws:iam::${TEST_ENV.account}:role/${D.observerRoleName}`);
     expect(statements.find(s => ([].concat(s.Action) as string[]).includes('ecr:DescribeImages')).Resource).toHaveLength(4);
   });
   test('EKS observer는 Secret 읽기·SSM 임의명령·클러스터 관리 정책을 갖지 않는다', () => {
@@ -37,39 +35,16 @@ describe('PROJ-311 게시·관측 역할 경계', () => {
     expect(role.ManagedPolicyArns).toBeUndefined();
     eks.hasResourceProperties('AWS::EKS::AccessEntry', { KubernetesGroups: [D.kubernetesGroup], Type: 'STANDARD' });
   });
-  test('DB 역할은 고정 터널과 별도 DB reader Secret만 읽는다', () => {
-    const { statements, actions } = rolePolicies(data, D.databaseReaderRoleName);
-    expect(actions).not.toEqual(expect.arrayContaining(['rds:*', 'secretsmanager:ListSecrets', 'ssm:SendCommand']));
-    const secret = statements.find(s => ([].concat(s.Action) as string[]).includes('secretsmanager:GetSecretValue'));
-    expect(secret.Resource).toBe(`arn:aws:secretsmanager:${TEST_ENV.region}:${TEST_ENV.account}:secret:pulsemetry/dev/deployment-verifier-db-reader-??????`);
-    const metadata = statements.find(s => s.Action === 'secretsmanager:DescribeSecret');
-    expect(metadata.Resource).toHaveLength(13);
-    expect(JSON.stringify(metadata.Resource)).not.toContain('*');
-    expect(statements.filter(s => ([].concat(s.Action) as string[]).includes('secretsmanager:GetSecretValue'))).toHaveLength(1);
-  });
-  test('검증 Pod는 ListBucket 최대 한 key만 받고 object data·쓰기는 없다', () => {
-    const policies = Object.values(eks.findResources('AWS::IAM::Policy')).flatMap(p => p.Properties.PolicyDocument.Statement);
-    const list = policies.find(s => ([].concat(s.Action) as string[]).includes('s3:ListBucket'));
-    expect(list.Condition).toEqual({ StringLike: { 's3:prefix': 'eks_validation/claude_code/logs/*' }, NumericLessThanEquals: { 's3:max-keys': '1' } });
+  test('검증 전용 Pod identity·DB reader·Secret 권한과 outputs를 만들지 않는다', () => {
     const identities = Object.values(eks.findResources('AWS::EKS::PodIdentityAssociation'));
-    expect(identities.filter(i => i.Properties.ServiceAccount === 'deployment-verifier')).toHaveLength(1);
-  });
-  test('검증 Pod는 자기 fixture 원문과 정확한 앱 Secret 버전 metadata만 읽는다', () => {
-    const identity = Object.values(eks.findResources('AWS::EKS::PodIdentityAssociation'))
-      .find(item => item.Properties.ServiceAccount === D.serviceAccount)!;
-    const roleId = identity.Properties.RoleArn['Fn::GetAtt'][0];
-    const statements = Object.values(eks.findResources('AWS::IAM::Policy'))
-      .filter(policy => policy.Properties.Roles?.some((ref: any) => ref.Ref === roleId))
-      .flatMap(policy => policy.Properties.PolicyDocument.Statement);
-    const value = statements.filter(s => ([].concat(s.Action) as string[]).includes('secretsmanager:GetSecretValue'));
-    expect(value).toHaveLength(1);
-    expect(value[0].Resource).toBe(`arn:aws:secretsmanager:${TEST_ENV.region}:${TEST_ENV.account}:secret:${D.probeSecretName}-??????`);
-    const metadata = statements.filter(s => s.Action === 'secretsmanager:DescribeSecret');
-    expect(metadata).toHaveLength(1);
-    expect(metadata[0].Resource).toHaveLength(13);
-    expect(JSON.stringify(metadata[0].Resource)).not.toMatch(/[?*]/);
-    expect(statements.flatMap(s => s.Action).sort()).toEqual([
-      's3:ListBucket', 'secretsmanager:DescribeSecret', 'secretsmanager:DescribeSecret', 'secretsmanager:GetSecretValue',
-    ]);
+    expect(identities.some(identity => identity.Properties.ServiceAccount === 'deployment-verifier')).toBe(false);
+    for (const template of [eks, data]) {
+      expect(JSON.stringify(template.toJSON())).not.toContain('deployment-verifier');
+      expect(JSON.stringify(template.toJSON())).not.toContain('soma-376-dev-delivery-db-reader');
+    }
+    expect(eks.findOutputs('DeploymentVerifierRoleArn')).toEqual({});
+    expect(data.findOutputs('DeliveryDbReaderRoleArn')).toEqual({});
+    const operator = rolePolicies(data, 'soma-376-dev-db-operator');
+    expect(operator.actions).toEqual(['ssm:ResumeSession', 'ssm:StartSession', 'ssm:StartSession', 'ssm:TerminateSession', 'ssmmessages:OpenDataChannel']);
   });
 });

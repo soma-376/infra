@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { APPS, json, sha256, validateManifest, imageVector, classifyReceipt, compatible } from '../../scripts/dev-gitops/contract.mjs';
+import { APPS, json, sha256, validateManifest, imageVector } from '../../scripts/dev-gitops/contract.mjs';
 import { GENERATED, updateImageValues, stripMutable, snapshotFiles, yaml } from '../../scripts/dev-gitops/release.mjs';
 import { eligible, validateActivation } from '../../scripts/dev-gitops/engine.mjs';
-import { C, GENERATED_FILES, makeBundle, provenance, values, fingerprints, activation } from './fixtures.mjs';
+import { C, GENERATED_FILES, makeBundle, provenance, values, activation } from './fixtures.mjs';
 
 test('완료 B는 원본 바이트이며 이미지 벡터는 JSON key 순서와 재포장에 영향받지 않는다', () => {
   const bundle = makeBundle();
@@ -47,7 +47,7 @@ test('generated 13개는 비관리 Kafka admin 사본도 보존한다', () => {
   }
 });
 
-test('이미지 변경은 CRLF·주석·runtime·검증기 설정 바이트를 보존하고 nonce만 gate에 갱신한다', () => {
+test('이미지 변경은 CRLF·주석과 모든 비이미지 바이트를 보존한다', () => {
   const previous = makeBundle({ imageSeed: 'old' }), candidate = makeBundle();
   for (const app of APPS) {
     const source = values(app, previous, '\r\n');
@@ -59,9 +59,7 @@ test('이미지 변경은 CRLF·주석·runtime·검증기 설정 바이트를 �
     const decoded = yaml(updated);
     assert.equal(decoded.image.repository, yaml(source).image.repository);
     assert.equal(decoded.image.digest, candidate.manifest.images[app].digest);
-    assert.equal(decoded.deliveryVerification.operationNonce, 'd'.repeat(32));
-    assert.equal(decoded.deliveryVerification.contract, candidate.manifest.deploymentContracts[app].content);
-    assert.deepEqual(decoded.deliveryVerification.image, yaml(source).deliveryVerification.image);
+    assert.equal(decoded.deliveryVerification, undefined);
   }
 });
 
@@ -71,7 +69,7 @@ test('중복·alias·block scalar 등 모호한 변경 경로는 재직렬화하
   for (const invalid of [
     source.replace('image:\n', 'image: &shared\n'),
     source.replace('  digest:', '  digest: invalid\n  digest:'),
-    source.replace('  contract: ', '  contract: |\n    '),
+    source.replace('  digest: ', '  digest: |\n    '),
   ]) assert.throws(() => updateImageValues(invalid, 'enrollment-api', candidate, { infraCommit: C, operationNonce: 'd'.repeat(32) }));
 });
 
@@ -90,20 +88,10 @@ test('누적 실패 B·전체 벡터와 실패 이전 생성 run은 자동 재�
   await eligible(candidate, provenance(candidate), [record], async () => true);
 });
 
-test('누락·잘린·과거 nonce receipt와 불완전 fingerprint는 성공 또는 복구로 승격하지 않는다', () => {
-  const expected = { operationNonce: 'a'.repeat(32), stage: 'enrollment-api', infraCommit: C,
-    bundleManifestSha256: 'b'.repeat(64), imageDigest: `sha256:${'c'.repeat(64)}`, contractSha256: 'd'.repeat(64) };
-  const receipt = { schemaVersion: 1, ...expected, result: 'passed', checks: ['flyway'],
-    checkedAt: '2026-11-06T04:00:00Z', evidenceSha256: 'e'.repeat(64) };
-  assert.equal(classifyReceipt(receipt, expected), 'passed');
-  for (const invalid of [null, { ...receipt, operationNonce: '0'.repeat(32) }, { ...receipt, checks: [] },
-    { ...receipt, checkedAt: 'unknown' }, { ...receipt, checks: ['x'.repeat(5000)] }]) {
-    assert.equal(classifyReceipt(invalid, expected), 'unknown');
-  }
-  const fp = fingerprints('f'.repeat(64));
-  assert.equal(compatible(fp, fp), true);
-  for (const key of Object.keys(fp)) assert.equal(compatible(fp, { ...fp, [key]: '0'.repeat(64) }), false);
-  assert.equal(compatible(fp, null), false);
+test('기존 Job 설정은 이미지 게시기가 임의 삭제하지 않고 설정 변경을 요구한다', () => {
+  const previous = makeBundle({ imageSeed: 'old' }), candidate = makeBundle();
+  const source = values('enrollment-api', previous) + 'deliveryVerification:\n  enabled: true\n';
+  assert.throws(() => updateImageValues(source, 'enrollment-api', candidate, { infraCommit: C, operationNonce: 'd'.repeat(32) }), /infra 설정 변경/);
 });
 
 test('H 인계 또는 설정 publisher·정상 B 수락 누락은 activation으로 인정하지 않는다', () => {

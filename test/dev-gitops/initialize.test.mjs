@@ -10,7 +10,7 @@ import { C, OWNER, activation, provenance, repository, makeBundle, observation }
 function input(fixture, overrides = {}) {
   return { schemaVersion: 1, infraCommit: C, expectedHead: fixture.expectedHead, operationNonce: 'd'.repeat(32),
     owner: { ...OWNER, repository: 'soma-376/infra', workflowRef: 'soma-376/infra/.github/workflows/acceptance.yml@refs/heads/develop' },
-    activation: activation(), normalBundleEvidenceSha256: sha256('normal bundle functional evidence'),
+    activation: activation(), normalBundleEvidenceSha256: sha256('normal bundle Argo evidence'),
     renderEvidenceSha256: sha256('same C render evidence'), normalBundleManifestSha256: fixture.baseline.B,
     provenance: provenance(fixture.baseline), ...overrides };
 }
@@ -36,7 +36,7 @@ test('초기화는 H marker가 아닌 정상 contract B와 세 운영 수락을 
   assert.equal(await fixture.store.refresh(), fixture.expectedHead);
 });
 
-test('로컬 bare Git 초기화도 V·P·상태 순서를 지키고 실제 gate 통과 뒤 첫 idle을 기록한다', async t => {
+test('로컬 bare Git 초기화도 V·P·상태 순서를 지키고 Argo 상태 수락 뒤 첫 idle을 기록한다', async t => {
   const fixture = await repository(t, { handoffOnly: true }), init = prepared(fixture); let observed;
   const result = await initialize({ prepared: init, store: fixture.store,
     observe: async data => { observed = data; return observation({ runtimeFingerprint: data.runtimeFingerprint }); } });
@@ -64,7 +64,7 @@ test('로컬 bare Git 초기화도 V·P·상태 순서를 지키고 실제 gate 
   assert.equal(atV.has('dev/desired.yaml'), false); assert.equal(atV.has('dev/root.yaml'), false);
 });
 
-for (const throws of [false, true]) test(`초기 gate 불명은 정상 B·idle을 꾸미지 않고 차단한다 (조회 예외=${throws})`, async t => {
+for (const throws of [false, true]) test(`초기 Argo 상태 불명은 정상 B·idle을 꾸미지 않고 차단한다 (조회 예외=${throws})`, async t => {
   const fixture = await repository(t, { handoffOnly: true });
   const result = await initialize({ prepared: prepared(fixture), store: fixture.store,
     observe: async ({ runtimeFingerprint }) => {
