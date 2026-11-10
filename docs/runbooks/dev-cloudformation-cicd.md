@@ -5,8 +5,8 @@ PROJ-271은 역할을, PROJ-272는 workflow와 검증 스크립트를 순서대�
 로컬 검증·커밋까지이며 아래 관리자 설정과 AWS 배포는 수행하지 않는다.
 
 [Argo 운영 런북](dev-argocd-operations.md)은 후속 Kubernetes 적용 경로다. 이 workflow의 승인된 Assembly 배포와
-generated snapshot/배포 revision 게시, Argo sync는 서로 다른 단계다. 현재 workflow에는 generated 게시나 Helm 적용이 없으며,
-후속 공급 경로를 구현해도 이 문서의 AWS 승인·최신 SHA·baseline·artifact 검증을 생략하지 않는다.
+generated snapshot/배포 revision 게시, Argo sync는 서로 다른 단계다. PROJ-279는 CDK 성공 뒤 인계 전 generated 사본을 게시한다. Helm 적용은 운영자가 수행하며,
+정식 GitOps snapshot/desired 게시는 후속이다. AWS 승인·최신 SHA·baseline·artifact 검증은 유지한다.
 
 ## 1. 대상과 선행조건
 
@@ -163,3 +163,68 @@ Pod·TLS·OIDC·DB·수집 E2E 성공을 선언하지 않는다.
   전체 Jest·build와 dev/prod/cicd fixture synth를 수행한다.
 - 실제 OIDC 연결, PR diff, reviewer 승인, no-op, 변경 배포, 실패 결과 수집은 별도 승인된 실환경에서 확인한다.
   이번 로컬 구현 결과와 해당 증거를 구분해 기록한다.
+
+## 7. PROJ-279 generated values 자동 공급
+
+### 최초 준비와 활성화
+
+초기에는 `GENERATED_VALUES_SYNC_ENABLED`를 설정하지 않거나 `false`로 둔다. 비활성 plan은 backend
+조회·GitHub App 없이 기존 CDK 경로로 실행된다. 다음 준비를 완료한 뒤 **새 plan**에서 활성화한다.
+
+1. 관리자 경로로 `env=cicd`의 deploy 역할 AssumeRole 정책을 반영한다. dev CDK 배포로
+   `soma-376-dev-eks-values-reader`와 `EksValuesReaderRoleArn` output을 준비한다. 기존 DeployStack 역할 수는 6개다.
+2. 운영자가 현재 고정된 dev base values로 base chart를 수동 upgrade하여 `pulsemetry-dev`의
+   `generated-values-reader` Role·RoleBinding을 설치한다. 최초 RBAC는 새 publisher에 의존하지 않는다.
+3. GitHub App을 backend와 private 사본 저장소에 설치한다. backend `Actions: read`, `Contents: read`,
+   사본 `Contents: write`가 필요하다. 각 job은 필요한 저장소·권한만 가진 단기 token을 발급하고 종료 시 회수한다.
+   기존 `GITHUB_TOKEN`에는 사본 쓰기 권한을 추가하지 않는다.
+4. `infra-dev-plan`과 `infra-dev-deploy`에서 `GENERATED_VALUES_APP_ID` Variable과
+   `GENERATED_VALUES_APP_PRIVATE_KEY` Secret을 사용할 수 있게 준비한다. 키 원문을 Git·로그·artifact에 넣지 않는다.
+   `infra-dev-plan`의 `GENERATED_VALUES_SYNC_ENABLED` Variable을 `true`로 설정한다. 기존 AWS Variables,
+   develop 제한·필수 reviewer·자기 승인 방지와 보호 우회 차단을 유지한다.
+5. private 저장소는 `main`, private visibility, README·AGENTS만 있는 초기 상태 또는 완전한 사본이어야 한다.
+   GitOps 파일이나 다른 writer가 있으면 활성화하지 않는다. main의 force push와 삭제도 보호한다.
+
+새 develop plan은 최신 성공 backend `deploy_dev.yml` 실행 하나의 정확한 attempt를 선택한다. Gateway를
+포함한 네 build step 성공과 ARM64 manifest digest·SHA·provenance·로그 해시를 고정한다. 로그 누락·만료·
+형식 변경·Gateway skip은 실패이며 이전 run이나 mutable tag로 대체하지 않는다. 원문 로그는 새 artifact에
+복사하지 않는다. backend manifest 전환은 PROJ-311의 후속 범위다.
+
+CDK deploy 성공 뒤 원본 SHA/run/attempt, plan artifact ID/hash, 배포 후 baseline hash를
+`deployment-receipt.json`에 기록하고 별도 `dev-cdk-receipt-<run>-<attempt>` artifact로 14일 보관한다.
+`publish`는 같은 `infra-dev-deploy` Environment와 workflow concurrency 안에서 이 증거를 검증한다.
+처음 실행 시에는 publisher가 동작 중이므로 workflow 전체의 완료·성공을 요구하지 않고 원본 plan/deploy
+job의 완료·성공을 확인한다.
+
+runner는 고정 SSM plugin으로 기존 relay·전용 문서에 연결하고 reader 역할로 EKS에 접근한다. 원래
+TLS hostname·CA를 보존한 개별 `PartialObjectMetadata` 요청만 수행하고 전체 Secret 응답으로 fallback하지 않는다.
+RBAC는 Secret 5개에 대한 get 권한이며 metadata 필드만 허용하는 권한은 아니다. 응답 제한은 수집기가 강제한다.
+Helm 3.22.0과 SHA로 고정한 chart로 13개 consumers를 렌더한 뒤 metadata·baseline·private HEAD를 재확인한다.
+게시 직전 Git handshake의 HEAD도 전용 pre-push 검사로 고정한다. force push·자동 rebase는 수행하지 않는다.
+
+### 결과 확인과 게시 전용 재시도
+
+- `plan.json.generatedValues`가 승인한 활성 여부·이미지 입력이다. 승인 후 Variable을 바꿔도 그 plan을 활성화하지 않는다.
+- `publish` Summary와 `result-publish.json`은 `published`, `noop`, `failed`와 commit/실행 식별자만 남긴다.
+  generated YAML·조회 원문·endpoint·kubeconfig를 공개 artifact에 추가하지 않는다.
+- 자동 commit 제목은 `auto(dev): values 동기화 by infra@<SHA 12자리> (run <ID>/<publisher attempt>)`다.
+  본문은 infra SHA와 backend SHA·원본 run/attempt를 연결한다. 동일 내용에는 commit이 없다.
+- CDK가 성공하고 게시만 실패했다면 **Re-run failed jobs** 또는 해당 `publish` job만 재실행한다.
+  전체 workflow의 failure는 사본 재시도 거부 근거가 아니다. 원본 plan/deploy job의 성공·artifact ID/hash·
+  receipt가 유지되고 현재 AWS baseline이 같아야 한다. publisher attempt와 원본 배포 attempt를 구분한다.
+- 게시 재시도에서는 고정 이미지·원본 infra checkout을 유지하고 Outputs·metadata만 새로 조회한다.
+  develop HEAD 이동만으로 거부하지 않지만 baseline 변경·증거 누락·14일 artifact 만료는 새 plan·승인이 필요하다.
+  기존 **deploy job만 재실행하여 승인 attempt를 넘기는 동작은 계속 거부**한다.
+- private HEAD 경쟁·GitOps 표식·부분 사본·추가 파일·symlink는 중단한다. push 응답 유실 시 원격 HEAD가
+  방금 만든 정확한 commit이면 성공으로 판정하고, 그 외에는 실패한다. 로컬 수동 생성·게시로 우회하지 않는다.
+
+`config/dev/runtime.yaml`·새 사본 scripts 변경도 CD plan을 생성한다. Helm 전용 변경은 계속 자동 CD 대상이
+아니므로 필요하면 develop의 `workflow_dispatch`로 새 plan을 만든다. 스위치를 끄는 것은 새 plan에 적용된다.
+Argo 인계 시 이미 승인된 사본 실행도 종료·취소됐는지 확인하고 이 writer를 먼저 중지한다. 실제 실행 중
+이미지를 별도로 확인하여 정식 manifest·desired 기준을 인계한다.
+
+### 실환경 수락
+
+로컬 테스트와 별도로 reader AssumeRole·SSM/TLS·정확한 RBAC(다른 Secret get/list·write 거부), CD 최초 게시,
+동일 내용 no-op, 실패 시 기존 사본 보존, publisher-only 재시도를 확인한다. 이번 구현은 AWS 배포·App 설치·
+스위치 활성화·실제 사본 게시·Helm 적용을 수행한 증거가 아니다.

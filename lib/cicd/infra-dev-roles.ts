@@ -2,6 +2,7 @@ import { ArnFormat, CfnOutput, Duration, Stack } from 'aws-cdk-lib/core';
 import { IOidcProvider, OpenIdConnectPrincipal, PolicyStatement, Role } from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 import { GITHUB_OIDC_AUDIENCE, GITHUB_OIDC_DOMAIN, GITHUB_ORG } from './config';
+import { VALUES_SYNC_CONTRACT } from '../common/values-sync-contract';
 
 /** 기존 앱 배포 역할과 분리한 infra 저장소의 dev CloudFormation 계약 (ADR-0048). */
 export const INFRA_DEV_CICD = {
@@ -13,7 +14,7 @@ export const INFRA_DEV_CICD = {
   diffEnvironments: ['infra-dev-pr-plan', 'infra-dev-plan'],
   deployEnvironment: 'infra-dev-deploy',
   diffRoleName: 'soma-376-infra-dev-diff',
-  deployRoleName: 'soma-376-infra-dev-deploy',
+  deployRoleName: VALUES_SYNC_CONTRACT.deployRoleName,
 } as const;
 
 export interface InfraDevRoles {
@@ -78,6 +79,14 @@ export function createInfraDevRoles(scope: Construct, oidcProvider: IOidcProvide
     sid: 'DevStackDeploymentEvents',
     actions: ['cloudformation:DescribeStackEvents'],
     resources: stackArns,
+  }));
+  deploy.addToPolicy(new PolicyStatement({
+    sid: 'GeneratedValuesReader',
+    actions: ['sts:AssumeRole'],
+    resources: [stack.formatArn({
+      service: 'iam', region: '', resource: 'role',
+      resourceName: VALUES_SYNC_CONTRACT.readerRoleName, arnFormat: ArnFormat.SLASH_RESOURCE_NAME,
+    })],
   }));
   deploy.addToPolicy(new PolicyStatement({
     sid: 'ExistingBootstrapRoles',

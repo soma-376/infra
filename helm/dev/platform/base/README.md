@@ -24,3 +24,14 @@ StorageClass/PV는 Retain이며 namespace와 StorageClass도 Helm 삭제 시 보
 [NodeClass 공식 필드](https://docs.aws.amazon.com/eks/latest/userguide/create-node-class.html),
 [Auto Mode DNS](https://docs.aws.amazon.com/eks/latest/userguide/auto-networking.html)를 기준으로 구성했다.
 Auto Mode에서 지원하지 않는 `kubernetes.io/os` NodePool requirement를 추가하지 않는다.
+
+## generated values reader 최초 설치
+
+PROJ-279의 `generated-values-reader` Role·RoleBinding은 이 dev 전용 chart가 설치한다.
+`pulsemetry:dev:generated-values-reader` group에 `pulsemetry-dev`의 cluster CA와 gateway·ingest·
+topic-admin·offset-admin **main** Secret 5개의 `get`만 부여한다. list/watch·쓰기·다른 namespace는 허용하지 않는다.
+RBAC는 응답 필드를 제한하지 않으므로 수집기는 metadata-only 응답 요청과 검증도 강제한다.
+
+publisher 활성화 전에 운영자가 기존 고정된 base values로 이 chart를 수동 upgrade한다. 최초 reader 설치를
+아직 실행할 수 없는 publisher의 생성 결과에 의존시키지 않는다. CDK AccessEntry만 만들고 RBAC를 빠뜨리면
+조회가 거부된다. [CD 활성화·검증 절차](../../../../docs/runbooks/dev-cloudformation-cicd.md#7-proj-279-generated-values-자동-공급)를 따른다.
