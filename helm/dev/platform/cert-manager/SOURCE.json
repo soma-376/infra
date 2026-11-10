@@ -1,0 +1,48 @@
+{
+  "chart": {
+    "name": "cert-manager",
+    "version": "v1.21.3",
+    "appVersion": "v1.21.3",
+    "url": "https://charts.jetstack.io/charts/cert-manager-v1.21.3.tgz",
+    "indexUrl": "https://charts.jetstack.io/index.yaml",
+    "sha256": "9ec67938b2981d8b333af61b3fcf53e26b4f6f5deb7ccda3de4ea116bb373a17"
+  },
+  "kubernetesVersion": "1.36.0",
+  "images": {
+    "controller": {
+      "repository": "quay.io/jetstack/cert-manager-controller",
+      "tag": "v1.21.3",
+      "indexDigest": "sha256:9f4f96a33c7774cef24466fcd85031997531a03a8d117f151126baa8d1290dcc",
+      "arm64Digest": "sha256:e396f69ba33cf623694dcfb1f7c637911b06d71984350fb44158e0f7938f5a80",
+      "platform": "linux/arm64"
+    },
+    "webhook": {
+      "repository": "quay.io/jetstack/cert-manager-webhook",
+      "tag": "v1.21.3",
+      "indexDigest": "sha256:055ac8e9de6a0ba6763794838fe38944acc650f68ebe1b01dd8be079e580f458",
+      "arm64Digest": "sha256:acef59f95954b7e94a7f8a3bcccd65608bec579db567ad5e2b5a1d38c4b75f62",
+      "platform": "linux/arm64"
+    },
+    "cainjector": {
+      "repository": "quay.io/jetstack/cert-manager-cainjector",
+      "tag": "v1.21.3",
+      "indexDigest": "sha256:083d0e906f8eb44e255fe4ff817ae54e49f9ed82e22f1011bb4e9e4f4b8a641f",
+      "arm64Digest": "sha256:02d5ccb77275b12db6ab5a6275860be90d334be70def56e16b49e4eb7d96f142",
+      "platform": "linux/arm64"
+    },
+    "startupapicheck": {
+      "repository": "quay.io/jetstack/cert-manager-startupapicheck",
+      "tag": "v1.21.3",
+      "indexDigest": "sha256:1c519d4afca1413d1e4ccd78bdc756184418ab55a34569a3b3de39d32f9974e1",
+      "arm64Digest": "sha256:4049a9f87997def0396a82bcff58197870947ded66d6af0b1674ccce02f5391e",
+      "platform": "linux/arm64"
+    },
+    "acmesolver": {
+      "repository": "quay.io/jetstack/cert-manager-acmesolver",
+      "tag": "v1.21.3",
+      "indexDigest": "sha256:c8c1225bb2fe8ab37a330b77f0d8c2ee6a41210fcb54fc07ca606ab9a022b8b7",
+      "arm64Digest": "sha256:40e58d6cce5a382461f82b1049aa0ea325b4971cdbf426d1a984edf5491cd0e0",
+      "platform": "linux/arm64"
+    }
+  }
+}

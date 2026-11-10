@@ -10,6 +10,8 @@ image:
   pullPolicy: IfNotPresent
 
 replicaCount: 1
+# ADR 0058: Git/Argo는 Certificate·Issuer를, cert-manager는 인증서 원문을 소유한다.
+enableCertManager: true
 serviceAccount:
   create: true
   name: aws-load-balancer-controller

@@ -24,7 +24,7 @@ spec:
   sourceRepos:
     {{- toYaml $repos | nindent 4 }}
   destinations:
-    {{- range list "kube-system" "pulsemetry-dev" "pulsemetry-dev-logs" "pulsemetry-observability" "strimzi-system" }}
+    {{- range list "kube-system" "cert-manager" "pulsemetry-dev" "pulsemetry-dev-logs" "pulsemetry-observability" "strimzi-system" }}
     - server: https://kubernetes.default.svc
       namespace: {{ . }}
     {{- end }}
@@ -34,6 +34,10 @@ spec:
       kind: {{ index $item 1 }}
     {{- end }}
   namespaceResourceWhitelist:
+    - group: cert-manager.io
+      kind: Certificate
+    - group: cert-manager.io
+      kind: Issuer
     {{- range $item := list (list "" "ConfigMap") (list "" "Service") (list "" "ServiceAccount") (list "" "Secret") (list "" "PersistentVolumeClaim") (list "apps" "Deployment") (list "apps" "StatefulSet") (list "apps" "DaemonSet") (list "batch" "Job") (list "rbac.authorization.k8s.io" "Role") (list "rbac.authorization.k8s.io" "RoleBinding") (list "networking.k8s.io" "NetworkPolicy") (list "policy" "PodDisruptionBudget") (list "secrets-store.csi.x-k8s.io" "SecretProviderClass") (list "kafka.strimzi.io" "Kafka") (list "kafka.strimzi.io" "KafkaNodePool") (list "kafka.strimzi.io" "KafkaTopic") (list "kafka.strimzi.io" "KafkaUser") (list "monitoring.coreos.com" "Prometheus") (list "monitoring.coreos.com" "ServiceMonitor") (list "monitoring.coreos.com" "PodMonitor") (list "monitoring.coreos.com" "PrometheusRule") }}
     - group: {{ index $item 0 | quote }}
       kind: {{ index $item 1 }}

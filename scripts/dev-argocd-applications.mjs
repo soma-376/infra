@@ -10,7 +10,7 @@ export const CATALOG = JSON.parse(readFileSync(resolve(root, 'helm/dev/gitops/ca
 const fullSha = /^[0-9a-f]{40}$/;
 const digest = /^[0-9a-f]{64}$/;
 const releaseName = /^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$/;
-const crdOwners = new Set(['lbc', 'csi', 'strimzi-operator', 'observability']);
+const crdOwners = new Set(['cert-manager', 'lbc', 'csi', 'strimzi-operator', 'observability']);
 const automation = (id) => ({
   automated: { enabled: false, prune: false, selfHeal: false, allowEmpty: false },
   // 큰 CRD의 client-side last-applied annotation 한도를 피한다. Replace/Force는 허용하지 않는다.
@@ -37,15 +37,18 @@ export function validateApplicationInput(input) {
   } else if (!fullSha.test(input.valuesRevision ?? '') || !digest.test(input.bundleManifestSha256 ?? '') || input.handoffRevision !== undefined) {
     throw new Error('gitops는 full SHA V와 원본 B의 SHA-256을 요구하며 H를 받지 않는다');
   }
-  if (!Array.isArray(input.inventory) || input.inventory.length !== CATALOG.applications.length) throw new Error('실제 release/namespace inventory 17개가 필요하다');
+  if (!Array.isArray(input.inventory) || input.inventory.length !== CATALOG.applications.length) throw new Error(`release/namespace inventory ${CATALOG.applications.length}개가 필요하다`);
   const byId = new Map();
   const releases = new Set();
   for (const item of input.inventory) {
-    exactKeys(item, ['id', 'releaseName', 'namespace'], 'inventory');
+    exactKeys(item, ['id', 'releaseName', 'namespace', 'installation'], 'inventory');
     const entry = CATALOG.applications.find(candidate => candidate.id === item.id);
     if (!entry || byId.has(item.id)) throw new Error('inventory에 미허용 또는 중복 id가 있다');
     if (typeof item.releaseName !== 'string' || item.releaseName.length > 53 || !releaseName.test(item.releaseName)) throw new Error('inventory releaseName은 실제 Helm release 이름이어야 한다');
     if (item.namespace !== entry.namespace) throw new Error('inventory namespace가 dev 관리 경계와 다르다');
+    if (entry.id === 'cert-manager') {
+      if (item.releaseName !== 'cert-manager' || item.installation !== 'new') throw new Error('cert-manager는 고정 release와 installation=new가 필요하다');
+    } else if (item.installation !== undefined && item.installation !== 'existing') throw new Error('기존 release는 installation=existing만 허용한다');
     const key = `${item.namespace}/${item.releaseName}`;
     if (releases.has(key)) throw new Error('같은 namespace/release를 둘 이상의 Application이 소유할 수 없다');
     releases.add(key);
@@ -115,7 +118,7 @@ export function generateApplications(input) {
       status: 'blocked', deployable: false, deployableApplicationCount: 0,
       reasons: [
         'PROJ-287은 로컬 선언·테스트 범위다. 실제 inventory·권한·렌더 동일성·기능 인계는 검증하지 않았다.',
-        CATALOG.applications.find(entry => entry.id === 'lbc').blockReason,
+        ...CATALOG.applications.filter(entry => entry.blockReason).map(entry => entry.blockReason),
         '관측 admission hook·인증서·RBAC와 반복 sync, CMP 게시 이미지 및 실제 렌더 검증이 필요하다.',
         'root 및 자동 sync/self-heal 활성화는 PROJ-310 인계 관문과 정상 B 검증 이후의 별도 작업이다.',
       ],

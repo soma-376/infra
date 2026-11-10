@@ -120,4 +120,4 @@ jobs:
           docker build -t pulsemetry-strimzi-cmp:ci helm/dev/platform/argocd/cmp
           echo 'PULSEMETRY_CMP_IMAGE=pulsemetry-strimzi-cmp:ci' >> "$GITHUB_ENV"
       - name: Application·권한·Lua·Helm3/4·CMP 검증
-        run: npm test -- --runInBand test/scripts/dev-argocd-applications.test.ts test/scripts/dev-argocd-renderers.test.ts test/helm/argocd.test.ts test/helm/argocd-management.test.ts test/helm/argocd-health.test.ts test/helm/platform-trace-stack.test.ts
+        run: npm test -- --runInBand test/scripts/dev-argocd-applications.test.ts test/scripts/dev-argocd-handoff.test.ts test/scripts/dev-argocd-renderers.test.ts test/helm/cert-manager.test.ts test/helm/argocd.test.ts test/helm/argocd-management.test.ts test/helm/argocd-health.test.ts test/helm/platform-trace-stack.test.ts

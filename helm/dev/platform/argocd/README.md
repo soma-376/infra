@@ -4,8 +4,9 @@
 PROJ-274는 고정 설치 구성·로컬 검사·운영 절차를 제공한다.
 2026-11-04 운영자가 실제 dev 클러스터 설치 완료를 확인했다. 이 변경에서는 live 상태를 재조회하지 않았으며,
 UI 로그인·재기동·권한 거부 검증 결과는 별도 근거로 확인한다.
-PROJ-287은 별도 관리 구성·Application·CMP와 GitHub App 연결 절차를 준비한다. 실제 private Git 연결과
-기존 workload의 Helm 인계는 PROJ-310이며, 중앙 관측 연결도 별도 운영 수락 대상이다.
+PROJ-287은 별도 관리 구성·Application·CMP와 GitHub App 연결 절차를 준비한다. PROJ-310은 cert-manager와
+18개 적용용 수동 인계 출력까지 로컬 구현한다. 실제 private Git 연결·이미지 게시·기존 workload의 Helm 인계와
+중앙 관측 연결은 별도 운영 수락 대상이다.
 
 ## 고정 입력과 초기 권한
 
@@ -139,9 +140,11 @@ CRD 자동 downgrade 또는 과거 revision으로의 무조건적인 rollback을
 `crds.keep=true`는 전체 복구 보장을 의미하지 않는다.
 
 PROJ-287의 별도 관리 구성은 [Argo 운영 런북 §2.0.1~2.0.3](../../../../docs/runbooks/dev-argocd-operations.md#201-proj-287-로컬-구성과-배포-입력)을 따른다.
-`values.yaml`의 bootstrap 경계는 유지한다. PROJ-310에서 private Git 읽기·관리 RBAC·AppProject·Application/CMP와
-인계 조건을 실제 검증한 뒤에만 로컬 클러스터 관리를 활성화한다. LBC 인증서 관문이 남은 상태에서 전체 root 인계를
-활성화하지 않는다. 그전에는 기존 앱 배포를 수동 Helm으로 유지한다. 현재 Fluent Bit 수집 목록에
+`values.yaml`의 bootstrap 경계는 유지한다. PROJ-310의 별도 handoff 생성기는 관리 활성화 overlay와
+`argocd-dev-in-cluster` 연결 Secret을 함께 만들며 인증 원문을 복제하지 않는다. 실제 private Git 읽기·관리
+RBAC·AppProject·Application/CMP와 인계 조건을 검증한 뒤 운영자가 적용한다. H 단계의 18개 child는 수동
+sync이며 root·자동화 metadata를 만들지 않는다. LBC는 [ADR 0058](../../../../docs/adr/0058-dev-lbc-cert-manager-and-argocd-handoff.md)의
+cert-manager 준비·기존 TLS Secret 보존 전환이 선행한다. 실제 인계 전 기존 앱은 수동 Helm 운영을 유지한다. 현재 Fluent Bit 수집 목록에
 `argocd`는 없으며 이 변경은 중앙 로그·metrics 연결을 추가하지 않는다. 전체 인계·배포·복구 계약은
 [Argo 운영 런북](../../../../docs/runbooks/dev-argocd-operations.md)이 소유한다.
 
