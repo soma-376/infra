@@ -60,12 +60,12 @@ describe('generated values 전용 EKS reader', () => {
     ]));
     template.resourceCountIs('AWS::EC2::Instance', 1);
     template.resourceCountIs('AWS::SSM::Document', 1);
-    template.resourceCountIs('AWS::EKS::AccessEntry', 3);
+    template.resourceCountIs('AWS::EKS::AccessEntry', 4);
   });
 
-  test('DeployStack은 랜딩을 포함한 역할 7개를 유지하고 perf에는 reader를 만들지 않는다', () => {
+  test('DeployStack은 랜딩·GitOps 역할을 포함한 8개이며 perf에는 reader를 만들지 않는다', () => {
     const cicd = Template.fromStack(buildCicdApp().deploy);
-    cicd.resourceCountIs('AWS::IAM::Role', 7);
+    cicd.resourceCountIs('AWS::IAM::Role', 8);
     const perf = Template.fromStack(buildPerfApp().eks);
     expect(Object.values(perf.findResources('AWS::IAM::Role')).some(value => value.Properties.RoleName === roleName)).toBe(false);
   });

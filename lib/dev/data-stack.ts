@@ -288,7 +288,6 @@ export class DevDataStack extends Stack {
         value: this.toJsonString(Object.fromEntries(Object.entries(this.oidcClientSecrets).map(([key, secret]) => [key, secret.secretArn]))),
       }).overrideLogicalId('OidcClientSecretArns');
     }
-
     this.rawSignalBucket = new Bucket(this, 'DevRawSignalBucket', {
       // bucketName 을 주지 않는다. CDK 가 스택명에서 이름을 유도하므로 운영 버킷과
       // 자동으로 갈린다 - S3 이름은 전역 유일이라 이 자동 분리가 방어선이다.

@@ -71,7 +71,7 @@ describe('dev DB 전용 SSM 릴레이', () => {
     ].sort());
     template.resourceCountIs('AWS::EKS::AccessEntry', 0);
     const eks = Template.fromStack(built.eks);
-    eks.resourceCountIs('AWS::EKS::AccessEntry', 3);
+    eks.resourceCountIs('AWS::EKS::AccessEntry', 4);
     const readerIds = Object.keys(eks.findResources('AWS::IAM::Role', {
       Properties: { RoleName: 'soma-376-dev-eks-values-reader' },
     }));

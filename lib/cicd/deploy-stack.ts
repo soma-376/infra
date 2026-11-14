@@ -17,6 +17,7 @@ import {
 import { Construct } from 'constructs';
 import { createInfraDevRoles, InfraDevRoles } from './infra-dev-roles';
 import { createLandingDeployRole } from './landing-deploy-role';
+import { createDeliveryPromotionRole } from './delivery-promotion-role';
 import {
   DeployEnv,
   DEPLOY_ENVS,
@@ -41,11 +42,11 @@ export interface DeployStackProps extends StackProps {
 }
 
 /**
- * 앱과 infra 레포의 GitHub Actions가 맡을 배포 역할 스택 (ADR-0024·0048·0060).
+ * 앱과 infra 레포의 GitHub Actions가 맡을 배포 역할 스택 (ADR-0024·0048·0056·0060).
  *
- * GitHub OIDC 공급자 1개 + 기존 앱 역할 4개 + infra dev 역할 2개 + 랜딩 배포 역할 1개를 만든다.
- * prod는 이미지 push와 ECS 강제 재배포, dev backend는 이미지 push만 허용한다.
- * prod 태스크 정의는 ApplicationStack이 소유하고 dev EKS 배포는 수동 Helm을 쓴다.
+ * GitHub OIDC 공급자 1개 + 기존 앱 역할 4개 + infra dev 역할 2개 + 랜딩 배포 역할 1개 + GitOps 게시 역할 1개를 만든다.
+ * prod는 이미지 push와 ECS 강제 재배포, dev backend 생산 역할은 이미지 push와 계약 검사용 pull을 허용한다.
+ * GitOps 게시 역할은 별도 Environment에서 이미지 조회와 전용 관측 역할 assume만 수행한다.
  *
  * **이 스택은 `lib/prod/` 도 `lib/dev/` 도 import 하지 않는다.** 여기서 양쪽을 끌어오면
  * ADR-0021 2번의 `prod <-> dev` 금지 규칙이 이 폴더를 경유해 우회된다.
@@ -63,6 +64,7 @@ export class DeployStack extends Stack {
   public readonly infraDevRoles: InfraDevRoles;
   /** 랜딩 정적 사이트 배포 역할도 기존 앱 역할 맵과 분리한다 (ADR-0060). */
   public readonly landingDeployRole: Role;
+  public readonly gitOpsPromotionRole: Role;
 
   constructor(scope: Construct, id: string, props: DeployStackProps) {
     super(scope, id, props);
@@ -80,6 +82,7 @@ export class DeployStack extends Stack {
     this.deployRoles = roles;
     this.infraDevRoles = createInfraDevRoles(this, oidcProvider);
     this.landingDeployRole = createLandingDeployRole(this, oidcProvider);
+    this.gitOpsPromotionRole = createDeliveryPromotionRole(this, oidcProvider);
   }
 
   /**
@@ -171,7 +174,8 @@ export class DeployStack extends Stack {
       role.addToPolicy(
         new PolicyStatement({
           sid: 'EcrPush',
-          actions: [...ECR_PUSH_ACTIONS],
+          actions: [...ECR_PUSH_ACTIONS,
+            ...(env === 'dev' && target.repo.name === 'pulsemetry-backend' ? ['ecr:GetDownloadUrlForLayer'] : [])],
           resources: target.ecrRepos.map((name) =>
             Arn.format(
               {

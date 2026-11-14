@@ -1,0 +1,5 @@
+apiVersion: v2
+name: delivery-observer
+description: PROJ-311 Argo Application 상태 읽기 권한
+type: application
+version: 0.1.0

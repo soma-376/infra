@@ -18,7 +18,7 @@ cert-manager와 적용용 수동 인계 산출물을 추가한다. 이번 변경
   CDK 적용 성공이 generated 게시나 앱 배포 성공을 뜻하지 않는다.
 - Argo 자체는 고정된 Helm으로 수동 관리한다. UI/API는 ClusterIP로 두고 기존 SSM EKS 터널과
   별도 kubeconfig·원래 서버 hostname/CA 검증을 유지한다. 새 public ALB/DNS를 만들지 않는다.
-- 배포 단위와 파일 형식은 [허브 generated-values 계약](https://github.com/soma-376/docs/blob/docs/PROJ-281-dev-gitops-contract/contracts/generated-values-sync.md)이
+- 배포 단위와 파일 형식은 [허브 generated-values 계약](https://github.com/soma-376/docs/blob/docs/PROJ-311-gitops-delivery-contract/contracts/generated-values-sync.md)이
   단일 출처다. C=infra/chart SHA, V=generated snapshot commit, B=backend 완료 manifest 원본 바이트의 SHA-256,
   P=배포 선택 commit이다. backend는 이미지 갱신·롤백, infra는 설정 생성·게시, Argo는 적용·self-heal을 맡는다.
 - 두 게시기는 후속 `dev/delivery-state.json`의 owner·generation·기준 P와 main HEAD를 CAS로 검증한다.
@@ -256,7 +256,7 @@ Application 등록 후에도 수동 sync만 허용한다. 이후 일반 Helm과 
 | cert-manager | chart가 소유하는 cert-manager namespace, 6개 CRD Established, controller/webhook/cainjector Ready, startup API check 성공, 실제 webhook 호출·ARM64 imageID 확인 |
 | LBC | §2.0.5의 별도 인증서 전환·CA 주입·serving certificate·실제 admission 성공 |
 | 기존 controller/CSI·runtime·데이터·관측 | CSI/ASCP·Strimzi/CRD·Kafka Ready/observedGeneration·PVC 보존, 관측 hook의 반복 실행과 필수 endpoint 준비 |
-| enrollment → ingest → Gateway → dashboard | 각 단계에서 목표 revision·Synced·Healthy·operation 종료와 §4의 Flyway·기능 증거 확인 |
+| enrollment → ingest → Gateway → dashboard | 각 단계에서 목표 revision·Synced·Healthy·진행/현재 실패 operation 부재 확인; 수동 인수의 기능 확인은 별도 |
 
 H 인계에는 root가 없어서 서로 다른 Application의 wave가 위 순서를 강제하지 않는다. 운영자가 각 관문을
 기록하고 다음 Application을 수동 sync한다. cert-manager startup API check와 관측 인증서 hook은 phase·RBAC·
@@ -322,7 +322,7 @@ root는 leaf보다 오래 유효해야 하며 root/leaf 각각의 만료·갱신
 새 revision과 실제 serving certificate를 확인한다. 인계 후 과거 Helm history를 그대로 rollback하면 cert-manager
 소유 Secret과 충돌할 수 있다. 실패 시 현재 소유권·C/H·실제 인증서 상태를 보존한 채 선언·controller를 복구하고,
 전체 수집 기능과 Git 정합을 확인한 뒤 일반 운영을 재개한다. 새 자동 publisher·root 활성화는 PROJ-311 및
-별도 infra 설정 publisher/CAS 구현·수락 이후다.
+별도 infra 설정 publisher/CAS 구현·수락 이후다. [이미지 승격 런북](dev-gitops-image-promotion.md)의 기본 비활성·운영 준비 조건을 함께 확인한다.
 
 ### 2.1 인계 전 준비
 
@@ -338,7 +338,7 @@ root는 leaf보다 오래 유효해야 하며 root/leaf 각각의 만료·갱신
    운영자가 C/H에 고정한 하위 Application을 수동으로 만들고 자동 sync/self-heal을 끈 상태에서 인계한다.
    아직 root의 `dev/applications/` 자동 관리와 P 선택 계약에는 연결하지 않는다.
 3. 후속 구현의 기존 `image.repository`·`image.digest` 정합, 고정 의존성·digest, Argo·CMP,
-   C/V health gate·기능 검증·공통 상태·자동 복구 경로, Git 권한·branch 보호·maintenance를 확인한다.
+   C/V health gate·Argo 관측·공통 상태·자동 복구 경로, Git 권한·branch 보호·maintenance를 확인한다.
    초기 인계 선언도 기존 실제 이미지를 그대로 렌더해야 한다.
 4. §2.0의 설치를 검증한 뒤 후속 관리 RBAC·AppProject와 Git 읽기 연결을 준비하고 로컬 클러스터 관리를 활성화한다.
    초기 Application의 자동 sync·self-heal·prune은 비활성 상태로 시작한다.
@@ -398,29 +398,23 @@ chart·runtime만 바뀐 경우에도 C/V를 새로 검증해 함께 선택한�
 
 ## 4. 순차 적용과 성공 판정
 
-상위 Application의 wave는 하위 Application custom health와 연결한다. **현재 원하는 C/V의 적용 성공과
-Healthy**를 모두 확인하기 전에는 다음 wave로 넘어가지 않는다. status가 없거나 과거 revision, OutOfSync,
-진행 중 operation, 실패 operation이면 대기/실패로 남긴다. sync wave annotation만으로 순서가 보장됐다고 하지 않는다.
+PROJ-311의 읽기 전용 Argo 관측·정제된 증거·초기화 조건은
+[이미지 승격 런북](dev-gitops-image-promotion.md)을 따른다. PostSync 검증 Job은 제거한다.
 
-| 단계 | 진행 조건 | 증명하지 못하는 것 |
-|---|---|---|
-| 기반·runtime·데이터 | NodePool/CSI·필요 CRD·SPC·PVC, Kafka/Topic/User 현재 generation Ready | 실제 앱의 권한·인증서 파일 읽기 |
-| enrollment | 목표 digest rollout·init 검사, 해당 schema의 Flyway 성공 | ingest/조회 경로의 성공 |
-| ingest | 목표 digest·현재 schema/TLS 연결, 이전 Kafka envelope 호환 | Gateway ACK만으로 실제 저장 |
-| Gateway | 목표 digest·Kafka 접속, 인증 요청의 ACK | consume·commit·적재 완료 |
-| dashboard | 목표 digest·cache DDL/조회 연결, 로그인과 대표 조회 | 전체 데이터 정합·SLO |
+상위 Application의 wave는 하위 Application custom health와 연결한다. 현재 spec·comparedTo·resolved
+C/V 일치, `Synced`·`Healthy`, 진행 중/현재 목표 revision 실패 operation 부재를 확인한다. root도 현재 P를
+포함하는 resolved revision의 Synced·Healthy와 현재 선택에 일치하는 desired/Application 파일을 요구한다.
+같은 manifest의 새 V나 main 상태-only commit에서는 새 sync가 없을 수 있다. operationState 부재 또는
+과거 terminal operation을 허용하며 현재 revision에 귀속된 완료 Failed/Error만 확정 실패로 우선 처리한다.
 
-앱 health 200·Pod Ready만으로 schema 적용이나 적재를 완료 처리하지 않는다. 실제 검증기는 rollout 상태와
-enrollment migration 결과, 인증·로그인·대표 조회, 고유 식별 요청의 ACK→consume→commit→S3/ClickHouse를
-각각 대조해야 한다. 인증 원문을 기록하지 않고 결과·식별자·시각·revision만 보관한다.
-PodSpec이 B의 digest에 고정됐는지 확인하고 실제 Pod imageID와 연결한다. ECR digest가 index이면
-검증된 `linux/arm64` child manifest를 해석해 대조하며 index digest와 runtime imageID의 문자열 동일성을 요구하지 않는다.
+플랫폼·runtime·데이터 이후 enrollment → ingest → Gateway → dashboard 순서를 유지한다. Flyway는 앱
+기동 경로에 남기며 별도 이력 조회를 하지 않는다. 로그인·대표 조회·OTLP 입력·Kafka commit·S3/ClickHouse
+적재를 검사하지 않고 실제 Pod imageID도 읽지 않는다. Argo Healthy가 실제 기능 성공을 보장하지 못하는
+위험을 수용한 범위다. 최초 PROJ-310 수동 인수와 maintenance 기능 확인은 별도 운영 절차로 유지한다.
 
-Git 게시, Argo Synced, Healthy, 기능 검증 결과를 별도 항목으로 남긴다. 단계가 실패하면 후속 앱과 다음
-묶음을 보류하고 마지막 성공 단계 및 실제 실행 digest를 기록한다. 부분 실패를 네 앱 전체 성공으로 보고하지 않는다.
-Argo·두 게시기의 오류/중단, 공통 상태·owner·generation, sync 지연·Degraded, 후보 정체와 복구 결과를 관측해야 한다.
-검증 결과는 정확한 P/C/V/B·현재 operation과 연결하며 관측 불가를 이미지 실패로 분류하지 않는다.
-`argocd` namespace가 기존 Fluent Bit 수집 범위에 자동 포함된다고 가정하지 않고 후속 관측 연결을 검증한다.
+Git 게시와 Argo 상태를 P/C/V/B·현재 operation에 연결해 기록한다. 관측 불가는 이미지 확정 실패로
+분류하지 않는다. Argo·게시기 오류/중단, 공통 상태·owner·generation, sync 지연·Degraded와 후보 정체를
+관측한다. `argocd` namespace의 중앙 관측 연결은 별도 수락 대상이다.
 
 ## 5. 운영 중지·인증서 교체·offset reset
 
@@ -440,16 +434,15 @@ Argo·두 게시기의 오류/중단, 공통 상태·owner·generation, sync 지
 
 ## 6. 자동 이미지 rollback·재개와 수동 복구
 
-1. 이미지 승격 직전 lastKnownGood을 고정한다. 목표 P/C/V/B에 귀속된 rollout 또는 기능의 **확정 실패**만 자동
-   rollback 대상으로 분류한다. 원격 선택·실제 digest·operation·migration·키/TLS 상태를 확인하고 진행 중 적용
-   operation이 끝날 때까지 새 복구 P를 게시하지 않는다. 과거 Healthy·관측 불가·단순 timeout은 확정 실패가 아니다.
+1. 이미지 승격 직전 lastKnownGood을 고정한다. 목표 C/V와 일치하는 현재 Argo operation의 **Failed 또는 Error**만 자동
+   rollback 대상으로 분류한다. root와 모든 child에 진행 중 operation이 없음을 확인한 뒤 복구 P를 게시한다. 과거 Healthy·관측 불가·단순 timeout은 확정 실패가 아니다.
 2. 같은 owner/generation이 실패 B·backend SHA·앱별 repository/digest와 실패 시각을 durable CAS commit에 기록한다.
    `resumeFence`는 이 실패 기록을 기준으로 한다. commit ID는 Git 이력에서 얻으며 상태 파일에 자기 SHA를 기록하지 않는다.
-3. 마지막 정상 B를 **현재 실제 schema**·Kafka backlog·C/runtime·JWT·인증서와 다시 대조한다. 실패 전에 Flyway가
-   진행됐을 수 있으므로 배포 전 검사만 재사용하지 않는다. 호환성 불명확·정상 B 부재·설정 변경 실패·관측 불가·
-   owner 소실이면 `blocked`로 남긴다. 잠금 age만으로 다른 실행이 인계하지 않는다.
-4. 안전한 경우 같은 owner가 `rolling_back`으로 전환해 현재 비이미지 설정을 보존한 새 V/P를 **한 번만** 게시한다.
-   Argo 자동 sync·self-heal은 유지하고 §4의 순차 적용·기능 검증을 반복한다. 복구 실패면 blocked이며 재귀적인 자동
+3. 마지막 Argo 정상 B가 없거나 설정 변경 실패·관측 불가·owner 소실이면 `blocked`로 남긴다.
+   실제 schema·Kafka backlog·runtime·키·TLS의 호환성은 검사하지 않는다. 이전 이미지와 migration 이후 DB의
+   비호환 위험을 수용한다. 잠금 age만으로 다른 실행이 인계하지 않는다.
+4. 정상 B가 있고 현재 실패가 확정되면 같은 owner가 `rolling_back`으로 전환해 현재 비이미지 설정을 보존한 새 V/P를 **한 번만** 게시한다.
+   Argo 자동 sync·self-heal은 유지하고 §4의 현재 revision·Argo 상태 판정을 반복한다. 복구 실패면 blocked이며 재귀적인 자동
    rollback은 금지한다. backend는 Git의 desired를 바꾸며 Argo rollback 명령이나 Kubernetes를 직접 조작하지 않는다.
 5. 복구 성공 후 lastKnownGood과 복구 증거를 갱신하고 잠금을 해제하되 실패 B와 동일한 네 이미지 조합의 차단은 유지한다.
    자동 재개는 실패 source의 엄격한 develop 후속 commit에서, 실패 기록 이후 생성된 **원본 생산 run**이 정상 완료한
@@ -476,8 +469,9 @@ Argo·두 게시기의 오류/중단, 공통 상태·owner·generation, sync 지
 | 잠금 획득 뒤 HEAD 변경·owner 소실 | owner/generation/기준 P 재확인; 권한 소실 시 게시 중지·보류 |
 | V 게시 후 P 실패·응답 유실 | 기존 참조 유지 또는 원격 P 조회로 성공 여부 확정; 불명확 시 보류 |
 | 이전 revision Healthy·관측 불가 | 다음 wave 차단; 자동 이미지 실패/복구로 오판하지 않음 |
-| 현재 이미지의 확정 실패·안전한 마지막 정상 B | operation 종료 뒤 같은 owner가 새 V/P로 한 번 복구 |
-| migration 적용 후 과거 B 호환성 불명확·정상 B 부재 | blocked; schema·DB·PVC·offset 자동 복구 없음 |
+| 현재 이미지의 Argo 확정 실패·마지막 Argo 정상 B | operation 종료 뒤 같은 owner가 새 V/P로 한 번 복구 |
+| migration 적용 후 과거 B의 실제 호환성 | 자동 검사 없음; 비호환 위험을 수용하고 이미지 복구만 한 번 시도 |
+| 정상 B 부재 | blocked; DB·PVC·offset 자동 복구 없음 |
 | 설정 실패·rollback 실패·복구 중 owner 소실 | blocked; 자동 재복구·시간 기반 탈취 없음 |
 | 복구 성공 후 실패 B/동일 이미지 재포장·옛 run 재실행 | 재승격 거부; 후속 source + fence 이후 원본 run만 재개 |
 | 복구 중 새 후보 도착 | unlock 시 후보 재조회·적격성 재평가 |

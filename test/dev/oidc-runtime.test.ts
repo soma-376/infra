@@ -137,13 +137,15 @@ describe('빈 원본 bootstrap과 소비자 권한', () => {
     }
     expect(JSON.stringify(data.Outputs.OidcClientSecretArns)).toContain('cognito-a');
     const baseline = Template.fromStack(buildDevApp().data).toJSON();
-    for (const [id, resource] of Object.entries(baseline.Resources)) expect(data.Resources[id]).toEqual(resource);
+    for (const [id, resource] of Object.entries(baseline.Resources)) {
+      expect(data.Resources[id]).toEqual(resource);
+    }
   });
   test('재정렬·다른 client 추가가 기존 logical ID와 속성을 바꾸지 않는다', () => {
     const after = Template.fromStack(build(['Cognito_C', 'cognito-a', 'cognito-b']).data).toJSON();
     for (const [id, source] of Object.entries(sources)) expect(after.Resources[id]).toEqual(source);
   });
-  test('enrollment Pod Identity만 선언 원본을 읽으며 다른 역할은 접근하지 못한다', () => {
+  test('enrollment Pod Identity만 선언한 OIDC 원본을 읽는다', () => {
     const associations = Object.values(eks.Resources).filter((r: any) =>
       r.Type === 'AWS::EKS::PodIdentityAssociation' && r.Properties.ServiceAccount === 'enrollment-api') as any[];
     expect(associations).toHaveLength(1);
@@ -161,7 +163,7 @@ describe('빈 원본 bootstrap과 소비자 권한', () => {
         expect(read.Resource).toHaveLength(11);
         for (const key of ['cognitoa', 'cognitob']) expect(JSON.stringify(read.Resource)).toContain(`DevOidcClientSecret${key}`);
       } else {
-        expect(JSON.stringify(policy)).not.toContain('OidcClientSecret');
+        expect(JSON.stringify(policy.Properties.PolicyDocument.Statement)).not.toContain('OidcClientSecret');
       }
     }
     expect(enrollmentPolicies).toBe(1);

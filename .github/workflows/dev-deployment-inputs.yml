@@ -11,6 +11,7 @@ on:
       - 'scripts/backend-image-inputs.mjs'
       - 'scripts/dev-generated-values*.mjs'
       - 'scripts/dev-argocd-*.mjs'
+      - 'scripts/dev-gitops/**'
       - 'scripts/strimzi-operator-post-render.mjs'
       - 'scripts/observability-platform-trace-validate.mjs'
       - 'scripts/validate-generated-values.mjs'
@@ -121,3 +122,5 @@ jobs:
           echo 'PULSEMETRY_CMP_IMAGE=pulsemetry-strimzi-cmp:ci' >> "$GITHUB_ENV"
       - name: Application·권한·Lua·Helm3/4·CMP 검증
         run: npm test -- --runInBand test/scripts/dev-argocd-applications.test.ts test/scripts/dev-argocd-handoff.test.ts test/scripts/dev-argocd-renderers.test.ts test/helm/cert-manager.test.ts test/helm/argocd.test.ts test/helm/argocd-management.test.ts test/helm/argocd-health.test.ts test/helm/platform-trace-stack.test.ts
+      - name: 이미지 게시 CAS·Argo 상태·단일 복구 검사
+        run: npm test -- --runInBand test/scripts/dev-gitops.test.ts test/helm/delivery-observer.test.ts

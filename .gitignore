@@ -144,6 +144,10 @@ vite.config.ts.timestamp-*
 
 .DS_Store
 
+# Python 검증기·로컬 테스트의 캐시는 배포 원본이 아니다.
+__pycache__/
+*.pyc
+
 *.js
 !jest.config.js
 *.d.ts

@@ -12,7 +12,7 @@ const destination = { server: 'https://kubernetes.default.svc', namespace: 'puls
 const application = () => ({
   metadata: { annotations: {} },
   spec: { sources: [source(), { repoURL: 'https://github.com/soma-376/infra-generated-values.git', targetRevision: 'b'.repeat(40), ref: 'values' }], destination },
-  status: { sync: { status: 'Synced', comparedTo: { sources: [source(), { repoURL: 'https://github.com/soma-376/infra-generated-values.git', targetRevision: 'b'.repeat(40), ref: 'values' }], destination }, revisions: ['a'.repeat(40), 'b'.repeat(40)] }, health: { status: 'Healthy' }, operationState: { phase: 'Succeeded' } },
+  status: { sync: { status: 'Synced', comparedTo: { sources: [source(), { repoURL: 'https://github.com/soma-376/infra-generated-values.git', targetRevision: 'b'.repeat(40), ref: 'values' }], destination }, revisions: ['a'.repeat(40), 'b'.repeat(40)] }, health: { status: 'Healthy' }, operationState: { phase: 'Succeeded', syncResult: { revisions: ['a'.repeat(40), 'b'.repeat(40)] } } },
 });
 
 describe('Argo 3.5.7과 같은 gopher-lua 1.1.2의 실제 health 실행', () => {
@@ -67,6 +67,22 @@ describe('Argo 3.5.7과 같은 gopher-lua 1.1.2의 실제 health 실행', () => 
     const fixture = application();
     (mutate as (value: any) => void)(fixture);
     expect(health(fixture)).toBe(expected);
+  });
+
+  test('앱도 무변경 렌더에서 이전 terminal operation 또는 operation 부재를 허용한다', () => {
+    for (const name of ['pulsemetry-dev-enrollment-api', 'pulsemetry-dev-telemetry-ingest',
+      'pulsemetry-dev-telemetry-gateway', 'pulsemetry-dev-dashboard-api', 'pulsemetry-dev-base']) {
+      for (const phase of ['Succeeded', 'Failed', 'Error']) {
+        const app: any = application();
+        app.metadata.name = name;
+        app.status.operationState = { phase, syncResult: { revisions: ['a'.repeat(40), 'c'.repeat(40)] } };
+        expect(health(app)).toBe('Healthy');
+        delete app.status.operationState;
+        expect(health(app)).toBe('Healthy');
+        app.status.sync.revisions[1] = 'c'.repeat(40);
+        expect(health(app)).toBe('Progressing');
+      }
+    }
   });
 
   test('Kafka는 현재 generation의 Ready만 통과시키고 NotReady를 우선한다', () => {

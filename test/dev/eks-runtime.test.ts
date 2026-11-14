@@ -273,7 +273,12 @@ test('SES 발송과 관리·메일 키 읽기는 enrollment Pod에만 허용한�
   }
 
   for (const id of ['DevManagementResponseKeySecret', 'DevMailEncryptionKeySecret']) {
-    const readers = policies.filter(([, policy]) => JSON.stringify(policy).includes(id));
+    // 검증 역할의 metadata 조회와 구분해 같은 statement의 원문 읽기 권한을 검사한다.
+    const readers = policies.filter(([, policy]) => policy.Properties.PolicyDocument.Statement.some((statement: any) =>
+      statement.Effect === 'Allow'
+      && [statement.Action].flat().includes('secretsmanager:GetSecretValue')
+      && JSON.stringify(statement.Resource).includes(id),
+    ));
     expect(readers).toHaveLength(1);
     expect(readers[0][0]).toContain('Enrollment');
   }
