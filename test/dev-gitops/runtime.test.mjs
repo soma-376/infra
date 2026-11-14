@@ -62,24 +62,107 @@ test('원본 attempt 성공 뒤 같은 run의 새 attempt가 진행 중이면 pr
   assert.equal(requested.length, 2);
 });
 
-function sourceFixture() {
-  const bundle = makeBundle();
+function producerFixture(t, { createdAt = '2026-11-06T01:00:00Z', attemptCreatedAt = '2026-11-06T03:00:00Z' } = {}) {
+  const bundle = makeBundle({ attempt: '2' }), proof = provenance(bundle, { createdAt });
+  const current = { id: 201, run_attempt: 2, workflow_id: 456, head_sha: proof.backendCommit,
+    status: 'completed', conclusion: 'success', head_branch: 'develop', event: 'push',
+    repository: { full_name: proof.repository }, head_repository: { full_name: proof.repository },
+    path: '.github/workflows/deploy_dev.yml', created_at: createdAt };
+  const value = { bundle, proof, current, attempt: { ...current, created_at: attemptCreatedAt }, latest: [] };
+  t.mock.method(globalThis, 'fetch', async url => {
+    const path = new URL(url).pathname.replace('/repos/soma-376/pulsemetry-backend/', '');
+    let response;
+    if (path === 'actions/runs/201/attempts/2') response = value.attempt;
+    else if (path === 'actions/runs/201') response = value.current;
+    else if (path === 'actions/workflows/deploy_dev.yml') response = { id: 456 };
+    else if (path === 'actions/workflows/deploy_dev.yml/runs') response = { workflow_runs: value.latest };
+    else if (path === 'commits/develop') response = { sha: 'e'.repeat(40) };
+    else if (path.startsWith('compare/')) response = { status: 'ahead' };
+    else throw new Error(`unexpected producer path: ${path}`);
+    return { ok: true, json: async () => response };
+  });
+  value.checks = producerChecks({ GH_TOKEN: 'synthetic' });
+  return value;
+}
+
+test('재시도 attempt 시각과 달라도 검증한 원본 run 시각의 생산 증거는 수락한다', async t => {
+  const value = producerFixture(t);
+  await value.checks.revalidateCandidate(value.bundle, value.proof);
+});
+
+test('더 최신 B 뒤에 과거 A를 재시도해도 A로 배포 대상을 되돌리지 않는다', async t => {
+  const value = producerFixture(t), fixture = await repository(t);
+  value.latest = [{ ...value.current, id: 202, created_at: '2026-11-06T02:00:00Z' }];
+  const result = await promote(promotionArgs(fixture, { ...value.checks,
+    candidateBytes: value.bundle.bytes, provenance: value.proof,
+    observe: async () => { throw new Error('superseded candidate must not deploy'); } }));
+  assert.equal(result.result, 'superseded');
+  assert.equal(await fixture.store.refresh(), fixture.Q, '잠금·V·P를 쓰지 않는다');
+});
+
+test('원본 생성 시각이 같으면 더 큰 run ID만 최신 후보다', async t => {
+  const value = producerFixture(t);
+  value.latest = [{ ...value.current, id: 200 }];
+  await value.checks.revalidateCandidate(value.bundle, value.proof);
+  value.latest = [{ ...value.current, id: 202 }];
+  await assert.rejects(value.checks.revalidateCandidate(value.bundle, value.proof), { code: 'candidate_superseded' });
+});
+
+test('attempt 시각을 담은 과거 증거는 첫 Git 쓰기 전에 거부한다', async t => {
+  const value = producerFixture(t), fixture = await repository(t);
+  value.proof.createdAt = value.attempt.created_at;
+  await assert.rejects(promote(promotionArgs(fixture, { ...value.checks,
+    candidateBytes: value.bundle.bytes, provenance: value.proof })), /생성 시각 불일치/);
+  assert.equal(await fixture.store.refresh(), fixture.Q);
+});
+
+test('원본 run과 attempt의 출처·최신 성공 상태 불일치는 거부한다', async t => {
+  for (const [field, replacement] of [
+    ['id', 202], ['head_sha', 'f'.repeat(40)], ['workflow_id', 999], ['event', 'schedule'],
+    ['head_branch', 'main'], ['repository', { full_name: 'other/repo' }],
+    ['head_repository', { full_name: 'other/repo' }], ['path', '.github/workflows/other.yml'],
+    ['created_at', 'invalid'], ['run_attempt', 3], ['conclusion', 'failure'],
+  ]) await t.test(field, async t => {
+    const value = producerFixture(t);
+    value.current[field] = replacement;
+    await assert.rejects(value.checks.revalidateCandidate(value.bundle, value.proof));
+  });
+});
+
+test('실패 전 또는 같은 시각의 원본 run은 늦은 재시도로 fence를 넘지 못한다', async t => {
+  const fence = '2026-11-06T02:00:00Z';
+  for (const createdAt of ['2026-11-06T01:00:00Z', fence, '2026-11-06T02:00:01Z']) await t.test(createdAt, async t => {
+    const value = producerFixture(t, { createdAt }), fixture = await repository(t);
+    const failure = { bundleManifestSha256: fixture.baseline.B, imageVectorSha256: fixture.baseline.vector,
+      backendCommit: fixture.baseline.manifest.backendCommit, failureRecordedAt: fence, fenceSealed: true };
+    const before = await fixture.store.writeState(fixture.Q, { ...fixture.state, failedReleases: [failure] }, 'fixture sealed failure');
+    const execute = () => promote(promotionArgs(fixture, { ...value.checks,
+      candidateBytes: value.bundle.bytes, provenance: value.proof }));
+    if (createdAt <= fence) {
+      await assert.rejects(execute(), /실패 기록 이후/);
+      assert.equal(await fixture.store.refresh(), before);
+    } else assert.equal((await execute()).result, 'passed');
+  });
+});
+
+function sourceFixture({ attempt = 1, createdAt = '2026-11-06T03:00:00Z', attemptCreatedAt = createdAt } = {}) {
+  const bundle = makeBundle({ attempt: String(attempt) });
   const archive = execFileSync('python3', ['-c', 'import sys,io,hashlib,zipfile; raw=sys.stdin.buffer.read(); out=io.BytesIO(); z=zipfile.ZipFile(out,"w"); z.writestr("completion.json",raw); z.writestr("completion.sha256",hashlib.sha256(raw).hexdigest()+"\\n"); z.close(); sys.stdout.buffer.write(out.getvalue())'], { input: bundle.bytes });
-  const proof = { ...provenance(bundle), artifactId: '789', artifactSha256: sha256(archive) };
-  const run = { id: 201, run_attempt: 1, workflow_id: 456, repository: { full_name: proof.repository }, head_repository: { full_name: proof.repository },
+  const proof = { ...provenance(bundle, { createdAt }), artifactId: '789', artifactSha256: sha256(archive) };
+  const run = { id: 201, run_attempt: attempt, workflow_id: 456, repository: { full_name: proof.repository }, head_repository: { full_name: proof.repository },
     path: '.github/workflows/deploy_dev.yml', head_branch: 'develop', head_sha: proof.backendCommit,
-    created_at: proof.createdAt, event: 'push', status: 'completed', conclusion: 'success' };
+    created_at: attemptCreatedAt, event: 'push', status: 'completed', conclusion: 'success' };
   const jobs = ['Gradle build (Testcontainers)', 'Build and publish images to ECR'].map((name, index) => ({
-    id: index + 1, name, run_id: 201, run_attempt: 1, head_sha: proof.backendCommit, status: 'completed', conclusion: 'success',
+    id: index + 1, name, run_id: 201, run_attempt: attempt, head_sha: proof.backendCommit, status: 'completed', conclusion: 'success',
   }));
-  const artifact = { id: 789, name: 'dev-image-bundle-201-1', expired: false, expires_at: '2099-01-01T00:00:00Z',
+  const artifact = { id: 789, name: `dev-image-bundle-201-${attempt}`, expired: false, expires_at: '2099-01-01T00:00:00Z',
     workflow_run: { id: 201, head_sha: proof.backendCommit }, digest: `sha256:${proof.artifactSha256}` };
-  const value = { bundle, archive, proof, run, jobs, artifact, verifiedImages: 0, currentReads: 0 };
+  const value = { bundle, archive, proof, run, current: { ...run, created_at: createdAt }, jobs, artifact, verifiedImages: 0, currentReads: 0 };
   value.request = async (path, binary) => {
-    if (path === 'actions/runs/201/attempts/1') return value.run;
+    if (path === `actions/runs/201/attempts/${attempt}`) return value.run;
     if (path === 'actions/runs/201') { value.currentReads++; return value.current ?? value.run; }
     if (path === 'actions/workflows/deploy_dev.yml') return { id: 456, path: '.github/workflows/deploy_dev.yml' };
-    if (path.startsWith('actions/runs/201/attempts/1/jobs?')) return { total_count: value.jobs.length, jobs: value.jobs };
+    if (path.startsWith(`actions/runs/201/attempts/${attempt}/jobs?`)) return { total_count: value.jobs.length, jobs: value.jobs };
     if (path.startsWith('actions/runs/201/artifacts?')) return { total_count: 1, artifacts: [value.artifact] };
     if (path === 'actions/artifacts/789/zip') { assert.equal(binary, true); return value.archive; }
     if (path === 'commits/develop') return { sha: 'e'.repeat(40) };
@@ -97,6 +180,16 @@ test('초기화는 과거 정상 B도 원본 성공·ZIP 바이트·패키지를
   assert.equal(result.verified, true); assert.equal(value.verifiedImages, 1);
   assert.equal(value.currentReads, 2, '패키지 검사 뒤 최신 attempt를 다시 확인한다');
   await assert.rejects(verifySourceBundle(value.bundle, value.proof, { ...value, requireLatest: true }), /더 새로운/);
+});
+
+test('초기화는 재시도된 과거 정상 B의 원본 시각을 검증하고 최신성 요청만 별도로 거부한다', async () => {
+  const value = sourceFixture({ attempt: 2, createdAt: '2026-11-06T01:00:00Z', attemptCreatedAt: '2026-11-06T07:00:00Z' });
+  assert.equal((await verifySourceBundle(value.bundle, value.proof, value)).verified, true);
+  await assert.rejects(verifySourceBundle(value.bundle, value.proof, { ...value, requireLatest: true }), /더 새로운/);
+  value.proof.createdAt = value.run.created_at;
+  value.verifiedImages = 0;
+  await assert.rejects(verifySourceBundle(value.bundle, value.proof, value), /생성 시각 불일치/);
+  assert.equal(value.verifiedImages, 0);
 });
 
 test('초기화의 provenance 누락·다른 attempt/job·만료·ZIP 변조는 패키지 검사 전에 거부한다', async () => {

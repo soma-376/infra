@@ -15,7 +15,7 @@ export const GENERATED_FILES = ['base.yaml', 'lbc.yaml', 'runtime.yaml', 'enroll
 export const OWNER = { repository: 'soma-376/pulsemetry-backend',
   workflowRef: 'soma-376/pulsemetry-backend/.github/workflows/promote_dev.yml@refs/heads/main',
   workflowRunId: '900', workflowRunAttempt: '1' };
-export function makeBundle({ commit = 'b'.repeat(40), run = '201', imageSeed = 'candidate' } = {}) {
+export function makeBundle({ commit = 'b'.repeat(40), run = '201', attempt = '1', imageSeed = 'candidate' } = {}) {
   const images = {}, deploymentContracts = {};
   for (const app of APPS) {
     const content = json({ schemaVersion: 1, app, backendCommit: commit, migrations: [], envelope: 'v1' });
@@ -26,7 +26,7 @@ export function makeBundle({ commit = 'b'.repeat(40), run = '201', imageSeed = '
   }
   const manifest = { schemaVersion: 1, status: 'complete', repository: 'soma-376/pulsemetry-backend',
     backendCommit: commit, workflowRef: 'soma-376/pulsemetry-backend/.github/workflows/deploy_dev.yml@refs/heads/develop',
-    workflowRunId: run, workflowRunAttempt: '1', images, deploymentContracts,
+    workflowRunId: run, workflowRunAttempt: attempt, images, deploymentContracts,
     enrollmentAssets: { lockSha256: sha256('fixed asset lock') } };
   return validateManifest(json(manifest));
 }

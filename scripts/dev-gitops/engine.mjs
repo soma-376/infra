@@ -19,6 +19,7 @@ export async function eligible(bundle, provenance, failures, isDescendant) {
     assert(failure.fenceSealed !== false, '실패 기록의 durable fence가 확정되지 않았다');
     assert(failure.bundleManifestSha256 !== bundle.B && failure.imageVectorSha256 !== bundle.vector, '실패한 B 또는 동일 이미지 조합은 재승격할 수 없다');
     assert(provenance.backendCommit !== failure.backendCommit && await isDescendant(failure.backendCommit, provenance.backendCommit), '실패 source의 엄격한 후속 develop commit만 재개할 수 있다');
+    // API로 검증할 원본 run 생성 시각이다. 재시도 attempt의 시각으로 fence를 넘길 수 없다.
     assert(Date.parse(provenance.createdAt) > Date.parse(failure.failureRecordedAt), '실패 기록 이후 생성한 원본 생산 run이 필요하다');
   }
 }

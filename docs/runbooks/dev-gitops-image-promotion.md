@@ -173,6 +173,12 @@ failure fence 뒤에 원본 run이 새로 생성된 정상 후보만 재개한�
 않는다. unlock 시 이미 끝난 적격 후보도 다시 평가한다. 차단 해제는 원래 workflow와 Argo operation 종료·실제
 상태를 확인한 운영자가 새 generation의 CAS로 수행하며 시간 경과만으로 잠금을 탈취하지 않는다.
 
+생산 증거의 `createdAt`은 `GET /actions/runs/{run_id}`의 원본 `created_at`이다. attempt 상세의
+`created_at`은 재시도 시각이므로 최신성·failure fence에 쓰지 않는다. 최신성은 원본 생성 시각, 같은 시각이면
+run ID 순서로 판정한다. 원본 run과 attempt의 출처·SHA·최신 성공 여부를 함께 검증하며, 예전 도구로 만든
+attempt 시각의 증거는 자동 보정하지 않고 거부한다. 수정된 도구로 증거를 다시 생성해야 한다. 완료 manifest
+원본 바이트와 기존 GitOps 상태 스키마는 바꾸지 않는다.
+
 ## 6. 로컬 검증과 workflow 진입점
 
 로컬 검증은 외부 저장소 대신 임시 bare Git을 사용한다. 동시 CAS·push 응답 유실·V/P 사이 실패,

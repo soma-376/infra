@@ -22,7 +22,16 @@ export function producerChecks(env = process.env) {
         String(run.id) === provenance.workflowRunId && String(run.run_attempt) === provenance.workflowRunAttempt &&
         run.head_branch === 'develop' && ['push', 'workflow_dispatch'].includes(run.event) &&
         run.repository?.full_name === 'soma-376/pulsemetry-backend' && run.head_repository?.full_name === 'soma-376/pulsemetry-backend' &&
-        run.path?.split('@')[0] === '.github/workflows/deploy_dev.yml' && run.created_at === provenance.createdAt, '현재 API와 원본 생산 증거 불일치');
+        run.path?.split('@')[0] === '.github/workflows/deploy_dev.yml', '현재 API와 원본 생산 증거 불일치');
+      // attempt의 created_at은 재시도마다 달라진다. 최신성·실패 fence에는 원본 run 시각만 쓴다.
+      assert(Number.isSafeInteger(currentRun.id) && currentRun.id > 0 && currentRun.id === run.id &&
+        currentRun.head_sha === run.head_sha && currentRun.workflow_id === run.workflow_id &&
+        currentRun.event === run.event && currentRun.head_branch === run.head_branch &&
+        currentRun.repository?.full_name === run.repository.full_name &&
+        currentRun.head_repository?.full_name === run.head_repository.full_name &&
+        currentRun.path?.split('@')[0] === run.path.split('@')[0] &&
+        typeof currentRun.created_at === 'string' && Number.isFinite(Date.parse(currentRun.created_at)) &&
+        currentRun.created_at === provenance.createdAt, '원본 run과 attempt의 출처·생성 시각 불일치');
       const workflow = await github('actions/workflows/deploy_dev.yml', env);
       assert(run.workflow_id === workflow.id, '허용한 생산 workflow ID 불일치');
       const current = await github('commits/develop', env);
@@ -31,7 +40,9 @@ export function producerChecks(env = process.env) {
       // event가 오래 대기했을 때 이미 완료된 후속 정상 묶음을 역행시키지 않는다.
       const latest = await github('actions/workflows/deploy_dev.yml/runs?branch=develop&status=success&per_page=100', env);
       const newer = latest.workflow_runs?.some(item => ['push', 'workflow_dispatch'].includes(item.event) &&
-        item.head_repository?.full_name === 'soma-376/pulsemetry-backend' && Date.parse(item.created_at) > Date.parse(run.created_at));
+        item.head_repository?.full_name === 'soma-376/pulsemetry-backend' &&
+        (Date.parse(item.created_at) > Date.parse(currentRun.created_at) ||
+          (item.created_at === currentRun.created_at && item.id > currentRun.id)));
       if (newer) { const error = new Error('더 새로운 성공 생산 실행이 있다'); error.code = 'candidate_superseded'; throw error; }
     },
   };

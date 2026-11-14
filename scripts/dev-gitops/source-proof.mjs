@@ -98,10 +98,14 @@ export async function verifySourceBundle(bundle, provenance, {
   assert(run.status === 'completed' && run.conclusion === 'success' && run.repository?.full_name === REPO && run.head_repository?.full_name === REPO &&
     run.path?.split('@')[0] === '.github/workflows/deploy_dev.yml' && run.head_branch === 'develop' && run.event === provenance.event &&
     String(run.id) === provenance.workflowRunId && String(run.run_attempt) === provenance.workflowRunAttempt && run.head_sha === provenance.backendCommit &&
-    run.created_at === provenance.createdAt && id(run.workflow_id), '원본 attempt 전체 성공 증거 오류');
+    id(run.workflow_id), '원본 attempt 전체 성공 증거 오류');
   const current = await request(`actions/runs/${provenance.workflowRunId}`);
   assert(String(current.id) === provenance.workflowRunId && current.status === 'completed' && current.conclusion === 'success' &&
     String(current.run_attempt) === provenance.workflowRunAttempt, '원본 run의 최신 attempt가 성공해야 한다');
+  assert(current.head_sha === run.head_sha && current.workflow_id === run.workflow_id && current.event === run.event &&
+    current.head_branch === run.head_branch && current.repository?.full_name === REPO && current.head_repository?.full_name === REPO &&
+    current.path?.split('@')[0] === '.github/workflows/deploy_dev.yml' &&
+    iso(current.created_at) && current.created_at === provenance.createdAt, '원본 run과 attempt의 출처·생성 시각 불일치');
   const workflow = await request('actions/workflows/deploy_dev.yml');
   assert(workflow.id === run.workflow_id && workflow.path === '.github/workflows/deploy_dev.yml', '허용 workflow ID 오류');
   const jobs = await pages(request, `actions/runs/${run.id}/attempts/${run.run_attempt}/jobs`, 'jobs');
@@ -126,8 +130,8 @@ export async function verifySourceBundle(bundle, provenance, {
   assert(['ahead', 'identical'].includes(ancestry.status), '현재 develop 이력 밖 생산 실행');
   if (requireLatest) {
     const runs = await pages(request, 'actions/workflows/deploy_dev.yml/runs?branch=develop&status=success', 'workflow_runs');
-    assert(!runs.some(item => iso(item.created_at) && (Date.parse(item.created_at) > Date.parse(run.created_at) ||
-      (item.created_at === run.created_at && item.id > run.id))), '더 새로운 성공 생산 실행이 있다');
+    assert(!runs.some(item => iso(item.created_at) && (Date.parse(item.created_at) > Date.parse(current.created_at) ||
+      (item.created_at === current.created_at && item.id > current.id))), '더 새로운 성공 생산 실행이 있다');
   }
   await verifyImages(original);
   const afterInspection = await request(`actions/runs/${provenance.workflowRunId}`);
