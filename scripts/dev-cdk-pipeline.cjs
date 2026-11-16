@@ -285,10 +285,10 @@ function createPipeline({ root, directory, env = process.env, runner = defaultRu
     return Object.fromEntries(['package-lock.json', 'config/dev/deployment.json', 'config/dev/runtime.yaml'].map(file => [file, sha256(fs.readFileSync(path.join(root, file)))]));
   }
   function validateGenerated(value) {
-    keys(value, ['enabled', 'backend'], 'generated values 입력');
+    keys(value, ['enabled', 'mode'], 'generated values 입력');
     if (typeof value.enabled !== 'boolean') fail('generated values 활성 여부 오류');
-    if (value.enabled) validateImages(value.backend);
-    else if (Object.hasOwn(value, 'backend')) fail('비활성 plan의 backend 입력 금지');
+    if (value.enabled && value.mode !== 'simple-v2') fail('새 simple-v2 plan이 필요하다');
+    if (!value.enabled && Object.hasOwn(value, 'mode')) fail('비활성 plan의 게시 입력 금지');
   }
   const cdkVersion = () => JSON.parse(fs.readFileSync(path.join(root, 'node_modules/aws-cdk/package.json'), 'utf8')).version;
   function cdk(args, log, cwd = root) {

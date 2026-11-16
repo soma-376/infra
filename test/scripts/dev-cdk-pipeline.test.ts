@@ -165,7 +165,7 @@ function makeHarness(event = 'push') {
   };
   const plan = () => { run('plan'); approve(); return read(path.join(directory, 'plan.json')); };
   return { directory, env, state, calls, runner, run, approve, plan, pipeline,
-    enable: () => { env.GENERATED_VALUES_SYNC_ENABLED = 'true'; generatedValues.enabled = true; generatedValues.backend = { fixture: 'approved-four-images' }; },
+    enable: () => { env.GENERATED_VALUES_SYNC_ENABLED = 'true'; generatedValues.enabled = true; generatedValues.mode = 'simple-v2'; },
     intercept: (handler: typeof intercept) => { intercept = handler; } };
 }
 
@@ -184,9 +184,9 @@ describe('generated values 승인과 publisher 전용 재시도', () => {
     expect(fs.existsSync(path.join(h.directory, 'deployment-receipt.json'))).toBe(false);
     expect(() => h.run('verify-publish')).toThrow(/receipt/);
   });
-  test('활성 여부와 네 이미지 입력을 승인 plan에 고정하고 성공 deploy만 receipt를 쓴다', () => {
+  test('활성 여부와 simple-v2 형식을 승인 plan에 고정하고 성공 deploy만 receipt를 쓴다', () => {
     const h = makeHarness(); h.enable(); const plan = h.plan();
-    expect(plan.generatedValues).toEqual({ enabled: true, backend: { fixture: 'approved-four-images' } });
+    expect(plan.generatedValues).toEqual({ enabled: true, mode: 'simple-v2' });
     h.run('deploy');
     const proof = receipt(h);
     expect(proof).toMatchObject({ sourceSha: sha, runId: '12345', runAttempt: '1', planArtifactId: '987', planSha256: h.env.PLAN_SHA256 });
