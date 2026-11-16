@@ -66,6 +66,29 @@ owner/generation/HEAD를 검사하고 **현재 P/V를 재관측**한다. 새 V/P
 수락 중 다른 owner나 HEAD가 바뀌면 추가 상태를 쓰지 않는다. 이미 정상 운영 중인 배포의 차단 해제나
 일반 rollback을 이 초기화 전용 명령으로 우회하지 않는다.
 
+### 1.2 설정 publisher의 공통 처리와 미완료 실행 경로
+
+`scripts/dev-gitops/configure.mjs`의 `configure`는 준비된 설정 후보를 게시하는 공통 함수다.
+실제 AWS 입력 수집·생성기를 실행하는 workflow나 전용 infra GitOps IAM 경로는 아직 없으므로,
+이 함수와 로컬 bare Git 테스트의 성공을 운영 수락 또는 `infraPublisherAccepted=true`의 근거로 삼지 않는다.
+기존 PROJ-279 사본 writer를 다시 켜거나 가상 workflow/run 식별자를 넣어 이 단계를 우회하지 않는다.
+
+호출자는 `store`, 고정 full SHA인 `sourceCommit`, 정확한 `dev/generated/*.yaml` 13개의 문자열 Map인
+`candidate`, 실제 infra 실행의 `owner`, `validateCandidate`, `observe`를 제공한다. CLI 진입점은 없다.
+검토 자료에는 선택한 인프라 SHA, 현재 private HEAD·선택 V/B, 후보 13개 hash와 diff, 생성·렌더 검증 결과를
+함께 남긴다. 이 함수가 후보를 생성하거나 그 출처를 독립적으로 증명해 주지는 않는다.
+
+`validateCandidate`는 필수 읽기 전용 adapter이며 첫 Git 쓰기 전과 V/P 게시 직전에 호출된다.
+고정 C의 공식 profile/runtime, 현재 AWS output·Strimzi metadata, 해당 C의 생성 결과와 후보 13개 일치,
+Helm/schema 검증, 비밀 원문 부재를 확인하고 출처나 baseline이 바뀌면 실패해야 한다. 성공을 반환하는
+빈 callback은 테스트 fixture 전용이다. `observe`는 기존 root·18개 Application 관측 adapter를 사용한다.
+
+공통 함수는 최신 main이 아닌 **현재 선택된 V**의 B 원문과 네 앱 이미지를 기준으로 후보를 검사한다.
+설정 변경으로 B 바이트·이미지 repository/digest를 바꾸는 입력은 거부한다. 같은 owner/generation과
+예상 HEAD/P를 재확인하면서 config 잠금 → V → P → 상태 연결 → Argo 관측 순서로 진행한다.
+성공하면 새 C의 `lastKnownGood`과 `idle`을 기록한다. 실패·관측 불명은 owner와 선택을 보존한
+`blocked`이며 이미지 rollback을 하지 않는다. V 뒤 P 전에 실패하면 이전 선택은 유지된다.
+
 ## 2. 생산과 승격의 분리
 
 생산 workflow는 네 앱 모두 같은 backend SHA/run/attempt로 ARM64 이미지를 게시한다. Gateway도 필수다.
