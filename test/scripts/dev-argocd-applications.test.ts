@@ -98,6 +98,8 @@ describe('dev Application 정의의 인계 경계', () => {
     for (const definition of review.definitions) {
       const app = definition.application;
       expect(app.spec.syncPolicy.syncOptions.includes('ServerSideApply=true')).toBe(['cert-manager', 'lbc', 'csi', 'strimzi-operator', 'observability'].includes(definition.id));
+      expect(app.metadata.annotations['argocd.argoproj.io/compare-options']).toBe(definition.id === 'observability'
+        ? 'ServerSideDiff=true,IncludeMutationWebhook=true' : undefined);
       expect(app.spec.syncPolicy.syncOptions).not.toContain('Replace=true');
       expect(app.spec.syncPolicy.syncOptions).not.toContain('Force=true');
       const native = app.spec.sources[0].helm;
