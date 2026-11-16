@@ -106,7 +106,7 @@ describe('infra dev CloudFormation 역할 (ADR-0048)', () => {
     ].sort());
   });
 
-  test('deploy는 dev 배포 결과 조회와 bootstrap 세 개·values reader 진입만 더한다', () => {
+  test('deploy는 dev 배포 결과 조회와 bootstrap·values reader·수동 Kafka 운영자 진입만 더한다', () => {
     expect(actionsFor(INFRA_DEV_CICD.deployRoleName)).toEqual([
       'cloudformation:DescribeStackEvents', 'cloudformation:DescribeStacks', 'cloudformation:GetTemplate',
       'ec2:DescribeAvailabilityZones', 'sts:AssumeRole',
@@ -117,6 +117,7 @@ describe('infra dev CloudFormation 역할 (ADR-0048)', () => {
       'arn:aws:iam::111111111111:role/cdk-hnb659fds-file-publishing-role-111111111111-ap-northeast-2',
       'arn:aws:iam::111111111111:role/cdk-hnb659fds-lookup-role-111111111111-ap-northeast-2',
       'arn:aws:iam::111111111111:role/soma-376-dev-eks-values-reader',
+      'arn:aws:iam::111111111111:role/soma-376-dev-eks-operator',
     ].sort());
   });
 

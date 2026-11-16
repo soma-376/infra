@@ -78,10 +78,11 @@
 | 0057 | [dev Argo의 Git 읽기 인증은 전용 GitHub App과 native repository Secret으로 공급한다](0057-dev-argocd-github-app-authentication.md) | Accepted (PROJ-287; argocd namespace의 reader repository Secret 한정 예외, 앱 CSI·게시 계약 유지; 실제 App 설치·인증은 PROJ-310) |
 
 | 0058 | [dev LBC 인증서는 cert-manager가 관리하고 Argo 인계 선언은 별도로 생성한다](0058-dev-lbc-cert-manager-and-argocd-handoff.md) | Accepted (PROJ-310; 18개 수동 인계 구성·인증서 소유권, 실제 운영 수락 별도) |
+| 0062 | [dev Kafka offset 작업은 기존 operator 권한의 수동 workflow로 실행한다](0062-dev-kafka-offset-workflow.md) | Accepted (PROJ-288; dev main 계획·실행, 권한 배포·실제 실행 검증 별도) |
 
 병행 작업에서 사용한 `0035`·`0036`은 각각 파일명·제목·링크를 보존한다. 번호만으로 대상을 식별하지 않는다.
 
-새 ADR을 작성할 때는 다음 미사용 번호(`0062-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
+새 ADR을 작성할 때는 다음 미사용 번호(`0063-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
 
 섹션 순서는 다음과 같다. 괄호로 표시한 것은 내용이 있을 때만 둔다.
 
