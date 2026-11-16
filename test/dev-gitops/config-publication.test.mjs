@@ -1,3 +1,4 @@
+import {posix} from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
@@ -65,7 +66,7 @@ async function fixture(t, options = {}) {
     apiVersion: 'argoproj.io/v1alpha1', kind: 'Application', metadata: { name: entry.name, namespace: 'argocd' },
     spec: { project: entry.project, destination: { server: 'https://kubernetes.default.svc', namespace: entry.namespace },
       sources: [{ repoURL: INFRA_REPOSITORY, path: entry.chart, targetRevision: C,
-        ...(entry.renderer === 'strimzi-cmp' ? { plugin: { name: 'pulsemetry-strimzi-v1' } } : { helm: { releaseName: entry.id } }) },
+        ...(entry.renderer === 'strimzi-cmp' ? { plugin: { name: 'pulsemetry-strimzi-v1', env:[{name:'RELEASE_NAME',value:entry.id}] } } : { helm: {releaseName:entry.id,ignoreMissingValueFiles:false,valueFiles:[...entry.staticValues.map(file=>posix.relative(entry.chart,file)),...(entry.generatedFile?[`$values/dev/generated/${entry.generatedFile}`]:[])]} }) },
       ...(entry.generatedFile ? [{ repoURL: VALUES_REPOSITORY, ref: 'values', targetRevision: 'a'.repeat(40) }] : [])],
       syncPolicy: { automated: { enabled: false, selfHeal: false, prune: false, allowEmpty: false }, retry: { limit: 0 } } } })]));
   const store = new MemoryStore();

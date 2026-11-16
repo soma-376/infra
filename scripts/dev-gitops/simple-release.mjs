@@ -1,5 +1,6 @@
 // PROJ-334: 배포 대기·잠금 상태 없이 선택한 코드와 values의 연결만 검증한다.
 import { load, JSON_SCHEMA } from 'js-yaml';
+import {posix} from 'node:path';
 import { CATALOG, INFRA_REPOSITORY, VALUES_REPOSITORY } from '../dev-argocd-applications.mjs';
 import { APPS, SHA, HASH, assert, parse, json, validateManifest } from './contract.mjs';
 import { GENERATED, replaceScalar, stripMutable } from './release.mjs';
@@ -54,7 +55,14 @@ export function validateApplication(app, entry) {
   assert(source.repoURL === INFRA_REPOSITORY && source.path === entry.chart && SHA.test(source.targetRevision), 'Application infra source 오류');
   if (entry.renderer === 'strimzi-cmp') {
     assert(source.plugin?.name === 'pulsemetry-strimzi-v1' && !source.helm, 'Strimzi CMP 오류');
-  } else assert(source.helm && !source.plugin && typeof source.helm.releaseName === 'string' && /^[a-z0-9][a-z0-9-]{0,52}$/.test(source.helm.releaseName), 'Helm release 오류');
+    assert(source.plugin.env?.length===1 && source.plugin.env[0].name==='RELEASE_NAME' && /^[a-z0-9][a-z0-9-]{0,52}$/.test(source.plugin.env[0].value),'Strimzi release 오류');
+  } else {
+    const helm=source.helm;
+    assert(helm && !source.plugin && typeof helm.releaseName === 'string' && /^[a-z0-9][a-z0-9-]{0,52}$/.test(helm.releaseName), 'Helm release 오류');
+    assert(Object.keys(helm).every(key=>['releaseName','kubeVersion','valueFiles','ignoreMissingValueFiles','skipCrds','skipTests'].includes(key)), 'Git 밖 Helm override 금지');
+    const expected=[...entry.staticValues.map(file=>posix.relative(entry.chart,file)),...(entry.generatedFile?[`$values/dev/generated/${entry.generatedFile}`]:[])];
+    assert(JSON.stringify(helm.valueFiles)===JSON.stringify(expected) && helm.ignoreMissingValueFiles===false,'Application values 순서 오류');
+  }
   if (entry.generatedFile) {
     const values = spec.sources[1];
     assert(values.repoURL === VALUES_REPOSITORY && values.ref === 'values' && SHA.test(values.targetRevision) && !values.path, 'Application values source 오류');

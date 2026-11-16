@@ -1,3 +1,4 @@
+import {posix} from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
@@ -19,7 +20,7 @@ async function fixture(t){
  const store=await SimpleGitStore.open({remote,local:true});t.after(()=>store.close());
  const bundle=makeBundle({commit:'a'.repeat(40),run:'200',imageSeed:'baseline'}),producer=provenance(bundle);
  const generated=new Map(GENERATED_FILES.map(name=>[`dev/generated/${name}`,APPS.some(a=>name===`${a}.yaml`)?values(name.slice(0,-5),bundle):'fixed: true\n']));
- const applications=new Map(CATALOG.applications.map(entry=>[`dev/applications/${entry.id}.yaml`,json({apiVersion:'argoproj.io/v1alpha1',kind:'Application',metadata:{name:entry.name,namespace:'argocd',annotations:{'argocd.argoproj.io/sync-wave':String(entry.wave)}},spec:{project:entry.project,destination:{server:'https://kubernetes.default.svc',namespace:entry.namespace},sources:[{repoURL:INFRA_REPOSITORY,path:entry.chart,targetRevision:C,...(entry.renderer==='strimzi-cmp'?{plugin:{name:'pulsemetry-strimzi-v1'}}:{helm:{releaseName:entry.id}})},...(entry.generatedFile?[{repoURL:VALUES_REPOSITORY,ref:'values',targetRevision:'a'.repeat(40)}]:[])],syncPolicy:{automated:{enabled:true,selfHeal:true,prune:false,allowEmpty:false},retry:{limit:0}}}})]));
+ const applications=new Map(CATALOG.applications.map(entry=>[`dev/applications/${entry.id}.yaml`,json({apiVersion:'argoproj.io/v1alpha1',kind:'Application',metadata:{name:entry.name,namespace:'argocd',annotations:{'argocd.argoproj.io/sync-wave':String(entry.wave)}},spec:{project:entry.project,destination:{server:'https://kubernetes.default.svc',namespace:entry.namespace},sources:[{repoURL:INFRA_REPOSITORY,path:entry.chart,targetRevision:C,...(entry.renderer==='strimzi-cmp'?{plugin:{name:'pulsemetry-strimzi-v1',env:[{name:'RELEASE_NAME',value:entry.id}]}}:{helm:{releaseName:entry.id,ignoreMissingValueFiles:false,valueFiles:[...entry.staticValues.map(file=>posix.relative(entry.chart,file)),...(entry.generatedFile?[`$values/dev/generated/${entry.generatedFile}`]:[])]}})},...(entry.generatedFile?[{repoURL:VALUES_REPOSITORY,ref:'values',targetRevision:'a'.repeat(40)}]:[])],syncPolicy:{automated:{enabled:true,selfHeal:true,prune:false,allowEmpty:false},retry:{limit:0}}}})]));
  const result=await publishPrepared({store,expectedHead:await store.refresh(),snapshot:makeSnapshot(generated,bundle.bytes,producer,C),applications,infraCommit:C});
  return {dir,remote,store,bundle,producer,generated,applications,result};
 }
