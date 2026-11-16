@@ -354,7 +354,8 @@ export function generateValues(document, images, runtimeInput, mskBootstrapText,
     // 구 CDK output으로도 먼저 Helm TGB를 제거할 수 있다. ClickHouse 공개 TG 참조는 소비하지 않는다. (ADR-0038)
     'clickhouse.yaml': { availabilityZone: zone, observability: { enabled: true },
       ...(runtime.clickhouse?.metricLog ? { metricLog: runtime.clickhouse.metricLog } : {}),
-      ...(runtime.clickhouse?.imageDigest ? { imageDigest: runtime.clickhouse.imageDigest } : {}) },
+      ...(runtime.clickhouse?.imageDigest ? { imageDigest: runtime.clickhouse.imageDigest } : {}),
+      ...(runtime.clickhouse?.resources ? { resources: runtime.clickhouse.resources } : {}) },
     'fluent-bit.yaml': { env: [{ name: 'AWS_REGION', value: region }, { name: 'APPLICATION_LOG_GROUP', value: required('ApplicationLogGroupName') }, { name: 'OBSERVABILITY_LOG_GROUP', value: required('ObservabilityLogGroupName') }, { name: 'CLUSTER_NAME', value: clusterName }] },
     'ascp.yaml': { awsRegion: region },
     'observability.yaml': { global: { pulsemetry: {
