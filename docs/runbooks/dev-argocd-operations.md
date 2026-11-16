@@ -356,6 +356,10 @@ root는 leaf보다 오래 유효해야 하며 root/leaf 각각의 만료·갱신
 
 ### 2.2 동일성 비교와 첫 sync
 
+관측 Application은 `ServerSideDiff=true,IncludeMutationWebhook=true`를 사용한다. Argo 3.5의 SSA 기본
+Structured-Merge Diff는 관측 CRD의 서버 기본값을 차이로 남길 수 있으므로 Kubernetes dry-run 결과로
+비교한다. webhook 적용 결과도 포함하며 `ignoreDifferences` 범위를 넓히지 않는다.
+
 1. 기존 release마다 Application 하나를 준비한다. 기존 `releaseName`, namespace, 값 파일 순서를 유지하고
    Argo의 annotation 기반 resource tracking을 사용한다. 기존 `app.kubernetes.io/instance`와 selector를
    Argo Application 이름에 맞추려고 변경하지 않는다.

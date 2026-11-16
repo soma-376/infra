@@ -81,7 +81,11 @@ function childDefinition(entry, inventory, input, snapshot) {
     apiVersion: 'argoproj.io/v1alpha1', kind: 'Application',
     metadata: {
       name: entry.name, namespace: 'argocd',
-      annotations: { ...annotations(), 'argocd.argoproj.io/sync-wave': String(entry.wave), 'pulsemetry.io/definition-id': entry.id },
+      annotations: {
+        ...annotations(), 'argocd.argoproj.io/sync-wave': String(entry.wave), 'pulsemetry.io/definition-id': entry.id,
+        // 관측 CRD의 서버 기본값을 비교한다. SSA의 Structured-Merge Diff 오탐을 피하고 webhook도 반영한다.
+        ...(entry.id === 'observability' ? { 'argocd.argoproj.io/compare-options': 'ServerSideDiff=true,IncludeMutationWebhook=true' } : {}),
+      },
     },
     spec: {
       project: entry.project, sources,
