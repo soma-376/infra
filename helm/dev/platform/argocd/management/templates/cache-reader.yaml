@@ -1,0 +1,30 @@
+{{- /* Argo 3.5 cache는 등록 namespace 전체에 같은 종류의 list/watch를 수행한다. */ -}}
+{{- /* 특정 namespace의 조회 거부가 전체 cache 초기화를 막지 않도록 읽기 범위만 맞춘다. */ -}}
+{{- range $namespace := list "argocd" "kube-system" "cert-manager" "pulsemetry-dev" "pulsemetry-dev-logs" "pulsemetry-observability" "strimzi-system" }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argocd-dev-cache-reader
+  namespace: {{ $namespace }}
+rules:
+  {{- range $item := list (list "" "pods" "services" "endpoints" "configmaps" "secrets" "serviceaccounts" "persistentvolumeclaims" "events") (list "apps" "deployments" "replicasets" "statefulsets" "daemonsets" "controllerrevisions") (list "batch" "jobs") (list "rbac.authorization.k8s.io" "roles" "rolebindings") (list "networking.k8s.io" "networkpolicies") (list "policy" "poddisruptionbudgets") (list "secrets-store.csi.x-k8s.io" "secretproviderclasses") (list "elbv2.k8s.aws" "targetgroupbindings") (list "kafka.strimzi.io" "kafkas" "kafkanodepools" "kafkatopics" "kafkausers") (list "monitoring.coreos.com" "prometheuses" "servicemonitors" "podmonitors" "prometheusrules") (list "cert-manager.io" "certificates" "issuers" "certificaterequests") (list "argoproj.io" "applications" "applicationsets" "appprojects") }}
+  - apiGroups: [{{ first $item | quote }}]
+    resources: {{ rest $item | toJson }}
+    verbs: [get, list, watch]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argocd-dev-cache-reader
+  namespace: {{ $namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argocd-dev-cache-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ $.Values.controllerServiceAccount }}
+    namespace: argocd
+{{- end }}
