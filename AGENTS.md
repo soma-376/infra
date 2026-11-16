@@ -151,7 +151,7 @@ ingest와 offset-admin의 Kafka Group Read는 commit/reset을 함께 허용한�
 [ADR-0048](docs/adr/0048-dev-cloudformation-cicd.md)·[운영 런북](docs/runbooks/dev-cloudformation-cicd.md)은
 PROJ-270 문서 → PROJ-271 IAM → PROJ-272 workflow 순서의 도입 계약이다. 문서·코드·로컬 검증과
 실제 관리자 설정·AWS 배포는 구분한다. 기존 앱 역할 4개를 유지하고 infra diff/deploy 역할 2개를 더한다.
-PROJ-259 도입 당시 `DeployStack` 역할은 앱 4개·infra 2개로 총 6개다. ADR-0060 랜딩 역할 1개와 PROJ-311의 분리된 승격 역할 1개를 더한 현재 코드 기준은 총 8개이며 `env=cicd`는 계속 관리자 수동 배포다.
+PROJ-259 도입 당시 `DeployStack` 역할은 앱 4개·infra 2개로 총 6개다. ADR-0060 랜딩 역할 1개와 PROJ-311의 backend 승격 역할·infra 설정 게시 역할을 더한 현재 코드 기준은 총 9개이며 `env=cicd`는 계속 관리자 수동 배포다. infra 설정 게시 역할은 `infra-dev-gitops`의 조회·전용 reader assume만 허용하며 실제 배포와 운영 수락은 별도다.
 PR과 CD plan은 AWS baseline을 읽은 뒤 local `cdk diff --template`을 실행한다. CD는 plan →
 Environment 승인 → 같은 SHA·Assembly 배포 순서이고, 최신 SHA·baseline·artifact 해시가 다르면 중단한다.
 경로 필터 밖 변경으로 계획이 오래되면 develop 전용 `workflow_dispatch`로 새 plan·승인을 진행한다.
@@ -478,7 +478,7 @@ dev WAF는 ALB 전체에 적용한다. 국가·악성 IP·URI·헤더 Block, 정
 
 | 스택 | 파일 | 주요 리소스 |
 |---|---|---|
-| `DeployStack` | `lib/cicd/deploy-stack.ts` | GitHub OIDC 공급자 1개(**RETAIN**), 기존 앱 역할 4개·ADR-0048 infra 역할 2개·ADR-0060 랜딩 역할 1개·PROJ-311 별도 GitOps 승격 역할 1개와 ARN output, 현재 총 8개 |
+| `DeployStack` | `lib/cicd/deploy-stack.ts` | GitHub OIDC 공급자 1개(**RETAIN**), 기존 앱 역할 4개·ADR-0048 infra 역할 2개·ADR-0060 랜딩 역할 1개·PROJ-311 backend 승격·infra 설정 게시 역할 2개와 ARN output, 현재 총 9개 |
 
 앱 인프라를 전혀 참조하지 않으므로 **언제든 따로 배포할 수 있다.** `cdk deploy --all`(무인자 = prod)은 이 스택을 앱 트리에 담지 않으므로 건드리지 않고, `-c env=cicd`로 `--all`을 돌려도 운영 4스택은 조립되지 않는다. IAM 변경과 앱 인프라 변경이 서로 다른 배포에 속하는 것이 이 분리의 목적이다 (ADR-0024 1번).
 

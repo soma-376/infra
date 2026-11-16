@@ -143,7 +143,7 @@ describe('DeployStack', () => {
       );
 
       imported.resourceCountIs('AWS::IAM::OIDCProvider', 0);
-      imported.resourceCountIs('AWS::IAM::Role', 8);
+      imported.resourceCountIs('AWS::IAM::Role', 9);
 
       for (const role of Object.values(
         imported.findResources('AWS::IAM::Role'),
@@ -160,8 +160,8 @@ describe('DeployStack', () => {
   // 신뢰 정책 - 배포 권한의 실질적 경계
   // ============================================================
   describe('신뢰 정책', () => {
-    test('기존 앱 역할 4개와 infra dev 역할 2개, 랜딩 역할 1개, GitOps 게시 역할 1개를 분리한다', () => {
-      template.resourceCountIs('AWS::IAM::Role', 8);
+    test('기존 앱 역할 4개와 infra dev 역할 2개, 랜딩 역할 1개, GitOps 역할 2개를 분리한다', () => {
+      template.resourceCountIs('AWS::IAM::Role', 9);
       expect(Object.keys(deploy.deployRoles)).toHaveLength(4);
       expect(Object.values(deploy.deployRoles).map(role => deploy.resolve(role.roleArn))).toEqual(
         expect.arrayContaining(ALL_ROLES.map(name => ({ 'Fn::GetAtt': [roleResource(name)[0], 'Arn'] }))),
@@ -487,7 +487,7 @@ describe('DeployStack', () => {
   });
 
   // 앱 레포에 넘겨줄 값. 논리 ID 가 바뀌면 핸드오프 문서가 낡는다.
-  test('기존 역할 ARN 4개와 infra dev ARN 2개에 랜딩 ARN과 GitOps 게시 ARN을 더한다', () => {
+  test('기존 역할 ARN 4개와 infra dev ARN 2개에 랜딩 ARN과 GitOps ARN 2개를 더한다', () => {
     const outputs = template.findOutputs('*');
     expect(Object.keys(outputs).sort()).toEqual([
       'AiTelemetryPipelineDevDeployRoleArn',
@@ -495,6 +495,7 @@ describe('DeployStack', () => {
       'GitOpsPromotionRoleArn',
       'InfraDevDeployRoleArn',
       'InfraDevDiffRoleArn',
+      'InfraGitOpsRoleArn',
       'PulsemetryBackendDevDeployRoleArn',
       'PulsemetryBackendProdDeployRoleArn',
       'PulsemetryLandingProdDeployRoleArn',

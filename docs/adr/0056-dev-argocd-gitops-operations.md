@@ -147,6 +147,14 @@ V(private generated snapshot commit), P(protected main의 배포 선택 commit)�
 
 ### 4. Strimzi 렌더와 자격증명 경계
 
+infra 설정 게시·최초 초기화는 `infra-dev-gitops` Environment와 전용
+`soma-376-infra-dev-gitops` 역할을 사용한다. 이 역할은 네 dev 스택·네 ECR 조회와 기존
+values-reader/observer 역할 assume만 허용한다. 두 읽기 역할은 기존 호출자를 보존하고 이 정확한
+역할 하나를 추가로 신뢰한다. CloudFormation 변경·Kubernetes 쓰기·Secret 원문 조회는 추가하지 않는다.
+수동 workflow는 `develop`의 검토된 자기 SHA만 실행하며 다른 입력 SHA의 코드를 실행하지 않는다.
+root 등록은 기존 operator가 별도로 수행한다. 실제 역할 배포·Environment 설정·상호 운용 수락은
+코드 구현과 구분하며, 준비 전 `infraPublisherAccepted`를 활성화하지 않는다.
+
 Operator Application만 sidecar Config Management Plugin(CMP)으로 렌더한다. 동일 C의 vendor archive·
 checksum·values·post-render script와 Helm 3.22.0을 사용하고 CRD를 포함한다. renderer의 Operator 개수·
 namespace·원래 감시 목록 검증과 `pulsemetry-dev`로의 축소를 보존한다. 렌더 오류·checksum 불일치·빈 출력은

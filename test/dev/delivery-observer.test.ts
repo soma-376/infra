@@ -30,7 +30,10 @@ describe('PROJ-311 게시·관측 역할 경계', () => {
   });
   test('EKS observer는 Secret 읽기·SSM 임의명령·클러스터 관리 정책을 갖지 않는다', () => {
     const { role, actions } = rolePolicies(eks, D.observerRoleName);
-    expect(role.AssumeRolePolicyDocument.Statement[0].Principal.AWS).toBe(`arn:aws:iam::${TEST_ENV.account}:role/${D.promotionRoleName}`);
+    expect(role.AssumeRolePolicyDocument.Statement[0].Principal.AWS).toEqual([
+      `arn:aws:iam::${TEST_ENV.account}:role/${D.promotionRoleName}`,
+      `arn:aws:iam::${TEST_ENV.account}:role/${D.infraRoleName}`,
+    ]);
     expect(actions).toEqual(['eks:DescribeCluster', 'ssm:ResumeSession', 'ssm:StartSession', 'ssm:StartSession', 'ssm:TerminateSession', 'ssmmessages:OpenDataChannel']);
     expect(role.ManagedPolicyArns).toBeUndefined();
     eks.hasResourceProperties('AWS::EKS::AccessEntry', { KubernetesGroups: [D.kubernetesGroup], Type: 'STANDARD' });

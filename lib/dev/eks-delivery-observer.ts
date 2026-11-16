@@ -1,5 +1,5 @@
 import { CfnAccessEntry, CfnCluster } from 'aws-cdk-lib/aws-eks';
-import { ArnPrincipal, PolicyStatement, Role } from 'aws-cdk-lib/aws-iam';
+import { ArnPrincipal, CompositePrincipal, PolicyStatement, Role } from 'aws-cdk-lib/aws-iam';
 import { ArnFormat, Duration, Stack } from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
 import { DELIVERY_CONTRACT as D } from '../common/delivery-contract';
@@ -17,7 +17,10 @@ export class DevEksDeliveryObserver extends Construct {
     this.role = new Role(this, 'Role', {
       roleName: D.observerRoleName, description: 'Read-only dev GitOps EKS observer',
       maxSessionDuration: Duration.hours(1),
-      assumedBy: new ArnPrincipal(arn('iam', 'role', D.promotionRoleName, '')),
+      assumedBy: new CompositePrincipal(
+        new ArnPrincipal(arn('iam', 'role', D.promotionRoleName, '')),
+        new ArnPrincipal(arn('iam', 'role', D.infraRoleName, '')),
+      ),
     });
     this.role.addToPolicy(new PolicyStatement({ actions: ['eks:DescribeCluster'], resources: [props.cluster.attrArn] }));
     new CfnAccessEntry(this, 'Access', { clusterName: props.cluster.ref, principalArn: this.role.roleArn,

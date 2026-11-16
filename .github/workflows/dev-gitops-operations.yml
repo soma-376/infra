@@ -1,0 +1,112 @@
+name: Dev GitOps Operations
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: '검토 자료를 먼저 생성하고 동일 source에서 게시한다.'
+        required: true
+        type: choice
+        options: [review-config, publish-config]
+      request_ref:
+        description: 'private 입력 저장소의 검토된 full commit SHA'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: infra-dev-gitops
+  cancel-in-progress: false
+
+jobs:
+  operate:
+    if: github.repository == 'soma-376/infra' && github.ref == 'refs/heads/develop'
+    environment: infra-dev-gitops
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_REGION: ap-northeast-2
+      AWS_EC2_METADATA_DISABLED: 'true'
+      INFRA_GITOPS_ENABLED: ${{ vars.INFRA_GITOPS_ENABLED }}
+      OPERATION: ${{ inputs.operation }}
+      REQUEST_REF: ${{ inputs.request_ref }}
+    steps:
+      - name: Validate protected invocation
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_WORKFLOW_REF" = soma-376/infra/.github/workflows/dev-gitops-operations.yml@refs/heads/develop
+          test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
+          [[ "$REQUEST_REF" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]]
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Install pinned tools
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gitops-tools"
+          cd "$RUNNER_TEMP/gitops-tools"
+          curl --fail --silent --show-error --location --retry 3 https://get.helm.sh/helm-v3.22.0-linux-amd64.tar.gz -o helm.tgz
+          echo '1e4ab49e429626cf6c6958d914248b78c9730803c2751b87627e171dc800e7bb  helm.tgz' | sha256sum --check
+          tar -xzf helm.tgz
+          echo "HELM_BIN=$RUNNER_TEMP/gitops-tools/linux-amd64/helm" >> "$GITHUB_ENV"
+          curl --fail --silent --show-error --location --retry 3 https://s3.amazonaws.com/session-manager-downloads/plugin/1.2.896.0/ubuntu_64bit/session-manager-plugin.deb -o plugin.deb
+          echo '53f51fcc67314a4bf85888a38a3967cd41f8d0f28a60a9469a63acf935ba713e  plugin.deb' | sha256sum --check
+          sudo dpkg -i plugin.deb
+          test "$(session-manager-plugin --version)" = '1.2.896.0'
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Create private publisher token
+        id: publisher
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ vars.GITOPS_PUBLISHER_APP_ID }}
+          private-key: ${{ secrets.GITOPS_PUBLISHER_PRIVATE_KEY }}
+          owner: soma-376
+          repositories: infra-generated-values
+          permission-contents: write
+      - name: Checkout reviewed input data
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: soma-376/infra-generated-values
+          ref: ${{ inputs.request_ref }}
+          token: ${{ steps.publisher.outputs.token }}
+          path: .gitops-input
+          persist-credentials: false
+      - name: Move private data outside source checkout
+        run: mv .gitops-input "$RUNNER_TEMP/gitops-input"
+      - name: Assume infra GitOps read role
+        uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c # v4
+        with:
+          role-to-assume: ${{ vars.INFRA_GITOPS_ROLE_ARN }}
+          aws-region: ap-northeast-2
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          role-duration-seconds: 3600
+          role-session-name: infra-gitops-${{ github.run_id }}
+      - name: Review or publish selected operation
+        env:
+          VALUES_GH_TOKEN: ${{ steps.publisher.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/dev-gitops/operations.mjs "$OPERATION" "$RUNNER_TEMP/gitops-input/dev/operations" "$RUNNER_TEMP/gitops-output"
+      - name: Preserve private review
+        if: inputs.operation == 'review-config'
+        env:
+          VALUES_GH_TOKEN: ${{ steps.publisher.outputs.token }}
+        run: node scripts/dev-gitops/preserve-review.mjs "$RUNNER_TEMP/gitops-output"
+      # private values는 공개 Actions artifact나 로그로 내보내지 않는다.
+      - name: Record result
+        if: always()
+        run: echo "Dev GitOps operation $OPERATION finished. Review data is preserved only in the private review branch when that step succeeds." >> "$GITHUB_STEP_SUMMARY"

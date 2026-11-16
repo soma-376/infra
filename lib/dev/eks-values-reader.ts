@@ -1,8 +1,9 @@
 import { CfnCluster, CfnAccessEntry } from 'aws-cdk-lib/aws-eks';
-import { ArnPrincipal, PolicyStatement, Role } from 'aws-cdk-lib/aws-iam';
+import { ArnPrincipal, CompositePrincipal, PolicyStatement, Role } from 'aws-cdk-lib/aws-iam';
 import { ArnFormat, Duration, Stack } from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
 import { VALUES_SYNC_CONTRACT } from '../common/values-sync-contract';
+import { DELIVERY_CONTRACT } from '../common/delivery-contract';
 import { DevEksRelay } from './eks-relay';
 
 interface DevEksValuesReaderProps {
@@ -22,10 +23,9 @@ export class DevEksValuesReader extends Construct {
     });
     this.role = new Role(this, 'Role', {
       roleName: VALUES_SYNC_CONTRACT.readerRoleName,
-      assumedBy: new ArnPrincipal(stack.formatArn({
-        service: 'iam', region: '', resource: 'role',
-        resourceName: VALUES_SYNC_CONTRACT.deployRoleName, arnFormat: ArnFormat.SLASH_RESOURCE_NAME,
-      })),
+      assumedBy: new CompositePrincipal(...[VALUES_SYNC_CONTRACT.deployRoleName, DELIVERY_CONTRACT.infraRoleName]
+        .map(name => new ArnPrincipal(stack.formatArn({ service: 'iam', region: '', resource: 'role',
+          resourceName: name, arnFormat: ArnFormat.SLASH_RESOURCE_NAME })))),
       description: 'dev EKS metadata reader for generated Helm values',
       maxSessionDuration: Duration.hours(1),
     });

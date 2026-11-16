@@ -17,13 +17,16 @@ describe('generated values 전용 EKS reader', () => {
     'Fn::Join': ['', [`arn:aws:${service}:${TEST_ENV.region}:${TEST_ENV.account}:${resource}/`, { Ref: id }]],
   });
 
-  test('기존 deploy 역할 하나만 reader를 AssumeRole하고 관리 정책은 없다', () => {
+  test('기존 deploy와 전용 infra GitOps 역할만 reader를 AssumeRole하고 관리 정책은 없다', () => {
     expect(role).toBeDefined();
     expect(role![1].Properties).toMatchObject({
       RoleName: roleName, MaxSessionDuration: 3600,
       AssumeRolePolicyDocument: { Statement: [{
         Effect: 'Allow', Action: 'sts:AssumeRole',
-        Principal: { AWS: `arn:aws:iam::${TEST_ENV.account}:role/soma-376-infra-dev-deploy` },
+        Principal: { AWS: [
+          `arn:aws:iam::${TEST_ENV.account}:role/soma-376-infra-dev-deploy`,
+          `arn:aws:iam::${TEST_ENV.account}:role/soma-376-infra-dev-gitops`,
+        ] },
       }] },
     });
     expect(role![1].Properties.ManagedPolicyArns).toBeUndefined();
@@ -63,9 +66,9 @@ describe('generated values 전용 EKS reader', () => {
     template.resourceCountIs('AWS::EKS::AccessEntry', 4);
   });
 
-  test('DeployStack은 랜딩·GitOps 역할을 포함한 8개이며 perf에는 reader를 만들지 않는다', () => {
+  test('DeployStack은 랜딩·GitOps 역할을 포함한 9개이며 perf에는 reader를 만들지 않는다', () => {
     const cicd = Template.fromStack(buildCicdApp().deploy);
-    cicd.resourceCountIs('AWS::IAM::Role', 8);
+    cicd.resourceCountIs('AWS::IAM::Role', 9);
     const perf = Template.fromStack(buildPerfApp().eks);
     expect(Object.values(perf.findResources('AWS::IAM::Role')).some(value => value.Properties.RoleName === roleName)).toBe(false);
   });

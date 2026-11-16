@@ -69,12 +69,14 @@ owner/generation/HEAD를 검사하고 **현재 P/V를 재관측**한다. 새 V/P
 ### 1.2 설정 publisher의 공통 처리와 미완료 실행 경로
 
 `scripts/dev-gitops/configure.mjs`의 `configure`는 준비된 설정 후보를 게시하는 공통 함수다.
-실제 AWS 입력 수집·생성기를 실행하는 workflow나 전용 infra GitOps IAM 경로는 아직 없으므로,
-이 함수와 로컬 bare Git 테스트의 성공을 운영 수락 또는 `infraPublisherAccepted=true`의 근거로 삼지 않는다.
+`config-runtime.mjs`가 같은 고정 source의 입력 수집·생성·Helm 검증을 연결하고,
+`dev-gitops-operations.yml`이 보호된 `develop`의 수동 설정 검토·게시 경로를 제공한다.
+전용 IAM 역할·workflow·Environment는 실제 배포/등록이 선행돼야 한다. 로컬 bare Git 테스트의 성공을
+운영 수락 또는 `infraPublisherAccepted=true`의 근거로 삼지 않는다.
 기존 PROJ-279 사본 writer를 다시 켜거나 가상 workflow/run 식별자를 넣어 이 단계를 우회하지 않는다.
 
 호출자는 `store`, 고정 full SHA인 `sourceCommit`, 정확한 `dev/generated/*.yaml` 13개의 문자열 Map인
-`candidate`, 실제 infra 실행의 `owner`, `validateCandidate`, `observe`를 제공한다. CLI 진입점은 없다.
+`candidate`, 실제 infra 실행의 `owner`, `validateCandidate`, `observe`를 제공한다.
 검토 자료에는 선택한 인프라 SHA, 현재 private HEAD·선택 V/B, 후보 13개 hash와 diff, 생성·렌더 검증 결과를
 함께 남긴다. 이 함수가 후보를 생성하거나 그 출처를 독립적으로 증명해 주지는 않는다.
 
@@ -88,6 +90,29 @@ Helm/schema 검증, 비밀 원문 부재를 확인하고 출처나 baseline이 �
 예상 HEAD/P를 재확인하면서 config 잠금 → V → P → 상태 연결 → Argo 관측 순서로 진행한다.
 성공하면 새 C의 `lastKnownGood`과 `idle`을 기록한다. 실패·관측 불명은 owner와 선택을 보존한
 `blocked`이며 이미지 rollback을 하지 않는다. V 뒤 P 전에 실패하면 이전 선택은 유지된다.
+
+### 1.3 보호된 infra 실행 경로 준비
+
+`DeployStack`의 `soma-376-infra-dev-gitops`를 관리자 경로로 먼저 배포하고, dev EKS의 기존
+observer·values-reader가 이 정확한 역할을 추가로 신뢰하도록 승인된 CDK 경로로 적용한다.
+새 역할은 네 스택/ECR 조회와 두 reader assume만 허용한다. Kubernetes 쓰기·Secret 원문 조회·CDK 배포는 없다.
+`infra-dev-gitops` Environment는 develop만 허용하고 필수 reviewer·자기 승인 방지·관리자 우회 차단을 둔다.
+Variables는 `AWS_ACCOUNT_ID`, `INFRA_GITOPS_ROLE_ARN`, `GITOPS_PUBLISHER_APP_ID`,
+`INFRA_GITOPS_ENABLED`(기본 false), Secret은 기존 전용 publisher App의 `GITOPS_PUBLISHER_PRIVATE_KEY`다.
+원문 키는 기존 승인된 운영자 경로로 등록하며 코드/로그에 복사하지 않는다.
+
+새 workflow는 default branch에 등록된 뒤 실행한다. 임의 tooling SHA 입력을 받지 않고 실행 workflow와
+동일한 `GITHUB_SHA`의 코드를 사용한다. private 입력 checkout은 데이터로만 읽고 source 바깥으로 옮긴다.
+`review-config`는 현재 선택 V의 이미지를 보존한 13개 파일과 hash를 생성한 뒤
+`review/infra-config-<run>-<attempt>`라는 새 private branch에 보관한다. main·배포 선택은 변경하지 않는다.
+검토 branch의 full SHA를 다음 `publish-config`의 `request_ref`로 전달한다. 게시 시 source·main HEAD·B·
+13개 hash가 같은지 검사하고, 입력과 metadata를 재조회한다. 하나라도 바뀌면 새 검토가 필요하다.
+검토 자료를 공개 Actions artifact로 올리지 않는다.
+
+이 workflow는 아직 최초 root/CAS 초기화를 호출하지 않는다. 기존 `initialize.mjs`는 수락 증거와
+정확한 infra 실행 identity를 요구한다. 정상 B를 실제 인수하고 별도 설정 publisher 상호 운용과
+초기화 입력의 동일 source 렌더 검증을 수락한 뒤, 전용 초기화 실행 경로를 추가한다.
+readiness를 임의로 true로 채우거나 다른 workflow run을 owner로 꾸미지 않는다.
 
 ## 2. 생산과 승격의 분리
 
