@@ -88,6 +88,15 @@ export function createInfraDevRoles(scope: Construct, oidcProvider: IOidcProvide
       resourceName: VALUES_SYNC_CONTRACT.readerRoleName, arnFormat: ArnFormat.SLASH_RESOURCE_NAME,
     })],
   }));
+  // ADR-0062: 별도 수동 Kafka workflow만 기존 EKS 운영자로 실행한다.
+  deploy.addToPolicy(new PolicyStatement({
+    sid: 'ManualKafkaOperator',
+    actions: ['sts:AssumeRole'],
+    resources: [stack.formatArn({
+      service: 'iam', region: '', resource: 'role',
+      resourceName: 'soma-376-dev-eks-operator', arnFormat: ArnFormat.SLASH_RESOURCE_NAME,
+    })],
+  }));
   deploy.addToPolicy(new PolicyStatement({
     sid: 'ExistingBootstrapRoles',
     actions: ['sts:AssumeRole'],

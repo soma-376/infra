@@ -1,0 +1,122 @@
+name: Dev Kafka Offsets
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '계획 확인 또는 offset 변경 실행'
+        type: choice
+        options: [plan, execute]
+        default: plan
+        required: true
+      partition:
+        description: '단일 partition 번호 (to_offset과 함께 입력)'
+        type: string
+        required: false
+      to_offset:
+        description: '단일 partition의 목표 offset'
+        type: string
+        required: false
+      to_datetime:
+        description: '전체 partition의 목표 시각 (예: 2026-11-17T00:00:00.000Z)'
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-kafka-offsets
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  offsets:
+    if: github.repository == 'soma-376/infra' && github.ref == 'refs/heads/develop' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: infra-dev-deploy
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      CDK_DEPLOY_ROLE_ARN: ${{ vars.CDK_DEPLOY_ROLE_ARN }}
+      AWS_EC2_METADATA_DISABLED: 'true'
+      KAFKA_OFFSETS_MODE: ${{ inputs.mode }}
+      KAFKA_OFFSETS_PARTITION: ${{ inputs.partition }}
+      KAFKA_OFFSETS_TO_OFFSET: ${{ inputs.to_offset }}
+      KAFKA_OFFSETS_TO_DATETIME: ${{ inputs.to_datetime }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: AWS 인증 전 입력 검증
+        run: node scripts/dev-kafka-offsets.mjs validate
+      - name: 고정 Helm 준비
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/helm"
+          cd "$RUNNER_TEMP/helm"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://get.helm.sh/helm-v3.22.0-linux-amd64.tar.gz \
+            -o helm-v3.22.0-linux-amd64.tar.gz
+          echo '1e4ab49e429626cf6c6958d914248b78c9730803c2751b87627e171dc800e7bb  helm-v3.22.0-linux-amd64.tar.gz' | sha256sum --check
+          tar -xzf helm-v3.22.0-linux-amd64.tar.gz
+          echo "HELM_BIN=$RUNNER_TEMP/helm/linux-amd64/helm" >> "$GITHUB_ENV"
+      - name: 고정 kubectl 준비
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/kubectl"
+          cd "$RUNNER_TEMP/kubectl"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://dl.k8s.io/release/v1.36.0/bin/linux/amd64/kubectl -o kubectl
+          curl --fail --silent --show-error --location --retry 3 \
+            https://dl.k8s.io/release/v1.36.0/bin/linux/amd64/kubectl.sha256 -o kubectl.sha256
+          echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
+          chmod 755 kubectl
+          echo "$RUNNER_TEMP/kubectl" >> "$GITHUB_PATH"
+      - name: 고정 Session Manager plugin 준비
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/session-manager-plugin"
+          cd "$RUNNER_TEMP/session-manager-plugin"
+          # AWS 공식 1.2.896.0 패키지의 서명을 검증한 기존 배포 workflow와 같은 hash다.
+          curl --fail --silent --show-error --location --retry 3 \
+            https://s3.amazonaws.com/session-manager-downloads/plugin/1.2.896.0/ubuntu_64bit/session-manager-plugin.deb \
+            -o session-manager-plugin.deb
+          echo '53f51fcc67314a4bf85888a38a3967cd41f8d0f28a60a9469a63acf935ba713e  session-manager-plugin.deb' | sha256sum --check
+          sudo dpkg -i session-manager-plugin.deb
+          test "$(session-manager-plugin --version)" = '1.2.896.0'
+      - name: 기존 dev 배포 역할 인증
+        uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c # v4
+        with:
+          role-to-assume: ${{ env.CDK_DEPLOY_ROLE_ARN }}
+          aws-region: ap-northeast-2
+          allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
+          role-duration-seconds: 3600
+          role-session-name: kafka-offsets-prepare-${{ github.run_id }}
+      - name: 현재 dev EKS 대상 조회
+        id: target
+        run: node scripts/dev-kafka-offsets.mjs prepare
+      - name: 기존 dev EKS operator 역할 전환
+        uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c # v4
+        with:
+          role-to-assume: ${{ steps.target.outputs.operator_role_arn }}
+          role-chaining: true
+          role-skip-session-tagging: true
+          aws-region: ap-northeast-2
+          allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
+          role-duration-seconds: 3600
+          role-session-name: kafka-offsets-${{ github.run_id }}
+      - name: 수동 offset Job 실행 및 결과 확인
+        run: node scripts/dev-kafka-offsets.mjs run

@@ -257,6 +257,36 @@ Job은 활성 group을 거부하고 CLI `Error:` 출력·CSV 결과·실행 후 
 PKCS12 password는 Job 안에서만 읽고 memory emptyDir의0600 properties에 쓴 뒤 삭제한다.
 실행 Job의 이름 충돌을 피하려면 같은 release를 upgrade하여 revision을 올린다. 앱 consumer를 재개한 후 결과를 확인한다.
 
+### 5.1 PROJ-288 수동 workflow
+
+[ADR 0062](../adr/0062-dev-kafka-offset-workflow.md)의
+[`Dev Kafka Offsets`](../../.github/workflows/dev-kafka-offsets.yml)를 `develop`에서 수동 실행한다.
+대상은 현재 dev Strimzi main이다. validation·perf·MSK와 topic 초기화는 이 workflow에서 실행하지 않는다.
+
+최초 실행 전에 관리자 절차로 변경한 `DeployStack`을 cicd 환경에 배포해야 한다. 기존
+`infra-dev-deploy` Environment의 `AWS_ACCOUNT_ID`·`CDK_DEPLOY_ROLE_ARN`, 승인자와 develop branch 보호도
+확인한다. workflow는 이 역할에서 기존 EKS operator의 cluster-admin 권한을 assume한다.
+로컬 테스트 통과만으로 이 권한 배포나 Actions 접속이 완료된 것은 아니다.
+수동 실행 버튼을 사용하려면 workflow 파일이 저장소 default branch에도 반영되어 있어야 한다.
+
+1. [Argo 유지보수 절차](dev-argocd-simple-auto-sync.md)에 따라 대상 자동화와 필요한 publisher를 중지하고
+   root 반영·진행 operation 종료를 확인한다. 모든 consumer를 중지한다. workflow는 이 작업을 대신하지 않는다.
+2. Actions에서 workflow를 선택하고 branch를 `develop`, `mode`를 기본값 `plan`으로 둔다.
+   `partition`(0~5)과 `to_offset`(0 이상)을 함께 입력하거나, 둘을 비우고
+   `to_datetime`(예: `2026-11-17T00:00:00.000+09:00`)만 입력한다.
+3. `infra-dev-deploy` 승인 후 생성한 Job 로그의 `topic,partition,offset` CSV를 확인한다.
+   workflow는 현재 AWS output과 Secret metadata로 입력을 만들며 private values 저장소를 읽거나 수정하지 않는다.
+4. 결과가 의도한 범위이면 같은 입력으로 `mode=execute`를 별도 실행하고 승인한다.
+   기존 Job이 활성 group·CLI 오류·실행 후 committed offset 불일치를 검사한다. 두 실행 사이 Kafka 보존 상태가
+   달라질 수 있으므로 execute 로그의 실제 결과도 확인한다.
+5. consumer를 재개하고 수집 결과를 확인한 뒤 Argo 자동화와 중지한 publisher를 복원한다.
+
+workflow는 고정 chart에서 `telemetry-kafka-offsets` ServiceAccount와 offset Job만 선택한다.
+ServiceAccount는 없을 때만 생성하고 기존 객체는 변경하지 않는다. Job은 고유 이름으로 한 번 생성하며
+성공·실패 로그를 Actions에 남긴다. 실패 시 자동 재시도·offset rollback·consumer 재개는 하지 않는다.
+원인을 확인한 뒤 운영자가 다시 실행한다. 생성한 Job은 기존 chart의 24시간 TTL로 정리된다.
+Secret 원문·임시 credential·kubeconfig를 로그나 artifact에 남기지 않는다.
+
 ## 6. 복구와 MSK 단계별 제거
 
 실패하면 ingest의 `http` 또는 main `dual` 수신기·TGB를 먼저 복구하고 직접 서비스·NodePort 응답, Pod Ready와 target 등록을 확인한 뒤 ALB OTLP target을 ingest로 돌린다. JWT·DB·S3·ClickHouse 설정은 보존한다.

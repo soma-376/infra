@@ -15,6 +15,7 @@ on:
       - 'scripts/eks-values.mjs'
       - 'scripts/dev-cdk-pipeline.mjs'
       - 'scripts/dev-cdk-pipeline.cjs'
+      - 'scripts/dev-kafka-offsets.mjs'
       - 'helm/dev/platform/base/**'
       - 'test/helm/values-reader-rbac.test.ts'
       - 'test/dev/**'
@@ -27,11 +28,14 @@ on:
       - 'test/scripts/validate-generated-values.test.ts'
       - 'test/scripts/fixtures/backend-image-publication.json'
       - 'test/workflows/dev-cdk.test.ts'
+      - 'test/scripts/dev-kafka-offsets.test.ts'
+      - 'test/workflows/dev-kafka-offsets.test.ts'
       - 'package*.json'
       - 'cdk.json'
       - 'tsconfig.json'
       - 'jest.config.js'
       - '.github/workflows/dev-cdk-*.yml'
+      - '.github/workflows/dev-kafka-offsets.yml'
 
 permissions:
   contents: read
@@ -74,7 +78,7 @@ jobs:
           tar -xzf helm-v3.22.0-linux-amd64.tar.gz
           echo "HELM_BIN=$RUNNER_TEMP/helm/linux-amd64/helm" >> "$GITHUB_ENV"
       - name: CDK·배포 경계 검증
-        run: npm test -- --runInBand test/dev test/prod test/cicd test/scripts/dev-cdk-pipeline.test.ts test/scripts/backend-image-inputs.test.ts test/scripts/dev-generated-values-inputs.test.ts test/scripts/dev-generated-values-sync.test.ts test/scripts/validate-generated-values.test.ts test/helm/values-reader-rbac.test.ts test/workflows/dev-cdk.test.ts
+        run: npm test -- --runInBand test/dev test/prod test/cicd test/scripts/dev-cdk-pipeline.test.ts test/scripts/backend-image-inputs.test.ts test/scripts/dev-generated-values-inputs.test.ts test/scripts/dev-generated-values-sync.test.ts test/scripts/validate-generated-values.test.ts test/scripts/dev-kafka-offsets.test.ts test/helm/values-reader-rbac.test.ts test/workflows/dev-cdk.test.ts test/workflows/dev-kafka-offsets.test.ts
 
   plan:
     needs: validate
