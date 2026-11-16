@@ -50,6 +50,13 @@ test('수동 인계의 코드·release·비교 설정을 보존하고 root와 ch
   assert.equal(value.root.metadata.finalizers, undefined);
 });
 
+test('Kubernetes가 생략하는 빈 label map은 root 선언에도 넣지 않는다', async t => {
+  const fixture = await repository(t, { handoffOnly: true }), current = input(fixture);
+  for (const app of current.applications) app.metadata.labels = {};
+  const value = prepared(fixture, current);
+  for (const text of value.applications.values()) assert.equal(parse(text).metadata.labels, undefined);
+});
+
 test('누락·중복·다른 code/namespace/source·위험한 sync 정책은 거부한다', async t => {
   const fixture = await repository(t, { handoffOnly: true });
   const invalid = [
