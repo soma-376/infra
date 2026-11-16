@@ -45,6 +45,47 @@ describe('Argo 3.5.7과 같은 gopher-lua 1.1.2의 실제 health 실행', () => 
     expect(health(single)).toBe('Healthy');
   });
 
+  test.each(['ignoreMissingValueFiles', 'skipCrds', 'skipTests'])('Helm %s의 false 생략은 같고 true 차이는 거부한다', field => {
+    for (const explicitInSpec of [true, false]) {
+      const fixture: any = application();
+      fixture.spec.sources[0].helm = { releaseName: 'app' };
+      fixture.status.sync.comparedTo.sources[0].helm = { releaseName: 'app' };
+      const explicit = explicitInSpec ? fixture.spec.sources[0] : fixture.status.sync.comparedTo.sources[0];
+      explicit.helm[field] = false;
+      expect(health(fixture)).toBe('Healthy');
+      explicit.helm[field] = true;
+      expect(health(fixture)).toBe('Progressing');
+    }
+  });
+
+  test('단일 source도 Helm false 생략을 허용하되 다른 설정 차이는 유지한다', () => {
+    const fixture: any = application();
+    fixture.spec.source = { ...fixture.spec.sources[0], helm: { releaseName: 'app', skipCrds: false } };
+    fixture.status.sync.comparedTo.source = { ...fixture.status.sync.comparedTo.sources[0], helm: { releaseName: 'app' } };
+    delete fixture.spec.sources;
+    delete fixture.status.sync.comparedTo.sources;
+    fixture.status.sync.revision = fixture.status.sync.revisions[0];
+    delete fixture.status.sync.revisions;
+    expect(health(fixture)).toBe('Healthy');
+    fixture.spec.source.helm.releaseName = 'different';
+    expect(health(fixture)).toBe('Progressing');
+    fixture.spec.source.helm.releaseName = 'app';
+    fixture.spec.source.helm.unrecognized = false;
+    expect(health(fixture)).toBe('Progressing');
+  });
+
+  test('빈 Helm values 목록의 생략만 허용하고 목록 내용과 순서는 대조한다', () => {
+    const fixture: any = application();
+    fixture.spec.sources[0].helm = { releaseName: 'loki', valueFiles: [] };
+    fixture.status.sync.comparedTo.sources[0].helm = { releaseName: 'loki' };
+    expect(health(fixture)).toBe('Healthy');
+    fixture.spec.sources[0].helm.valueFiles = ['a.yaml'];
+    expect(health(fixture)).toBe('Progressing');
+    fixture.spec.sources[0].helm.valueFiles = ['a.yaml', 'b.yaml'];
+    fixture.status.sync.comparedTo.sources[0].helm.valueFiles = ['b.yaml', 'a.yaml'];
+    expect(health(fixture)).toBe('Progressing');
+  });
+
   test.each([
     ['상태 없음', (v: any) => { delete v.status; }, 'Progressing'],
     ['과거 C', (v: any) => { v.status.sync.revisions[0] = 'c'.repeat(40); }, 'Progressing'],

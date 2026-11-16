@@ -13,6 +13,31 @@ local function same(left, right)
   end
   return true
 end
+local function normalizedSource(source)
+  if type(source) ~= "table" then return source end
+  local result = {}
+  for key, value in pairs(source) do result[key] = value end
+  if type(source.helm) == "table" then
+    local helm = {}
+    for key, value in pairs(source.helm) do helm[key] = value end
+    -- Kubernetes spec의 명시적 false는 Argo comparedTo 직렬화에서 생략된다.
+    -- 허용된 Helm 기본값만 정규화하고 true와 나머지 설정 차이는 보존한다.
+    for _, key in ipairs({ "ignoreMissingValueFiles", "skipCrds", "skipTests" }) do
+      if helm[key] == false then helm[key] = nil end
+    end
+    -- values 파일이 없는 chart의 빈 목록도 comparedTo에서 생략된다.
+    if type(helm.valueFiles) == "table" and next(helm.valueFiles) == nil then helm.valueFiles = nil end
+    result.helm = helm
+  end
+  return result
+end
+local function sameSources(left, right)
+  if type(left) ~= "table" or type(right) ~= "table" or #left ~= #right then return false end
+  for index, source in ipairs(left) do
+    if not same(normalizedSource(source), normalizedSource(right[index])) then return false end
+  end
+  return true
+end
 local function immutable(revision)
   -- 생성기가 lowercase SHA 문법을 검증하며 아래에서는 Argo가 적용한 SHA와 정확히 대조한다.
   -- 160bit SHA를 tonumber로 변환하면 gopher-lua 정수 범위를 넘어 정상 SHA도 거부된다.
@@ -58,7 +83,7 @@ local compared = sync.comparedTo or {}
 -- 이전 terminal operation 또는 operation 부재를 허용하고 현재 source·비교 revision·건강 상태를 확인한다.
 if not same(spec.destination, compared.destination) then return state("Progressing", "현재 destination의 비교 결과가 없다") end
 if spec.sources ~= nil then
-  if #spec.sources == 0 or spec.source ~= nil or not same(spec.sources, compared.sources) then
+  if #spec.sources == 0 or spec.source ~= nil or not sameSources(spec.sources, compared.sources) then
     return state("Progressing", "현재 sources의 비교 결과가 없다")
   end
   if type(sync.revisions) ~= "table" or #sync.revisions ~= #spec.sources then return state("Progressing", "source별 revision 증거가 없다") end
@@ -68,7 +93,7 @@ if spec.sources ~= nil then
     end
   end
 elseif spec.source ~= nil then
-  if not immutable(spec.source.targetRevision) or not same(spec.source, compared.source) or sync.revision ~= spec.source.targetRevision then
+  if not immutable(spec.source.targetRevision) or not same(normalizedSource(spec.source), normalizedSource(compared.source)) or sync.revision ~= spec.source.targetRevision then
     return state("Progressing", "원하는 고정 source revision이 적용되지 않았다")
   end
 else

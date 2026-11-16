@@ -35,6 +35,8 @@ function currentApplication(value, entry) {
     value.metadata.name === entry.name && value.metadata.namespace === 'argocd' &&
     stringMap(value.metadata.annotations) && stringMap(value.metadata.labels), 'Application metadata 경계 오류');
   const app = structuredClone(value), spec = app.spec;
+  // Kubernetes가 빈 labels를 생략해 root에 영구 diff가 남지 않도록 정규화한다.
+  if (app.metadata.labels && Object.keys(app.metadata.labels).length === 0) delete app.metadata.labels;
   assert(spec && spec.project === entry.project &&
     equal(spec.destination, { server: 'https://kubernetes.default.svc', namespace: entry.namespace }) &&
     spec.source === undefined && Array.isArray(spec.sources) && spec.sources.length === (entry.generatedFile ? 2 : 1), '현재 Application 대상·source 경계 오류');
