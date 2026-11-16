@@ -85,7 +85,7 @@ describe('dev CDK workflow의 실행·승인 경계', () => {
     expect(permitsPlan({ event_name: event, repository, ref })).toBe(allowed);
   });
 
-  test('CDK·profile·의존성·pipeline 변경은 검사하고 cicd·Helm 전용 변경은 자동 배포하지 않는다', () => {
+  test('CDK·chart·profile·pipeline 변경을 검사하고 prod·cicd는 자동 배포하지 않는다', () => {
     const required = [
       'bin/infra.ts', 'lib/dev/app.ts', 'lib/common/config.ts', 'config/dev/deployment.json',
       'package.json', 'package-lock.json', 'cdk.json', 'tsconfig.json', 'jest.config.js',
@@ -106,7 +106,7 @@ describe('dev CDK workflow의 실행·승인 경계', () => {
       expect(matchesPath(pr.on.pull_request.paths, path)).toBe(true);
       expect(matchesPath(cd.on.push.paths, path)).toBe(false);
     }
-    for (const path of ['docs/adr/0048-dev-cloudformation-cicd.md', 'helm/dev/runtime/values.yaml', 'helm/dev/platform/base/templates/values-reader-rbac.yaml', 'test/helm/values-reader-rbac.test.ts', 'frontend/main.tf']) {
+    for (const path of ['docs/adr/0048-dev-cloudformation-cicd.md', 'test/helm/values-reader-rbac.test.ts', 'frontend/main.tf']) {
       expect(matchesPath(cd.on.push.paths, path)).toBe(false);
     }
   });
@@ -254,23 +254,15 @@ describe('승인된 generated values 사본 workflow', () => {
     expect(job.env.GENERATED_VALUES_SYNC_ENABLED).toBeUndefined();
   });
 
-  test('CD plan의 명시 활성화에만 backend 조회 App token을 만들고 PR에서는 만들지 않는다', () => {
-    const token = action(cd.jobs.plan, 'actions/create-github-app-token');
-    expect(token.uses).toBe('actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349');
-    expect(token.id).toBe('backend-token');
-    expect(token.if).toBe("vars.GENERATED_VALUES_SYNC_ENABLED == 'true'");
-    expect(token.with).toEqual({
-      'app-id': '${{ vars.GENERATED_VALUES_APP_ID }}', 'private-key': '${{ secrets.GENERATED_VALUES_APP_PRIVATE_KEY }}',
-      owner: 'soma-376', repositories: 'pulsemetry-backend', 'permission-actions': 'read', 'permission-contents': 'read',
-    });
-    const plan = command(cd.jobs.plan, 'plan');
-    expect(stepIndex(cd.jobs.plan, token)).toBeLessThan(stepIndex(cd.jobs.plan, plan));
-    expect(plan.env.BACKEND_GH_TOKEN).toBe('${{ steps.backend-token.outputs.token }}');
+  test('설정 plan은 새 backend 이미지 입력을 조회하지 않는다', () => {
+    expect(action(cd.jobs.plan, 'actions/create-github-app-token')).toBeUndefined();
+    expect(command(cd.jobs.plan, 'plan').env.BACKEND_GH_TOKEN).toBeUndefined();
     expect(cd.jobs.plan.env.GENERATED_VALUES_SYNC_ENABLED).toBe('${{ vars.GENERATED_VALUES_SYNC_ENABLED }}');
     for (const job of [pr.jobs.validate, pr.jobs.plan, inputs.jobs.validate]) {
       expect(action(job, 'actions/create-github-app-token')).toBeUndefined();
-      expect(JSON.stringify(job)).not.toMatch(/BACKEND_GH_TOKEN|VALUES_GH_TOKEN|GENERATED_VALUES_APP_PRIVATE_KEY/);
     }
+    expect(cd.on.push.paths).toContain('helm/**');
+    expect(cd.on.push.paths).toContain('scripts/dev-gitops/**');
   });
 
   test('성공한 deploy만 정제 receipt를 업로드하고 원본 hash·artifact ID를 전달한다', () => {

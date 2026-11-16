@@ -68,22 +68,15 @@ ServiceAccount token/CA 원문을 복제하지 않는다. 고정 관측의 비�
 이름과 YAML 빈 배열만 허용하고 해당 이름의 update/patch만 부여한다. 인증값·MSK 설정은 거부한다. 자동 sync·self-heal·prune·allowEmpty와 삭제 finalizer는 끈다.
 H에서는 root·bundle·desired·delivery-state를 만들지 않는다. wave만으로 순서를 보장하지 않으므로 base →
 cert-manager 준비 → LBC/기존 의존성 → enrollment → ingest → Gateway → dashboard를 수동 검증한다.
-PROJ-279 writer 종료, Git 권한/키 회전, 첫 sync·Flyway·수집 기능의 실제 수락과 PROJ-311/infra publisher·CAS는 후속이다.
+이 절의 publisher·CAS 후속 표기는 PROJ-310 당시 범위다. 현재 게시·root 연결은 아래 PROJ-334·335와 허브 ADR 0036을 따른다. Git 권한/키 회전과 기능 수락의 실제 증거는 별도로 기록한다.
 
-## PROJ-311 backend 이미지 승격과 검증 경계
+## PROJ-311·334 backend 이미지와 infra 설정 게시
 
-[ADR 0056](docs/adr/0056-dev-argocd-gitops-operations.md)과 [이미지 승격 런북](docs/runbooks/dev-gitops-image-promotion.md)을 따른다.
-backend가 원본 생산 run/attempt의 네 ARM64 이미지 완료 manifest B를 만들고, 별도 default-branch 승격
-workflow가 검증한 B를 공통 CAS로 선택한다. 기존 ECR push와 보호된 `dev-gitops` 승격 역할을 분리한다.
-공통 infra tooling은 C와 별도의 검토된 SHA로 고정한다. backend에 CDK·Helm·Kubernetes·Argo 쓰기를 주지 않는다.
-image 변경은 현재 C와 generated의 비이미지 바이트를 보존한다. `deliveryVerification` 예외와 앱별 PostSync
-Job은 제거한다. 읽기 전용 observer는 root·18개 child Application의 현재 C/V·Synced·Healthy·진행/현재 실패 operation 부재와
-root revision의 P 이력·현재 desired/Application 파일 일치만 판정한다. Job·Pod·DB·Prometheus·S3·Secret 관측과 전용 probe/DB reader는 제거한다.
-unknown과 현재 operation의 확정 Failed/Error를 구분한다. 확정 실패 시 이전 Argo 정상 B로 한 번 자동 복구하며
-실제 schema/runtime/key/TLS 호환성은 검사하지 않는다. 기능 장애 미탐지·migration 후 비호환 위험을 수용한다.
-nonce는 Git 상태·증거에만 남고 앱 Pod를 재시작하지 않는다. 기능 성공을 Argo 성공으로 표현하지 않는다.
-PROJ-310의 실제 인계·contract를 가진 정상 B·별도 infra 설정 publisher/CAS 운영 수락 전 자동화는 비활성이다.
-H 생성기와 검토용 Application의 기본 비활성은 유지한다. 이번 로컬 작업은 배포·GitHub App 키 등록·private 게시를 수행하지 않는다.
+[ADR 0056](docs/adr/0056-dev-argocd-gitops-operations.md)·[허브 ADR 0036](https://github.com/soma-376/docs/blob/main/adr/0036-simple-dev-git-publication-and-argocd-sync.md)과 [게시 런북](docs/runbooks/dev-gitops-image-promotion.md)을 따른다. PROJ-311의 원본 성공 run/attempt·artifact·네 ARM64 이미지·packaged contract 검증은 유지한다. PROJ-334는 장기 CAS 잠금·Argo observer·자동 이미지 rollback·readiness 수락 대신 짧은 Git 게시를 사용한다.
+
+backend는 현재 infra SHA와 generated의 비이미지 바이트를 보존하며 digest·원본 bundle·producer를 갱신한다. infra는 기존 CDK plan·승인·deploy/receipt 검증 이후 공식 profile/runtime·현재 output·Strimzi metadata로 13개 values를 재생성하고 현재 네 이미지를 보존한다. 두 경로는 values commit과 이를 참조하는 Application commit을 로컬로 만든 뒤 한 번 push한다. 예상 HEAD 충돌은 최신 선택에서 최대 3회 재생성하며 force push하지 않는다.
+
+`dev/desired.yaml` schemaVersion 2는 C/V/B만 기록한다. `delivery-state.json`·`activation.json`·nonce·evidence·lastKnownGood를 새로 만들지 않는다. Git 게시 성공은 Argo나 기능 성공이 아니다. 게시기는 rollout을 기다리지 않으며 연속 변경은 최신 상태로 수렴한다. 기존 입력·이미지 권한을 재사용하고 backend에 Kubernetes·Argo 쓰기를 추가하지 않는다. 코드 구현·스위치 활성화·실제 게시 결과는 구분해 기록한다.
 
 ## PROJ-287 Application·GitHub App 로컬 구성
 
@@ -105,28 +98,11 @@ Git reader는 private `infra-generated-values` 하나에 `Contents: read`로 설
 실제 App 설치·키 등록/회전·Git 권한·CMP 이미지 게시·values 연결·클러스터 sync와 기능 검증은 PROJ-310의 운영 수락이며 이번 로컬 구현과 구분한다.
 PROJ-287에서 private main을 게시하거나 PROJ-279 writer의 GitOps 중단 표식을 만들지 않는다.
 
-## PROJ-280 dev Argo CD GitOps 설계
+## PROJ-280·335 dev Argo CD 연결
 
-[ADR 0056](docs/adr/0056-dev-argocd-gitops-operations.md)와 [운영 런북](docs/runbooks/dev-argocd-operations.md)은
-허브 PROJ-281·backend PROJ-286과 맞춘 Accepted 설계다. PROJ-274는 Argo 설치 기반을 제공하며,
-Argo 설치는 위 PROJ-274의 운영자 확인을 따르며 workflow·Application/CMP·Helm 인계는 후속 구현·검증이다.
-인계 전에는 기존 수동 Helm을 유지한다. 인계 후 전체 대상 Application의 자동 sync·self-heal을 사용하고
-자동 prune은 끈다. Argo 자체는 수동 Helm으로 관리하며 prod·frontend·perf는 대상이 아니다.
-Image Updater 도입은 철회하고 기존 `image.repository` + `image.digest`와 overlay 없는 구성을 유지한다.
-backend는 같은 SHA·run·attempt의 네 ARM64 이미지 생산 workflow가 최종 성공한 뒤 별도 workflow로
-이미지 갱신·롤백을 게시한다. infra는 설정 생성·게시를 담당한다. 이미지 변경은 현재 비이미지 설정을,
-설정 변경은 현재 B를 보존하며 C/B/V/P를 결합해 V 게시 뒤 P에서 desired/Application 참조를 함께 바꾼다.
-두 게시기는 후속 `dev/delivery-state.json`의 owner·generation·기준 P와 예상 main HEAD를 공통 CAS로
-검증한다. 배포·복구 판정까지 잠금을 유지하고 force push·시간 기반 탈취는 하지 않는다.
-현재 이미지 배포의 Argo 확정 실패만 같은 owner가 현재 C·비이미지 설정을 보존한 이전 정상 이미지의 새 V/P로
-한 번 복구한다. 실환경 호환성 검사는 제거하고 그 위험을 수용한다. 관측 불가·설정 실패·정상 B 부재·owner 소실·복구 실패는 보류한다. 일반 이미지 복구는
-Argo sync를 유지한다. 실패 B/동일 이미지 조합은 차단하고 실패 source 이후 develop 후속 commit 및
-실패 기록 뒤 생성된 원본 생산 run의 정상 묶음부터 자동 재개한다. unlock 시 대기 후보를 다시 평가한다.
-Strimzi CMP는 vendor·Helm 3.22.0·post-render 검증을 보존한다. offset reset·키/인증서 교체는 두 게시기와
-필요한 상위/하위 self-heal을 먼저 중지하고 Git 정합·실제 기능 확인 뒤 재개한다. backend에 CDK·Helm·
-Kubernetes·Argo 변경 권한을 추가하지 않는다. Git 게시·현재 revision의 Synced·Healthy·진행/현재 실패 operation 부재를 기록하며
-실제 기능 성공은 자동 배포 판정에 포함하지 않는다.
-기존 Strimzi·관측 완료 근거와 ADR 0039의 Proposed 상태는 유지한다.
+[ADR 0056](docs/adr/0056-dev-argocd-gitops-operations.md)의 Argo 채택·소유권·렌더 경계는 유지하고 게시·복구 정책은 허브 ADR 0036으로 대체한다. PROJ-335는 기존 18개 child와 실제 C/values/이미지를 보존해 private Git에 정착시키고, `main/dev/applications`를 읽는 root를 기존 EKS 운영자 context로 한 번 적용한다. Argo 자체는 수동 Helm 관리이며 prod·frontend·perf는 대상이 아니다.
+
+root와 child는 auto sync·self-heal을 켜고 prune·allowEmpty·삭제 finalizer는 끈다. child의 C/V는 전체 SHA로 고정한다. 기존 wave·health, Strimzi CMP의 vendor·Helm 3.22.0·post-render 검증을 유지한다. 후속 publisher는 Git의 syncPolicy를 보존하며, 유지보수는 Git에서 대상 자동화를 끄고 root 반영과 진행 operation 종료를 확인한 뒤 한다. 자동 이미지 rollback·DB downgrade·PVC·offset 복구는 수행하지 않는다. Git 게시, Argo Synced/Healthy, 실제 기능 성공을 구분한다. 기존 관측 완료 근거와 ADR 0039의 Proposed 상태는 유지한다.
 
 ## PROJ-282 dev Strimzi 전환
 
@@ -167,16 +143,11 @@ GitHub 보호 설정과 실제 OIDC·승인·배포 검증은 로컬 구현의 �
 버킷 `pulsemetry-landing-prod`·CloudFront `EQE94IEKI2ZPY`는 외부 생성 리소스이며 `LANDING_DEPLOY` 상수가 이름의 단일 출처다.
 기존 앱 역할 4개·infra 역할 2개의 trust·권한·output은 바꾸지 않는다. 실제 cicd 배포와 첫 자동 배포 확인은 별도다.
 
-## PROJ-279 generated values 자동 공급
+## PROJ-279·334 generated values 자동 공급
 
-기본 스위치 `GENERATED_VALUES_SYNC_ENABLED`는 비활성이다. IAM/RBAC·GitHub App 준비 뒤 새 plan에서
-활성화한다. 승인 plan에 backend 성공 run/attempt·네 ARM64 digest와 활성 여부를 고정하고 CDK 성공 후
-13개 YAML과 infra SHA만 private main에 게시한다. backend 로그는 정식 GitOps manifest가 아니다.
-`EksValuesReaderRoleArn`은 기존 deploy 역할만 assume하며, base RBAC는 Strimzi main Secret 5개의 get만
-허용한다. 수집기는 metadata-only 응답을 강제한다. RBAC가 응답 필드 권한을 제공하는 것은 아니다.
-사본 재시도는 원본 plan/deploy 성공·artifact/receipt·현재 baseline을 검증하며 CDK attempt 검증은 유지한다.
-원문 조회·kubeconfig·Secret data는 게시하지 않는다. 실제 최초 게시·OIDC/TLS/RBAC 검증은 별도 운영 수락이며
-[활성화·재시도 런북](docs/runbooks/dev-cloudformation-cicd.md#7-proj-279-generated-values-자동-공급)을 따른다.
+`GENERATED_VALUES_SYNC_ENABLED`는 초기 Git 정착과 root 연결 전까지 비활성이다. PROJ-334부터 승인 plan의 generated 입력은 `enabled`·`mode: simple-v2`이며 backend 로그에서 최신 이미지를 선택하지 않는다. CDK 성공·receipt 확인 뒤 현재 선택 V의 네 이미지를 보존한 13개 values, 원본 bundle·producer와 schemaVersion 2 desired/Application 참조를 게시한다. 기존 로그 기반 plan은 새 plan으로 대체한다.
+
+`EksValuesReaderRoleArn`은 기존 deploy 역할이 assume하며 base RBAC는 Strimzi main Secret 5개의 get만 허용한다. 수집기는 metadata-only 응답을 강제한다. 원본 plan/deploy 성공·artifact/receipt·현재 baseline·source 최신성을 재검증하며 Secret 원문·kubeconfig·조회 원문을 게시하지 않는다. 기존 역할을 재사용하고 실제 게시·root 활성화는 별도 결과로 확인한다. [활성화·재시도 런북](docs/runbooks/dev-cloudformation-cicd.md#7-proj-279334-generated-values-자동-공급)을 따른다.
 
 ## PROJ-267 dev SES 초대 메일
 
@@ -331,14 +302,8 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 - 스킬이 보이지 않으면 형제 `../agent-skills` 클론 여부를 확인하고, 없으면 사용자에게 클론을 안내한다.
 - **사용자의 명시 요청 없이 `git push` 하지 않는다.**
 
-생성된 dev values는 비공개 `soma-376/infra-generated-values`의 `dev/generated/`에 동기화 사본으로 둔다.
-PROJ-279는 Argo 인계 전 CD 자동 사본 공급을 구현한다. 최초 실제 사본도 CD가 생성·검증·게시하고,
-운영자는 고정 사본과 infra SHA를 선택해 수동 Helm을 적용한다. 입력·생성기·chart는 infra가 소유한다. 사본 직접 편집·역방향 동기화는 하지 않는다.
-인계 후에는 backend가 네 앱 이미지 갱신·롤백, infra가 설정 생성·게시를 맡고 두 게시기가 공통 잠금으로 직렬화한다.
-배포 선택·공통 상태 metadata를 수동 복사로 덮어쓰지 않는다.
-[공급 계약(변경 중)](https://github.com/soma-376/docs/blob/docs/PROJ-311-gitops-delivery-contract/contracts/generated-values-sync.md)과
-[수동 배포 런북](docs/runbooks/dev-eks-manual-deployment.md#2-2-1-generated-values의-private-사본-동기화)을 따른다.
-사본은 `dev/infra-commit.txt`의 infra revision과 함께 사용한다. 사본 게시를 Argo CD 연결·배포 완료로 해석하지 않는다.
+생성된 dev values는 비공개 `soma-376/infra-generated-values`의 `dev/generated/`에 둔다. 입력·생성기·chart는 infra가 소유하며 직접 편집·역동기화하지 않는다. PROJ-334의 설정 게시는 현재 네 이미지를, backend 이미지 게시는 현재 infra와 비이미지 값을 보존한다. values와 Application 참조를 한 번의 Git push로 게시하고 장기 배포 잠금·자동 rollback은 사용하지 않는다.
+[공급 계약 v2](https://github.com/soma-376/docs/blob/main/contracts/generated-values-sync.md)와 [게시 런북](docs/runbooks/dev-gitops-image-promotion.md)을 따른다. child는 고정 C/V를 읽고 root만 main을 추적한다. Git 게시·Argo 적용·실제 기능 성공은 각각 구분한다.
 
 **이 장은 1장 이하의 규칙을 대체하지 않는다.** 코드를 만지기 전에 3장(불변 규칙)과 5장(남은 작업)을 읽는 것은 그대로다.
 

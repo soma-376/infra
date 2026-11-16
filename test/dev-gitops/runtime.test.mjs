@@ -213,6 +213,15 @@ test('패키지 검사 중 재실행이 시작되면 초기화 원본 검증을 
   await assert.rejects(verifySourceBundle(value.bundle, value.proof, value), /이미지 검사 중/);
 });
 
+test('패키지 검사 중 새 성공 생산 실행이 생기면 이미지 게시 후보를 거부한다', async () => {
+  const value = sourceFixture(), request = value.request;
+  let inspected = false;
+  value.request = async (path, binary) => path.startsWith('actions/workflows/deploy_dev.yml/runs?') && !inspected
+    ? { total_count: 1, workflow_runs: [value.run] } : request(path, binary);
+  value.verifyImages = async () => { inspected = true; };
+  await assert.rejects(verifySourceBundle(value.bundle, value.proof, { ...value, requireLatest: true }), /더 새로운/);
+});
+
 test('GitHub ZIP hash가 맞아도 추가 경로·내부 hash·다른 B 원문은 초기화에 쓰지 못한다', async () => {
   for (const mode of ['extra-path', 'inner-hash', 'different-bytes']) {
     const value = sourceFixture();

@@ -128,14 +128,16 @@ export async function verifySourceBundle(bundle, provenance, {
   assert(SHA.test(develop.sha), '현재 develop SHA 오류');
   const ancestry = await request(`compare/${run.head_sha}...${develop.sha}`);
   assert(['ahead', 'identical'].includes(ancestry.status), '현재 develop 이력 밖 생산 실행');
-  if (requireLatest) {
+  const verifyLatest = async () => {
     const runs = await pages(request, 'actions/workflows/deploy_dev.yml/runs?branch=develop&status=success', 'workflow_runs');
     assert(!runs.some(item => iso(item.created_at) && (Date.parse(item.created_at) > Date.parse(current.created_at) ||
       (item.created_at === current.created_at && item.id > current.id))), '더 새로운 성공 생산 실행이 있다');
-  }
+  };
+  if (requireLatest) await verifyLatest();
   await verifyImages(original);
   const afterInspection = await request(`actions/runs/${provenance.workflowRunId}`);
   assert(String(afterInspection.id) === provenance.workflowRunId && afterInspection.status === 'completed' && afterInspection.conclusion === 'success' &&
     String(afterInspection.run_attempt) === provenance.workflowRunAttempt && afterInspection.head_sha === provenance.backendCommit, '이미지 검사 중 원본 실행 변경');
+  if (requireLatest) await verifyLatest();
   return { verified: true, bundleManifestSha256: bundle.B, artifactSha256: provenance.artifactSha256 };
 }
