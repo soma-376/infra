@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Argo의 Git checkout만으로 렌더하도록 원본 archive와 풀어 둔 chart를 대조한다.
+// Argo의 Git checkout만으로 렌더하도록 원본 archive·고정 patch와 풀어 둔 chart를 대조한다.
 // --check는 네트워크·쓰기 없이 검사한다. 갱신은 검토한 lock과 --write --archive 입력으로만 한다.
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -46,6 +46,29 @@ function files(directory, prefix = '') {
   return found;
 }
 
+export function applyPinnedChartPatch(root, directory, pin) {
+  if (!pin) return;
+  const safePath = path => typeof path === 'string' && path.split('/').every(part => /^[A-Za-z0-9_.-]+$/.test(part) && part !== '.' && part !== '..');
+  if (!safePath(pin.path) || !/^[a-f0-9]{64}$/.test(pin.sha256)) throw new Error('chart patch pin 형식 오류');
+  const patchPath = join(root, pin.path);
+  if (!existsSync(patchPath) || !lstatSync(patchPath).isFile()) throw new Error(`고정 chart patch가 없다: ${pin.path}`);
+  const bytes = readFileSync(patchPath);
+  if (digest(bytes) !== pin.sha256) throw new Error(`chart patch checksum 불일치: ${pin.path}`);
+  const patch = JSON.parse(bytes.toString('utf8'));
+  if (patch.version !== 1 || !Array.isArray(patch.files) || !patch.files.length) throw new Error('chart patch 형식 오류');
+  files(directory);
+  const changed = new Set();
+  for (const edit of patch.files) {
+    if (!safePath(edit.path) || changed.has(edit.path) || typeof edit.before !== 'string' || !edit.before || typeof edit.after !== 'string') throw new Error('chart patch 편집 형식 오류');
+    changed.add(edit.path);
+    const path = join(directory, edit.path);
+    if (!existsSync(path) || !lstatSync(path).isFile()) throw new Error(`chart patch 원본 파일이 없다: ${edit.path}`);
+    const source = readFileSync(path, 'utf8'), start = source.indexOf(edit.before);
+    if (start < 0 || source.indexOf(edit.before, start + 1) >= 0) throw new Error(`chart patch 원본 불일치: ${edit.path}`);
+    writeFileSync(path, source.slice(0, start) + edit.after + source.slice(start + edit.before.length));
+  }
+}
+
 export function prepareCharts({ root = defaultRoot, write = false, supplied = [] } = {}) {
   const targets = chartTargets(root), sources = new Map(supplied.map(path => { const bytes = readFileSync(path); return [digest(bytes), bytes]; }));
   for (const sha of sources.keys()) if (!targets.some(target => target.sha256 === sha)) throw new Error('lock에 없는 공급 archive');
@@ -64,13 +87,15 @@ export function prepareCharts({ root = defaultRoot, write = false, supplied = []
       command(['-xzf', source, '-C', temp]);
       const original = join(temp, target.name), destination = join(root, target.expanded);
       // checksum으로 고정한 원본에 링크나 특수 파일이 생겨도 게시하지 않는다.
+      files(original);
+      applyPinnedChartPatch(root, original, target.patch);
       const expected = files(original);
       if (write) { rmSync(destination, { recursive: true, force: true }); mkdirSync(dirname(destination), { recursive: true }); cpSync(original, destination, { recursive: true }); }
       if (!existsSync(destination)) throw new Error(`풀어 둔 chart가 없다: ${target.expanded}`);
-      if (JSON.stringify([...files(destination)]) !== JSON.stringify([...expected])) throw new Error(`원본과 풀어 둔 chart 불일치: ${target.expanded}`);
+      if (JSON.stringify([...files(destination)]) !== JSON.stringify([...expected])) throw new Error(`고정 원본·patch와 풀어 둔 chart 불일치: ${target.expanded}`);
     } finally { rmSync(temp, { recursive: true, force: true }); }
   }
-  return targets.map(({ archive, expanded, sha256 }) => ({ archive, ...(expanded ? { expanded } : {}), sha256 }));
+  return targets.map(({ archive, expanded, sha256, patch }) => ({ archive, ...(expanded ? { expanded } : {}), sha256, ...(patch ? { patch } : {}) }));
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

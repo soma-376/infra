@@ -6,6 +6,7 @@ import { basename, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { load, loadAll, dump } from 'js-yaml';
 import { generateValues, parseRuntimeValues } from './eks-values.mjs';
+import { applyPinnedChartPatch } from './dev-argocd-prepare-charts.mjs';
 
 // 공개 package의 고정 checksum과 실제 render를 검증한다. AWS 접속은 없다.
 const root = resolve(import.meta.dirname, '..');
@@ -148,6 +149,7 @@ try {
     const chartDir = join(temp, key + files.length); mkdirSync(chartDir);
     run('tar', ['-xzf', archive, '-C', chartDir]);
     const chart = join(chartDir, chartName);
+    applyPinnedChartPatch(root, chart, versions[key].patch);
     const yamlFiles = files.map(file => join(root, 'helm/dev/runtime', file));
     if (key === 'fluentBit') yamlFiles.push(join(temp, 'fluent-bit.yaml'));
     if (key === 'ascp') yamlFiles.push(join(temp, 'ascp.yaml'));
@@ -158,7 +160,7 @@ try {
       const driver = resources.find(resource => resource.kind === 'CSIDriver');
       check(driver.spec.requiresRepublish === false, '자동 rotation은 금지한다');
       check(driver.spec.tokenRequests.map(request => request.audience).sort().join(',') === 'pods.eks.amazonaws.com,sts.amazonaws.com', 'Pod Identity audience가 필요하다');
-      check(driver.spec.serviceAccountTokenInSecrets === true, 'Kubernetes 1.36 token forwarding이 필요하다');
+      check(driver.spec.serviceAccountTokenInSecrets === undefined, '기존 VolumeContext 토큰 전달을 보존한다');
       check(!resources.some(resource => resource.kind === 'ClusterRole' && resource.rules?.some(rule => rule.resources?.includes('secrets'))), 'Secret sync 권한을 추가하지 않는다');
     }
     if (key === 'ascp') {
