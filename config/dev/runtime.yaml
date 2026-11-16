@@ -68,6 +68,14 @@ postgresSslMode:
 # 허브 ADR-0023: 기존 metric_log ALTER와 같은 유지보수 구간에 적용한다.
 clickhouse:
   imageDigest: sha256:b002e56ed5c16e224c312527f6fcba7e77216fec5d7a88a7828f59efc614feb5
+  # Argo 인계에서 확인한 현재 자원을 후속 values 생성에도 보존한다.
+  resources:
+    requests:
+      cpu: 250m
+      memory: 2Gi
+    limits:
+      cpu: '1'
+      memory: 2560Mi
   metricLog:
     maxCompressBlockSize: 65536
     mergeMaxBlockSize: 512
