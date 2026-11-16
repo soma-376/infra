@@ -96,6 +96,14 @@ node scripts/dev-argocd-management.mjs \
 `argocd-values.yaml`은 기존 bootstrap values 뒤에 더할 관리 overlay이고, `management-values.yaml`은
 수동 release `argocd-management`의 입력이다. 실제 게시 전 CMP digest를 운영값으로 꾸며 넣지 않는다.
 관리 chart는 root/platform/workload Project와 controller Role·server 조회 Role을 분리한다.
+Argo 3.5의 cache는 등록 namespace 전체에서 같은 종류를 조회하므로, controller 전용
+`argocd-dev-cache-reader`가 `argocd`와 관리 namespace 6개에서 동일한 리소스 종류의 `get/list/watch`를
+허용한다. namespace별 쓰기 권한과 분리하며 Secret 쓰기나 임의 namespace 접근은 추가하지 않는다.
+특정 namespace의 list 거부로 전체 cache가 초기화되지 않으면 이 Role/Binding과 연결 namespace 목록을
+먼저 대조한다. `resource.respectRBAC` 완화나 cluster-admin 부여로 우회하지 않는다.
+Argo가 `repository contains out-of-bounds symlinks`로 렌더를 거부하면 고정한 infra commit의
+추적 링크를 확인한다. 개발자용 `.agents/skills` 외부 링크는 Git에서 제외하고 로컬에서만 사용한다.
+repo-server의 외부 symlink 허용 옵션으로 보안 검사를 해제하지 않는다.
 `resource.respectRBAC=strict`와 명시된 관리 namespace를 사용하며 cluster-scoped 리소스도 필요한 종류로 제한한다.
 검토 생성기의 overlay는 `cluster.inClusterEnabled=false`, 관리 values는 `reconciliationEnabled=false`를
 유지하므로 cluster Secret을 렌더하지 않는다. 적용용 활성화 출력은 §2.0.4의 별도 생성기를 사용한다. cluster Secret의 `skip-reconcile` annotation을 비활성화 수단으로
@@ -347,6 +355,10 @@ root는 leaf보다 오래 유효해야 하며 root/leaf 각각의 만료·갱신
    Git/Argo 관리 자격증명의 런타임 공급·회전·회수를 검증하고 원문을 Git·로그에 저장하지 않는다.
 
 ### 2.2 동일성 비교와 첫 sync
+
+관측 Application은 `ServerSideDiff=true,IncludeMutationWebhook=true`를 사용한다. Argo 3.5의 SSA 기본
+Structured-Merge Diff는 관측 CRD의 서버 기본값을 차이로 남길 수 있으므로 Kubernetes dry-run 결과로
+비교한다. webhook 적용 결과도 포함하며 `ignoreDifferences` 범위를 넓히지 않는다.
 
 1. 기존 release마다 Application 하나를 준비한다. 기존 `releaseName`, namespace, 값 파일 순서를 유지하고
    Argo의 annotation 기반 resource tracking을 사용한다. 기존 `app.kubernetes.io/instance`와 selector를

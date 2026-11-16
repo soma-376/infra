@@ -17,6 +17,21 @@ const documents = (text: string) => loadAll(text).filter(Boolean).sort((a: any, 
 const runCmp = (options = {}) => invoke(process.execPath, [wrapper], {
   env: { ...process.env, ARGOCD_ENV_RELEASE_NAME: 'strimzi', PULSEMETRY_CMP_NODE_MODULES: join(root, 'node_modules') }, ...options,
 });
+const chartFixture = `
+  import { prepareCharts, chartTargets } from ${JSON.stringify(pathToFileURL(script).href)};
+  import { createHash } from 'node:crypto';
+  import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+  import { join, dirname } from 'node:path'; import { tmpdir } from 'node:os';
+  const source = ${JSON.stringify(root)}, dest = mkdtempSync(join(tmpdir(), 'chart-tamper-'));
+  function copyFixture() {
+    for (const path of ['helm/dev/platform/lbc/SOURCE.json', 'helm/dev/platform/cert-manager/SOURCE.json', 'helm/dev/runtime/versions.json', 'helm/observability/dependencies.lock.json']) {
+      mkdirSync(dirname(join(dest, path)), {recursive:true}); cpSync(join(source,path),join(dest,path));
+    }
+    for (const target of chartTargets(source)) for (const path of [target.archive, target.expanded, target.patch?.path].filter(Boolean)) {
+      mkdirSync(dirname(join(dest,path)),{recursive:true}); cpSync(join(source,path),join(dest,path),{recursive:true});
+    }
+  }
+`;
 
 describe('Argo 오프라인 chart·CMP 의존성', () => {
   test('고정 archive 9개와 풀어 둔 chart의 파일 집합·내용을 대조한다', () => {
@@ -26,17 +41,9 @@ describe('Argo 오프라인 chart·CMP 의존성', () => {
 
   test.each(['archive', 'expanded', 'extra'])('%s 변경을 검출하고 source를 보정하지 않는다', mutation => {
     const driver = `
-      import { prepareCharts, chartTargets } from ${JSON.stringify(pathToFileURL(script).href)};
-      import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
-      import { join, dirname } from 'node:path'; import { tmpdir } from 'node:os';
-      const source = ${JSON.stringify(root)}, dest = mkdtempSync(join(tmpdir(), 'chart-tamper-'));
+      ${chartFixture}
       try {
-        for (const path of ['helm/dev/platform/lbc/SOURCE.json', 'helm/dev/platform/cert-manager/SOURCE.json', 'helm/dev/runtime/versions.json', 'helm/observability/dependencies.lock.json']) {
-          mkdirSync(dirname(join(dest, path)), {recursive:true}); cpSync(join(source,path),join(dest,path));
-        }
-        for (const target of chartTargets(source)) for (const path of [target.archive, target.expanded].filter(Boolean)) {
-          mkdirSync(dirname(join(dest,path)),{recursive:true}); cpSync(join(source,path),join(dest,path),{recursive:true});
-        }
+        copyFixture();
         const path = ${JSON.stringify(mutation)} === 'archive' ? chartTargets(dest)[0].archive :
           'helm/dev/platform/lbc/chart/' + (${JSON.stringify(mutation)} === 'extra' ? 'unexpected.yaml' : 'values.yaml');
         writeFileSync(join(dest,path),'changed');
@@ -46,6 +53,59 @@ describe('Argo 오프라인 chart·CMP 의존성', () => {
     `;
     const result = invoke(process.execPath, ['--input-type=module', '-e', driver]);
     expect(result.status).toBe(0); expect(result.stdout).toMatch(/불일치/);
+  });
+
+  test.each(['missing', 'checksum', 'source', 'escape'])('CSI patch %s 오류는 check와 write 모두 거부한다', mutation => {
+    const driver = `
+      ${chartFixture}
+      try {
+        copyFixture();
+        const target = chartTargets(dest).find(target => target.name === 'secrets-store-csi-driver');
+        const path = join(dest,target.patch.path), mutation = ${JSON.stringify(mutation)};
+        if (mutation === 'missing') rmSync(path);
+        else if (mutation === 'checksum') writeFileSync(path,'changed');
+        else {
+          const patch = JSON.parse(readFileSync(path,'utf8'));
+          if (mutation === 'source') patch.files[0].before = 'not an upstream fragment';
+          else patch.files[0].path = '../outside-chart';
+          const bytes = JSON.stringify(patch); writeFileSync(path,bytes);
+          const lockPath = join(dest,'helm/dev/runtime/versions.json');
+          const lock = JSON.parse(readFileSync(lockPath,'utf8'));
+          lock.csiDriver.patch.sha256 = createHash('sha256').update(bytes).digest('hex');
+          writeFileSync(lockPath,JSON.stringify(lock));
+        }
+        const before = readFileSync(join(dest,target.expanded,'templates/csidriver.yaml'),'utf8');
+        for (const write of [false,true]) {
+          let rejected = false;
+          try { prepareCharts({root:dest,write}); } catch(error) { rejected=true; console.log(error.message); }
+          if (!rejected) process.exitCode=2;
+        }
+        if (readFileSync(join(dest,target.expanded,'templates/csidriver.yaml'),'utf8') !== before) process.exitCode=3;
+      } finally {rmSync(dest,{recursive:true,force:true});}
+    `;
+    const result = invoke(process.execPath, ['--input-type=module', '-e', driver]);
+    expect({status:result.status,stderr:result.stderr}).toEqual({status:0,stderr:''});
+    expect(result.stdout.trim().split('\n')).toHaveLength(2);
+    expect(result.stdout).toMatch(/patch/);
+  });
+
+  test('write는 원본 archive를 보존하고 같은 고정 CSI patch를 다시 생성한다', () => {
+    const driver = `
+      ${chartFixture}
+      try {
+        copyFixture();
+        const target = chartTargets(dest).find(target => target.name === 'secrets-store-csi-driver');
+        const archive = readFileSync(join(dest,target.archive));
+        const template = join(dest,target.expanded,'templates/csidriver.yaml');
+        const expected = readFileSync(template,'utf8'); writeFileSync(template,'changed');
+        let rejected=false; try { prepareCharts({root:dest}); } catch {rejected=true;}
+        if(!rejected) throw new Error('changed expanded chart accepted');
+        prepareCharts({root:dest,write:true}); prepareCharts({root:dest});
+        if(readFileSync(template,'utf8') !== expected || !archive.equals(readFileSync(join(dest,target.archive)))) throw new Error('non-reproducible preparation');
+      } finally {rmSync(dest,{recursive:true,force:true});}
+    `;
+    const result = invoke(process.execPath, ['--input-type=module', '-e', driver]);
+    expect({status:result.status,stdout:result.stdout,stderr:result.stderr}).toEqual({status:0,stdout:'',stderr:''});
   });
 
   test('CMP만의 lock·base digest·비밀을 전달하지 않는 plugin 경계를 고정한다', () => {
@@ -146,6 +206,31 @@ paritySuite('Argo native Helm4와 기존 Helm3 렌더 비교', () => {
   afterAll(() => { if (generated) rmSync(generated, {recursive:true,force:true}); });
   test.each(targets)('%s의 고정 fixture는 두 렌더러가 동일하다', (release, chart, namespace, args) => {
     expect(render(process.env.ARGOCD_NATIVE_HELM_BIN!, [release, chart, namespace, args])).toEqual(render(process.env.HELM_BIN!, [release, chart, namespace, args]));
+  });
+  test.each(['1.34.0', '1.36.0'])('CSI %s에서 명시하지 않은 값은 upstream과 같고 false만 기존 토큰 전달을 보존한다', version => {
+    const chart = 'helm/dev/runtime/vendor/secrets-store-csi-driver-1.6.1';
+    for(const binary of [process.env.HELM_BIN!,process.env.ARGOCD_NATIVE_HELM_BIN!]) {
+      const args = ['template','secrets-store-csi-driver','-n','kube-system','--kube-version',version,'--include-crds','--skip-tests','--set','tokenRequests[0].audience=sts.amazonaws.com'];
+      const upstream = invoke(binary,[...args,`${chart}.tgz`]), patched = invoke(binary,[...args,chart]);
+      expect({upstream:upstream.status,patched:patched.status}).toEqual({upstream:0,patched:0});
+      expect(documents(patched.stdout)).toEqual(documents(upstream.stdout));
+      for(const setting of ['true','false']) {
+        const result = invoke(binary,[...args,chart,'--set',`serviceAccountTokenInSecrets=${setting}`]);
+        expect({status:result.status,stderr:result.stderr}).toEqual({status:0,stderr:''});
+        const driver = documents(result.stdout).find((doc:any)=>doc.kind==='CSIDriver');
+        expect(driver.spec.serviceAccountTokenInSecrets).toBe(setting==='true' && version==='1.36.0' ? true : undefined);
+        const expected = documents(upstream.stdout);
+        if(setting==='false') delete expected.find((doc:any)=>doc.kind==='CSIDriver').spec.serviceAccountTokenInSecrets;
+        expect(documents(result.stdout)).toEqual(expected);
+      }
+      const invalid = invoke(binary,[...args,chart,'--set-string','serviceAccountTokenInSecrets=false']);
+      expect(invalid.status).not.toBe(0); expect(invalid.stderr).toContain('must be boolean');
+      const dev = invoke(binary,[...args,chart,'-f','helm/dev/runtime/csi-driver-values.yaml']);
+      expect(dev.status).toBe(0);
+      const driver = documents(dev.stdout).find((doc:any)=>doc.kind==='CSIDriver');
+      expect(driver.spec.serviceAccountTokenInSecrets).toBeUndefined();
+      expect(driver.spec.tokenRequests).toEqual([{audience:'sts.amazonaws.com'},{audience:'pods.eks.amazonaws.com'}]);
+    }
   });
   test('합성 generated 13개 소비 경로가 LBC 인증서 선언까지 동일하다', () => {
     const native: Array<[string,string,string,string,string[]]> = [

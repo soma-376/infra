@@ -150,6 +150,39 @@ describe('배포 output→values 변환', () => {
   });
 
   test.each([
+    { requests: { cpu: '250m', memory: '1Gi' }, limits: { cpu: '1', memory: '2Gi' } },
+    { requests: { cpu: '250m', memory: '2Gi' }, limits: { cpu: '1', memory: '2560Mi' } },
+  ])('검증한 ClickHouse 자원 %j만 전달하고 다른 values는 보존한다', resources => {
+    const runtime = load(readFileSync(runtimeFile, 'utf8'));
+    const baseline = run(outputs());
+    const candidate = run(outputs(), undefined, undefined, dump({ ...runtime, clickhouse: { resources } }));
+    expect({ status: candidate.result.status, stderr: candidate.result.stderr }).toEqual({ status: 0, stderr: '' });
+    expect(candidate.read('clickhouse.yaml')).toEqual({ ...baseline.read('clickhouse.yaml'), resources });
+    for (const file of readdirSync(baseline.dir).filter(file => file !== 'clickhouse.yaml')) {
+      expect(readFileSync(join(candidate.dir, file), 'utf8')).toBe(readFileSync(join(baseline.dir, file), 'utf8'));
+    }
+  });
+
+  test.each([
+    null, [], {},
+    { requests: { cpu: '250m', memory: '2Gi' } },
+    { requests: { memory: '2Gi' }, limits: { cpu: '1', memory: '2560Mi' } },
+    { requests: { cpu: '250m', memory: '1Gi' }, limits: { cpu: '1', memory: '2560Mi' } },
+    { requests: { cpu: '250m', memory: '2Gi' }, limits: { cpu: '1', memory: '2Gi' } },
+    { requests: { cpu: '500m', memory: '2Gi' }, limits: { cpu: '1', memory: '2560Mi' } },
+    { requests: { cpu: '250m', memory: '2Gi' }, limits: { cpu: 1, memory: '2560Mi' } },
+    { requests: { cpu: '250m', memory: '2Gi', storage: '1Gi' }, limits: { cpu: '1', memory: '2560Mi' } },
+    { requests: { cpu: '250m', memory: '2Gi' }, limits: { cpu: '1', memory: '2560Mi' }, password: 'sensitive-marker' },
+  ])('불완전·미승인 ClickHouse 자원 %j를 거부한다', resources => {
+    const runtime = load(readFileSync(runtimeFile, 'utf8'));
+    const candidate = run(outputs(), undefined, undefined, dump({ ...runtime, clickhouse: { resources } }));
+    expect(candidate.result.status).not.toBe(0);
+    expect(candidate.result.stderr).toContain('clickhouse.resources');
+    expect(candidate.result.stderr).not.toContain('sensitive-marker');
+    expect(existsSync(candidate.dir)).toBe(false);
+  });
+
+  test.each([
     {}, { metricLog: {} }, { metricLog: { maxCompressBlockSize: 65536 } },
     { metricLog: { maxCompressBlockSize: 65536, mergeMaxBlockSize: 8192 } },
     { metricLog: { maxCompressBlockSize: '65536', mergeMaxBlockSize: 512 } },
@@ -175,6 +208,9 @@ describe('배포 output→values 변환', () => {
     const dashboard = output.read('dashboard-api.yaml');
     const ingest = output.read('telemetry-ingest.yaml');
     const gateway = output.read('telemetry-gateway.yaml');
+    expect(output.read('clickhouse.yaml').resources).toEqual({
+      requests: { cpu: '250m', memory: '2Gi' }, limits: { cpu: '1', memory: '2560Mi' },
+    });
     for (const app of [enrollment, dashboard]) {
       expect(app.userAuth.issuer).toBe(runtime.userAuth.issuer);
       expect(app.userAuth.audience).toBe(runtime.userAuth.audience);

@@ -2,6 +2,8 @@
 syncSecret:
   enabled: false
 enableSecretRotation: false
+# 기존 dev의 VolumeContext 토큰 전달을 보존한다. 이 값은 CSIDriver 필드를 생략한다.
+serviceAccountTokenInSecrets: false
 tokenRequests:
   - audience: sts.amazonaws.com
   - audience: pods.eks.amazonaws.com

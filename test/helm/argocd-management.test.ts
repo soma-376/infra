@@ -254,6 +254,26 @@ renderSuite('Argo 관리 chart의 적용·거부 범위', () => {
     expect(docs.find(doc => doc.kind === 'ClusterRoleBinding' && doc.metadata.name === 'argocd-dev-viewer').subjects).toEqual([{ kind: 'ServiceAccount', name: 'argocd-server', namespace: 'argocd' }]);
   });
 
+  test('controller cache는 등록 namespace 전체에서 같은 종류를 읽되 쓰기 권한은 추가하지 않는다', () => {
+    const namespaces = ['argocd', 'kube-system', 'cert-manager', 'pulsemetry-dev', 'pulsemetry-dev-logs', 'pulsemetry-observability', 'strimzi-system'];
+    const readers = docs.filter(doc => doc.kind === 'Role' && doc.metadata.name === 'argocd-dev-cache-reader');
+    expect(readers.map(doc => doc.metadata.namespace).sort()).toEqual([...namespaces].sort());
+    for (const reader of readers) {
+      expect(reader.rules).toEqual(readers[0].rules);
+      expect(reader.rules.every((rule: any) => JSON.stringify(rule.verbs) === JSON.stringify(['get', 'list', 'watch']))).toBe(true);
+      expect(reader.rules).toEqual(expect.arrayContaining([
+        expect.objectContaining({ apiGroups: [''], resources: expect.arrayContaining(['serviceaccounts', 'persistentvolumeclaims']) }),
+        expect.objectContaining({ apiGroups: ['cert-manager.io'], resources: expect.arrayContaining(['certificates', 'issuers', 'certificaterequests']) }),
+        expect.objectContaining({ apiGroups: ['argoproj.io'], resources: ['applications', 'applicationsets', 'appprojects'] }),
+      ]));
+    }
+    const bindings = docs.filter(doc => doc.kind === 'RoleBinding' && doc.metadata.name === 'argocd-dev-cache-reader');
+    expect(bindings.map(doc => doc.metadata.namespace).sort()).toEqual([...namespaces].sort());
+    for (const binding of bindings) expect(binding.subjects).toEqual([
+      { kind: 'ServiceAccount', name: 'argocd-application-controller', namespace: 'argocd' },
+    ]);
+  });
+
   test('고정 bootstrap에 관리 overlay를 합쳐도 repo-server에 API·Git credential을 mount하지 않는다', () => {
     const source = JSON.parse(readFileSync(join(root, directory, 'SOURCE.json'), 'utf8'));
     const rendered = helm(['template', 'argocd', `${directory}/vendor/argo-cd-${source.chart.version}.tgz`, '--namespace', 'argocd', '-f', `${directory}/values.yaml`, '-f', join(temporary, 'argocd.json')]);

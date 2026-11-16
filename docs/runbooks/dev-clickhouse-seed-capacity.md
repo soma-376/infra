@@ -13,7 +13,7 @@
 
 | 항목 | 현재 기준 | 후보/보존 계약 |
 |---|---|---|
-| ClickHouse | 현재 검증한 24.8 ARM64 image, 1 replica, 1 CPU/2Gi, 50Gi PVC | 같은 실행 digest를 기존 tag와 함께 pin, 내용·자원·PVC 불변 |
+| ClickHouse | 현재 검증한 24.8 ARM64 image, 1 replica, CPU request 250m/limit 1, 메모리 request 2Gi/limit 2560Mi, 50Gi PVC | 같은 실행 digest를 기존 tag와 함께 pin, 내용·자원·PVC 불변 |
 | snapshot 복사 읽기량 | 100,000행 / 10MiB | 새 로컬 실측 최대 × 1.5, 행 10,000·바이트 MiB 올림 |
 | 원천 반환 결과 | 100,000행 / 10MiB | 그대로 |
 | snapshot 생성 | 60초 / 조직별 동시 1개 | 그대로, 서버 전체 동시 1개가 아님 |
@@ -42,6 +42,9 @@ clickhouse:
 ```
 
 `clickhouse.imageDigest`는 선택 입력이며 SHA-256 형식만 받는다. 생략 시 기존 tag 렌더를 유지한다.
+`clickhouse.resources`는 선택 입력으로, 현재 공식 runtime은 CPU request `250m`/limit `'1'`, 메모리 request `2Gi`/limit `2560Mi`를
+명시해 후속 생성에서 운영 자원을 보존한다. 메모리의 다른 허용 조합은 기존 chart 기본값인 `1Gi`/`2Gi`뿐이며
+두 조합을 섞거나 CPU를 바꿀 수 없다. 이 입력을 생략한 별도 runtime에는 chart 기본값이 적용된다.
 이번 재시작 후보에는 현재 실행 digest를 넣어 `clickhouse/clickhouse-server:24.8-alpine@sha256:...`로 고정한다.
 내용 변경이 없는지 baseline Pod imageID와 후보 digest를 반드시 대조한다. mutable tag와 `IfNotPresent`만으로는
 새 노드에서 같은 이미지가 실행된다고 보장할 수 없다. 후보 digest가 다르면 새 버전을 선택하지 말고 중단한다.

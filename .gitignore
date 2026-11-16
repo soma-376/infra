@@ -175,3 +175,5 @@ generated/
 !helm/observability/loki/charts/loki-18.15.1.tgz
 !helm/observability/tempo/charts/tempo-3.1.0.tgz
 !helm/observability/otel-platform/charts/opentelemetry-collector-0.175.1.tgz
+# 개발자별 외부 skill 링크는 Argo Git checkout의 경계를 벗어나므로 추적하지 않는다.
+/.agents/skills

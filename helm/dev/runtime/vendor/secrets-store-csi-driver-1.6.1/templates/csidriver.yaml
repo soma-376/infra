@@ -14,7 +14,10 @@ spec:
   {{- if .Values.tokenRequests }}
   tokenRequests:
     {{- toYaml .Values.tokenRequests | nindent 2 }}
-  {{- if semverCompare ">=1.35.0" .Capabilities.KubeVersion.Version }}
+  {{- if and (hasKey .Values "serviceAccountTokenInSecrets") (not (kindIs "bool" .Values.serviceAccountTokenInSecrets)) }}
+  {{- fail "serviceAccountTokenInSecrets must be boolean" }}
+  {{- end }}
+  {{- if and (semverCompare ">=1.35.0" .Capabilities.KubeVersion.Version) (or (not (hasKey .Values "serviceAccountTokenInSecrets")) .Values.serviceAccountTokenInSecrets) }}
   serviceAccountTokenInSecrets: true
   {{- end }}
   {{- end }}
