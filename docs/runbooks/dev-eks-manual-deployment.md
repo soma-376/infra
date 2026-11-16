@@ -533,7 +533,8 @@ for name, pin in json.load(open('helm/dev/runtime/versions.json')).items():
         raise SystemExit(f'{name}: SHA256 불일치')
     (root / pathlib.PurePosixPath(urllib.parse.urlparse(pin['url']).path).name).write_bytes(data)
 PY
-helm upgrade --install secrets-store-csi-driver "$RUN_DIR/charts/secrets-store-csi-driver-1.6.1.tgz" \
+node scripts/dev-argocd-prepare-charts.mjs --check
+helm upgrade --install secrets-store-csi-driver helm/dev/runtime/vendor/secrets-store-csi-driver-1.6.1 \
   --namespace kube-system --values helm/dev/runtime/csi-driver-values.yaml --wait --timeout 15m
 helm upgrade --install secrets-provider-aws "$RUN_DIR/charts/secrets-store-csi-driver-provider-aws-3.1.4.tgz" \
   --namespace kube-system --values helm/dev/runtime/ascp-values.yaml \

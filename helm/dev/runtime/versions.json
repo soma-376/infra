@@ -4,7 +4,11 @@
     "version": "1.6.1",
     "appVersion": "1.6.1",
     "url": "https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts/secrets-store-csi-driver-1.6.1.tgz",
-    "sha256": "d312041d5334a1e5b0b9fe602a5cdcc1bfe028e0e9a4a8b3a14a24236497e1b6"
+    "sha256": "d312041d5334a1e5b0b9fe602a5cdcc1bfe028e0e9a4a8b3a14a24236497e1b6",
+    "patch": {
+      "path": "helm/dev/runtime/patches/secrets-store-csi-driver-1.6.1.json",
+      "sha256": "d2bbde8d4193730a26405bb608b0b4cbd7291ac328e0779a25b02eff124d1ebc"
+    }
   },
   "ascp": {
     "version": "3.1.4",

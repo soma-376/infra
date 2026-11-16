@@ -87,7 +87,10 @@
                   "const": "250m"
                 },
                 "memory": {
-                  "const": "1Gi"
+                  "enum": [
+                    "1Gi",
+                    "2Gi"
+                  ]
                 }
               }
             },
@@ -103,11 +106,52 @@
                   "const": "1"
                 },
                 "memory": {
-                  "const": "2Gi"
+                  "enum": [
+                    "2Gi",
+                    "2560Mi"
+                  ]
                 }
               }
             }
-          }
+          },
+          "oneOf": [
+            {
+              "properties": {
+                "requests": {
+                  "properties": {
+                    "memory": {
+                      "const": "1Gi"
+                    }
+                  }
+                },
+                "limits": {
+                  "properties": {
+                    "memory": {
+                      "const": "2Gi"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "requests": {
+                  "properties": {
+                    "memory": {
+                      "const": "2Gi"
+                    }
+                  }
+                },
+                "limits": {
+                  "properties": {
+                    "memory": {
+                      "const": "2560Mi"
+                    }
+                  }
+                }
+              }
+            }
+          ]
         },
         "environment": {
           "const": "dev"
