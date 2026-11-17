@@ -1,0 +1,34 @@
+{{- include "loadtest.validate" . -}}
+# k6 OTel 출력 → Prometheus 형식 :9404. backend tools/loadtest/local/otel-collector.yaml 과 같은 내용이다(로컬 E2E 가 검증).
+# 수신은 같은 Pod 의 k6 뿐이라 루프백에만 연다. 9404 는 관측 차트의 PodMonitor 가 pull 한다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "loadtest.name" . }}-collector
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "loadtest.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          http:
+            endpoint: 127.0.0.1:4318
+    processors:
+      batch:
+        timeout: 1s
+    exporters:
+      prometheus:
+        endpoint: 0.0.0.0:9404
+        # k6 가 끝난 뒤에도 마지막 scrape 가 값을 읽게 둔다. Pod 는 k6 종료와 함께 끝난다.
+        metric_expiration: 10m
+    service:
+      pipelines:
+        metrics:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [prometheus]
+      telemetry:
+        logs:
+          level: warn
