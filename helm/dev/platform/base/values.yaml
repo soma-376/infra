@@ -4,7 +4,7 @@ subnetIds: []
 appNodeSecurityGroupId: ""
 clickhouseNodeSecurityGroupId: ""
 clickhouseAvailabilityZone: ""
-# 최초 배치 예산이다. 실측 후 NodePool limits와 Pod requests를 함께 검토한다.
+# ADR 0063: apps 정상 2대·ClickHouse 1대와 교체 여유를 위한 예산이다. 실제 대수는 배치에 따른다.
 apps:
   cpuLimit: "8"
 clickhouse:

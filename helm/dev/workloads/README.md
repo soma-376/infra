@@ -76,16 +76,20 @@ ConfigMap·mount·annotation 제거를 함께 수행한다. 자세한 적용·�
 조회한다. TGB는 OSS `elbv2.k8s.aws/v1beta1`이고 `networking`을 선언하지 않아 CDK 소유 SG를
 변경하지 않는다. chart에는 Ingress나 LoadBalancer Service가 없다.
 
-앱은 request 1Gi/limit 2Gi, replica 1과 `Recreate`를 사용한다. HTTP readiness
+ADR 0063에 따라 Gateway·ingest는 request 500m/2Gi·limit 2 CPU/4Gi이며 hostname 필수
+anti-affinity로 서로 다른 노드에 배치한다. enrollment·dashboard는 request 250m/1Gi·limit 1 CPU/2Gi다.
+모든 앱은 replica 1과 `Recreate`를 사용한다. HTTP readiness
 `/api/v1/healthz`를 사용한다. dashboard health는 저장소·인증 기능 성공을 대신하지 않는다.
 TCP liveness는 외부 DB 실패만으로 프로세스를 재시작하지 않는다. startup probe는 ingest에 48회 × 5초, enrollment·dashboard에 12회 × 5초를 허용한다. 이 값과
-메모리·CPU는 실측 전 초기값이다.
+메모리·CPU의 실제 부하 여유는 배포 후 검증한다.
 
 ClickHouse는 `24.8-alpine`과 기존 default user 설정, 50Gi PVC를 유지한다.
 수동 Argo 인계에서는 실제 메모리를 낮추지 않도록 generated values에 기존 `resources`를 보존한다.
 dev 기본값 request `1Gi`/limit `2Gi`는 유지하며, 확인된 운영값 request `2Gi`/limit `2560Mi`도 허용한다.
-공식 `config/dev/runtime.yaml`의 `clickhouse.resources`가 운영값을 고정하고 generator가 그대로 전달한다.
-선택 입력을 생략하면 chart 기본값을 유지한다. 두 메모리 조합만 허용하며 CPU는 request `250m`/limit `'1'`로 고정한다.
+공식 `config/dev/runtime.yaml`은 ADR 0063의 request `1500m/6Gi`, memory limit `6Gi`, CPU limit 없음으로
+변경하고 generator가 그대로 전달한다. runtime의 `limits.cpu: null`은 Helm의 기본 CPU 제한을 제거한다.
+선택 입력을 생략하면 chart 기본값을 유지한다. 기존 두 조합(CPU request `250m`/limit `'1'`)과
+새 확대 조합만 허용하며, 실제 배포 여부는 별도로 확인한다.
 스토리지와 다른 설정의 경계는 그대로다.
 StatefulSet의 PVC retention은 삭제·축소 모두 `Retain`이고 기반 StorageClass도
 `ebs.csi.eks.amazonaws.com`·`WaitForFirstConsumer`·`Retain`을 사용한다. release 삭제나 Helm
