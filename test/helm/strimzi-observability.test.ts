@@ -42,6 +42,16 @@ suite('Strimzi 관측 계약', () => {
           expect(endpoint.metricRelabelings).toContainEqual({ sourceLabels: ['exported_cluster'], regex: '(.+)', targetLabel: 'kafka_cluster', replacement: '$1' });
         }
       }
+      // 실제 dev 는 Strimzi + values-dev.yaml 이다. 여기에만 k6 부하 시험 PodMonitor(ADR-0064)가 더해진다.
+      const devMonitors = (loadAll(command(helm, ['template', 'observability', chart, '-n', 'pulsemetry-observability',
+        '-f', resolve(root, 'helm/observability/values-dev.yaml'), '-f', fixture])).filter(Boolean) as any[]).filter(x => x.kind === 'PodMonitor');
+      expect(devMonitors.map(x => x.metadata.name).sort()).toEqual(['pulsemetry-loadtest-k6', 'strimzi-cluster-operator', 'strimzi-entity-operator', 'strimzi-exporter', 'strimzi-jmx']);
+      const k6Monitor = devMonitors.find(x => x.metadata.name === 'pulsemetry-loadtest-k6');
+      expect(k6Monitor.spec.namespaceSelector.matchNames).toEqual(['pulsemetry-loadtest']);
+      expect(k6Monitor.spec.selector.matchLabels).toEqual({ 'app.kubernetes.io/name': 'pulsemetry-loadtest-k6' });
+      expect(k6Monitor.spec.podMetricsEndpoints.map((e: any) => [e.port, e.interval])).toEqual([['metrics', '10s']]);
+      expect(k6Monitor.spec.podMetricsEndpoints[0].relabelings).toEqual(expect.arrayContaining([
+        { targetLabel: 'job', replacement: 'k6' }, { targetLabel: 'cluster', replacement: 'fixture-eks' }, { targetLabel: 'environment', replacement: 'dev' }]));
       // 공급자 전환 후 MSK endpoint·AWS/Kafka 지표를 조회하지 않는다. 일반 앱/로그 CloudWatch는 유지한다.
       const prometheus = find('Prometheus').spec;
       const scrapeSecret = find('Secret', prometheus.additionalScrapeConfigs.name);

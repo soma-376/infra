@@ -264,6 +264,35 @@ for (const image of running) {
 // perf values는 주소·식별자를 복제하지 않고 같은 차트의 환경 입력만 바꾼다.
 const perf = loadAll(checked(helm, [...base, '-f', resolve(root, 'helm/observability/values-perf.yaml')])).filter(Boolean);
 assert.deepEqual(perf.find(x => x.kind === 'ServiceMonitor' && x.metadata.name === 'telemetry-gateway').spec.namespaceSelector.matchNames, ['pulsemetry-perf']);
+// k6 부하 시험 PodMonitor(ADR-0064)는 dev values 에서만 켠다. 기본·perf 렌더에는 없다.
+const loadtestMonitor = 'pulsemetry-loadtest-k6';
+const isLoadtestMonitor = x => x.kind === 'PodMonitor' && x.metadata.name === loadtestMonitor;
+assert.ok(!resources.some(isLoadtestMonitor), '기본 렌더에 k6 PodMonitor가 있다');
+assert.ok(!perf.some(isLoadtestMonitor), 'perf 렌더에 k6 PodMonitor가 있다');
+const devRendered = loadAll(checked(helm, [...base.slice(0, 5), '-f', resolve(root, 'helm/observability/values-dev.yaml'), '-f', fixture])).filter(Boolean);
+const devLoadtest = devRendered.filter(isLoadtestMonitor);
+assert.equal(devLoadtest.length, 1, 'dev 렌더에 k6 PodMonitor가 하나여야 한다');
+// values-dev.yaml 은 이 PodMonitor 외에 아무것도 바꾸지 않는다.
+assert.deepEqual(devRendered.filter(x => !isLoadtestMonitor(x)), resources);
+const loadtestSpec = devLoadtest[0].spec;
+assert.equal(devLoadtest[0].metadata.namespace, 'pulsemetry-observability');
+assert.equal(devLoadtest[0].metadata.labels['observability.pulsemetry.io/stack'], 'pulsemetry');
+assert.deepEqual(loadtestSpec.namespaceSelector.matchNames, ['pulsemetry-loadtest']);
+assert.equal(loadtestSpec.podMetricsEndpoints.length, 1);
+const loadtestEndpoint = loadtestSpec.podMetricsEndpoints[0];
+assert.deepEqual([loadtestEndpoint.port, loadtestEndpoint.path, loadtestEndpoint.interval, loadtestEndpoint.honorLabels], ['metrics', '/metrics', '10s', false]);
+for (const [label, value] of [['job', 'k6'], ['cluster', 'fixture-eks'], ['environment', 'dev']]) {
+  assert.ok(loadtestEndpoint.relabelings.some(x => x.targetLabel === label && x.replacement === value), `k6 PodMonitor ${label} relabel`);
+}
+// k6 지표의 testid 라벨이 기준이다. Pod 라벨을 target label 로 옮겨 겹치게 하지 않는다.
+assert.ok(!JSON.stringify(loadtestEndpoint.relabelings).includes('testid'), 'Pod testid 라벨을 relabel 하지 않는다');
+assert.ok(loadtestEndpoint.metricRelabelings.some(x => x.action === 'labeldrop' && new RegExp(`^(?:${x.regex})$`).test('exported_job')));
+// 선택자와 포트 이름은 k6 Job 차트(helm/dev/loadtest)가 실제로 렌더하는 Pod 와 맞아야 한다.
+const loadtestJob = loadAll(checked(helm, ['template', 'x', resolve(root, 'helm/dev/loadtest'), '-n', 'pulsemetry-loadtest', '--kube-version', '1.36.0',
+  '--set', 'testid=validate-01', '--set', 'configMapName=loadtest-k6-validate'])).filter(Boolean).find(x => x.kind === 'Job');
+const loadtestPod = loadtestJob.spec.template;
+for (const [key, value] of Object.entries(loadtestSpec.selector.matchLabels)) assert.equal(loadtestPod.metadata.labels[key], value, `k6 Pod 라벨 ${key}`);
+assert.ok([...(loadtestPod.spec.initContainers ?? []), ...loadtestPod.spec.containers].some(c => (c.ports ?? []).some(port => port.name === loadtestEndpoint.port && port.containerPort === 9404)), 'k6 Pod 에 metrics(9404) 포트가 없다');
 const regionalFixture = load(readFileSync(fixture,'utf8'));
 regionalFixture.global.pulsemetry.region='eu-west-1';
 regionalFixture.global.pulsemetry.grafanaAdminSecretArn=regionalFixture.global.pulsemetry.grafanaAdminSecretArn.replace('ap-northeast-2','eu-west-1');
@@ -277,6 +306,8 @@ for (const overrides of [
   ['--set', 'monitoring.prometheus.ingress.enabled=true'],
   ['--set', 'monitoring.grafana.adminPassword=not-a-real-secret'],
   ['--set', 'global.pulsemetry.targetNamespace=unrelated'],
+  ['--set', 'loadtest.enabled=yes'],
+  ['--set', 'loadtest.namespace=pulsemetry-dev'],
 ]) {
   const failed = spawnSync(helm, [...base, ...overrides], {cwd:root,encoding:'utf8'});
   assert.notEqual(failed.status, 0, `잘못된 입력이 허용됨: ${overrides.join(' ')}`);
@@ -290,7 +321,7 @@ if (process.env.KUBECONFORM_BIN) {
     schema.additionalProperties = false;
     writeFileSync(resolve(schemaDir, `${crd.spec.names.kind.toLowerCase()}_${crd.spec.group}_${version.name}.json`), JSON.stringify(schema));
   }
-  const monitoringResources = resources.filter(x => x.apiVersion.startsWith('monitoring.coreos.com/'));
+  const monitoringResources = [...resources, ...devLoadtest].filter(x => x.apiVersion.startsWith('monitoring.coreos.com/'));
   const path = resolve(temp, 'monitoring.yaml'); writeFileSync(path, monitoringResources.map(x => dump(x)).join('---\n'));
   checked(process.env.KUBECONFORM_BIN, ['-strict','-summary','-schema-location',`${schemaDir}/{{.ResourceKind}}_{{.Group}}_{{.ResourceAPIVersion}}.json`,path]);
 }

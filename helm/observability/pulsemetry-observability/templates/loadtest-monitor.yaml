@@ -1,0 +1,41 @@
+{{- if .Values.loadtest.enabled }}
+{{- /*
+dev 부하 시험 k6 Job 의 지표 sidecar(ADR-0064, helm/dev/loadtest). Job 이 없을 때는 대상이 0개일 뿐 경보·오류가 아니다.
+- RBAC: Prometheus 는 kube-prometheus-stack 의 ClusterRole(pods get/list/watch, 클러스터 전체)을 쓴다.
+  pulsemetry-loadtest 용 Role·RoleBinding 을 따로 두지 않는다(strimzi-system PodMonitor 와 같은 경로).
+- SG: apps 노드 SG 가 관측 SG 의 9404 를 이미 받는다(lib/dev/network-stack.ts). 새 규칙이 없다.
+- testid: k6 지표 자체에 testid 라벨이 있다(k6 tag). Pod 라벨 pulsemetry.io/testid 를 target label 로 옮기지 않는다 —
+  옮기면 같은 이름이 겹쳐 지표 쪽이 exported_testid 로 밀리고 대시보드의 testid 필터가 어긋난다.
+- job: collector 가 내보내는 job="k6" 와 같은 값을 target label 로 둔다. 겹쳐 생기는 exported_job 사본은 버린다.
+*/}}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: pulsemetry-loadtest-k6
+  namespace: {{ .Release.Namespace }}
+  labels:
+    observability.pulsemetry.io/stack: pulsemetry
+spec:
+  namespaceSelector:
+    matchNames: [pulsemetry-loadtest]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pulsemetry-loadtest-k6
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 10s
+      scrapeTimeout: 5s
+      honorLabels: false
+      relabelings:
+        - targetLabel: job
+          replacement: k6
+        - targetLabel: cluster
+          replacement: {{ .Values.global.pulsemetry.clusterName | quote }}
+        - targetLabel: environment
+          replacement: {{ .Values.global.pulsemetry.environment | quote }}
+      metricRelabelings:
+        - action: labeldrop
+          regex: 'exported_job|request_id|trace_id|tenant_id|member_id|installation_id|run_id|exception_message'
+{{- end }}

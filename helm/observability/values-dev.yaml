@@ -3,3 +3,6 @@ global:
   pulsemetry:
     environment: dev
     targetNamespace: pulsemetry-dev
+# k6 부하 시험 지표(ADR-0064). Job 이 없으면 대상이 0개일 뿐이다.
+loadtest:
+  enabled: true
