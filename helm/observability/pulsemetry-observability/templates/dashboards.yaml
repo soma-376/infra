@@ -7,7 +7,8 @@ data:
 {{- $p := .Values.global.pulsemetry }}
 {{- $strimzi := eq $p.kafkaProvider "strimzi" }}
 {{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
-{{- if not (and (not $strimzi) (eq (base $path) "pulsemetry-kafka.json")) }}
+{{- /* Kafka·부하 시험(ADR-0064) 화면은 Strimzi lag 기록 규칙을 쓴다. MSK 호환 렌더에는 넣지 않는다. */}}
+{{- if not (and (not $strimzi) (has (base $path) (list "pulsemetry-kafka.json" "pulsemetry-loadtest.json"))) }}
   {{ base $path }}: |-
     {{- $json := $.Files.Get $path }}
     {{- if and $strimzi (eq (base $path) "pulsemetry-msk.json") }}

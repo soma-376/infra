@@ -72,9 +72,12 @@ suite('Strimzi 관측 계약', () => {
       writeFileSync(resolve(temp, 'rules.test.yaml'), dump(tests));
       command(promtool, ['test', 'rules', resolve(temp, 'rules.test.yaml')]);
       const dashboards: any[] = Object.values(find('ConfigMap', 'pulsemetry-dashboards').data).map(x => JSON.parse(x as string));
-      expect(dashboards).toHaveLength(11);
+      expect(dashboards).toHaveLength(12);
       expect(dashboards.map(x => x.uid)).toContain('pulsemetry-kafka');
-      expect(dashboards.filter(x => x.tags.includes('pulsemetry'))).toHaveLength(10);
+      // 부하 시험 화면(ADR-0064)은 Strimzi lag 기록 규칙을 쓴다. 변수 자리표시자가 Strimzi 값으로 바뀌어야 한다.
+      const loadtest = dashboards.find(x => x.uid === 'pulsemetry-loadtest');
+      expect(JSON.stringify(loadtest)).not.toMatch(/__KAFKA_CLUSTER__|__TOPIC__|__CONSUMER_GROUP__|msk_cluster/);
+      expect(dashboards.filter(x => x.tags.includes('pulsemetry'))).toHaveLength(11);
       expect(JSON.stringify(dashboards.filter(x => x.tags.includes('pulsemetry')))).not.toMatch(/SumOffsetLag|STABLE|EMPTY|MSK/);
       const modeGuidance = dashboards.find(x => x.uid === 'pulsemetry-pipeline').panels.find((p: any) => p.title === '모드별로 비는 패널').options.content;
       expect(modeGuidance).toContain('commit offset이 확인된 partition의 lag 합계');
