@@ -32,10 +32,20 @@ Argo 밖에서 `pulsemetry-loadtest` namespace에만 수동 helm(3.22.0)으로 �
 - `backoffLimit: 0`, `ttlSecondsAfterFinished: 86400` — 끝난 뒤 하루 안에 `kubectl logs … -c k6`로 summary 블록을 회수한다.
 - collector는 native sidecar(`initContainers` + `restartPolicy: Always`)다. 4318이 열린 뒤 k6가 시작하고, k6가 끝나면 함께 끝난다.
   OTLP는 루프백 `127.0.0.1:4318`만 받는다.
-- k6 REST API는 `127.0.0.1:6565`에만 연다. 멈출 때는 `kubectl exec … -c k6 -- k6 pause --address 127.0.0.1:6565` 뒤 Job을 지운다.
+- k6 REST API는 `127.0.0.1:6565`에만 연다(`k6 status`로 상태를 본다). 도착률 실행기는 시작 뒤 pause를 지원하지 않는다.
+  멈출 때는 `kubectl exec <pod> -c k6 -- kill -INT 1` — summary 블록을 쓰고 종료 코드 105로 끝난다([런북 §6](../../../docs/runbooks/dev-pipeline-loadtest.md#6-정지-조건과-정지-방법)).
 - restricted PSA: runAsNonRoot(k6 12345·collector 10001), seccomp RuntimeDefault, 권한 상승 금지, capability 전부 제거,
   읽기 전용 root filesystem, `/tmp`만 emptyDir. 시드 Secret은 0440 + fsGroup 12345.
 - ServiceAccount 토큰을 마운트하지 않는다. Service·Ingress를 만들지 않는다.
+
+## 실행 순서
+
+1. 캠페인 시드(backend 생성기 → DB 터널 psql) → `pulsemetry-loadtest` namespace(PSA restricted)·캠페인 Secret·코드 ConfigMap.
+2. `helm install loadtest-<testid> helm/dev/loadtest -n pulsemetry-loadtest --set testid=… --set configMapName=… --set seedSecretName=… [--set scenario=…]`
+   — smoke → stair(②) → 배수 → `drain-plan`으로 MAX → stair(①) → (선택) hold. 실행마다 새 testid.
+3. 배수 대기 → `kubectl logs job/loadtest-<testid> -c k6`로 summary 회수 → `scripts/loadtest-results-export.mjs` → release uninstall.
+
+명령 전체와 정지·정리 기준은 [런북](../../../docs/runbooks/dev-pipeline-loadtest.md)이다.
 
 ## 검증
 

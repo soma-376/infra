@@ -93,7 +93,8 @@ spec:
         - name: k6
           image: {{ $v.images.k6 | quote }}
           imagePullPolicy: IfNotPresent
-          # REST API 는 Pod 안에서만 연다 — 사람이 `kubectl exec … -c k6 -- k6 pause --address 127.0.0.1:6565` 로 멈춘다.
+          # REST API 는 Pod 안에서만 연다(`k6 status`). 도착률 실행기는 시작 뒤 pause 를 지원하지 않는다 —
+          # 멈출 때는 `kubectl exec <pod> -c k6 -- kill -INT 1`(summary 를 쓰고 종료 코드 105). 런북 §6.
           args: ["run", "--address", "127.0.0.1:6565", "-o", "opentelemetry", "/scripts/main.js"]
           env:
             - {name: HOME, value: /tmp}
