@@ -1,3 +1,11 @@
 # Gateway는 DB·HMAC configtree 없이 telemetry 공개키와 Kafka 발행 설정만 받는다. (ADR-0036)
 workload: telemetry-gateway
 nodePort: 30082
+# ADR-0063: 단일 파이프라인 측정 전 Gateway·ingest의 자원 예산을 맞춘다.
+resources:
+  requests:
+    cpu: 500m
+    memory: 2Gi
+  limits:
+    cpu: "2"
+    memory: 4Gi

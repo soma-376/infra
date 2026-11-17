@@ -80,3 +80,50 @@ root와 child 모두 auto sync·self-heal을 켜되 prune·allowEmpty·삭제 fi
 로컬에서는 임시 bare Git으로 동시 게시·재시도·응답 유실·no-op·오래된 실행·상대 영역 보존을 검증한다. 기존 chart/schema·CSI·ClickHouse 메모리·CMP 검증을 유지한다.
 
 실제 완료는 root+18개가 목표 revision의 Synced/Healthy에 도달하고, 초기 child·PVC·이미지·mount 보존과 Git 변경의 자동 반영·비파괴 self-heal을 확인했을 때 기록한다. 코드와 테스트 통과만으로 Git 게시·dev 활성화를 완료했다고 표현하지 않는다. 로그인·조회·수집·저장 및 인증서 회전 검증은 별도로 기록한다.
+
+## 8. PROJ-304 파이프라인 자원 확대 적용
+
+[ADR 0063](../adr/0063-dev-pipeline-resource-sizing.md)의 로컬 구현과 실제 적용을 구분한다.
+Gateway·ingest 모두 request 500m/2Gi, limit 2 CPU/4Gi이며 replica 1·Recreate를 유지한다.
+apps는 t4g.large, ClickHouse는 m7g.large이며 후자는 request 1500m/6Gi, memory limit 6Gi와
+CPU limit 없음이다. CPU 예산 8/4는 유지하며 정상 apps 2대·ClickHouse 1대는 고정 대수가 아니다.
+
+### 적용 전
+
+1. 현재 관리 주체가 Argo인지 확인하고 §6에 따라 대상 자동화를 중지한다. 수동 Helm과 Argo로
+   같은 리소스를 동시에 수정하지 않는다. 생성 values를 직접 편집하지 않는다.
+2. 현재 infra/values/image revision과 release, NodePool/NodeClaim/Pod 배치, allocatable,
+   ClickHouse PVC/PV·EBS volume 식별자와 AZ를 기록한다. Secret 원문은 읽거나 기록하지 않는다.
+3. 실제 시스템·DaemonSet 요청량과 앱 요청량을 allocatable과 대조한다. Gateway·ingest의
+   hostname 분리와 ClickHouse 1500m/6Gi를 배치할 여유, 해당 AZ의 타입 용량과 quota를 확인한다.
+   앱 2대의 모든 Pod가 memory limit까지 동시에 사용 가능하다고 가정하지 않는다.
+4. 새 infra revision으로 13개 values와 18개 Application을 렌더하고 사양·기존 이미지·PVC·AZ
+   보존을 확인한다. ClickHouse의 최종 `resources.limits`에는 memory만 있어야 한다.
+   runtime의 `cpu: null`은 Helm 기본 CPU 제한을 지우는 입력이며 최종 Pod 값이 아니다.
+5. 단일 replica 중단을 포함한 유지보수 구간을 확보하고 외부 쓰기를 중지한다. 현재 진행 중인
+   처리와 consumer lag가 정리된 것을 확인한 뒤 §3의 새 plan·승인·CDK deploy(변경 없으면 no-op)·
+   설정 게시를 사용한다. 게시 성공만으로 노드 교체나 workload 적용 완료를 판단하지 않는다.
+
+### 순차 적용과 확인
+
+1. base를 먼저 sync한다. NodePool의 타입 제약 변경은 기존 노드를 drift 대상으로 만들 수 있다.
+   `WhenEmpty`도 drift/만료 교체를 막지 않는다. NodeClaim 교체·drain·노드 Ready와 새 타입을 확인한다.
+   기존 CPU 예산은 새 노드를 먼저 확보할 여유를 남긴다. 교체가 막히면 원인을 조사하고 무조건 drain하지 않는다.
+2. ClickHouse를 sync하고 기존 PVC/PV·AZ로 재연결되는지 확인한다. 기존 단일 Pod StatefulSet의
+   순차 교체를 사용하며 PVC 삭제·새 초기화·스토리지 변경을 하지 않는다.
+3. ingest → Gateway 순서로 sync해 Ready를 확인한다. 두 Pod가 서로 다른 hostname에 있고
+   최종 resource가 목표값인지 확인한다. 노드가 부족하면 Pending으로 남는 것이 정상이며
+   anti-affinity를 느슨하게 바꿔 통과시키지 않는다.
+4. 쓰기를 재개하기 전 기존 DB 연결·배포된 이미지 보존과 Argo의 목표 revision Synced/Healthy를
+   확인한다. 실제 요청의 Gateway ACK → Kafka consume/commit → ClickHouse 저장을 별도로 검증한다.
+   ClickHouse 조회 전 운영자의 SSM 터널 상태를 확인한다.
+5. §6에 따라 Git 자동화를 복원하고 node/pod 재시작·OOM·memory pressure·Pending·consumer lag와
+   CPU throttling을 관찰한다. t4g의 실제 credit mode, CPUCreditBalance·CPUCreditUsage·
+   CPUSurplusCreditBalance·CPUSurplusCreditsCharged를 성능 시험 기간과 함께 기록한다.
+
+### 중단·복구
+
+자원 부족, PVC 재연결 실패, 기능 오류가 있으면 쓰기 재개와 성능 측정을 중단한다. 기존 PVC와
+Kafka offset을 보존한 상태에서 검토한 이전 infra·values 선택을 Git으로 게시하고 순차 sync한다.
+리소스 복구는 데이터 복구가 아니며 PVC 삭제·DB downgrade·offset reset을 자동 수행하지 않는다.
+불명확한 결과에서 무조건 재배포하거나 새 저장소를 만들지 않는다.

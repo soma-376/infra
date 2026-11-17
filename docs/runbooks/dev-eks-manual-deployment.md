@@ -69,7 +69,7 @@ profile의 공개 URL·callback·허용 origin 검사를 통과해야 한다.
   output `EksOperatorRoleArn`에 대한 `sts:AssumeRole` 권한을 부여한다. 모든 계정 주체에게
   AssumeRole 권한이 자동 부여되는 것은 아니며 별도 role/principal ARN context 입력도 없다.
 - AWS 계정은 환경 `CDK_DEFAULT_ACCOUNT`로만 전달한다. region은 `ap-northeast-2`다.
-- Kubernetes 1.36과 ARM64 t4g.medium의 리전 가용성·할당량, 2개 public subnet의 여유 IP,
+- Kubernetes 1.36과 ARM64 apps t4g.large·ClickHouse m7g.large의 리전 가용성·할당량, 2개 public subnet의 여유 IP,
   public IPv4 egress를 확인한다. Auto Mode 노드는 SSH/SSM 직접 접속하지 않는다.
 - 별도 AL2023 ARM64 `t4g.micro` 릴레이 한 대는 첫 번째 public subnet·public IPv4를 사용한다.
   인바운드 없이 TCP 443 아웃바운드만 허용하며, SSM 전용 EC2 역할에는 EKS AccessEntry가 없다.
@@ -577,7 +577,9 @@ kubectl -n pulsemetry-dev get pods,services,targetgroupbindings -o wide
 ```
 
 ClickHouse PVC가 `pulsemetry-dev-gp3`·50Gi·Retain·첫 AZ를 쓰는지 확인한다.
-각 Pod의 nodepool/architecture, 앱 1Gi request·2Gi limit, Recreate 배포와 실제 시작 시간을 기록한다.
+각 Pod의 nodepool/architecture, enrollment·dashboard 250m/1Gi request·1 CPU/2Gi limit,
+Gateway·ingest 500m/2Gi request·2 CPU/4Gi limit, Recreate 배포와 실제 시작 시간을 기록한다.
+Gateway·ingest hostname 분리와 자원 확대는 [PROJ-304 적용 절차](dev-gitops-image-promotion.md#8-proj-304-파이프라인-자원-확대-적용)를 따른다.
 앱의 필수 Secret 파일 검사가 실패하면 원문을 읽지 않고 association·권한·SPC alias·CSI 이벤트를 점검한다.
 기존 DB·HMAC Secret 변경은 enrollment부터 명시적으로 재시작하고 ready를 확인한 다음 ingest를 재시작한다.
 JWT 변경에는 이 순서를 적용하지 않고 §11의 모든 verifier → signer 전환을 따른다.
@@ -756,7 +758,7 @@ PROJ-223 구현의 schema/helpers/template에 실제로 지원되는지 먼저 l
 
 **dashboard NodePort는 30081이다. 실제 가용성은 미검증이다.** PROJ-224의 TG 포트·Network SG·CDK output·Helm Service를
 대조하고 실제 할당 충돌이 없음을 확인한 뒤 기록한다. 임의의 다음 번호를 빈 포트로 간주하지 않는다.
-기존 앱의 requests 250m/1Gi·limits 1 CPU/2Gi 기준과 apps NodePool의 실제 배치·여유를 확인한다.
+dashboard의 requests 250m/1Gi·limits 1 CPU/2Gi 기준과 apps NodePool의 실제 배치·여유를 확인한다.
 
 선택한 앱 릴리스의 `userAuth`·`dashboard`와 선택적 `oidc`를 runtime YAML에 작성한다.
 `test/fixtures/eks-runtime.yaml`은 가짜 버전과 수치를 가진 검증 전용 예시다. writerImage는 EKS YAML에

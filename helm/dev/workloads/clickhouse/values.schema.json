@@ -68,86 +68,39 @@
           }
         },
         "resources": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "requests",
-            "limits"
-          ],
-          "properties": {
-            "requests": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "cpu",
-                "memory"
-              ],
-              "properties": {
-                "cpu": {
-                  "const": "250m"
-                },
-                "memory": {
-                  "enum": [
-                    "1Gi",
-                    "2Gi"
-                  ]
-                }
-              }
-            },
-            "limits": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "cpu",
-                "memory"
-              ],
-              "properties": {
-                "cpu": {
-                  "const": "1"
-                },
-                "memory": {
-                  "enum": [
-                    "2Gi",
-                    "2560Mi"
-                  ]
-                }
-              }
-            }
-          },
           "oneOf": [
             {
-              "properties": {
+              "const": {
                 "requests": {
-                  "properties": {
-                    "memory": {
-                      "const": "1Gi"
-                    }
-                  }
+                  "cpu": "250m",
+                  "memory": "1Gi"
                 },
                 "limits": {
-                  "properties": {
-                    "memory": {
-                      "const": "2Gi"
-                    }
-                  }
+                  "cpu": "1",
+                  "memory": "2Gi"
                 }
               }
             },
             {
-              "properties": {
+              "const": {
                 "requests": {
-                  "properties": {
-                    "memory": {
-                      "const": "2Gi"
-                    }
-                  }
+                  "cpu": "250m",
+                  "memory": "2Gi"
                 },
                 "limits": {
-                  "properties": {
-                    "memory": {
-                      "const": "2560Mi"
-                    }
-                  }
+                  "cpu": "1",
+                  "memory": "2560Mi"
+                }
+              }
+            },
+            {
+              "const": {
+                "requests": {
+                  "cpu": "1500m",
+                  "memory": "6Gi"
+                },
+                "limits": {
+                  "memory": "6Gi"
                 }
               }
             }

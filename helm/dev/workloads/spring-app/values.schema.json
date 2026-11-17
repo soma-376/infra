@@ -53,46 +53,7 @@
           }
         },
         "resources": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "requests",
-            "limits"
-          ],
-          "properties": {
-            "requests": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "cpu",
-                "memory"
-              ],
-              "properties": {
-                "cpu": {
-                  "const": "250m"
-                },
-                "memory": {
-                  "const": "1Gi"
-                }
-              }
-            },
-            "limits": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "cpu",
-                "memory"
-              ],
-              "properties": {
-                "cpu": {
-                  "const": "1"
-                },
-                "memory": {
-                  "const": "2Gi"
-                }
-              }
-            }
-          }
+          "type": "object"
         },
         "env": {
           "type": "object",
@@ -866,6 +827,9 @@
               }
             }
           }
+        },
+        {
+          "$ref": "#/definitions/devWorkloadResources"
         }
       ]
     },
@@ -1595,46 +1559,7 @@
                 "const": 1
               },
               "resources": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "requests",
-                  "limits"
-                ],
-                "properties": {
-                  "requests": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "cpu",
-                      "memory"
-                    ],
-                    "properties": {
-                      "cpu": {
-                        "const": "250m"
-                      },
-                      "memory": {
-                        "const": "1Gi"
-                      }
-                    }
-                  },
-                  "limits": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "cpu",
-                      "memory"
-                    ],
-                    "properties": {
-                      "cpu": {
-                        "const": "1"
-                      },
-                      "memory": {
-                        "const": "2Gi"
-                      }
-                    }
-                  }
-                }
+                "type": "object"
               },
               "kafka": {
                 "properties": {
@@ -1659,7 +1584,12 @@
               "required": [
                 "placement"
               ]
-            }
+            },
+            "allOf": [
+              {
+                "$ref": "#/definitions/devWorkloadResources"
+              }
+            ]
           },
           "else": {
             "required": [
@@ -2043,5 +1973,54 @@
         }
       ]
     }
-  ]
+  ],
+  "definitions": {
+    "devWorkloadResources": {
+      "if": {
+        "properties": {
+          "workload": {
+            "enum": [
+              "telemetry-gateway",
+              "telemetry-ingest"
+            ]
+          }
+        },
+        "required": [
+          "workload"
+        ]
+      },
+      "then": {
+        "properties": {
+          "resources": {
+            "const": {
+              "requests": {
+                "cpu": "500m",
+                "memory": "2Gi"
+              },
+              "limits": {
+                "cpu": "2",
+                "memory": "4Gi"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "resources": {
+            "const": {
+              "requests": {
+                "cpu": "250m",
+                "memory": "1Gi"
+              },
+              "limits": {
+                "cpu": "1",
+                "memory": "2Gi"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }
