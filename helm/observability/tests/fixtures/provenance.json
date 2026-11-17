@@ -46,6 +46,16 @@
       "regenerate": "./gradlew :apps:dashboard-api:test --tests '*MetricsEndpointTest'",
       "scope": "Boot 4.1.0 실제 dashboard-api HTTP management scrape, 로컬 통합 테스트(backend ADR 0079). 위 source.commit과 다른 commit이다",
       "sha256": "f0efb50ee50bae08db3ff4cc4342a45d996710598cd5d7a5a5fccf2c40581a0a"
+    },
+    {
+      "file": "k6-otel-sidecar.prom",
+      "source": "<작업 디렉터리>/evidence/k6-otel.prom",
+      "repository": "soma-376/pulsemetry-backend",
+      "branch": "feature/PROJ-192-pipeline-loadtest",
+      "commit": "cf3ff004fc1b01b77e6d695394acdd3cee4fa1a3",
+      "regenerate": "tools/loadtest/local/run.sh <작업 디렉터리>",
+      "scope": "로컬 compose E2E; 배포 scrape 아님. k6 1.8.2 OTel 출력 → core collector 0.161.0 prometheus exporter. testid local-smoke·local-stair·local-drop(응답 없는 대상으로 dropped_iterations 생성). 위 source.commit과 다른 commit이다",
+      "sha256": "0d5b85bae50ef6658ea8a92ee6f02e30cecec0c15470731413745926f9701fdf"
     }
   ],
   "clickhouse": {
