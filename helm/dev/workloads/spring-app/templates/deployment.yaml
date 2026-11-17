@@ -111,6 +111,18 @@ spec:
         {{- else }}
         karpenter.sh/nodepool: pulsemetry-dev-apps
         {{- end }}
+      {{- if and (ne (include "pulsemetry.app.perf" .) "true") (has .Values.workload (list "telemetry-gateway" "telemetry-ingest")) }}
+      # ADR-0063: 같은 namespace의 Gateway·ingest가 한 노드를 공유하지 않는다.
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values: [telemetry-gateway, telemetry-ingest]
+              topologyKey: kubernetes.io/hostname
+      {{- end }}
       terminationGracePeriodSeconds: {{ include "pulsemetry.app.grace" . }}
       {{- if $mounts }}
       initContainers:
