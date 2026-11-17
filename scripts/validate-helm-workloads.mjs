@@ -197,8 +197,15 @@ function checkApp(documents, workload, grace = 60) {
     'kubernetes.io/arch': 'arm64', 'karpenter.sh/nodepool': 'pulsemetry-dev-apps',
   });
   assert.equal(container.image, `example.invalid/soma-376/${workload}@${digest}`);
-  assert.deepEqual(container.resources.requests, { cpu: '250m', memory: '1Gi' });
-  assert.deepEqual(container.resources.limits, { cpu: '1', memory: '2Gi' });
+  const pipeline = ['telemetry-gateway', 'telemetry-ingest'].includes(workload);
+  assert.deepEqual(container.resources.requests, pipeline ? { cpu: '500m', memory: '2Gi' } : { cpu: '250m', memory: '1Gi' });
+  assert.deepEqual(container.resources.limits, pipeline ? { cpu: '2', memory: '4Gi' } : { cpu: '1', memory: '2Gi' });
+  if (pipeline) {
+    assert.deepEqual(pod.affinity, { podAntiAffinity: { requiredDuringSchedulingIgnoredDuringExecution: [{
+      labelSelector: { matchExpressions: [{ key: 'app.kubernetes.io/name', operator: 'In', values: ['telemetry-gateway', 'telemetry-ingest'] }] },
+      topologyKey: 'kubernetes.io/hostname',
+    }] } });
+  } else assert.equal(pod.affinity, undefined);
   assert.deepEqual(container.readinessProbe.httpGet, { path: '/api/v1/healthz', port: 'http' });
   assert.equal(container.readinessProbe.timeoutSeconds, 6);
   const mode = (container.env ?? []).find(item => item.name === 'PULSEMETRY_INGEST_MODE')?.value;
@@ -381,7 +388,7 @@ function checkPlatform() {
     assert.deepEqual(requirements.slice(0, 3), [
       { key: 'kubernetes.io/arch', operator: 'In', values: ['arm64'] },
       { key: 'karpenter.sh/capacity-type', operator: 'In', values: ['on-demand'] },
-      { key: 'node.kubernetes.io/instance-type', operator: 'In', values: ['t4g.medium'] },
+      { key: 'node.kubernetes.io/instance-type', operator: 'In', values: [pool === 'apps' ? 't4g.large' : 'm7g.large'] },
     ]);
     assert.equal(requirements.some(requirement => requirement.key === 'kubernetes.io/os'), false);
     if (pool === 'clickhouse') {

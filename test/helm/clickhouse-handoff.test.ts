@@ -28,4 +28,31 @@ const { loadAll } = require('js-yaml');
       expect(render(['--set', setting]).status).not.toBe(0);
     }
   });
+
+  test('확대한 자원은 기본 CPU 제한을 제거하고 StatefulSet·PVC 선언을 보존한다', () => {
+    const baseline = render();
+    const expanded = render(['--set', 'resources.requests.cpu=1500m,resources.requests.memory=6Gi,resources.limits.cpu=null,resources.limits.memory=6Gi']);
+    expect([baseline.status, expanded.status]).toEqual([0, 0]);
+    const before = loadAll(baseline.stdout).filter(Boolean);
+    const after = loadAll(expanded.stdout).filter(Boolean);
+    const statefulset = after.find((doc: any) => doc.kind === 'StatefulSet');
+    expect(statefulset.spec.replicas).toBe(1);
+    expect(statefulset.spec.updateStrategy).toBeUndefined();
+    expect(statefulset.spec.template.spec.containers[0].resources).toEqual({
+      requests: { cpu: '1500m', memory: '6Gi' }, limits: { memory: '6Gi' },
+    });
+    statefulset.spec.template.spec.containers[0].resources =
+      before.find((doc: any) => doc.kind === 'StatefulSet').spec.template.spec.containers[0].resources;
+    expect(after).toEqual(before);
+  });
+
+  test('CPU 제한 제거를 빠뜨리거나 다른 자원과 섞은 확대 설정은 거부한다', () => {
+    for (const setting of [
+      'resources.requests.cpu=1500m,resources.requests.memory=6Gi,resources.limits.memory=6Gi',
+      'resources.requests.cpu=1500m,resources.requests.memory=6Gi,resources.limits.cpu=null,resources.limits.memory=8Gi',
+      'resources.limits.cpu=null',
+    ]) {
+      expect(render(['--set', setting]).status).not.toBe(0);
+    }
+  });
 });
