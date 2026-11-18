@@ -52,10 +52,10 @@
       "source": "<작업 디렉터리>/evidence/k6-otel.prom",
       "repository": "soma-376/pulsemetry-backend",
       "branch": "feature/PROJ-192-pipeline-loadtest",
-      "commit": "cf3ff004fc1b01b77e6d695394acdd3cee4fa1a3",
+      "commit": "e8948ee1420cd15774a99dca9cd61dc3820d007f",
       "regenerate": "tools/loadtest/local/run.sh <작업 디렉터리>",
       "scope": "로컬 compose E2E; 배포 scrape 아님. k6 1.8.2 OTel 출력 → core collector 0.161.0 prometheus exporter. testid local-smoke·local-stair·local-drop(응답 없는 대상으로 dropped_iterations 생성). 위 source.commit과 다른 commit이다",
-      "sha256": "0d5b85bae50ef6658ea8a92ee6f02e30cecec0c15470731413745926f9701fdf"
+      "sha256": "a86ef93f348faffa5cb4db25105acea24158d41adea87130c96847f8796ce05c"
     }
   ],
   "clickhouse": {
