@@ -10,6 +10,10 @@ metadata:
     {{- include "loadtest.labels" . | nindent 4 }}
 data:
   config.yaml: |
+    extensions:
+      # startupProbe 대상. 모든 pipeline 이 시작된 뒤에만 200 을 준다. Pod IP 로 열지만 Service 가 없다.
+      health_check:
+        endpoint: 0.0.0.0:13133
     receivers:
       otlp:
         protocols:
@@ -21,9 +25,10 @@ data:
     exporters:
       prometheus:
         endpoint: 0.0.0.0:9404
-        # k6 가 끝난 뒤에도 마지막 scrape 가 값을 읽게 둔다. Pod 는 k6 종료와 함께 끝난다.
+        # 시계열이 사라지지 않게 길게 둔다. Pod 는 k6 종료와 함께 끝나므로, 마지막 scrape 는 k6 의 FINAL_FLUSH 대기가 보장한다.
         metric_expiration: 10m
     service:
+      extensions: [health_check]
       pipelines:
         metrics:
           receivers: [otlp]

@@ -73,18 +73,24 @@ suite('dev 부하 시험 k6 Job 차트', () => {
     expect(pod.spec.automountServiceAccountToken).toBe(false);
   });
 
-  test('collector 는 native sidecar 로 루프백 OTLP 를 받아 metrics(9404)로 내놓는다', () => {
+  test('collector 는 native sidecar 로 루프백 OTLP 를 받아 metrics(9404)로 내놓고, kubelet 은 health_check 로 시작을 확인한다', () => {
     const documents = render();
     const pod = job(documents).spec.template.spec;
     expect(pod.initContainers).toHaveLength(1);
     const collector = pod.initContainers[0];
     expect(collector.restartPolicy).toBe('Always');
-    expect(collector.ports).toEqual([{ name: 'metrics', containerPort: 9404, protocol: 'TCP' }]);
-    expect(collector.startupProbe.tcpSocket.port).toBe(4318);
+    expect(collector.ports).toEqual([
+      { name: 'metrics', containerPort: 9404, protocol: 'TCP' }, { name: 'health', containerPort: 13133, protocol: 'TCP' },
+    ]);
+    // kubelet 은 Pod IP 로 확인한다. 루프백 전용 4318 을 TCP 로 보면 정상 collector 도 실패해 k6 가 시작하지 않는다.
+    expect(collector.startupProbe).toEqual({ httpGet: { path: '/', port: 'health' }, periodSeconds: 1, failureThreshold: 60 });
+    expect(collector.startupProbe.tcpSocket).toBeUndefined();
     const config = load(documents.find(document => document.kind === 'ConfigMap').data['config.yaml']) as any;
     expect(config.receivers.otlp.protocols.http.endpoint).toBe('127.0.0.1:4318');
     expect(config.exporters.prometheus.endpoint).toBe('0.0.0.0:9404');
     expect(config.service.pipelines.metrics).toEqual({ receivers: ['otlp'], processors: ['batch'], exporters: ['prometheus'] });
+    expect(config.extensions.health_check.endpoint).toBe('0.0.0.0:13133');
+    expect(config.service.extensions).toEqual(['health_check']);
     expect(collector.resources).toEqual({ requests: { cpu: '100m', memory: '128Mi' }, limits: { cpu: '500m', memory: '256Mi' } });
   });
 
@@ -95,7 +101,7 @@ suite('dev 부하 시험 k6 Job 차트', () => {
     const env = Object.fromEntries(k6.env.map((item: any) => [item.name, item.value]));
     expect(env).toMatchObject({
       K6_NO_USAGE_REPORT: 'true', K6_OTEL_EXPORTER_TYPE: 'http', K6_OTEL_HTTP_EXPORTER_ENDPOINT: '127.0.0.1:4318', K6_OTEL_METRIC_PREFIX: 'k6_',
-      TESTID: 'pipeline-01', SCENARIO: 'smoke', IDENTITIES_FILE: '/seed/identities.json', SEED_SECRET_FILE: '/seed/seed-secret',
+      TESTID: 'pipeline-01', SCENARIO: 'smoke', IDENTITIES_FILE: '/seed/identities.json', SEED_SECRET_FILE: '/seed/seed-secret', FINAL_FLUSH: '25s',
       GATEWAY_URL: 'http://telemetry-gateway.pulsemetry-dev.svc:8082', ENROLLMENT_URL: 'http://enrollment-api.pulsemetry-dev.svc:8080',
       START_RPS: '5', STEP_RPS: '5', MAX_RPS: '60', RAMP: '30s', STEP_HOLD: '5m', COOLDOWN: '30s', HOLD_DURATION: '20m',
       MIX_SIGNAL: 'logs:70,metrics:20,traces:10', MIX_PRODUCT: 'claude-code:50,codex:50', GZIP: '1',

@@ -12,6 +12,8 @@ maxRps: 60          # 1000 이하
 ramp: 30s           # 1초 이상
 stepHold: 5m
 cooldown: 30s
+# 끝난 뒤 teardown 대기 — 마지막 지표가 Prometheus 에 수집되게 한다(k6 FINAL_FLUSH, 0~300s).
+finalFlush: 25s
 holdRps: null       # hold 에 필수
 holdDuration: 20m
 mixSignal: "logs:70,metrics:20,traces:10"

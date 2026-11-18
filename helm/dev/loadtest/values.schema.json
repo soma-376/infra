@@ -35,6 +35,7 @@
     "ramp": {"$ref": "#/definitions/duration"},
     "stepHold": {"$ref": "#/definitions/duration"},
     "cooldown": {"$ref": "#/definitions/duration"},
+    "finalFlush": {"$ref": "#/definitions/duration"},
     "holdRps": {"oneOf": [{"type": "null"}, {"$ref": "#/definitions/rps"}]},
     "holdDuration": {"$ref": "#/definitions/duration"},
     "mixSignal": {"$ref": "#/definitions/mix"},

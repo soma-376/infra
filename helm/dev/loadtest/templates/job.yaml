@@ -69,10 +69,15 @@ spec:
             - name: metrics
               containerPort: 9404
               protocol: TCP
-          # 수신기가 열린 뒤에 k6 를 시작한다 — 첫 지표를 잃지 않게.
+            - name: health
+              containerPort: 13133
+              protocol: TCP
+          # 모든 pipeline(OTLP 수신기 포함)이 뜬 뒤에 k6 를 시작한다 — 첫 지표를 잃지 않게. kubelet 은 Pod IP 로 확인하므로
+          # 루프백(127.0.0.1:4318)만 여는 OTLP 수신기 대신 health_check 확장(:13133, Pod 안에서만 쓰고 Service 없음)을 본다.
           startupProbe:
-            tcpSocket:
-              port: 4318
+            httpGet:
+              path: /
+              port: health
             periodSeconds: 1
             failureThreshold: 60
           securityContext:
@@ -117,6 +122,7 @@ spec:
             - {name: RAMP, value: {{ $v.ramp | quote }}}
             - {name: STEP_HOLD, value: {{ $v.stepHold | quote }}}
             - {name: COOLDOWN, value: {{ $v.cooldown | quote }}}
+            - {name: FINAL_FLUSH, value: {{ $v.finalFlush | quote }}}
             {{- if $v.holdRps }}
             - {name: HOLD_RPS, value: {{ $v.holdRps | quote }}}
             {{- end }}
