@@ -7,11 +7,16 @@
 //
 // 조회만 한다(클러스터·AWS 에 쓰지 않는다). 단계 구간은 k6 summary 의 유지 구간 절대 시각이다.
 // 범위 질의는 대시보드(pulsemetry-loadtest.json)와 같은 식이고, 판정 값은 유지 구간 전체 창으로 다시 계산한다.
+// - 단계별 dropped·k6 지연·오류율은 k6 summary(실행 끝의 k6 자체 집계)에서 읽는다 — 수집 시점과 무관하다.
+// - 0이어야 하는 카운터는 창을 [유지 시작, 유지 끝 + 경계 지연]으로 늘리고, 그 창의 수집 증거(재시작·Pod 교체·scrape)를
+//   먼저 확인한다. 증거가 부족하면 미수집이다(lib/loadtest-queries.mjs).
+// - lag 증가는 두 경계의 표본 시각을 확인한다(같은 표본·오래된 표본이면 미수집).
 import { mkdirSync, readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { DEFAULT_CRITERIA, configSnapshot, drainPlan, extractSummary, judgeRun, parseDuration, renderReport } from './lib/loadtest-judge.mjs';
+import { boundaryGrowth, counterIncrease, evidenceProblem, evidenceQueries } from './lib/loadtest-queries.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const dashboardFile = resolve(root, 'helm/observability/pulsemetry-observability/dashboards/pulsemetry-loadtest.json');
@@ -24,6 +29,11 @@ const DEFAULTS = {
   topic: 'pulsemetry-dev-telemetry-ingress-main',
   'consumer-group': 'pulsemetry-dev-telemetry-ingest-main',
   'range-step': '15s',
+  // Prometheus scrape·기록 규칙 간격(dev 10s). 경계 지연은 유지 구간 끝 직전 이벤트가 찍힐 때까지의 여유(2 × scrape),
+  // 표본 최대 나이는 경계 표본이 이보다 오래되면 미수집으로 보는 값(3 × 규칙 간격)이다.
+  'scrape-interval': '10s',
+  'boundary-delay': '20s',
+  'max-sample-age': '30s',
 };
 
 // 대시보드 패널(제목·refId) → 저장할 범위 질의 이름. 식은 대시보드에서 읽는다 — 같은 식을 두 곳에 쓰지 않는다.
@@ -70,18 +80,32 @@ function windowQueries(vars, holdSeconds) {
   const quantile = (q, metric, selector) => `histogram_quantile(${q},sum by(le)(increase(${metric}{${selector}}[${w}])))`;
   return {
     actualRps: `sum(increase(k6_http_reqs_total{${s.k6},name=~"/v1/.*"}[${w}])) / ${Math.round(holdSeconds)}`,
-    dropped: `sum(increase(k6_dropped_iterations_total{${s.k6}}[${w}]))`,
     serverP95Seconds: quantile(0.95, 'pulsemetry_gateway_request_duration_seconds_bucket', s.gateway),
     serverP99Seconds: quantile(0.99, 'pulsemetry_gateway_request_duration_seconds_bucket', s.gateway),
     lagSlope: `deriv(pulsemetry:kafka_committed_lag:sum{${s.kafka}}[${w}])`,
     completionP95Seconds: quantile(0.95, 'pulsemetry_pipeline_accepted_to_completion_seconds_bucket', s.ingest),
-    permanent: `sum(increase(pulsemetry_pipeline_attempts_total{${s.ingest},outcome=~"permanent_.*"}[${w}])) or (sum(pulsemetry_pipeline_attempts_total{${s.ingest}}) * 0)`,
-    retryExhausted: `sum(increase(pulsemetry_pipeline_retry_exhausted_total{${s.ingest}}[${w}]))`,
-    chDelayed: `sum(increase(ClickHouseProfileEvents_DelayedInserts{${s.clickhouse}}[${w}]))`,
-    chFailed: `sum(increase(ClickHouseProfileEvents_FailedInsertQuery{${s.clickhouse}}[${w}]))`,
     chInsertedRows: `sum(increase(ClickHouseProfileEvents_InsertedRows{${s.clickhouse}}[${w}]))`,
     cpuLimitRatioMax: `max(max_over_time((sum by(pod)(rate(container_cpu_usage_seconds_total{${s.pods}}[1m])) / sum by(pod)(kube_pod_container_resource_limits{${s.limits}}))[${w}:15s]))`,
     heapMaxBytes: `max(max_over_time((sum by(service)(jvm_memory_used_bytes{${s.apps},area="heap"}))[${w}:15s]))`,
+  };
+}
+
+/** 0이어야 하는 카운터. 값을 낸 대상(ingest·clickhouse)의 수집 증거가 있어야 쓴다. */
+function zeroCounterQueries(vars, window) {
+  const s = selectors(vars);
+  return {
+    permanent: { source: 'ingest', query: counterIncrease('pulsemetry_pipeline_attempts_total', `${s.ingest},outcome=~"permanent_.*"`, window) },
+    retryExhausted: { source: 'ingest', query: counterIncrease('pulsemetry_pipeline_retry_exhausted_total', s.ingest, window) },
+    chDelayed: { source: 'clickhouse', query: counterIncrease('ClickHouseProfileEvents_DelayedInserts', s.clickhouse, window) },
+    chFailed: { source: 'clickhouse', query: counterIncrease('ClickHouseProfileEvents_FailedInsertQuery', s.clickhouse, window) },
+  };
+}
+
+function evidenceSources(vars, window) {
+  const s = selectors(vars);
+  return {
+    ingest: evidenceQueries(`up{${s.ingest}}`, `process_start_time_seconds{${s.ingest}}`, window),
+    clickhouse: evidenceQueries(`up{${s.clickhouse}}`, null, window),
   };
 }
 
@@ -146,6 +170,14 @@ async function exportRun(args) {
   };
   for (const [key, value] of Object.entries(criteria)) if (!Number.isFinite(value) || value < 0) throw new Error(`임계값 ${key} 가 0 이상의 수가 아니다`);
   const rangeStep = parseDuration(args['range-step'], 'range-step');
+  const scrapeSeconds = parseDuration(args['scrape-interval'], 'scrape-interval');
+  const delaySeconds = parseDuration(args['boundary-delay'], 'boundary-delay');
+  const maxAgeSeconds = parseDuration(args['max-sample-age'], 'max-sample-age');
+  if (!(scrapeSeconds > 0)) throw new Error('scrape-interval 은 0보다 커야 한다');
+  const lastEnd = Math.max(...summary.steps.map(step => toSeconds(step.holdEnd)));
+  if (Date.now() / 1000 < lastEnd + delaySeconds + 2 * scrapeSeconds) {
+    throw new Error(`마지막 유지 구간 끝(${new Date(lastEnd * 1000).toISOString()}) + 경계 지연 ${delaySeconds}s 뒤에 실행한다`);
+  }
   const ranges = dashboardQueries(vars);
 
   const steps = [];
@@ -160,13 +192,34 @@ async function exportRun(args) {
     }
     writeFileSync(resolve(out, 'queries', `${step.step}.json`), `${JSON.stringify({ step: step.step, holdStart: step.holdStart, holdEnd: step.holdEnd, ranges: saved }, null, 2)}\n`);
 
-    const values = { k6P95Ms: step.p95Ms ?? null, k6P99Ms: step.p99Ms ?? null, errorRate: step.errorRate ?? null };
-    for (const [name, query] of Object.entries(windowQueries(vars, holdSeconds))) {
-      values[name] = scalar(await prometheus(args.prometheus, 'api/v1/query', { query, time: end }));
+    const notes = {};
+    const values = { k6P95Ms: step.p95Ms ?? null, k6P99Ms: step.p99Ms ?? null, errorRate: step.errorRate ?? null, notes };
+    // 단계별 drop 은 k6 summary 의 값이다(summaryVersion 2). 없으면 미수집 — Prometheus 의 drop 카운터는 첫 drop 을 놓친다.
+    values.dropped = Number.isFinite(step.droppedIterations) ? step.droppedIterations : null;
+    if (values.dropped === null) notes.dropped = 'summary 에 단계별 drop 이 없다 — summaryVersion 2 이상의 k6 스크립트로 실행한다';
+    const instant = async (query, time) => scalar(await prometheus(args.prometheus, 'api/v1/query', { query, time }));
+    for (const [name, query] of Object.entries(windowQueries(vars, holdSeconds))) values[name] = await instant(query, end);
+
+    // 0이어야 하는 카운터: 창 [start, end + 경계 지연], 그 창의 수집 증거를 먼저 본다.
+    const windowSeconds = holdSeconds + delaySeconds;
+    const evalTime = end + delaySeconds;
+    const minSamples = Math.floor(windowSeconds / scrapeSeconds) - 1;
+    const problems = {};
+    for (const [source, queries] of Object.entries(evidenceSources(vars, `${windowSeconds}s`))) {
+      const observed = {};
+      for (const [key, query] of Object.entries(queries)) observed[key] = await instant(query, evalTime);
+      problems[source] = evidenceProblem(source, observed, minSamples);
     }
-    const lagStart = scalar(await prometheus(args.prometheus, 'api/v1/query', { query: lagQuery(vars), time: start }));
-    const lagEnd = scalar(await prometheus(args.prometheus, 'api/v1/query', { query: lagQuery(vars), time: end }));
-    values.lagGrowth = lagStart === null || lagEnd === null ? null : lagEnd - lagStart;
+    for (const [name, { source, query }] of Object.entries(zeroCounterQueries(vars, `${windowSeconds}s`))) {
+      if (problems[source]) { values[name] = null; notes[name] = problems[source]; continue; }
+      values[name] = await instant(query, evalTime);
+    }
+
+    // lag 증가: 두 경계의 실제 표본 시각을 확인한다.
+    const sampleAt = async time => ({ value: await instant(lagQuery(vars), time), ts: await instant(`timestamp(${lagQuery(vars)})`, time) });
+    const growth = boundaryGrowth(await sampleAt(start), await sampleAt(end), start, end, maxAgeSeconds);
+    values.lagGrowth = growth.value;
+    if (growth.note) notes.lagGrowth = growth.note;
     const expected = (step.expectedEvents ?? 0) + (step.expectedMetricPoints ?? 0);
     values.chStorageRatio = values.chInsertedRows === null || !expected ? null : values.chInsertedRows / expected;
     steps.push({ step: step.step, targetRps: step.targetRps, holdStart: step.holdStart, holdEnd: step.holdEnd, holdSeconds, values });
@@ -196,6 +249,7 @@ function plan(args) {
 
 const options = Object.fromEntries([
   'prometheus', 'cluster', 'testid', 'summary', 'config-snapshot', 'out', 'namespace', 'environment', 'kafka-cluster', 'topic', 'consumer-group', 'range-step',
+  'scrape-interval', 'boundary-delay', 'max-sample-age',
   'max-p95-seconds', 'max-p99-seconds', 'max-error-rate', 'max-dropped', 'lag-min-growth', 'lag-growth-per-rps', 'completion-p95-factor',
   'pipeline-limit', 'start', 'step', 'max', 'hold', 'budget',
 ].map(name => [name, { type: 'string' }]));

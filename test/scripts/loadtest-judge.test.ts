@@ -16,13 +16,19 @@ let input = ''; process.stdin.on('data', chunk => input += chunk).on('end', () =
   return parsed.ok;
 };
 
-const gatewayOk = { k6P95Ms: 120, k6P99Ms: 400, errorRate: 0, serverP95Seconds: 0.05, serverP99Seconds: 0.2, dropped: null };
+const gatewayOk = { k6P95Ms: 120, k6P99Ms: 400, errorRate: 0, serverP95Seconds: 0.05, serverP99Seconds: 0.2, dropped: 0 };
 const pipelineOk = { lagGrowth: 20, completionP95Seconds: 1.5, retryExhausted: 0, permanent: 0, chDelayed: 0, chFailed: 0 };
 const step = (name: string, targetRps: number, values: Record<string, unknown>) => ({ step: name, targetRps, values: { ...gatewayOk, ...pipelineOk, ...values } });
 
 describe('① Gateway 수용 판정', () => {
-  test('기준 안이면 통과하고 dropped 지표가 없으면 0으로 본다', () => {
+  test('기준 안이면 통과한다', () => {
     expect(call('judgeGateway', gatewayOk)).toEqual([]);
+  });
+
+  test('dropped 는 k6 summary 의 단계별 값이다 — 없으면 0이 아니라 미수집이고 사유를 붙인다', () => {
+    expect(call('judgeGateway', { ...gatewayOk, dropped: null })).toEqual(['dropped 미수집']);
+    expect(call('judgeGateway', { ...gatewayOk, dropped: null, notes: { dropped: 'summary 에 단계별 drop 이 없다' } }))
+      .toEqual(['dropped 미수집(summary 에 단계별 drop 이 없다)']);
   });
 
   test('k6·서버 p95·p99·오류율·dropped 를 각각 본다', () => {
@@ -57,6 +63,15 @@ describe('② 파이프라인 지속 판정', () => {
   test('영구 거부·재시도 소진·CH 지연/실패 INSERT 는 0 이어야 하고 미수집은 실패다', () => {
     const reasons = call('judgePipeline', { ...pipelineOk, permanent: 2, retryExhausted: 1, chDelayed: 3, chFailed: null, lagGrowth: null }, 10, null);
     expect(reasons).toEqual(['lag 미수집', '영구 거부 2 > 0', '재시도 소진 1 > 0', 'CH 지연 INSERT 3 > 0', 'CH 실패 INSERT 미수집']);
+  });
+
+  test('음수 카운터 증가량(초기화·표본 문제)은 통과가 아니라 미수집이다', () => {
+    expect(call('judgePipeline', { ...pipelineOk, permanent: -3 }, 10, null)).toEqual(['영구 거부 미수집(음수 -3 — 카운터 초기화·표본 문제)']);
+  });
+
+  test('수집 증거가 부족해 비운 값은 사유와 함께 실패한다', () => {
+    const values = { ...pipelineOk, permanent: null, lagGrowth: null, notes: { permanent: 'ingest 재시작', lagGrowth: '시작·끝이 같은 표본' } };
+    expect(call('judgePipeline', values, 10, null)).toEqual(['lag 미수집(시작·끝이 같은 표본)', '영구 거부 미수집(ingest 재시작)']);
   });
 });
 

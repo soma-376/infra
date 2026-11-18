@@ -5,6 +5,7 @@
 //   ② 파이프라인 지속: 유지 구간 lag 증가 ≤ max(100, 목표 RPS × 10), 접수→완료 p95 ≤ 직전 통과 단계의 2배,
 //      영구 거부·재시도 소진·ClickHouse 지연/실패 INSERT 증가 0
 // 위 값이 기본값이다. 확정은 팀 결정이며 전부 인자로 바꾼다. 빈 값(미수집)은 0이나 통과로 보지 않는다.
+// 증거가 부족해 값을 내지 못한 이유는 values.notes[키] 에 있고, 실패 사유에 함께 적는다.
 
 export const DEFAULT_CRITERIA = Object.freeze({
   maxP95Seconds: 1,
@@ -26,9 +27,10 @@ export function parseDuration(value, name = 'duration') {
 }
 
 const present = value => typeof value === 'number' && Number.isFinite(value);
+const missing = (values, label, key) => `${label} 미수집${values.notes?.[key] ? `(${values.notes[key]})` : ''}`;
 const format = (value, digits = 3) => (present(value) ? Number(value.toFixed(digits)).toString() : '미수집');
 
-/** ① 한 단계. values: k6P95Ms·k6P99Ms·errorRate(summary), serverP95Seconds·serverP99Seconds·dropped(Prometheus). */
+/** ① 한 단계. values: k6P95Ms·k6P99Ms·errorRate·dropped(k6 summary), serverP95Seconds·serverP99Seconds(Prometheus). */
 export function judgeGateway(values, criteria = DEFAULT_CRITERIA) {
   const reasons = [];
   const limit = (label, value, max, unit = '') => {
@@ -40,9 +42,9 @@ export function judgeGateway(values, criteria = DEFAULT_CRITERIA) {
   limit('서버 p95', values.serverP95Seconds, criteria.maxP95Seconds, 's');
   limit('서버 p99', values.serverP99Seconds, criteria.maxP99Seconds, 's');
   limit('오류율', values.errorRate, criteria.maxErrorRate);
-  // dropped_iterations 는 drop 이 있을 때만 생긴다 — 없으면 0이다(이 지표만 예외).
-  const dropped = present(values.dropped) ? values.dropped : 0;
-  if (dropped > criteria.maxDropped) reasons.push(`dropped ${format(dropped, 0)} > ${criteria.maxDropped}`);
+  // dropped 는 k6 summary 의 단계별 값(예정 반복 − 유지 구간 요청)이다. Prometheus 수집 시점과 무관하고, 없으면 미수집이다.
+  if (!present(values.dropped)) reasons.push(missing(values, 'dropped', 'dropped'));
+  else if (values.dropped > criteria.maxDropped) reasons.push(`dropped ${format(values.dropped, 0)} > ${criteria.maxDropped}`);
   return reasons;
 }
 
@@ -53,14 +55,16 @@ export function judgeGateway(values, criteria = DEFAULT_CRITERIA) {
 export function judgePipeline(values, targetRps, previousCompletionP95Seconds, criteria = DEFAULT_CRITERIA) {
   const reasons = [];
   const lagLimit = Math.max(criteria.lagMinGrowth, targetRps * criteria.lagGrowthPerRps);
-  if (!present(values.lagGrowth)) reasons.push('lag 미수집');
+  if (!present(values.lagGrowth)) reasons.push(missing(values, 'lag', 'lagGrowth'));
   else if (values.lagGrowth > lagLimit) reasons.push(`lag 증가 ${format(values.lagGrowth, 0)} > ${lagLimit}`);
   if (!present(values.completionP95Seconds)) reasons.push('접수→완료 p95 미수집');
   else if (present(previousCompletionP95Seconds) && values.completionP95Seconds > previousCompletionP95Seconds * criteria.completionP95Factor) {
     reasons.push(`접수→완료 p95 ${format(values.completionP95Seconds)}s > 직전 통과 ${format(previousCompletionP95Seconds)}s × ${criteria.completionP95Factor}`);
   }
   for (const [label, key] of [['영구 거부', 'permanent'], ['재시도 소진', 'retryExhausted'], ['CH 지연 INSERT', 'chDelayed'], ['CH 실패 INSERT', 'chFailed']]) {
-    if (!present(values[key])) reasons.push(`${label} 미수집`);
+    // 카운터 증가량은 음수일 수 없다. 음수면 초기화·표본 문제라 0(통과)으로 읽지 않고 미수집으로 본다.
+    if (!present(values[key])) reasons.push(missing(values, label, key));
+    else if (values[key] < 0) reasons.push(`${label} 미수집(음수 ${format(values[key], 0)} — 카운터 초기화·표본 문제)`);
     else if (values[key] > 0) reasons.push(`${label} ${format(values[key], 0)} > 0`);
   }
   return reasons;
@@ -210,7 +214,7 @@ export function renderReport(judgement, meta) {
   for (const step of judgement.steps) {
     const v = step.values;
     lines.push(`| ${step.step} | ${step.targetRps} | ${cell(v.actualRps, 2)} | ${cell(v.k6P95Ms, 1)} | ${cell(v.k6P99Ms, 1)} | ${cell(v.serverP95Seconds)} | ${cell(v.serverP99Seconds)} | `
-      + `${cell(v.errorRate, 5)} | ${cell(present(v.dropped) ? v.dropped : 0, 0)} | ${cell(v.lagGrowth, 0)} | ${cell(v.lagSlope, 2)} | ${cell(v.completionP95Seconds)} | `
+      + `${cell(v.errorRate, 5)} | ${cell(v.dropped, 0)} | ${cell(v.lagGrowth, 0)} | ${cell(v.lagSlope, 2)} | ${cell(v.completionP95Seconds)} | `
       + `${cell(v.chStorageRatio, 3)} | ${cell(v.cpuLimitRatioMax, 3)} | ${present(v.heapMaxBytes) ? cell(v.heapMaxBytes / 1048576, 0) : '미수집'} | ${pass(step.gateway)} | ${pass(step.pipeline)} |`);
   }
   lines.push('');

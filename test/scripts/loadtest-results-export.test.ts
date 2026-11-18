@@ -21,23 +21,40 @@ const steps = [
   { step: 's03', targetRps: 15, start: T0 + 690, end: T0 + 990, p95Ms: 1400, p99Ms: 2800, errorRate: 0, expectedEvents: 4500, expectedMetricPoints: 1500 },
 ];
 const iso = (seconds: number) => new Date(seconds * 1000).toISOString();
+// 가짜 Prometheus 의 상황. 기본은 정상이고, 시험마다 바꾼다.
+let mode: { restartAt?: string; staleLagAt?: string } = {};
 const summary = {
-  summaryVersion: 1, testid: 'pipeline-01', scenario: 'stair', campaign: 'camp-a', tenantId: '00000000-0000-4000-8000-0000000000aa', installations: 60,
+  summaryVersion: 2, testid: 'pipeline-01', scenario: 'stair', campaign: 'camp-a', tenantId: '00000000-0000-4000-8000-0000000000aa', installations: 60,
   scenarioStart: iso(T0), plannedSeconds: 1020,
   steps: steps.map(s => ({ step: s.step, targetRps: s.targetRps, holdStart: iso(s.start), holdEnd: iso(s.end), holdSeconds: 300,
-    p95Ms: s.p95Ms, p99Ms: s.p99Ms, errorRate: s.errorRate, expectedEvents: s.expectedEvents, expectedMetricPoints: s.expectedMetricPoints })),
+    p95Ms: s.p95Ms, p99Ms: s.p99Ms, errorRate: s.errorRate, expectedEvents: s.expectedEvents, expectedMetricPoints: s.expectedMetricPoints,
+    scheduledIterations: s.targetRps * 300, droppedIterations: 0 })),
   totals: { requests: 9000 },
 };
 
 // lag: s01·s02 동안은 평탄, s03 동안 4000 증가. s02 의 완료 p95 는 s01 의 2배 안.
 const lagAt = (time: number) => (time <= T0 + 690 ? 50 : 50 + ((time - (T0 + 690)) / 300) * 4000);
-const stepAt = (time: number) => steps.find(s => time === s.end)!;
+// 판정 창: 지연·처리율은 유지 구간 끝, 0이어야 하는 카운터와 수집 증거는 끝 + 경계 지연(20s).
+const DELAY = 20;
+const stepAt = (time: number) => steps.find(s => time === s.end || time === s.end + DELAY)!;
+const boundaryStep = (time: number) => steps.find(s => time === s.start || time === s.end);
 const instant = (query: string, time: number): number | null => {
   const s = stepAt(time);
+  if (query.startsWith('timestamp(pulsemetry:kafka_committed_lag:sum')) {
+    // 같은 표본 상황: 그 단계의 두 경계가 모두 시작 60초 전의 같은 표본을 돌려준다.
+    const b = boundaryStep(time);
+    if (b && mode.staleLagAt === b.step) return b.start - 60;
+    return time - 5;
+  }
   if (query.startsWith('pulsemetry:kafka_committed_lag:sum')) return lagAt(time);
   if (!s) return null;
+  // 수집 증거(창 320s, scrape 10s → 최소 표본 31).
+  if (query.startsWith('min(min_over_time(up{')) return 1;
+  if (query.startsWith('min(count_over_time(up{')) return 32;
+  if (query.startsWith('count(count_over_time(process_start_time_seconds')) return 1;
+  if (query.startsWith('count(process_start_time_seconds')) return 1;
+  if (query.startsWith('sum(changes(process_start_time_seconds')) return mode.restartAt === s.step ? 1 : 0;
   if (query.includes('k6_http_reqs_total')) return s.targetRps;
-  if (query.includes('k6_dropped_iterations_total')) return null; // drop 없음 → 지표 없음
   if (query.includes('pulsemetry_gateway_request_duration_seconds_bucket')) return query.startsWith('histogram_quantile(0.95') ? 0.04 : 0.12;
   if (query.startsWith('deriv(')) return s.step === 's03' ? 13.3 : 0;
   if (query.includes('accepted_to_completion')) return { s01: 1.2, s02: 2.0, s03: 2.2 }[s.step]!;
@@ -78,12 +95,12 @@ afterAll(() => new Promise<void>(done => server.close(() => done())));
 
 describe('부하 시험 결과 추출', () => {
   let work: string;
-  beforeEach(() => { work = mkdtempSync(resolve(tmpdir(), 'loadtest-export-')); received.length = 0; });
+  beforeEach(() => { work = mkdtempSync(resolve(tmpdir(), 'loadtest-export-')); received.length = 0; mode = {}; });
   afterEach(() => rmSync(work, { recursive: true, force: true }));
 
-  const inputs = () => {
+  const inputs = (summaryOverride: any = summary) => {
     // kubectl logs 출력 그대로(표지 사이 JSON)를 받는다.
-    writeFileSync(resolve(work, 'k6.log'), `level=info msg="..."\n===LOADTEST-SUMMARY-BEGIN===\n${JSON.stringify(summary)}\n===LOADTEST-SUMMARY-END===\n`);
+    writeFileSync(resolve(work, 'k6.log'), `level=info msg="..."\n===LOADTEST-SUMMARY-BEGIN===\n${JSON.stringify(summaryOverride)}\n===LOADTEST-SUMMARY-END===\n`);
     writeFileSync(resolve(work, 'config.json'), JSON.stringify({ items: [
       { kind: 'Deployment', metadata: { name: 'telemetry-gateway' }, spec: { replicas: 1, template: { spec: { nodeSelector: { 'karpenter.sh/nodepool': 'pulsemetry-dev-apps' },
         containers: [{ name: 'telemetry-gateway', image: 'ecr/gateway@sha256:1111', resources: { limits: { cpu: '2' } },
@@ -111,7 +128,8 @@ describe('부하 시험 결과 추출', () => {
     const s03 = judgement.steps[2];
     expect(s03.gateway.reasons).toEqual(['k6 p95 1.4s > 1s']);
     expect(s03.pipeline.reasons).toEqual(['lag 증가 4000 > 150']);
-    expect(judgement.steps[0].values).toMatchObject({ actualRps: 5, dropped: null, serverP95Seconds: 0.04, lagGrowth: 0, completionP95Seconds: 1.2, chStorageRatio: 1.1 });
+    expect(judgement.steps[0].values).toMatchObject({ actualRps: 5, dropped: 0, serverP95Seconds: 0.04, lagGrowth: 0, completionP95Seconds: 1.2, chStorageRatio: 1.1,
+      permanent: 0, retryExhausted: 0, chDelayed: 0, chFailed: 0, notes: {} });
 
     // 질의는 testid·cluster 로 좁혀지고, 범위 질의는 대시보드 식(rate 1m)을 쓴다.
     const k6Queries = received.filter(line => line.includes('k6_'));
@@ -119,6 +137,9 @@ describe('부하 시험 결과 추출', () => {
     for (const line of k6Queries) expect(line).toContain('testid="pipeline-01"');
     expect(received.some(line => line.startsWith('/api/v1/query_range') && line.includes('[1m]'))).toBe(true);
     expect(received.some(line => line.startsWith('/api/v1/query ') && line.includes('[300s]'))).toBe(true);
+    // 0이어야 하는 카운터는 창을 경계 지연만큼 늘리고, 처음 생긴 시계열의 첫 값을 더한다.
+    expect(received.some(line => line.includes('pulsemetry_pipeline_attempts_total') && line.includes('[320s]') && line.includes(' unless '))).toBe(true);
+    expect(received.some(line => line.includes('k6_dropped_iterations_total'))).toBe(false);
     expect(received.every(line => !line.includes('$'))).toBe(true);
     // 가짜 서버는 PromQL 을 해석하지 않는다. 보낸 식을 실제 파서(promtool)로 검사한다.
     if (process.env.PROMTOOL_BIN) {
@@ -143,6 +164,37 @@ describe('부하 시험 결과 추출', () => {
     expect(config.workloads[0].containers[0].env).toEqual([
       { name: 'PULSEMETRY_ADMIN_API_TOKEN', value: '<redacted>' }, { name: 'PULSEMETRY_KAFKA_TOPIC', value: 'pulsemetry-dev-telemetry-ingress-main' },
     ]);
+  });
+
+  test('ingest 가 재시작한 단계는 영구 거부·재시도 소진이 미수집이고 ②가 그 단계에서 끊긴다', async () => {
+    inputs();
+    mode = { restartAt: 's02' };
+    const out = resolve(work, 'result');
+    expect((await run(exportArgs(out))).code).toBe(0);
+    const judgement = JSON.parse(readFileSync(resolve(out, 'judgement.json'), 'utf8'));
+    expect(judgement.limits.pipeline).toEqual({ rps: 5, step: 's01', firstFailure: 's02' });
+    expect(judgement.steps[1].pipeline.reasons).toEqual(['영구 거부 미수집(ingest 재시작)', '재시도 소진 미수집(ingest 재시작)']);
+    expect(judgement.steps[1].values).toMatchObject({ permanent: null, retryExhausted: null, chDelayed: 0, chFailed: 0 });
+  });
+
+  test('lag 경계가 같은 표본이면 증가량을 0으로 쓰지 않고 미수집으로 둔다', async () => {
+    inputs();
+    mode = { staleLagAt: 's01' };
+    const out = resolve(work, 'result');
+    expect((await run(exportArgs(out))).code).toBe(0);
+    const judgement = JSON.parse(readFileSync(resolve(out, 'judgement.json'), 'utf8'));
+    expect(judgement.steps[0].values.lagGrowth).toBeNull();
+    expect(judgement.steps[0].pipeline.reasons).toEqual(['lag 미수집(경계 표본이 30s 보다 오래됨)']);
+    expect(judgement.limits.pipeline).toEqual({ rps: null, step: null, firstFailure: 's01' });
+  });
+
+  test('summary 에 단계별 drop 이 없으면 ①은 0 이 아니라 미수집이다', async () => {
+    inputs({ ...summary, summaryVersion: 1, steps: summary.steps.map(({ droppedIterations, scheduledIterations, ...rest }: any) => rest) });
+    const out = resolve(work, 'result');
+    expect((await run(exportArgs(out))).code).toBe(0);
+    const judgement = JSON.parse(readFileSync(resolve(out, 'judgement.json'), 'utf8'));
+    expect(judgement.limits.gateway).toEqual({ rps: null, step: null, firstFailure: 's01' });
+    expect(judgement.steps[0].gateway.reasons[0]).toMatch(/^dropped 미수집\(summary 에 단계별 drop 이 없다/);
   });
 
   test('임계값 인자를 바꾸면 판정이 바뀐다', async () => {
