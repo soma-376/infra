@@ -53,7 +53,7 @@ C="$RUN_DIR/loadtest/$CAMPAIGN"; mkdir -p "$C" && chmod 700 "$C"
 ## 2. 시드 비밀과 캠페인
 
 ```bash
-openssl rand 32 > "$C/seed-secret" && chmod 600 "$C/seed-secret"   # 정확히 32바이트 원시 값(-hex 아님)
+(set -C; umask 077; openssl rand 32 > "$C/seed-secret")   # 정확히 32바이트 원시 값(-hex 아님). 이미 있으면 덮어쓰지 않고 실패한다
 ```
 
 시드 비밀은 저장소·채팅·티켓에 넣지 않는다. 캠페인마다 새로 만든다. 잃으면 그 캠페인의 설치 토큰을 다시 만들 수 없다 — 새 캠페인으로 시드한다.
@@ -69,7 +69,7 @@ python3 "$BE/tools/loadtest/generator/seed_sql.py" --campaign "$CAMPAIGN" --inst
 PGURL="host=<원래 RDS hostname> hostaddr=127.0.0.1 port=15432 dbname=controlplane user=<계정> sslmode=verify-full sslrootcert=<RDS CA 번들>"
 psql "$PGURL" -v ON_ERROR_STOP=1 -f "$C/seed.sql"
 python3 "$BE/tools/loadtest/generator/seed_sql.py" --campaign "$CAMPAIGN" --installations 60 --partitions 6 \
-  --secret-file "$C/seed-secret" --verify | psql "$PGURL" -At     # 8행 모두 마지막 열이 t
+  --secret-file "$C/seed-secret" --verify | psql "$PGURL" -v ON_ERROR_STOP=1 -At   # 8행 모두 t. 하나라도 f 면 오류로 끝난다(종료 코드 3)
 ```
 
 다시 적용해도 안전하다. 다른 설치 수로 다시 시드하거나 폐기한 캠페인을 다시 시드하면 SQL이 롤백된다 — 새 캠페인 ID를 쓴다.
@@ -165,6 +165,18 @@ node scripts/loadtest-results-export.mjs --prometheus http://127.0.0.1:9090 --cl
 판정 기본값은 ① p95 ≤ 1초·p99 ≤ 3초·오류율 ≤ 0.1%·dropped 0, ② 유지 구간 lag 증가 ≤ max(100, 목표 RPS × 10)·접수→완료 p95 ≤ 직전 통과 단계 × 2·영구 거부·재시도 소진·ClickHouse 지연/실패 INSERT 0이다(`scripts/lib/loadtest-judge.mjs`). 팀이 정한 값은 `--max-p95-seconds`·`--max-p99-seconds`·`--max-error-rate`·`--max-dropped`·
 `--lag-min-growth`·`--lag-growth-per-rps`·`--completion-p95-factor`로 준다. Kafka 이름이 dev main 기본값과 다르면
 `--kafka-cluster`·`--topic`·`--consumer-group`을 준다. 출력 디렉터리는 실행마다 새로 쓴다.
+
+판정 입력과 미수집 규칙(`scripts/lib/loadtest-queries.mjs`):
+
+- 단계별 dropped·k6 p95·p99·오류율은 k6 summary 값이다. dropped 는 예정 반복(목표 RPS × 유지 초) − 유지 구간 요청 수다 — Prometheus 의
+  drop 카운터는 첫 drop 때 생겨 증가율로는 첫 drop 을 놓친다. summary 에 단계별 dropped 가 없으면(이전 스크립트) 미수집이다.
+- 영구 거부·재시도 소진·ClickHouse 지연/실패 INSERT 는 창을 유지 구간 끝 + `--boundary-delay`(기본 20s)까지 늘린다. 끝 직전 이벤트가
+  다음 scrape 에 찍히기 때문이다. 다음 단계 상승 초반이 섞이면 실패 쪽으로만 기운다.
+- 그 창에서 ingest 재시작·Pod 교체·scrape 실패·표본 부족(창 ÷ `--scrape-interval` − 1 미만)이 있으면 그 값은 미수집이다.
+- lag 증가는 두 경계의 표본 시각이 `--max-sample-age`(기본 30s)보다 오래됐거나 같은 표본이면 미수집이다.
+- 미수집은 실패로 표시되고 사유가 REPORT 에 함께 남는다. 이때는 Grafana 로 그 구간을 직접 본다.
+- 지연·처리율(서버 p95·p99, 실제 RPS)은 유지 구간 창 그대로다. 수집 지연(최대 10초)만큼 경계가 어긋나지만 2~5분 창에서는 무시할 수준이다.
+- 마지막 유지 구간 끝 + 경계 지연 전에는 실행을 거부한다.
 
 결과를 뽑은 뒤 그 release를 지운다: `"$T/helm" uninstall "loadtest-$TESTID" -n pulsemetry-loadtest`.
 
