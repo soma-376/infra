@@ -100,6 +100,11 @@ describe('NetworkPolicy N5 시험 스크립트', () => {
     // Collector 4318의 허용 송신자는 네 앱 모두 실제 trace로 확인한다(backend ADR 0079, ADR-0059).
     expect(run.evidence.controls?.['collector-4318']?.map(c => c.sender))
       .toEqual(['telemetry-gateway', 'telemetry-ingest', 'enrollment-api', 'dashboard-api']);
+    // Prometheus 9090(ADR-0065)은 apps SG가 열려 있어 apps·관측 풀 모두 정책 증거다. 허용 대조는 Grafana다.
+    const prometheus = run.evidence.cases?.filter(c => c.target === 'prometheus-9090') ?? [];
+    expect(prometheus.length).toBeGreaterThanOrEqual(2);
+    expect(prometheus.every(c => c.verdict === 'BLOCKED_BY_POLICY')).toBe(true);
+    expect(run.evidence.controls?.['prometheus-9090']?.map(c => c.sender)).toEqual(['grafana']);
   });
 
   test('Grafana → Loki가 막히면 Prometheus가 닿아도 FAIL이다', () => {

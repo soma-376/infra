@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// NetworkPolicy 강제·차단을 live dev에서 시험한다(ADR-0039, 관측 런북 PROJ-256 N2·N5). kubectl의 현재 context를 쓴다.
+// NetworkPolicy 강제·차단을 live dev에서 시험한다(ADR-0039·0065, 관측 런북 PROJ-256 N2·N5). kubectl의 현재 context를 쓴다.
 //
 //   node scripts/observability-networkpolicy-probe.mjs --phase n2 --output <새 증거 파일>   # 일회용 namespace에서 정책 전후 비교
 //   node scripts/observability-networkpolicy-probe.mjs --phase n5 --output <새 증거 파일>   # 운영 정책의 허용·차단 대조(정책을 지우지 않는다)
@@ -45,7 +45,7 @@ const POOLS = {
   },
 };
 // SG가 노드 풀 사이에 여는 TCP 포트(lib/dev/network-stack.ts). 같은 풀 안은 모두 열려 있다. SG가 막는 경로의 TIMEOUT은 정책 증거가 아니다.
-const SG_OPEN = { apps: { observability: [3100, 4318] }, observability: { observability: 'all' } };
+const SG_OPEN = { apps: { observability: [3100, 4318, 9090] }, observability: { observability: 'all' } };
 const sgOpen = (from, to, port) => { const rule = SG_OPEN[from]?.[to]; return rule === 'all' || (rule ?? []).includes(port); };
 const fqdn = service => `${service}.${NS}.svc.cluster.local`;
 const TARGETS = {
@@ -54,10 +54,12 @@ const TARGETS = {
   'tempo-4317': { service: 'pulsemetry-tempo', port: 4317, selector: 'app.kubernetes.io/name=tempo' },
   'collector-4318': { service: 'pulsemetry-otel-platform', port: 4318, selector: 'app.kubernetes.io/name=collector,component=statefulset-collector' },
   'collector-8888': { service: 'pulsemetry-otel-platform', port: 8888, selector: 'app.kubernetes.io/name=collector,component=statefulset-collector' },
+  // 조회·k6 remote write(ADR-0065). 허용 송신자 k6 Pod는 시험 때만 있어 포트 대조는 Grafana로 한다.
+  'prometheus-9090': { service: 'pulsemetry-monitoring-prometheus', port: 9090, selector: 'app.kubernetes.io/name=prometheus,operator.prometheus.io/name=pulsemetry-monitoring-prometheus' },
 };
 const TARGET_POOL = 'observability';
 const targetSpec = names => names.map(name => `${name}=${fqdn(TARGETS[name].service)}:${TARGETS[name].port}`).join(' ');
-// 허용 label이 없는 시험 송신자. apps 풀은 SG가 여는 3100·4318만 정책 증거가 되고, 관측 풀은 모든 포트가 정책 증거다.
+// 허용 label이 없는 시험 송신자. apps 풀은 SG가 여는 3100·4318·9090만 정책 증거가 되고, 관측 풀은 모든 포트가 정책 증거다.
 const STRANGERS = [
   { name: 'apps-dev', namespace: 'pulsemetry-dev', pool: 'apps', targets: Object.keys(TARGETS) },
   { name: 'apps-logs', namespace: 'pulsemetry-dev-logs', pool: 'apps', targets: ['loki-3100'] },
@@ -65,7 +67,7 @@ const STRANGERS = [
 ];
 // 같은 목적지·포트를 실제 허용 송신자에서 연다(busybox가 있는 Grafana·Prometheus).
 const PORT_CONTROLS = [
-  { sender: 'grafana', exec: [`-n`, NS, 'deploy/pulsemetry-grafana', '-c', 'grafana'], targets: ['loki-3100', 'tempo-3200'] },
+  { sender: 'grafana', exec: [`-n`, NS, 'deploy/pulsemetry-grafana', '-c', 'grafana'], targets: ['loki-3100', 'tempo-3200', 'prometheus-9090'] },
   { sender: 'prometheus', exec: ['-n', NS, 'pod/prometheus-pulsemetry-monitoring-prometheus-0', '-c', 'prometheus'], targets: ['loki-3100', 'tempo-3200', 'collector-8888'] },
 ];
 // 셸이 없는 허용 송신자는 동작으로 본다. 값이 0이면 통신량이 없어 PENDING이다(실패가 아니다).
@@ -241,10 +243,10 @@ try {
   }
 
   if (phase === 'n5') {
-    // 사전조건: 세 정책과 각 PolicyEndpoints, controller, 대상 Ready, Service port = container port(AWS 고려사항).
+    // 사전조건: 네 정책과 각 PolicyEndpoints, controller, 대상 Ready, Service port = container port(AWS 고려사항).
     const policies = kubeJson(['get', 'networkpolicy', '-n', NS]).items.map(x => x.metadata.name);
     const endpoints = kubeJson(['get', 'policyendpoints', '-n', NS]).items.map(x => x.spec?.policyRef?.name);
-    const expected = ['pulsemetry-loki-ingress', 'pulsemetry-tempo-ingress', 'pulsemetry-otel-platform-ingress'];
+    const expected = ['pulsemetry-loki-ingress', 'pulsemetry-tempo-ingress', 'pulsemetry-otel-platform-ingress', 'pulsemetry-prometheus-ingress'];
     const targets = Object.fromEntries(Object.entries(TARGETS).map(([name, t]) => {
       const service = kubeJson(['get', 'service', '-n', NS, t.service]);
       const pod = kubeJson(['get', 'pods', '-n', NS, '-l', t.selector]).items[0];

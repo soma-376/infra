@@ -310,8 +310,13 @@ assert.ok(!perf.some(isLoadtestMonitor), 'perf 렌더에 k6 PodMonitor가 있다
 const devRendered = loadAll(checked(helm, [...base.slice(0, 5), '-f', resolve(root, 'helm/observability/values-dev.yaml'), '-f', fixture])).filter(Boolean);
 const devLoadtest = devRendered.filter(isLoadtestMonitor);
 assert.equal(devLoadtest.length, 1, 'dev 렌더에 k6 PodMonitor가 하나여야 한다');
-// values-dev.yaml 은 이 PodMonitor 외에 아무것도 바꾸지 않는다.
-assert.deepEqual(devRendered.filter(x => !isLoadtestMonitor(x)), resources);
+// Prometheus 수신 정책(ADR-0065)도 dev values 에서만 켠다. 허용 송신자 대조는 observability-platform-trace-validate.mjs 가 한다.
+const isPrometheusPolicy = x => x.kind === 'NetworkPolicy' && x.metadata.name === 'pulsemetry-prometheus-ingress';
+assert.ok(!resources.some(x => x.kind === 'NetworkPolicy'), '기본 렌더에 NetworkPolicy가 있다');
+assert.ok(!perf.some(x => x.kind === 'NetworkPolicy'), 'perf 렌더에 NetworkPolicy가 있다(perf runner가 remote write한다)');
+assert.equal(devRendered.filter(isPrometheusPolicy).length, 1, 'dev 렌더에 Prometheus 수신 정책이 하나여야 한다');
+// values-dev.yaml 은 이 PodMonitor·정책 외에 아무것도 바꾸지 않는다.
+assert.deepEqual(devRendered.filter(x => !isLoadtestMonitor(x) && !isPrometheusPolicy(x)), resources);
 const loadtestSpec = devLoadtest[0].spec;
 assert.equal(devLoadtest[0].metadata.namespace, 'pulsemetry-observability');
 assert.equal(devLoadtest[0].metadata.labels['observability.pulsemetry.io/stack'], 'pulsemetry');

@@ -6,3 +6,6 @@ global:
 # k6 부하 시험 지표(ADR-0064). Job 이 없으면 대상이 0개일 뿐이다.
 loadtest:
   enabled: true
+# Prometheus 수신 정책(ADR-0065). k6 remote write 를 위해 apps SG 가 9090 을 열어 송신 Pod 를 이 정책으로 제한한다.
+prometheusIngressPolicy:
+  enabled: true
