@@ -181,8 +181,11 @@ node scripts/loadtest-results-export.mjs --prometheus http://127.0.0.1:9090 --cl
 - lag 증가는 두 경계의 표본 시각이 `--max-sample-age`(기본 30s)보다 오래됐거나 같은 표본이면 미수집이다.
 - 중단·미실행 단계(k6 summary `completed: false`)는 두 층 모두 실패로 표시하고 한계 산정에서 뺀다. 유지 구간을 끝까지 실행하지 않은
   결과를 통과로 세지 않는다. 조기 정지한 실행의 한계는 그 앞에서 이어서 통과한 완료 단계다.
-- ClickHouse 지연·실패 INSERT 는 창 안에서 ClickHouse 가 재시작했으면(`ClickHouseAsyncMetrics_Uptime` 감소) 미수집이다. 재시작 직전
-  scrape 되지 않은 실패는 `increase()` 로 되살릴 수 없기 때문이다. ingest 는 시작 시각 변화·Pod 교체로 같은 판단을 한다.
+- ClickHouse 지연·실패 INSERT 는 창 안에서 ClickHouse 가 재시작했으면 미수집이다. 재시작 직전 scrape 되지 않은 실패는 `increase()` 로
+  되살릴 수 없기 때문이다. 재시작은 두 신호로 본다. `ClickHouseAsyncMetrics_Uptime` 이 줄었거나, 추정 시작 시각(표본 시각 − 가동 초)이
+  `--max-start-shift`(기본 3s)보다 크게 움직였으면 재시작이다. 둘째 신호는 재시작 직후 다시 재시작해 가동 시간이 줄지 않는 경우를 잡는다.
+  정상일 때 흔들림은 비동기 지표 갱신 주기(1s) 정도다. 부하로 갱신이 밀려 오탐이 나면 REPORT 사유의 이동 폭을 보고 Grafana 로 확인한다.
+  ingest 는 시작 시각 변화·Pod 교체로 같은 판단을 한다.
 - 미수집은 실패로 표시되고 사유가 REPORT 에 함께 남는다. 이때는 Grafana 로 그 구간을 직접 본다.
 - 지연·처리율(서버 p95·p99, 실제 RPS)은 유지 구간 창 그대로다. 수집 지연(최대 10초)만큼 경계가 어긋나지만 2~5분 창에서는 무시할 수준이다.
 - 마지막 유지 구간 끝 + 경계 지연 전에는 실행을 거부한다.
@@ -196,10 +199,15 @@ node scripts/loadtest-results-export.mjs --prometheus http://127.0.0.1:9090 --cl
 
    ```bash
    python3 "$BE/tools/loadtest/generator/seed_sql.py" --campaign "$CAMPAIGN" --revoke > "$C/revoke.sql" \
-     && psql "$PGURL" -v ON_ERROR_STOP=1 -f "$C/revoke.sql"
+     && psql "$PGURL" -v ON_ERROR_STOP=1 -f "$C/revoke.sql" \
+     && echo "폐기 완료: $CAMPAIGN"
    ```
 
-3. (선택, 팀 결정) 데이터 삭제는 retention-worker로 한다. `--retention-months`는 1 이상이라 방금 넣은 데이터를 지우려면 `--as-of`를
+   `폐기 완료`가 나오지 않으면(생성기·DB 접속·권한·잠금 대기 실패) 여기서 멈춘다. 3·4번을 하지 않는다. Secret·시드 비밀을 먼저
+   지우면 DB 자격은 활성으로 남은 채 다시 확인할 수단만 사라진다. 원인을 고친 뒤 같은 명령을 다시 실행한다. 폐기 SQL 은 다시 실행해도
+   안전하다(이미 폐기한 행은 그대로 둔다).
+
+3. (2번이 `폐기 완료`를 낸 뒤에만. 선택, 팀 결정) 데이터 삭제는 retention-worker로 한다. `--retention-months`는 1 이상이라 방금 넣은 데이터를 지우려면 `--as-of`를
    한 달 넘게 미래로 준다. 그 뒤 그 tenant는 재사용할 수 없다(ClickHouse fence가 이후 INSERT를 거부한다, backend ADR 0024).
    실행 설정(DB·ClickHouse 연결)은 backend 문서를 따른다.
 
@@ -207,7 +215,7 @@ node scripts/loadtest-results-export.mjs --prometheus http://127.0.0.1:9090 --cl
    (cd "$BE" && ./gradlew :apps:retention-worker:bootRun --args="--tenant=<tenantId> --retention-months=1 --as-of=<지금 + 2개월, ISO-8601>")
    ```
 
-4. 클러스터 자원과 로컬 비밀:
+4. (2번이 `폐기 완료`를 낸 뒤에만) 클러스터 자원과 로컬 비밀:
 
    ```bash
    "$T/helm" list -n pulsemetry-loadtest            # 남은 release 를 uninstall
