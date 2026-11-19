@@ -73,12 +73,14 @@ export function judgePipeline(values, targetRps, previousCompletionP95Seconds, c
 /**
  * 단계 목록 전체를 판정한다. 한계는 첫 단계부터 이어서 통과한 마지막 단계의 목표 RPS 다.
  * 한 번 실패한 뒤의 통과는 한계로 세지 않는다 — 그 위는 backlog·자원 상태가 섞여 있다.
+ * completed 가 false 인 단계(유지 구간을 끝까지 실행하지 않음)는 두 층 모두 실패로 두어 한계 산정에서 뺀다.
  */
 export function judgeRun(steps, criteria = DEFAULT_CRITERIA) {
   let previousCompletion = null;
   const judged = steps.map(step => {
-    const gateway = judgeGateway(step.values, criteria);
-    const pipeline = judgePipeline(step.values, step.targetRps, previousCompletion, criteria);
+    const incomplete = step.completed === false ? ['미완료 단계 — 유지 구간을 끝까지 실행하지 않아 한계 산정에서 뺀다'] : [];
+    const gateway = [...incomplete, ...judgeGateway(step.values, criteria)];
+    const pipeline = [...incomplete, ...judgePipeline(step.values, step.targetRps, previousCompletion, criteria)];
     if (!pipeline.length) previousCompletion = step.values.completionP95Seconds;
     return { ...step, gateway: { pass: !gateway.length, reasons: gateway }, pipeline: { pass: !pipeline.length, reasons: pipeline } };
   });

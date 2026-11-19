@@ -105,7 +105,8 @@ function evidenceSources(vars, window) {
   const s = selectors(vars);
   return {
     ingest: evidenceQueries(`up{${s.ingest}}`, `process_start_time_seconds{${s.ingest}}`, window),
-    clickhouse: evidenceQueries(`up{${s.clickhouse}}`, null, window),
+    // ClickHouse 는 StatefulSet 이라 Pod 이름이 같아도 컨테이너·프로세스는 바뀔 수 있다 — 가동 시간 감소로 재시작을 본다.
+    clickhouse: evidenceQueries(`up{${s.clickhouse}}`, null, window, `ClickHouseAsyncMetrics_Uptime{${s.clickhouse}}`),
   };
 }
 
@@ -222,7 +223,8 @@ async function exportRun(args) {
     if (growth.note) notes.lagGrowth = growth.note;
     const expected = (step.expectedEvents ?? 0) + (step.expectedMetricPoints ?? 0);
     values.chStorageRatio = values.chInsertedRows === null || !expected ? null : values.chInsertedRows / expected;
-    steps.push({ step: step.step, targetRps: step.targetRps, holdStart: step.holdStart, holdEnd: step.holdEnd, holdSeconds, values });
+    // 중단·미실행 단계(summary completed 가 true 가 아님)는 판정기가 두 층 모두의 한계 산정에서 뺀다.
+    steps.push({ step: step.step, targetRps: step.targetRps, holdStart: step.holdStart, holdEnd: step.holdEnd, holdSeconds, completed: step.completed === true, values });
   }
 
   const judgement = { testid: args.testid, scenario: summary.scenario, ...judgeRun(steps, criteria) };

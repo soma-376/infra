@@ -16,10 +16,13 @@ export function counterIncrease(metric, selector, window) {
 }
 
 /**
- * 창 안의 수집 증거. up 은 scrape 성공 여부와 표본 수를, 시작 시각 지표(startSeries, 없으면 생략)는 재시작·Pod 교체를 본다.
- * 모두 창 끝 시각의 instant 질의다.
+ * 창 안의 수집 증거. 모두 창 끝 시각의 instant 질의다.
+ * - up: scrape 성공 여부와 표본 수.
+ * - startSeries(프로세스 시작 시각, 없으면 생략): 값이 바뀌면 재시작, 창 안에서 본 시계열이 끝에 살아 있는 수보다 많으면 Pod 교체.
+ * - uptimeSeries(가동 초, 없으면 생략): 계속 커지는 값이라 시작 시각처럼 changes() 로 보면 정상 증가도 재시작이 된다.
+ *   값이 줄어든 횟수(resets)로 재시작을 본다. 재시작 직전 scrape 되지 않은 증가는 increase() 로 되살릴 수 없어서 필요하다.
  */
-export function evidenceQueries(up, startSeries, window) {
+export function evidenceQueries(up, startSeries, window, uptimeSeries = null) {
   const queries = {
     upMin: `min(min_over_time(${up}[${window}]))`,
     upSamples: `min(count_over_time(${up}[${window}]))`,
@@ -31,6 +34,7 @@ export function evidenceQueries(up, startSeries, window) {
       restarts: `sum(changes(${startSeries}[${window}]))`,
     });
   }
+  if (uptimeSeries) queries.uptimeResets = `sum(resets(${uptimeSeries}[${window}]))`;
   return queries;
 }
 
@@ -43,6 +47,10 @@ export function evidenceProblem(label, values, minSamples) {
     if (values.live === null || values.live < 1) return `${label} 시작 시각 지표 없음`;
     if (values.seen !== values.live) return `${label} Pod 교체`;
     if (values.restarts !== 0) return `${label} 재시작`;
+  }
+  if ('uptimeResets' in values) {
+    if (values.uptimeResets === null) return `${label} 가동 시간 지표 없음`;
+    if (values.uptimeResets !== 0) return `${label} 재시작`;
   }
   return null;
 }

@@ -22,13 +22,13 @@ const steps = [
 ];
 const iso = (seconds: number) => new Date(seconds * 1000).toISOString();
 // 가짜 Prometheus 의 상황. 기본은 정상이고, 시험마다 바꾼다.
-let mode: { restartAt?: string; staleLagAt?: string } = {};
+let mode: { restartAt?: string; staleLagAt?: string; chRestartAt?: string } = {};
 const summary = {
-  summaryVersion: 2, testid: 'pipeline-01', scenario: 'stair', campaign: 'camp-a', tenantId: '00000000-0000-4000-8000-0000000000aa', installations: 60,
+  summaryVersion: 3, testid: 'pipeline-01', scenario: 'stair', campaign: 'camp-a', tenantId: '00000000-0000-4000-8000-0000000000aa', installations: 60,
   scenarioStart: iso(T0), plannedSeconds: 1020,
   steps: steps.map(s => ({ step: s.step, targetRps: s.targetRps, holdStart: iso(s.start), holdEnd: iso(s.end), holdSeconds: 300,
     p95Ms: s.p95Ms, p99Ms: s.p99Ms, errorRate: s.errorRate, expectedEvents: s.expectedEvents, expectedMetricPoints: s.expectedMetricPoints,
-    scheduledIterations: s.targetRps * 300, droppedIterations: 0 })),
+    completed: true, scheduledIterations: s.targetRps * 300, droppedIterations: 0 })),
   totals: { requests: 9000 },
 };
 
@@ -54,6 +54,7 @@ const instant = (query: string, time: number): number | null => {
   if (query.startsWith('count(count_over_time(process_start_time_seconds')) return 1;
   if (query.startsWith('count(process_start_time_seconds')) return 1;
   if (query.startsWith('sum(changes(process_start_time_seconds')) return mode.restartAt === s.step ? 1 : 0;
+  if (query.startsWith('sum(resets(ClickHouseAsyncMetrics_Uptime')) return mode.chRestartAt === s.step ? 1 : 0;
   if (query.includes('k6_http_reqs_total')) return s.targetRps;
   if (query.includes('pulsemetry_gateway_request_duration_seconds_bucket')) return query.startsWith('histogram_quantile(0.95') ? 0.04 : 0.12;
   if (query.startsWith('deriv(')) return s.step === 's03' ? 13.3 : 0;
@@ -177,6 +178,30 @@ describe('부하 시험 결과 추출', () => {
     expect(judgement.steps[1].values).toMatchObject({ permanent: null, retryExhausted: null, chDelayed: 0, chFailed: 0 });
   });
 
+  test('ClickHouse 가 재시작한 단계는 지연·실패 INSERT 가 미수집이다(재시작 전 수집 안 된 실패는 되살릴 수 없다)', async () => {
+    inputs();
+    mode = { chRestartAt: 's02' };
+    const out = resolve(work, 'result');
+    expect((await run(exportArgs(out))).code).toBe(0);
+    const judgement = JSON.parse(readFileSync(resolve(out, 'judgement.json'), 'utf8'));
+    expect(judgement.steps[1].pipeline.reasons).toEqual(['CH 지연 INSERT 미수집(clickhouse 재시작)', 'CH 실패 INSERT 미수집(clickhouse 재시작)']);
+    expect(judgement.steps[1].values).toMatchObject({ permanent: 0, retryExhausted: 0, chDelayed: null, chFailed: null });
+    expect(judgement.limits.pipeline).toEqual({ rps: 5, step: 's01', firstFailure: 's02' });
+    expect(received.some(line => line.includes('resets(ClickHouseAsyncMetrics_Uptime{') && line.includes('[320s]'))).toBe(true);
+  });
+
+  test('중단된 단계는 두 층 모두 한계 산정에서 빠진다', async () => {
+    inputs({ ...summary, steps: summary.steps.map((s: any) => (s.step === 's02' ? { ...s, completed: false, droppedIterations: null } : s)) });
+    const out = resolve(work, 'result');
+    expect((await run(exportArgs(out))).code).toBe(0);
+    const judgement = JSON.parse(readFileSync(resolve(out, 'judgement.json'), 'utf8'));
+    expect(judgement.limits).toEqual({
+      gateway: { rps: 5, step: 's01', firstFailure: 's02' },
+      pipeline: { rps: 5, step: 's01', firstFailure: 's02' },
+    });
+    for (const layer of ['gateway', 'pipeline']) expect(judgement.steps[1][layer].reasons[0]).toBe('미완료 단계 — 유지 구간을 끝까지 실행하지 않아 한계 산정에서 뺀다');
+  });
+
   test('lag 경계가 같은 표본이면 증가량을 0으로 쓰지 않고 미수집으로 둔다', async () => {
     inputs();
     mode = { staleLagAt: 's01' };
@@ -189,12 +214,14 @@ describe('부하 시험 결과 추출', () => {
   });
 
   test('summary 에 단계별 drop 이 없으면 ①은 0 이 아니라 미수집이다', async () => {
-    inputs({ ...summary, summaryVersion: 1, steps: summary.steps.map(({ droppedIterations, scheduledIterations, ...rest }: any) => rest) });
+    inputs({ ...summary, summaryVersion: 1, steps: summary.steps.map(({ droppedIterations, scheduledIterations, completed, ...rest }: any) => rest) });
     const out = resolve(work, 'result');
     expect((await run(exportArgs(out))).code).toBe(0);
     const judgement = JSON.parse(readFileSync(resolve(out, 'judgement.json'), 'utf8'));
+    // 이전 summary 는 completed 도 없어 모든 단계가 미완료다 — 두 층 모두 한계가 없다.
     expect(judgement.limits.gateway).toEqual({ rps: null, step: null, firstFailure: 's01' });
-    expect(judgement.steps[0].gateway.reasons[0]).toMatch(/^dropped 미수집\(summary 에 단계별 drop 이 없다/);
+    expect(judgement.limits.pipeline).toEqual({ rps: null, step: null, firstFailure: 's01' });
+    expect(judgement.steps[0].gateway.reasons).toEqual(expect.arrayContaining([expect.stringMatching(/^dropped 미수집\(summary 에 단계별 drop 이 없다/)]));
   });
 
   test('임계값 인자를 바꾸면 판정이 바뀐다', async () => {

@@ -76,6 +76,13 @@ describe('② 파이프라인 지속 판정', () => {
 });
 
 describe('실행 전체 판정과 한계', () => {
+  test('미완료 단계(유지 구간을 끝까지 실행하지 않음)는 값이 통과여도 두 층 모두 한계에서 빠진다', () => {
+    const result = call('judgeRun', [step('s01', 5, {}), { ...step('s02', 10, {}), completed: false }, step('s03', 15, {})]);
+    expect(result.steps.map((s: any) => [s.step, s.gateway.pass, s.pipeline.pass])).toEqual([['s01', true, true], ['s02', false, false], ['s03', true, true]]);
+    expect(result.limits).toEqual({ gateway: { rps: 5, step: 's01', firstFailure: 's02' }, pipeline: { rps: 5, step: 's01', firstFailure: 's02' } });
+    expect(result.steps[1].pipeline.reasons).toEqual(['미완료 단계 — 유지 구간을 끝까지 실행하지 않아 한계 산정에서 뺀다']);
+  });
+
   test('한계는 처음부터 이어서 통과한 마지막 단계다. 실패 뒤의 통과는 세지 않는다', () => {
     const result = call('judgeRun', [
       step('s01', 5, {}),
