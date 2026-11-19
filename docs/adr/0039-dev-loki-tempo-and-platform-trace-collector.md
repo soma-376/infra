@@ -7,6 +7,7 @@ Proposed (PROJ-256). 채택되면 [ADR-0037](0037-dev-observability-and-system-d
 0037의 나머지(관측 NodePool, Prometheus·Grafana, CloudWatch 로그 그룹·보존, Events·NodeDiagnostic)는 유효하다.
 채택 전까지는 0037이 기준이다.
 trace 송신자를 enrollment-api·dashboard-api로 넓히는 일은 [ADR-0059](0059-dev-api-apps-metrics-and-platform-trace-senders.md)(Proposed)가 제안한다.
+apps → 관측 SG 9090 규칙과 Prometheus 수신 정책을 더하는 일은 [ADR-0065](0065-dev-loadtest-k6-prometheus-remote-write.md)(Proposed)가 제안한다.
 
 ## Context
 

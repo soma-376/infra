@@ -50,7 +50,7 @@
 | 0035 (dev EKS 전용) | [dev 백엔드의 ECS를 제거하고 기존 EKS를 단독 실행 환경으로 사용](0035-dev-backend-eks-only.md) | Accepted (PROJ-248 코드·문서·로컬 검증; 실제 철거·Snapshot·기능 검증 별도); DB 공개 접근 관련 부분은 [ADR 0038](0038-dev-databases-private-access-via-ssm-relay.md)로 대체 |
 | 0036 (JVM 차단 목록) | [dev JVM의 임시 인증서 차단 목록을 Helm ConfigMap으로 공급한다](0036-dev-jvm-blocked-certs-configmap.md) | Accepted (PROJ-253 임시 대응; Gateway 포함 네 앱, 실제 배포 별도, 패치 이미지 검증 후 제거) |
 | 0038 | [dev 데이터베이스는 공개 접근을 차단하고 별도 SSM 릴레이로 접속한다](0038-dev-databases-private-access-via-ssm-relay.md) | Accepted (PROJ-254 로컬 구현·검증; 실제 배포·접속 확인 별도) |
-| 0039 | [dev EKS 관측에 Loki·Tempo·플랫폼 trace Collector를 독립 release로 더하고 CloudWatch 로그와 병행한다](0039-dev-loki-tempo-and-platform-trace-collector.md) | Proposed (PROJ-256; 채택 시 0037의 Loki·Tempo·분산 tracing 제외를 대체; 송신자 확장은 0059(Proposed)가 제안) |
+| 0039 | [dev EKS 관측에 Loki·Tempo·플랫폼 trace Collector를 독립 release로 더하고 CloudWatch 로그와 병행한다](0039-dev-loki-tempo-and-platform-trace-collector.md) | Proposed (PROJ-256; 채택 시 0037의 Loki·Tempo·분산 tracing 제외를 대체; 송신자 확장은 0059(Proposed)가 제안; apps→관측 9090·Prometheus 수신 정책 추가는 0065(Proposed)가 제안) |
 | 0040 | [dev 공개 origin과 추가 인증서를 배포 입력으로 보존한다](0040-dev-public-origin-and-additional-certificates.md) | Accepted (추적 profile·runtime·DB TLS 연결) |
 | 0041 | [dev dashboard 조회 권한 복구는 검증된 명시 허용목록으로 분리한다](0041-dev-dashboard-read-grants-repair.md) | Accepted (PROJ-262 수동 복구 준비·로컬 검증; dev 적용 별도 승인) |
 | 0042 | [프론트 관측 스택을 전용 EC2와 영구 EBS에 배포한다](0042-frontend-observability-ec2.md) | Accepted (대시보드 독립 배포 개정; 전환 적용 대기) |
@@ -81,7 +81,8 @@
 | 0062 | [dev Kafka offset 작업은 기존 operator 권한의 수동 workflow로 실행한다](0062-dev-kafka-offset-workflow.md) | Accepted (PROJ-288; dev main 계획·실행, 권한 배포·실제 실행 검증 별도) |
 
 | 0063 | [dev 파이프라인 자원을 확대하고 Gateway와 ingest를 서로 다른 노드에 배치한다](0063-dev-pipeline-resource-sizing.md) | Accepted (PROJ-304; 코드·로컬 검증, 실제 배포·성능 시험 별도) |
-| 0064 | [dev 파이프라인에 직접 계단식 부하를 걸고 k6 지표는 sidecar에서 pull한다](0064-dev-pipeline-loadtest.md) | Proposed (PROJ-192; 코드·로컬 검증, 팀 동의·실제 dev 부하 실행 별도) |
+| 0064 | [dev 파이프라인에 직접 계단식 부하를 걸고 k6 지표는 sidecar에서 pull한다](0064-dev-pipeline-loadtest.md) | Proposed (PROJ-192; 코드·로컬 검증, 팀 동의·실제 dev 부하 실행 별도; k6 remote write 추가는 0065(Proposed)가 제안) |
+| 0065 | [dev 부하 시험 k6는 Prometheus remote write로도 지표를 보낸다](0065-dev-loadtest-k6-prometheus-remote-write.md) | Proposed (PROJ-337; 0064 결정 3의 remote write 제외와 0039의 관측 인그레스 규칙 수를 개정 제안; sidecar pull 유지; 배포 별도) |
 
 병행 작업에서 사용한 `0035`·`0036`은 각각 파일명·제목·링크를 보존한다. 번호만으로 대상을 식별하지 않는다.
 
