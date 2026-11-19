@@ -349,8 +349,10 @@ SG만으로도 생기므로 정책 증거가 아니다. 관측 풀(toleration �
 Grafana의 Loki·Tempo datasource health가 OK다. 이것은 포트 시험이 아니라 실제 로그·trace 전송 확인이다.
 
 복구는 단계 역순이다.
-0. NetworkPolicy: 먼저 세 release를 `--set ingressPolicy.enabled=false`로 upgrade하고 `kubectl get networkpolicy,policyendpoints -n pulsemetry-observability`가
-   비었는지 본다. 그다음 platform release를 `--set networkPolicyController.enabled=false`로 upgrade한다. 정책을 남긴 채 controller만 끄지 않는다.
+0. NetworkPolicy: 먼저 세 release를 `--set ingressPolicy.enabled=false`로 upgrade하고, 관측 release의 Prometheus 정책(ADR-0065)도
+   `prometheusIngressPolicy.enabled=false`로 끈다(Argo 관리라 `helm/observability/values-dev.yaml`을 고쳐 반영한다). 끄는 동안 k6 remote write는 SG만 남는다.
+   `kubectl get networkpolicy,policyendpoints -n pulsemetry-observability`가 비었는지 본 뒤 platform release를 `--set networkPolicyController.enabled=false`로 upgrade한다.
+   정책을 남긴 채 controller만 끄지 않는다.
 1. trace 문제: runtime-values의 `platformTracing`을 지우고 생성기·앱을 다시 적용한다(앱은 Tracer NOOP으로 돌아간다). Kafka payload·offset·모드는 바꾸지 않는다.
 2. Loki 출력 문제: Fluent Bit을 overlay 없이 정적 → generated로 다시 적용한다. CloudWatch·tail DB·buffer는 그대로다.
 3. Grafana: 이전 관측 chart revision으로 되돌리면 `prune`이 Loki·Tempo datasource를 지운다. 대시보드 링크를 확인한다.
