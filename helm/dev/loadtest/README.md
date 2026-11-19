@@ -2,6 +2,7 @@
 
 [ADR 0064](../../../docs/adr/0064-dev-pipeline-loadtest.md)의 k6 Job 차트다. dev `pulsemetry-dev` 파이프라인에 계단식 부하를 걸고,
 같은 Pod의 collector sidecar가 k6 지표를 `:9404`(포트 이름 `metrics`)로 내놓는다. 관측 차트의 PodMonitor가 pull한다.
+커뮤니티 k6 대시보드용으로 같은 지표를 Prometheus remote write로도 보낸다([ADR 0065](../../../docs/adr/0065-dev-loadtest-k6-prometheus-remote-write.md)).
 Argo 밖에서 `pulsemetry-loadtest` namespace에만 수동 helm(3.22.0)으로 설치한다. 다른 namespace면 렌더가 실패한다.
 실행·정지·결과 추출·정리 절차는 [런북](../../../docs/runbooks/dev-pipeline-loadtest.md)이다.
 
@@ -15,9 +16,11 @@ Argo 밖에서 `pulsemetry-loadtest` namespace에만 수동 helm(3.22.0)으로 �
 | `scenario`·`startRps`·`stepRps`·`maxRps`·`ramp`·`stepHold`·`cooldown`·`finalFlush`·`holdRps`·`holdDuration`·`mixSignal`·`mixProduct`·`gzip` | k6 env 와 1:1(backend `tools/loadtest/README.md`). `finalFlush`(기본 25s)는 끝난 뒤 마지막 지표가 수집되도록 기다리는 시간이다 |
 | `images.k6`·`images.collector` | digest 고정 필수. [`tests/arm64-images.json`](tests/arm64-images.json) 증거와 같은 값 |
 | `activeDeadlineSeconds` | 없으면 계획 시간 + 600초. 주면 그 이상이어야 한다 |
+| `prometheusRemoteWrite.enabled`·`url`·`pushInterval` | 기본 켬·관측 Prometheus 내부 주소·5s. native histogram·stale marker를 쓴다. 끄면 OTel 출력만 남는다 |
 
 렌더가 거부하는 것: 다른 namespace, testid·configMapName 없음, digest 없는 이미지, RPS 1000 초과,
-계획 시간 10200초(telemetry JWT 3h − 600s) 초과, hold 의 holdRps 없음, 계획 시간 + 600 미만의 deadline.
+계획 시간 10200초(telemetry JWT 3h − 600s) 초과, hold 의 holdRps 없음, 계획 시간 + 600 미만의 deadline,
+`http://<host>[:port]/api/v1/write` 꼴이 아닌 remote write 주소, 초 단위가 아닌 push 간격.
 계획 시간은 smoke 60초, stair `단계 수 × (ramp + stepHold) + cooldown`, hold `holdDuration`이다(k6 `lib/schedule.js`와 같은 계산).
 
 | ConfigMap 키 | 마운트 경로 |

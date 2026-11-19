@@ -243,8 +243,11 @@ server URL은 내부 `http://pulsemetry-monitoring-prometheus.pulsemetry-observa
 운영자의 localhost port-forward다. remote-write receiver는 별도 인증 없이 내부망에서 받으므로 public endpoint를 추가하지 않는다.
 PROJ-192의 runner Job은 `helm/dev/loadtest`, 시나리오는 backend `tools/loadtest`, 판정은 `scripts/loadtest-results-export.mjs`이며 이 차트에는 PodMonitor와 대시보드만 있다.
 
-**dev 파이프라인 부하 시험(PROJ-192, [ADR 0064](../../docs/adr/0064-dev-pipeline-loadtest.md))은 위 remote-write 경로를 쓰지 않는다.** k6 Job(`pulsemetry-loadtest` namespace)의
+**dev 파이프라인 부하 시험(PROJ-192, [ADR 0064](../../docs/adr/0064-dev-pipeline-loadtest.md))의 판정 경로는 위 remote-write가 아니다.** k6 Job(`pulsemetry-loadtest` namespace)의
 OTel 출력을 같은 Pod의 core collector sidecar가 `:9404`(포트 `metrics`)로 내놓고, 이 차트의 PodMonitor `pulsemetry-loadtest-k6`(`loadtest.enabled`, dev values에서만)가 pull한다.
+커뮤니티 k6 대시보드(18030)용으로 같은 Job이 위 내부 주소로 remote write도 한다([ADR 0065](../../docs/adr/0065-dev-loadtest-k6-prometheus-remote-write.md)).
+apps 노드에서 보내므로 apps SG → 관측 SG 9090이 열리고, 송신 Pod는 이 차트의 `prometheusIngressPolicy`(`pulsemetry-prometheus-ingress`, dev values에서만)가
+Grafana·k6로 제한한다. 운영자 port-forward와 perf runner(정책 없음)는 그대로다.
 지표 이름은 `k6_` 접두에 prometheus exporter 단위 접미사가 붙는다(`k6_http_req_duration_milliseconds_bucket`·`k6_http_reqs_total`·`k6_loadtest_target_rps`).
 대시보드 `Pulsemetry · 부하 시험`(`pulsemetry-loadtest`)은 Strimzi lag 기록 규칙을 써서 Strimzi 렌더에만 있고, 이름 대조는 `tests/fixtures/k6-otel-sidecar.prom`(로컬 E2E)이 기준이다.
 실행·정지·결과 추출·정리는 [dev 파이프라인 부하 시험 런북](../../docs/runbooks/dev-pipeline-loadtest.md)을 따른다.

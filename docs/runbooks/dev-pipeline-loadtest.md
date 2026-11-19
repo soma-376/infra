@@ -11,6 +11,7 @@ k6 계단식 부하를 걸어 ① Gateway 수용 한계와 ② 파이프라인 �
 | 시드 SQL·payload·k6 시나리오·로컬 E2E | backend `tools/loadtest/`([안내](../../../pulsemetry-backend/tools/loadtest/README.md)) |
 | k6 Job 차트 | `helm/dev/loadtest`([안내](../../helm/dev/loadtest/README.md)) — Argo 밖 수동 helm |
 | PodMonitor·대시보드 `Pulsemetry · 부하 시험` | 관측 차트(Argo). PodMonitor는 dev values, 대시보드는 Strimzi 렌더에만 있다 |
+| 커뮤니티 k6 대시보드용 remote write([ADR 0065](../adr/0065-dev-loadtest-k6-prometheus-remote-write.md)) | k6 Job이 Prometheus로 직접 보낸다. apps SG → 관측 SG 9090(CDK)과 Prometheus 수신 정책(관측 차트 dev values)이 필요하다 |
 | 결과 추출·판정·배수 계획 | `scripts/loadtest-results-export.mjs` |
 
 공통 변수(레포 밖 작업 디렉터리를 쓴다):
@@ -35,6 +36,11 @@ C="$RUN_DIR/loadtest/$CAMPAIGN"; mkdir -p "$C" && chmod 700 "$C"
   ```
 
   Grafana(`kubectl -n pulsemetry-observability port-forward --address 127.0.0.1 service/pulsemetry-grafana 3000:80`)에서 `Pulsemetry · 부하 시험`이 보이는지 본다.
+- 커뮤니티 k6 대시보드를 쓸 때(§5-1): SG 9090 규칙이 Dev CDK Deploy로 배포됐고 Prometheus 수신 정책이 있다. 정책 반영 뒤에는 관측 런북의 N5로 허용·차단을 한 번 확인한다.
+
+  ```bash
+  kubectl -n pulsemetry-observability get networkpolicy pulsemetry-prometheus-ingress
+  ```
 - 실제 사양이 [ADR 0063](../adr/0063-dev-pipeline-resource-sizing.md)과 같다. 다르면 결과에 그 사양을 적는다(결과 추출의 `config.json`이 남긴다).
 
   ```bash
@@ -120,6 +126,19 @@ run() {   # run <testid> [helm --set ...]
 | 6 | (선택) `run "$CAMPAIGN-hold" --set scenario=hold --set holdRps=<후보> --set holdDuration=20m` | 후보 한계 재확인 |
 
 smoke 뒤에는 대시보드에서 실제 요청률·`200 응답의 기대 저장 건수`·ClickHouse 삽입 행이 함께 움직이는지 보고 넘어간다.
+
+### 5-1. 커뮤니티 k6 대시보드(선택)
+
+k6는 OTel(sidecar → PodMonitor, 판정용)과 Prometheus remote write(native histogram)로 같은 지표를 함께 보낸다(ADR 0065).
+grafana.com 대시보드 **18030 "k6 Prometheus (Native Histograms)"**를 Grafana Dashboards → New → Import로 가져오고 데이터소스는 Prometheus를 고른다.
+`testid` 변수로 실행을 고른다. 이 대시보드는 Grafana PVC에만 남고 코드에는 없다.
+
+- 이름이 두 체계다. remote write는 `k6_http_req_duration_seconds`(native histogram)·`k6_http_req_failed_rate`, sidecar는 `k6_http_req_duration_milliseconds_bucket`·`k6_http_req_failed_total`이다.
+  판정·결과 추출·`Pulsemetry · 부하 시험`은 sidecar 이름만 쓴다.
+- 비어 있는 패널: `k6_checks_rate`(시나리오가 check를 쓰지 않는다), `k6_dropped_iterations_total`(drop이 있을 때만 생긴다).
+- 대시보드가 통째로 비면 k6 로그의 remote write 오류를 본다. 보내기에 실패해도 k6는 시험을 계속한다(판정에는 영향이 없다).
+  `kubectl -n pulsemetry-loadtest logs <pod> -c k6 | grep -i 'remote'` → SG 9090·Prometheus 수신 정책 순서로 확인한다.
+- 끄려면 `--set prometheusRemoteWrite.enabled=false`. OTel 경로만 남는다.
 계획 시간이 10200초(telemetry JWT 3h − 600s)를 넘거나 RPS가 1000을 넘으면 helm이 렌더를 거부한다 — 실행을 나눈다.
 
 ## 6. 정지 조건과 정지 방법

@@ -322,7 +322,7 @@ node scripts/observability-networkpolicy-probe.mjs --phase n2 --output <새 증�
 node scripts/observability-networkpolicy-probe.mjs --phase n5 --output <새 증거 파일>
 ```
 
-SG는 apps → 관측을 3100·4318만 연다. 관측 노드끼리는 모두 열려 있다. 그래서 apps 풀 송신자의 Tempo 3200·4317·Collector 8888 실패는
+SG는 apps → 관측을 3100·4318·9090(ADR-0065)만 연다. 관측 노드끼리는 모두 열려 있다. 그래서 apps 풀 송신자의 Tempo 3200·4317·Collector 8888 실패는
 SG만으로도 생기므로 정책 증거가 아니다. 관측 풀(toleration 포함)의 송신자가 그 포트들의 정책 차단을 입증한다.
 
 | 대상 | 허용 송신자 대조 | 비허용 송신자(label `app.kubernetes.io/name=np-probe-stranger`) |
@@ -332,8 +332,9 @@ SG만으로도 생기므로 정책 증거가 아니다. 관측 풀(toleration �
 | Tempo 4317 | Collector의 Tempo 전송 span(동작) | 관측 풀 |
 | Collector 4318 | Gateway·ingest trace가 Tempo에서 검색됨(동작) | apps 풀·관측 풀 |
 | Collector 8888 | Prometheus 포트 연결 | 관측 풀 |
+| Prometheus 9090(ADR-0065) | Grafana 포트 연결. k6 Pod는 시험 때만 있어 대조하지 않는다 — 실행 중 커뮤니티 k6 대시보드로 본다 | apps 풀·관측 풀 |
 
-- 사전조건: 세 NetworkPolicy, 그 정책을 가리키는 PolicyEndpoints, 대상 Pod Ready, 대상 Service port = container port.
+- 사전조건: 네 NetworkPolicy, 그 정책을 가리키는 PolicyEndpoints, 대상 Pod Ready, 대상 Service port = container port.
   하나라도 어긋나면 모든 결과가 `INCONCLUSIVE`다.
 - 판정: 비허용 송신자가 `TIMEOUT`이면서 SG가 그 경로를 열고, 같은 목적지·포트의 허용 대조가 성공했을 때만 `BLOCKED_BY_POLICY`다.
   SG가 막는 경로는 `SG_ALSO_BLOCKS`로 남기고, 그 밖의 실패는 `INCONCLUSIVE`다. `OPEN`은 `NOT_BLOCKED`이며 실패다.
