@@ -46,6 +46,16 @@
     "gatewayUrl": {"$ref": "#/definitions/url"},
     "enrollmentUrl": {"$ref": "#/definitions/url"},
     "activeDeadlineSeconds": {"oneOf": [{"type": "null"}, {"type": "integer", "minimum": 1}]},
+    "prometheusRemoteWrite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "url", "pushInterval"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "url": {"type": "string", "pattern": "^http://[a-z0-9.-]+(:[0-9]+)?/api/v1/write$"},
+        "pushInterval": {"type": "string", "pattern": "^[1-9][0-9]*s$"}
+      }
+    },
     "images": {
       "type": "object",
       "additionalProperties": false,

@@ -32,6 +32,14 @@ enrollmentUrl: http://enrollment-api.pulsemetry-dev.svc:8080
 # 없으면 계획 시간 + 600초. 주면 그보다 작을 수 없다.
 activeDeadlineSeconds: null
 
+# 커뮤니티 k6 대시보드(grafana.com 18030)용 Prometheus remote write(ADR-0065). OTel sidecar 경로와 함께 쓴다.
+# native histogram 이라 지연 이름이 k6_http_req_duration_seconds 다. 판정·결과 추출·부하 시험 대시보드는 sidecar 이름을 쓰므로
+# 꺼도(enabled: false) 시험·판정은 그대로다. 보내려면 apps SG → 관측 SG 9090 과 Prometheus 수신 정책이 dev 에 있어야 한다.
+prometheusRemoteWrite:
+  enabled: true
+  url: http://pulsemetry-monitoring-prometheus.pulsemetry-observability.svc:9090/api/v1/write
+  pushInterval: 5s
+
 # digest 고정 필수. helm/dev/loadtest/tests/arm64-images.json 의 증거와 같은 값이다.
 images:
   k6: docker.io/grafana/k6:1.8.2@sha256:bd6ae8607c0a05d0dc0dc3f5753c464b0929baf083ef0f20b7eed845a3d9e6b4

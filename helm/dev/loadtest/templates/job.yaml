@@ -100,7 +100,8 @@ spec:
           imagePullPolicy: IfNotPresent
           # REST API 는 Pod 안에서만 연다(`k6 status`). 도착률 실행기는 시작 뒤 pause 를 지원하지 않는다 —
           # 멈출 때는 `kubectl exec <pod> -c k6 -- kill -INT 1`(summary 를 쓰고 종료 코드 105). 런북 §6.
-          args: ["run", "--address", "127.0.0.1:6565", "-o", "opentelemetry", "/scripts/main.js"]
+          # OTel(sidecar → 9404 pull, 판정용)과 Prometheus remote write(커뮤니티 대시보드용, ADR-0065)를 함께 쓴다.
+          args: ["run", "--address", "127.0.0.1:6565", "-o", "opentelemetry"{{ if $v.prometheusRemoteWrite.enabled }}, "-o", "experimental-prometheus-rw"{{ end }}, "/scripts/main.js"]
           env:
             - {name: HOME, value: /tmp}
             - {name: K6_NO_USAGE_REPORT, value: "true"}
@@ -110,6 +111,13 @@ spec:
             - {name: K6_OTEL_METRIC_PREFIX, value: k6_}
             - {name: K6_OTEL_FLUSH_INTERVAL, value: 1s}
             - {name: K6_OTEL_EXPORT_INTERVAL, value: 5s}
+            {{- if $v.prometheusRemoteWrite.enabled }}
+            # 보내기에 실패해도 k6 는 시험을 계속하고 로그만 남긴다. 끝에 stale marker 로 시계열을 닫는다.
+            - {name: K6_PROMETHEUS_RW_SERVER_URL, value: {{ $v.prometheusRemoteWrite.url | quote }}}
+            - {name: K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM, value: "true"}
+            - {name: K6_PROMETHEUS_RW_PUSH_INTERVAL, value: {{ $v.prometheusRemoteWrite.pushInterval | quote }}}
+            - {name: K6_PROMETHEUS_RW_STALE_MARKERS, value: "true"}
+            {{- end }}
             - {name: TESTID, value: {{ $v.testid | quote }}}
             - {name: SCENARIO, value: {{ $v.scenario | quote }}}
             - {name: GATEWAY_URL, value: {{ $v.gatewayUrl | quote }}}
