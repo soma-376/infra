@@ -76,9 +76,9 @@ describe('DevNetworkStack EKS 전용 네트워크', () => {
     Annotations.fromStack(network).hasWarning('*', Match.stringLikeRegexp('infra:dev-open-ingress'));
   });
 
-  test.each([baseline, narrowed, multiple])('DB 포트·4318·NodePort를 CIDR에 직접 열지 않는다', ({ template }) => {
+  test.each([baseline, narrowed, multiple])('DB 포트·4318·9090·NodePort를 CIDR에 직접 열지 않는다', ({ template }) => {
     expect(allIngressRules(template).filter(rule => rule.CidrIp !== undefined &&
-      [5432, 8123, 9000, 4318, 30416, 30080, 30081, 30082].includes(rule.FromPort))).toEqual([]);
+      [5432, 8123, 9000, 4318, 9090, 30416, 30080, 30081, 30082].includes(rule.FromPort))).toEqual([]);
   });
 
   test.each([[narrowed, [CIDRS[0]]], [multiple, CIDRS]] as const)('지정 CIDR에만 앱 ALB 인바운드를 연다', ({ network, template }, cidrs) => {

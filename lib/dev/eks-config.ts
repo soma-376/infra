@@ -13,8 +13,9 @@ export const DEV_EKS_NODE_PORTS = { ingest: 30416, enrollment: 30080, dashboard:
 /**
  * 관측 노드가 앱·ClickHouse 노드에서 받는 수집 포트(ADR-0039). Pod는 노드 SG를 쓰므로 컨테이너 포트와 같다.
  * Loki push는 각 노드의 Fluent Bit이, 플랫폼 trace OTLP/HTTP는 Gateway·ingest가 보낸다.
+ * Prometheus remote write는 apps 노드의 부하 시험 k6가 보낸다(ADR-0065). 송신 Pod 제한은 Prometheus 수신 NetworkPolicy가 맡는다.
  */
-export const DEV_OBSERVABILITY_INGEST_PORTS = { loki: 3100, platformOtlpHttp: 4318 } as const;
+export const DEV_OBSERVABILITY_INGEST_PORTS = { loki: 3100, platformOtlpHttp: 4318, prometheusRemoteWrite: 9090 } as const;
 
 /**
  * MSK broker 전용 subnet. VPC의 `maxAzs: 2` public subnet과 별개로 EKS 활성화 시에만 만든다.
