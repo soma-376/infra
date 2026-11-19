@@ -62,17 +62,22 @@ C="$RUN_DIR/loadtest/$CAMPAIGN"; mkdir -p "$C" && chmod 700 "$C"
 
 PostgreSQL 터널은 [DB 접근 런북](dev-database-access.md) §2대로 연다(기본 `127.0.0.1:15432`). DB 계정은 기존 방식대로 클라이언트에서만 쓴다.
 
+생성기가 성공했을 때만 psql 을 실행한다(`&&`). 파이프(`… | psql`)는 생성기 실패를 빈 입력의 psql 성공으로 가린다.
+어느 줄이든 0이 아닌 종료 코드로 끝나면 다음 단계(§4)로 가지 않는다.
+
 ```bash
-python3 "$BE/tools/loadtest/generator/seed_sql.py" --campaign "$CAMPAIGN" --installations 60 --partitions 6 \
-  --secret-file "$C/seed-secret" --identities-out "$C/identities.json" > "$C/seed.sql"    # stderr: tenant ID, partition 분포 10×6
 # TLS 검증을 끄지 않는다 — 원래 RDS hostname 과 CA 번들로 검증하고 접속만 터널로 보낸다(DB 접근 런북 §2).
 PGURL="host=<원래 RDS hostname> hostaddr=127.0.0.1 port=15432 dbname=controlplane user=<계정> sslmode=verify-full sslrootcert=<RDS CA 번들>"
-psql "$PGURL" -v ON_ERROR_STOP=1 -f "$C/seed.sql"
 python3 "$BE/tools/loadtest/generator/seed_sql.py" --campaign "$CAMPAIGN" --installations 60 --partitions 6 \
-  --secret-file "$C/seed-secret" --verify | psql "$PGURL" -v ON_ERROR_STOP=1 -At   # 8행 모두 t. 하나라도 f 면 오류로 끝난다(종료 코드 3)
+  --secret-file "$C/seed-secret" --identities-out "$C/identities.json" > "$C/seed.sql" \
+  && psql "$PGURL" -v ON_ERROR_STOP=1 -f "$C/seed.sql"            # 생성기 stderr: tenant ID, partition 분포 10×6
+python3 "$BE/tools/loadtest/generator/seed_sql.py" --campaign "$CAMPAIGN" --installations 60 --partitions 6 \
+  --secret-file "$C/seed-secret" --verify > "$C/verify.sql" \
+  && psql "$PGURL" -v ON_ERROR_STOP=1 -At -f "$C/verify.sql"       # 8행 모두 t. 하나라도 f 면 오류로 끝난다(종료 코드 3)
 ```
 
-다시 적용해도 안전하다. 다른 설치 수로 다시 시드하거나 폐기한 캠페인을 다시 시드하면 SQL이 롤백된다 — 새 캠페인 ID를 쓴다.
+같은 입력은 다시 적용해도 안전하다. 다음은 SQL이 롤백된다 — 설치 수 변경·폐기한 캠페인은 새 캠페인 ID를, 다른 비밀이면 처음 쓴 비밀 파일을 쓴다.
+기존 캠페인과 설치 집합이 다르다(INSERT 전 검사), 설치별 자격증명 해시가 이 시드 비밀과 다르다(커밋 전 검사), 폐기한 캠페인이다.
 
 ## 4. namespace·Secret·ConfigMap
 
@@ -137,7 +142,7 @@ kubectl -n pulsemetry-loadtest delete job loadtest-$TESTID
 ```
 
 `k6 pause`는 쓰지 않는다. 도착률 실행기(constant/ramping-arrival-rate)는 시작 뒤 pause를 지원하지 않는다(k6 1.8.2 확인).
-조기 정지한 실행을 추출하면 실행하지 않은 단계가 `미수집` 실패로 표시된다. 한계 값은 그 앞에서 이어서 통과한 단계라 그대로 유효하다.
+조기 정지한 실행을 추출하면 멈춘 단계와 실행하지 않은 단계가 `미완료`로 표시되고 한계 산정에서 빠진다. 한계 값은 그 앞에서 이어서 통과한 완료 단계라 그대로 유효하다.
 
 ## 7. 배수 대기
 
@@ -174,6 +179,10 @@ node scripts/loadtest-results-export.mjs --prometheus http://127.0.0.1:9090 --cl
   다음 scrape 에 찍히기 때문이다. 다음 단계 상승 초반이 섞이면 실패 쪽으로만 기운다.
 - 그 창에서 ingest 재시작·Pod 교체·scrape 실패·표본 부족(창 ÷ `--scrape-interval` − 1 미만)이 있으면 그 값은 미수집이다.
 - lag 증가는 두 경계의 표본 시각이 `--max-sample-age`(기본 30s)보다 오래됐거나 같은 표본이면 미수집이다.
+- 중단·미실행 단계(k6 summary `completed: false`)는 두 층 모두 실패로 표시하고 한계 산정에서 뺀다. 유지 구간을 끝까지 실행하지 않은
+  결과를 통과로 세지 않는다. 조기 정지한 실행의 한계는 그 앞에서 이어서 통과한 완료 단계다.
+- ClickHouse 지연·실패 INSERT 는 창 안에서 ClickHouse 가 재시작했으면(`ClickHouseAsyncMetrics_Uptime` 감소) 미수집이다. 재시작 직전
+  scrape 되지 않은 실패는 `increase()` 로 되살릴 수 없기 때문이다. ingest 는 시작 시각 변화·Pod 교체로 같은 판단을 한다.
 - 미수집은 실패로 표시되고 사유가 REPORT 에 함께 남는다. 이때는 Grafana 로 그 구간을 직접 본다.
 - 지연·처리율(서버 p95·p99, 실제 RPS)은 유지 구간 창 그대로다. 수집 지연(최대 10초)만큼 경계가 어긋나지만 2~5분 창에서는 무시할 수준이다.
 - 마지막 유지 구간 끝 + 경계 지연 전에는 실행을 거부한다.
@@ -186,7 +195,8 @@ node scripts/loadtest-results-export.mjs --prometheus http://127.0.0.1:9090 --cl
 2. 설치·자격 폐기:
 
    ```bash
-   python3 "$BE/tools/loadtest/generator/seed_sql.py" --campaign "$CAMPAIGN" --revoke | psql "$PGURL" -v ON_ERROR_STOP=1
+   python3 "$BE/tools/loadtest/generator/seed_sql.py" --campaign "$CAMPAIGN" --revoke > "$C/revoke.sql" \
+     && psql "$PGURL" -v ON_ERROR_STOP=1 -f "$C/revoke.sql"
    ```
 
 3. (선택, 팀 결정) 데이터 삭제는 retention-worker로 한다. `--retention-months`는 1 이상이라 방금 넣은 데이터를 지우려면 `--as-of`를

@@ -382,7 +382,7 @@
       "id": 6,
       "type": "timeseries",
       "title": "Dropped iteration",
-      "description": "VU가 모자라 시작하지 못한 반복의 실행 누적값이다. 지표는 첫 drop 때 생기므로 증가율 식은 첫 drop을 놓친다 — 누적값으로 그린다. 빈 값은 drop 없음이다. 단계별 ① 판정 값(기준 0)은 k6 summary의 droppedIterations이고, 안전 정지는 3000이다.",
+      "description": "VU가 모자라 시작하지 못한 반복의 실행 누적값이다. 지표는 첫 drop 때 생기므로 증가율 식은 첫 drop을 놓친다 — 누적값으로 그린다. 빈 값은 drop이 없었거나 수집되지 않은 것이며, 이 패널로는 둘을 구분하지 않는다. 단계별 ① 판정 값(기준 0)은 k6 summary의 droppedIterations이고, 안전 정지는 3000이다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
