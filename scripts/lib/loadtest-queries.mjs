@@ -20,7 +20,11 @@ export function counterIncrease(metric, selector, window) {
  * - up: scrape 성공 여부와 표본 수.
  * - startSeries(프로세스 시작 시각, 없으면 생략): 값이 바뀌면 재시작, 창 안에서 본 시계열이 끝에 살아 있는 수보다 많으면 Pod 교체.
  * - uptimeSeries(가동 초, 없으면 생략): 계속 커지는 값이라 시작 시각처럼 changes() 로 보면 정상 증가도 재시작이 된다.
- *   값이 줄어든 횟수(resets)로 재시작을 본다. 재시작 직전 scrape 되지 않은 증가는 increase() 로 되살릴 수 없어서 필요하다.
+ *   재시작 직전 scrape 되지 않은 증가는 increase() 로 되살릴 수 없어서 두 신호로 재시작을 본다.
+ *   · uptimeResets: 값이 줄어든 횟수.
+ *   · uptimeStartShift: 추정 시작 시각(표본 시각 − 가동 초)이 창 안에서 움직인 폭. 직전 표본의 가동 초가 작을 때
+ *     (재시작 직후 다시 재시작) 새 가동 초가 더 커서 resets 로는 안 보이는 재시작을 잡는다. 정상이면 비동기 지표
+ *     갱신 주기 정도만 흔들린다. 1s 간격 subquery 라 창 시작 직전 표본 하나가 섞인다 — 실패 쪽으로만 기운다.
  */
 export function evidenceQueries(up, startSeries, window, uptimeSeries = null) {
   const queries = {
@@ -34,12 +38,21 @@ export function evidenceQueries(up, startSeries, window, uptimeSeries = null) {
       restarts: `sum(changes(${startSeries}[${window}]))`,
     });
   }
-  if (uptimeSeries) queries.uptimeResets = `sum(resets(${uptimeSeries}[${window}]))`;
+  if (uptimeSeries) {
+    const start = `(timestamp(${uptimeSeries}) - ${uptimeSeries})`;
+    Object.assign(queries, {
+      uptimeResets: `sum(resets(${uptimeSeries}[${window}]))`,
+      uptimeStartShift: `max(max_over_time(${start}[${window}:1s]) - min_over_time(${start}[${window}:1s]))`,
+    });
+  }
   return queries;
 }
 
-/** evidenceQueries 의 값 → 미수집 사유(없으면 null). minSamples 는 창 길이 ÷ scrape 간격 − 1 이다. */
-export function evidenceProblem(label, values, minSamples) {
+/**
+ * evidenceQueries 의 값 → 미수집 사유(없으면 null). minSamples 는 창 길이 ÷ scrape 간격 − 1 이다.
+ * maxStartShiftSeconds 는 추정 시작 시각의 허용 흔들림이다(결과 추출 --max-start-shift).
+ */
+export function evidenceProblem(label, values, minSamples, maxStartShiftSeconds = 3) {
   if (values.upMin === null || values.upSamples === null) return `${label} 수집 지표 없음`;
   if (values.upMin < 1) return `${label} scrape 실패 구간 있음`;
   if (values.upSamples < minSamples) return `${label} scrape 표본 부족(${values.upSamples}/${minSamples})`;
@@ -49,8 +62,11 @@ export function evidenceProblem(label, values, minSamples) {
     if (values.restarts !== 0) return `${label} 재시작`;
   }
   if ('uptimeResets' in values) {
-    if (values.uptimeResets === null) return `${label} 가동 시간 지표 없음`;
+    if (values.uptimeResets == null || values.uptimeStartShift == null) return `${label} 가동 시간 지표 없음`;
     if (values.uptimeResets !== 0) return `${label} 재시작`;
+    if (values.uptimeStartShift > maxStartShiftSeconds) {
+      return `${label} 재시작(추정 시작 시각 ${Number(values.uptimeStartShift.toFixed(1))}s 이동)`;
+    }
   }
   return null;
 }

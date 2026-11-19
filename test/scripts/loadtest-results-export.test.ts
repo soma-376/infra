@@ -22,7 +22,7 @@ const steps = [
 ];
 const iso = (seconds: number) => new Date(seconds * 1000).toISOString();
 // 가짜 Prometheus 의 상황. 기본은 정상이고, 시험마다 바꾼다.
-let mode: { restartAt?: string; staleLagAt?: string; chRestartAt?: string } = {};
+let mode: { restartAt?: string; staleLagAt?: string; chRestartAt?: string; chStartShiftAt?: string } = {};
 const summary = {
   summaryVersion: 3, testid: 'pipeline-01', scenario: 'stair', campaign: 'camp-a', tenantId: '00000000-0000-4000-8000-0000000000aa', installations: 60,
   scenarioStart: iso(T0), plannedSeconds: 1020,
@@ -55,6 +55,7 @@ const instant = (query: string, time: number): number | null => {
   if (query.startsWith('count(process_start_time_seconds')) return 1;
   if (query.startsWith('sum(changes(process_start_time_seconds')) return mode.restartAt === s.step ? 1 : 0;
   if (query.startsWith('sum(resets(ClickHouseAsyncMetrics_Uptime')) return mode.chRestartAt === s.step ? 1 : 0;
+  if (query.startsWith('max(max_over_time((timestamp(ClickHouseAsyncMetrics_Uptime')) return mode.chStartShiftAt === s.step ? 5 : 0.9;
   if (query.includes('k6_http_reqs_total')) return s.targetRps;
   if (query.includes('pulsemetry_gateway_request_duration_seconds_bucket')) return query.startsWith('histogram_quantile(0.95') ? 0.04 : 0.12;
   if (query.startsWith('deriv(')) return s.step === 's03' ? 13.3 : 0;
@@ -188,6 +189,23 @@ describe('부하 시험 결과 추출', () => {
     expect(judgement.steps[1].values).toMatchObject({ permanent: 0, retryExhausted: 0, chDelayed: null, chFailed: null });
     expect(judgement.limits.pipeline).toEqual({ rps: 5, step: 's01', firstFailure: 's02' });
     expect(received.some(line => line.includes('resets(ClickHouseAsyncMetrics_Uptime{') && line.includes('[320s]'))).toBe(true);
+  });
+
+  test('가동 시간이 줄지 않은 ClickHouse 재시작도 추정 시작 시각 이동으로 미수집이다', async () => {
+    inputs();
+    mode = { chStartShiftAt: 's02' };
+    const out = resolve(work, 'result');
+    expect((await run(exportArgs(out))).code).toBe(0);
+    const judgement = JSON.parse(readFileSync(resolve(out, 'judgement.json'), 'utf8'));
+    const note = 'clickhouse 재시작(추정 시작 시각 5s 이동)';
+    expect(judgement.steps[1].pipeline.reasons).toEqual([`CH 지연 INSERT 미수집(${note})`, `CH 실패 INSERT 미수집(${note})`]);
+    expect(judgement.steps[1].values).toMatchObject({ chDelayed: null, chFailed: null });
+    expect(judgement.steps[0].values).toMatchObject({ chDelayed: 0, chFailed: 0 });
+    expect(received.some(line => line.includes('timestamp(ClickHouseAsyncMetrics_Uptime{') && line.includes('[320s:1s]'))).toBe(true);
+    // 허용 폭을 넓히면(--max-start-shift) 같은 이동이 재시작이 아니다.
+    const wide = resolve(work, 'result-wide');
+    expect((await run([...exportArgs(wide), '--max-start-shift', '10s'])).code).toBe(0);
+    expect(JSON.parse(readFileSync(resolve(wide, 'judgement.json'), 'utf8')).steps[1].values).toMatchObject({ chDelayed: 0, chFailed: 0 });
   });
 
   test('중단된 단계는 두 층 모두 한계 산정에서 빠진다', async () => {

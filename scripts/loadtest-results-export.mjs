@@ -34,6 +34,9 @@ const DEFAULTS = {
   'scrape-interval': '10s',
   'boundary-delay': '20s',
   'max-sample-age': '30s',
+  // ClickHouse 추정 시작 시각(표본 시각 − 가동 초)이 창 안에서 이보다 크게 움직이면 재시작으로 본다.
+  // 비동기 지표 갱신 주기(기본 1s)와 scrape 지연을 감안한 값이다(24.8 로컬 측정 흔들림 약 1s).
+  'max-start-shift': '3s',
 };
 
 // 대시보드 패널(제목·refId) → 저장할 범위 질의 이름. 식은 대시보드에서 읽는다 — 같은 식을 두 곳에 쓰지 않는다.
@@ -105,7 +108,7 @@ function evidenceSources(vars, window) {
   const s = selectors(vars);
   return {
     ingest: evidenceQueries(`up{${s.ingest}}`, `process_start_time_seconds{${s.ingest}}`, window),
-    // ClickHouse 는 StatefulSet 이라 Pod 이름이 같아도 컨테이너·프로세스는 바뀔 수 있다 — 가동 시간 감소로 재시작을 본다.
+    // ClickHouse 는 StatefulSet 이라 Pod 이름이 같아도 컨테이너·프로세스는 바뀔 수 있다 — 가동 시간의 감소와 추정 시작 시각 이동으로 재시작을 본다.
     clickhouse: evidenceQueries(`up{${s.clickhouse}}`, null, window, `ClickHouseAsyncMetrics_Uptime{${s.clickhouse}}`),
   };
 }
@@ -174,6 +177,7 @@ async function exportRun(args) {
   const scrapeSeconds = parseDuration(args['scrape-interval'], 'scrape-interval');
   const delaySeconds = parseDuration(args['boundary-delay'], 'boundary-delay');
   const maxAgeSeconds = parseDuration(args['max-sample-age'], 'max-sample-age');
+  const maxStartShiftSeconds = parseDuration(args['max-start-shift'], 'max-start-shift');
   if (!(scrapeSeconds > 0)) throw new Error('scrape-interval 은 0보다 커야 한다');
   const lastEnd = Math.max(...summary.steps.map(step => toSeconds(step.holdEnd)));
   if (Date.now() / 1000 < lastEnd + delaySeconds + 2 * scrapeSeconds) {
@@ -209,7 +213,7 @@ async function exportRun(args) {
     for (const [source, queries] of Object.entries(evidenceSources(vars, `${windowSeconds}s`))) {
       const observed = {};
       for (const [key, query] of Object.entries(queries)) observed[key] = await instant(query, evalTime);
-      problems[source] = evidenceProblem(source, observed, minSamples);
+      problems[source] = evidenceProblem(source, observed, minSamples, maxStartShiftSeconds);
     }
     for (const [name, { source, query }] of Object.entries(zeroCounterQueries(vars, `${windowSeconds}s`))) {
       if (problems[source]) { values[name] = null; notes[name] = problems[source]; continue; }
@@ -251,7 +255,7 @@ function plan(args) {
 
 const options = Object.fromEntries([
   'prometheus', 'cluster', 'testid', 'summary', 'config-snapshot', 'out', 'namespace', 'environment', 'kafka-cluster', 'topic', 'consumer-group', 'range-step',
-  'scrape-interval', 'boundary-delay', 'max-sample-age',
+  'scrape-interval', 'boundary-delay', 'max-sample-age', 'max-start-shift',
   'max-p95-seconds', 'max-p99-seconds', 'max-error-rate', 'max-dropped', 'lag-min-growth', 'lag-growth-per-rps', 'completion-p95-factor',
   'pipeline-limit', 'start', 'step', 'max', 'hold', 'budget',
 ].map(name => [name, { type: 'string' }]));
