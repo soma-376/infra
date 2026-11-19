@@ -97,7 +97,7 @@ suite('dev 부하 시험 k6 Job 차트', () => {
   test('k6 는 REST 를 루프백에만 열고 OTel 로 보내며, 스크립트·시드는 정해진 경로에 읽기 전용이다', () => {
     const pod = job(render()).spec.template.spec;
     const k6 = pod.containers.find((container: any) => container.name === 'k6');
-    expect(k6.args).toEqual(['run', '--address', '127.0.0.1:6565', '-o', 'opentelemetry', '/scripts/main.js']);
+    expect(k6.args).toEqual(['run', '--address', '127.0.0.1:6565', '-o', 'opentelemetry', '-o', 'experimental-prometheus-rw', '/scripts/main.js']);
     const env = Object.fromEntries(k6.env.map((item: any) => [item.name, item.value]));
     expect(env).toMatchObject({
       K6_NO_USAGE_REPORT: 'true', K6_OTEL_EXPORTER_TYPE: 'http', K6_OTEL_HTTP_EXPORTER_ENDPOINT: '127.0.0.1:4318', K6_OTEL_METRIC_PREFIX: 'k6_',
@@ -143,6 +143,20 @@ suite('dev 부하 시험 k6 Job 차트', () => {
     for (const image of evidence.images) expect(image.image.endsWith(`@sha256:${image.manifest_index_sha256}`)).toBe(true);
   });
 
+  test('커뮤니티 대시보드용 Prometheus remote write 는 native histogram 으로 관측 Prometheus 에 보내고, 끄면 OTel 만 남는다(ADR-0065)', () => {
+    const k6 = (set: string[] = []) => job(render(set)).spec.template.spec.containers.find((container: any) => container.name === 'k6');
+    const env = (container: any) => Object.fromEntries(container.env.map((item: any) => [item.name, item.value]));
+    expect(env(k6())).toMatchObject({
+      K6_PROMETHEUS_RW_SERVER_URL: 'http://pulsemetry-monitoring-prometheus.pulsemetry-observability.svc:9090/api/v1/write',
+      K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM: 'true', K6_PROMETHEUS_RW_PUSH_INTERVAL: '5s', K6_PROMETHEUS_RW_STALE_MARKERS: 'true',
+    });
+    const off = k6(['prometheusRemoteWrite.enabled=false']);
+    expect(off.args).toEqual(['run', '--address', '127.0.0.1:6565', '-o', 'opentelemetry', '/scripts/main.js']);
+    expect(Object.keys(env(off)).filter(name => name.startsWith('K6_PROMETHEUS_RW_'))).toEqual([]);
+    // 판정용 OTel 경로는 켜고 끄는 것과 무관하다.
+    expect(env(off)).toMatchObject({ K6_OTEL_HTTP_EXPORTER_ENDPOINT: '127.0.0.1:4318' });
+  });
+
   test('계획 시간과 deadline 은 k6 schedule.js 와 같은 계산이다', () => {
     const deadline = (set: string[]) => {
       const document = job(render(set));
@@ -168,6 +182,9 @@ suite('dev 부하 시험 k6 Job 차트', () => {
     ['hold 에 holdRps 없음', [...required, 'scenario=hold'], namespace, /holdRps/],
     ['deadline 이 계획 시간 + 600 미만', [...required, 'scenario=stair', 'activeDeadlineSeconds=4000'], namespace, /activeDeadlineSeconds/],
     ['10201s hold', [...required, 'scenario=hold', 'holdRps=1', 'holdDuration=10201s'], namespace, /10200s/],
+    ['remote write 주소가 /api/v1/write 가 아님', [...required, 'prometheusRemoteWrite.url=http://pulsemetry-monitoring-prometheus.pulsemetry-observability.svc:9090'], namespace, /prometheusRemoteWrite|url/],
+    ['remote write 주소가 https·외부', [...required, 'prometheusRemoteWrite.url=https://example.com/api/v1/write'], namespace, /prometheusRemoteWrite|url/],
+    ['push 간격 형식', [...required, 'prometheusRemoteWrite.pushInterval=500ms'], namespace, /prometheusRemoteWrite|pushInterval/],
   ])('거부: %s', (_name, set, ns, pattern) => {
     expect(rejects(set as string[], ns as string)).toMatch(pattern as RegExp);
   });

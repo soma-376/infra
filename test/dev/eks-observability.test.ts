@@ -44,7 +44,7 @@ test('추가 metrics ingress는 관측 SG로 제한하고 관측 역할에 Kafka
   }
 });
 
-test('관측 노드는 Loki 3100을 앱·ClickHouse 노드에서, 플랫폼 trace 4318을 앱 노드에서만 받는다 (ADR-0039)', () => {
+test('관측 노드는 Loki 3100을 앱·ClickHouse 노드에서, 플랫폼 trace 4318·Prometheus remote write 9090을 앱 노드에서만 받는다 (ADR-0039·0065)', () => {
   const rules = Object.values(network.findResources('AWS::EC2::SecurityGroupIngress')) as any[];
   const into = (port: number) => rules.filter(rule => rule.Properties.FromPort === port && rule.Properties.ToPort === port);
   const loki = into(3100);
@@ -58,10 +58,15 @@ test('관측 노드는 Loki 3100을 앱·ClickHouse 노드에서, 플랫폼 trac
   expect(otlp).toHaveLength(1);
   expect(JSON.stringify(otlp[0].Properties.GroupId)).toContain('DevEksObservabilityNodeSg');
   expect(JSON.stringify(otlp[0].Properties.SourceSecurityGroupId)).toContain('DevEksAppNodeSg');
-  // 관측 SG로 들어오는 앱·ClickHouse 출처 규칙은 위 셋뿐이다.
+  // k6 Pod가 apps 노드에서 보낸다. 송신 Pod 제한은 Prometheus 수신 NetworkPolicy다(SG는 노드 단위).
+  const remoteWrite = into(9090).filter(rule => JSON.stringify(rule.Properties.GroupId).includes('DevEksObservabilityNodeSg'));
+  expect(remoteWrite).toHaveLength(1);
+  expect(remoteWrite[0].Properties.CidrIp).toBeUndefined();
+  expect(JSON.stringify(remoteWrite[0].Properties.SourceSecurityGroupId)).toContain('DevEksAppNodeSg');
+  // 관측 SG로 들어오는 앱·ClickHouse 출처 규칙은 위 넷뿐이다.
   const fromWorkloads = rules.filter(rule => JSON.stringify(rule.Properties.GroupId).includes('DevEksObservabilityNodeSg')
     && /DevEksAppNodeSg|DevEksClickhouseNodeSg/.test(JSON.stringify(rule.Properties.SourceSecurityGroupId)));
-  expect(fromWorkloads).toHaveLength(3);
+  expect(fromWorkloads).toHaveLength(4);
 });
 
 test('Grafana는 CloudWatch 지표 조회와 지정 log group 조회 권한만 받는다', () => {

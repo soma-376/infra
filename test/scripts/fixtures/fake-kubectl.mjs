@@ -26,7 +26,8 @@ const pod = (name, ports = []) => ({
   metadata: { name }, spec: { containers: [{ ports }] },
   status: { conditions: [{ type: 'Ready', status: 'True' }], containerStatuses: [{ restartCount: 0 }] },
 });
-const TARGET_PORTS = { 'pulsemetry-loki': [3100], 'pulsemetry-tempo': [3200, 4317], 'pulsemetry-otel-platform': [4318, 8888] };
+const TARGET_PORTS = { 'pulsemetry-loki': [3100], 'pulsemetry-tempo': [3200, 4317], 'pulsemetry-otel-platform': [4318, 8888], 'pulsemetry-monitoring-prometheus': [9090] };
+const POLICIES = ['pulsemetry-loki-ingress', 'pulsemetry-tempo-ingress', 'pulsemetry-otel-platform-ingress', 'pulsemetry-prometheus-ingress'];
 const probeResult = (target, labels) => {
   if (target === 'np-server') {
     const allowed = state.allow && labels['np-probe/allowed'] === 'true';
@@ -79,11 +80,12 @@ if (args[0] === 'get' && args[1] === 'pods') {
     if (scenario.serverNotReady && state.denyAll) p.status.conditions[0].status = 'False';
     out({ items: [p] });
   }
-  const service = selector.includes('loki') ? 'pulsemetry-loki' : selector.includes('tempo') ? 'pulsemetry-tempo' : 'pulsemetry-otel-platform';
+  const service = selector.includes('loki') ? 'pulsemetry-loki' : selector.includes('tempo') ? 'pulsemetry-tempo'
+    : selector.includes('prometheus') ? 'pulsemetry-monitoring-prometheus' : 'pulsemetry-otel-platform';
   out({ items: [pod(`${service}-0`, TARGET_PORTS[service].map(containerPort => ({ containerPort })))] });
 }
-if (has('get', 'networkpolicy')) out({ items: ['pulsemetry-loki-ingress', 'pulsemetry-tempo-ingress', 'pulsemetry-otel-platform-ingress'].map(name => ({ metadata: { name } })) });
-if (has('get', 'policyendpoints')) out({ items: ['pulsemetry-loki-ingress', 'pulsemetry-tempo-ingress', 'pulsemetry-otel-platform-ingress'].map(name => ({ spec: { policyRef: { name } } })) });
+if (has('get', 'networkpolicy')) out({ items: POLICIES.map(name => ({ metadata: { name } })) });
+if (has('get', 'policyendpoints')) out({ items: POLICIES.map(name => ({ spec: { policyRef: { name } } })) });
 if (has('get', 'service')) {
   const service = Object.keys(TARGET_PORTS).find(x => args.includes(x));
   out({ spec: { ports: TARGET_PORTS[service].map(port => ({ port, targetPort: port })) } });

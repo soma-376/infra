@@ -1,0 +1,40 @@
+{{- /*
+Prometheus 수신 NetworkPolicy(ADR-0065). 부하 시험 k6 가 apps 노드에서 remote write 로 보내려고 apps SG → 관측 SG 9090 이 열린다.
+SG 는 노드 단위라 송신 Pod 제한은 이 정책이 맡는다(ADR-0039). 수신만 제한하고 송신·DNS 는 막지 않는다.
+허용 송신자는 values 의 prometheusIngressPolicy.ingress 이고 검증기가 실제 Pod label 과 대조한다.
+values-dev.yaml 에서만 켠다 — 기본·perf 렌더에는 없다(perf runner 는 같은 주소로 remote write 한다).
+*/ -}}
+{{- with .Values.prometheusIngressPolicy }}
+{{- if .enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ required "prometheusIngressPolicy.name" .name }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- toYaml (required "prometheusIngressPolicy.podSelector" .podSelector) | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    {{- range (required "prometheusIngressPolicy.ingress" .ingress) }}
+    {{- if not .from }}{{ fail "NetworkPolicy 규칙에는 송신자가 있어야 한다. 빈 from은 모두 허용이다" }}{{- end }}
+    - from:
+        {{- range .from }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ required "송신자 namespace" .namespace }}
+          podSelector:
+            matchLabels:
+              {{- toYaml (required "송신자 podLabels" .podLabels) | nindent 14 }}
+        {{- end }}
+      {{- with .ports }}
+      ports:
+        {{- range . }}
+        - protocol: TCP
+          port: {{ . }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}

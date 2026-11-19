@@ -159,13 +159,19 @@ const queueMount = rendered['otel-platform'].find(x => x.kind === 'StatefulSet')
 assert.ok(queueMount.some(x => x.name === 'queue' && x.mountPath === '/var/lib/otelcol/queue'));
 
 // 수신 NetworkPolicy(ADR-0039). selector 오타 하나로 정상 송신자가 조용히 막히지 않게 실제 Pod label과 대조한다.
-// Fluent Bit·Prometheus·ingest는 dev 읽기 전용 조회 label, Grafana는 관측 chart 렌더, Gateway·enrollment·dashboard는 spring-app의 workload 값이다.
+// Fluent Bit·Prometheus·ingest는 dev 읽기 전용 조회 label, Grafana는 관측 chart 렌더, Gateway·enrollment·dashboard는 spring-app의 workload 값,
+// 부하 시험 k6는 helm/dev/loadtest 렌더다. Prometheus 정책(ADR-0065)은 관측 chart의 dev values 렌더에만 있다.
 const devPods = JSON.parse(readFileSync(resolve(root, 'helm/observability/tests/fixtures/dev-pod-labels.json'), 'utf8')).pods;
 const podOf = wrapper => ({ namespace, labels: rendered[wrapper].find(x => x.kind === 'StatefulSet').spec.template.metadata.labels });
 const observabilityDocs = loadAll(checked(['template', 'observability', resolve(root, 'helm/observability/pulsemetry-observability'), '-n', namespace,
   '-f', resolve(root, 'helm/observability/tests/generated-values.yaml')])).filter(Boolean);
 const grafanaLabels = observabilityDocs.find(x => x.kind === 'Deployment' && x.metadata.name === 'pulsemetry-grafana').spec.template.metadata.labels;
 const workloadName = name => load(readFileSync(resolve(root, `helm/dev/workloads/${name}.yaml`), 'utf8')).workload;
+const devObservabilityDocs = loadAll(checked(['template', 'observability', resolve(root, 'helm/observability/pulsemetry-observability'), '-n', namespace,
+  '-f', resolve(root, 'helm/observability/tests/generated-values.yaml'), '-f', resolve(root, 'helm/observability/values-dev.yaml')])).filter(Boolean);
+const k6Pod = loadAll(checked(['template', 'x', resolve(root, 'helm/dev/loadtest'), '-n', 'pulsemetry-loadtest', '--kube-version', '1.36.0',
+  '--set', 'testid=validate-01', '--set', 'configMapName=loadtest-k6-validate'])).filter(Boolean).find(x => x.kind === 'Job').spec.template;
+assert.ok(!observabilityDocs.some(x => x.kind === 'NetworkPolicy'), '기본 관측 렌더에 Prometheus 정책이 있다(dev values에서만 켠다)');
 assert.equal(grafanaLabels['app.kubernetes.io/name'], devPods.grafana.labels['app.kubernetes.io/name'], 'Grafana 렌더 label과 dev label');
 assert.equal(workloadName('telemetry-ingest'), devPods['telemetry-ingest'].labels['app.kubernetes.io/name'], 'spring-app workload label과 dev label');
 const senders = {
@@ -175,6 +181,7 @@ const senders = {
   'telemetry-ingest': devPods['telemetry-ingest'],
   'enrollment-api': { namespace: 'pulsemetry-dev', labels: { 'app.kubernetes.io/name': workloadName('enrollment-api') } },
   'dashboard-api': { namespace: 'pulsemetry-dev', labels: { 'app.kubernetes.io/name': workloadName('dashboard-api') } },
+  k6: { namespace: 'pulsemetry-loadtest', labels: k6Pod.metadata.labels },
 };
 const stranger = { namespace: 'pulsemetry-dev', labels: { 'app.kubernetes.io/name': 'np-probe' } };
 const matches = (peer, pod) => peer.namespaceSelector?.matchLabels?.['kubernetes.io/metadata.name'] === pod.namespace
@@ -184,11 +191,17 @@ const ALLOW = {
   loki: { self: 'loki', ports: { 3100: ['fluent-bit', 'grafana', 'prometheus'], 7946: [], 9095: [] } },
   tempo: { self: 'tempo', ports: { 4317: ['collector'], 3200: ['grafana', 'prometheus'], 9411: [], 14268: [], 4318: [] } },
   'otel-platform': { self: null, ports: { 4318: ['telemetry-gateway', 'telemetry-ingest', 'enrollment-api', 'dashboard-api'], 8888: ['prometheus'], 13133: [] } },
+  // 9090 조회·remote write는 Grafana와 k6만, config-reloader 8080은 자기 scrape뿐이다(ADR-0065).
+  prometheus: { self: 'prometheus', ports: { 9090: ['grafana', 'k6'], 8080: [] } },
 };
+const devPrometheusPolicies = devObservabilityDocs.filter(x => x.kind === 'NetworkPolicy');
+assert.deepEqual(devPrometheusPolicies.map(x => x.metadata.name), ['pulsemetry-prometheus-ingress'], 'dev 관측 렌더의 정책은 Prometheus 하나다');
+const POLICIES = { ...Object.fromEntries(Object.keys(RELEASES).map(wrapper => [wrapper, rendered[wrapper].find(x => x.kind === 'NetworkPolicy')])), prometheus: devPrometheusPolicies[0] };
+const ownLabels = wrapper => (wrapper === 'prometheus' ? devPods.prometheus : podOf(wrapper)).labels;
 for (const [wrapper, expected] of Object.entries(ALLOW)) {
-  const policy = rendered[wrapper].find(x => x.kind === 'NetworkPolicy');
+  const policy = POLICIES[wrapper];
   assert.deepEqual(policy.spec.policyTypes, ['Ingress'], `${wrapper}: 수신만 제한한다`);
-  const own = podOf(wrapper).labels;
+  const own = ownLabels(wrapper);
   assert.ok(Object.entries(policy.spec.podSelector.matchLabels).every(([key, value]) => own[key] === value), `${wrapper}: 정책이 자기 Pod를 고른다`);
   for (const rule of policy.spec.ingress) {
     assert.ok(rule.from?.length, `${wrapper}: 빈 from은 모두 허용이다`);
@@ -235,7 +248,10 @@ for (const wrapper of Object.keys(RELEASES)) {
 }
 
 // AWS 고려사항: 정책이 걸린 포트의 Service port는 container port와 같아야 하고, 이름 있는 포트면 같은 이름이다.
-for (const [wrapper, expected] of Object.entries(ALLOW)) {
+// Prometheus Pod는 operator가 만든다. Service가 9090을 번호 그대로 넘기는지만 본다(container port 9090, portName http-web).
+const prometheusService = devObservabilityDocs.find(x => x.kind === 'Service' && x.metadata.name === 'pulsemetry-monitoring-prometheus');
+assert.deepEqual(prometheusService.spec.ports.filter(x => x.port === 9090).map(x => x.targetPort), [9090], 'Prometheus Service 9090 → container 9090');
+for (const [wrapper, expected] of Object.entries(ALLOW).filter(([wrapper]) => wrapper !== 'prometheus')) {
   const containerPorts = rendered[wrapper].find(x => x.kind === 'StatefulSet').spec.template.spec.containers[0].ports;
   for (const port of Object.keys(expected.ports).map(Number)) {
     const containerPort = containerPorts.find(x => x.containerPort === port);
@@ -274,7 +290,7 @@ assert.ok(strangerJobs.some(x => x.spec.template.spec.nodeSelector['pulsemetry.i
 for (const doc of strangerJobs) {
   const sender = { namespace: doc.metadata.namespace, labels: doc.spec.template.metadata.labels };
   for (const [wrapper, expected] of Object.entries(ALLOW)) {
-    const policy = rendered[wrapper].find(x => x.kind === 'NetworkPolicy');
+    const policy = POLICIES[wrapper];
     for (const port of Object.keys(expected.ports).map(Number)) {
       const allowedFor = policy.spec.ingress.some(rule => (!rule.ports || rule.ports.some(x => x.port === port)) && rule.from.some(peer => matches(peer, sender)));
       assert.equal(allowedFor, false, `${doc.metadata.name} → ${wrapper}:${port}는 막혀야 한다`);
@@ -284,10 +300,10 @@ for (const doc of strangerJobs) {
 
 if (process.env.KUBECONFORM_BIN) {
   const path = resolve(temp, 'platform-trace.yaml');
-  writeFileSync(path, Object.values(rendered).flat().map(x => dump(x)).join('---\n'));
+  writeFileSync(path, [...Object.values(rendered).flat(), POLICIES.prometheus].map(x => dump(x)).join('---\n'));
   const args = ['-strict', '-summary', '-kubernetes-version', '1.36.0'];
   if (process.env.KUBERNETES_SCHEMA_LOCATION) args.push('-schema-location', process.env.KUBERNETES_SCHEMA_LOCATION);
   const result = spawnSync(process.env.KUBECONFORM_BIN, [...args, path, ...probeFiles], { encoding: 'utf8', timeout: 120_000 });
   assert.equal(result.status, 0, `kubeconform\n${result.stdout}\n${result.stderr}`);
 }
-console.log(`Loki·Tempo·플랫폼 Collector wrapper 3개/${Object.values(rendered).flat().length}개 resource/${rejects.length + 3}개 실패 입력/고정 digest·PVC 보존·자원 예산 통과 (live 미실행)`);
+console.log(`Prometheus 수신 정책·Loki·Tempo·플랫폼 Collector wrapper 3개/${Object.values(rendered).flat().length}개 resource/${rejects.length + 3}개 실패 입력/고정 digest·PVC 보존·자원 예산 통과 (live 미실행)`);

@@ -6,6 +6,8 @@ Proposed (PROJ-192; 코드·로컬 검증 범위. 팀 동의·dev 실행 시간�
 
 부하 발생 도구(시드·payload·k6 시나리오)는 backend ADR 0082가 정한다. 이 ADR은 환경·배포·관측만 정한다.
 
+결정 3의 "remote write를 쓰지 않는다"와 탈락 대안 C는 [ADR 0065](0065-dev-loadtest-k6-prometheus-remote-write.md)(Proposed)가 개정을 제안한다. sidecar pull 경로는 그대로다.
+
 ## Context
 
 [PROJ-192](https://team376.atlassian.net/browse/PROJ-192)는 Gateway → Kafka → ingest → ClickHouse의 한계를 두 층으로 찾는다.
