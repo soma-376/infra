@@ -17,7 +17,7 @@ prod는 BFF 단일 프로세스 desired=1/min=0/max=100을 유지한다. dev는 
 기존 CDK 전용 테스트 규칙은 그대로 유지하고, 새 Terraform은 fmt·validate·mock test로 검증한다.
 기존 CDK 리소스를 Terraform에 import하거나 같은 리소스를 두 도구가 수정하지 않는다.
 실제 apply는 리뷰·머지 후 보호된 CI에서 수행한다. 최초 bootstrap CI 역할 준비는 관리자 작업이다. 이후 bootstrap 변경은 ADR-0050에 따라 develop에서 전용 plan/apply 역할과 Environment 승인을 거친다.
-다음 미사용 ADR은 **0064**이다. ADR 0054는 로컬 OIDC callback PR에서 예약했고 0055는 공유 Valkey다.
+다음 미사용 ADR은 **0065**이다. ADR 0054는 로컬 OIDC callback PR에서 예약했고 0055는 공유 Valkey다.
 
 [ADR-0044](docs/adr/0044-dev-waf-cli-oidc-loopback-query-exception.md)에 따라 정확한 CLI OIDC authorize GET과
 검증된 loopback query에만 SSRF·RFI 두 label의 후속 Block을 제외한다.
@@ -33,6 +33,13 @@ shared root가 별도 VPC·dev/prod 피어링·왕복 경로·SG 규칙·캐시�
 기존 환경 root에 같은 경로/SG 규칙을 중복 정의하지 않는다. shared는 develop의 bootstrap·dev 적용 후 자동 plan/apply한다. 기존 bootstrap 버킷의 별도 key·승인 Environment를 사용하고 전용 역할은 bootstrap이 만든다. 기존 runtime 역할은 재사용하지 않는다.
 태그 기반 peer 조회는 dev 필수·prod 준비 시 추가이며 기존 peer 누락은 실패한다. prod 준비 후 develop workflow_dispatch로 연결한다.
 공유 세션 계약은 허브 ADR 0030를 따른다. runtime.valkey 선택 입력이 환경별 ECS task 역할·BFF 연결 변수를 연결한다. 새 BFF는 Valkey만 지원하므로 해당 이미지 배포 전 runtime.valkey를 반드시 입력한다. 기존 이미지의 단계적 인프라 적용을 위해 Terraform 입력만 optional로 유지한다. 전환 시 이전 버전 태스크를 drain한다. 실제 IAM/TLS·ACL·동시 갱신은 배포 검증이 필요하다.
+
+## PROJ-192 dev 파이프라인 부하 시험 (Proposed)
+
+[ADR 0064](docs/adr/0064-dev-pipeline-loadtest.md)를 따른다(backend ADR 0082와 짝). 대상은 dev `pulsemetry-dev` 파이프라인 그 자체이며
+복제 namespace·CDK·SG·Argo 카탈로그는 바꾸지 않는다. k6 Job은 `helm/dev/loadtest`를 `pulsemetry-loadtest`에 수동 helm으로 설치하고,
+지표는 같은 Pod의 core collector sidecar `:9404`를 관측 차트의 PodMonitor가 pull한다(apps SG의 기존 9404 허용). 격리 perf 환경(20 RPS 상한)은 그대로 둔다.
+실행·정리 절차는 [부하 시험 런북](docs/runbooks/dev-pipeline-loadtest.md)이다. 코드·로컬 검증은 실제 dev 실행·한계 측정의 증거가 아니다.
 
 ## PROJ-304 dev 파이프라인 자원 확대
 
@@ -329,7 +336,7 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 
 **ADR 우선 원칙은 이 레포의 기존 규칙과 같다** — 1장의 "코드와 ADR이 어긋나면 ADR이 기준이다"가
 전 레포 공통 규칙이며, 크로스레포 결정만 `../docs/adr/`가 소유한다. 스코프 판정은 `adr-new` 스킬이 안내한다.
-단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0064`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
+단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0065`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
 기존 병행 브랜치의 ADR `0028`·`0029`·`0030`은 번호가 겹치므로 파일명과 링크를 보존한다.
 프론트엔드 Terraform 절은 프론트엔드 ADR을, dashboard·EKS·기존 CDK 절은 해당 백엔드 ADR을 가리킨다.
 인용할 때는 번호와 함께 범위·제목 또는 파일 링크를 사용하며, 전체 목록은 [ADR 인덱스](docs/adr/README.md)를 따른다.
@@ -656,7 +663,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0064`**)를 쓰되 작성 직전 인덱스·예약을 확인한다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급, `0033`은 외부 ACM 기반 dev HTTPS, `0034`는 dev EKS SSM 릴레이 접근, `0035`는 MSK 배치와 dev EKS 전용 전환, `0036`은 telemetry Gateway·MSK IAM과 임시 blocked.certs 공급, `0037`은 관측 구성, `0038`은 dev DB 비공개 접근, `0039`는 Loki·Tempo·플랫폼 trace(Proposed), `0040`은 dev 공개 origin 영속화, `0041`은 dashboard 조회 권한 복구, `0042`는 프론트 관측 EC2, `0043`은 dev SES 초대 메일, `0044`는 정상 CLI OIDC loopback의 두 query label 예외, `0045`는 CLI token 교환의 두 Body label 예외, `0046`은 승인 태그 SES 수신 identity 권한, `0047`은 실제 진단 후 고정 발신 주소 SES identity 권한, `0048`은 dev CloudFormation CI/CD로 이미 쓰였다. `0020`은 프론트엔드 로그 정책이며, 프론트엔드 `0028`·`0029`·`0030`은 각각 Terraform 실행 환경·외부 DNS와 기존 인증서·독립 기반 상태를 다룬다. 중복 번호는 [ADR 인덱스](docs/adr/README.md)의 제목과 파일 링크로 구분하고, 기존 CDK 로그 정책 미결 사항은 위 (F)를 따른다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0065`**)를 쓰되 작성 직전 인덱스·예약을 확인한다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급, `0033`은 외부 ACM 기반 dev HTTPS, `0034`는 dev EKS SSM 릴레이 접근, `0035`는 MSK 배치와 dev EKS 전용 전환, `0036`은 telemetry Gateway·MSK IAM과 임시 blocked.certs 공급, `0037`은 관측 구성, `0038`은 dev DB 비공개 접근, `0039`는 Loki·Tempo·플랫폼 trace(Proposed), `0040`은 dev 공개 origin 영속화, `0041`은 dashboard 조회 권한 복구, `0042`는 프론트 관측 EC2, `0043`은 dev SES 초대 메일, `0044`는 정상 CLI OIDC loopback의 두 query label 예외, `0045`는 CLI token 교환의 두 Body label 예외, `0046`은 승인 태그 SES 수신 identity 권한, `0047`은 실제 진단 후 고정 발신 주소 SES identity 권한, `0048`은 dev CloudFormation CI/CD로 이미 쓰였다. `0020`은 프론트엔드 로그 정책이며, 프론트엔드 `0028`·`0029`·`0030`은 각각 Terraform 실행 환경·외부 DNS와 기존 인증서·독립 기반 상태를 다룬다. 중복 번호는 [ADR 인덱스](docs/adr/README.md)의 제목과 파일 링크로 구분하고, 기존 CDK 로그 정책 미결 사항은 위 (F)를 따른다.
    형식은 `docs/adr/0000-adr-template.md`를 따른다.
 3. 상수는 **"이 값이 dev에서 달라야 할 이유가 있는가"**로 위치를 정한다 — 없으면 `lib/common/config.ts`, 운영 전용이면 `lib/prod/config.ts`, dev 전용이면 `lib/dev/config.ts`. 스택에서는 import만 한다 (4장).
 4. `test/prod/*.test.ts` / `test/dev/*.test.ts` / `test/cicd/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`(prod), `buildDevApp()`(dev), `buildCicdApp()`(cicd)를 재사용한다.

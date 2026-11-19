@@ -92,10 +92,17 @@ writeFileSync(resolve(temp, 'prometheus.yaml'), dump({scrape_configs:scrape}));
 checked(promtool, ['check', 'config', resolve(temp, 'prometheus.yaml')]);
 checked(promtool, ['check', 'rules', resolve(chart, 'rules/pulsemetry.yaml')]);
 checked(promtool, ['test', 'rules', resolve(fixtures, 'rules.test.yaml')]);
-const dashboards = Object.values(find('ConfigMap', 'pulsemetry-dashboards').data).map(JSON.parse);
-assert.equal(dashboards.length, 10);
+const baseDashboards = Object.values(find('ConfigMap', 'pulsemetry-dashboards').data).map(JSON.parse);
+assert.equal(baseDashboards.length, 10);
+// 부하 시험 화면(ADR-0064)은 Strimzi lag 기록 규칙을 써서 Kafka 화면처럼 Strimzi 렌더에만 있다. 같은 규칙으로 함께 검사한다.
+assert.ok(!baseDashboards.some(x => x.uid === 'pulsemetry-loadtest'), 'MSK 호환 렌더에 부하 시험 화면이 있다');
+const strimziDashboards = Object.values(loadAll(checked(helm, [...base.slice(0, 5), '-f', resolve(fixtures, 'strimzi-values.yaml')])).filter(Boolean)
+  .find(x => x.kind === 'ConfigMap' && x.metadata.name === 'pulsemetry-dashboards').data).map(JSON.parse);
+assert.equal(strimziDashboards.length, 12);
+const dashboards = [...baseDashboards, strimziDashboards.find(x => x.uid === 'pulsemetry-loadtest')];
 assert.ok(dashboards.some(x => x.uid === 'pulsemetry-traces'), 'trace 대시보드(ADR-0039)');
 assert.ok(dashboards.some(x => x.uid === 'pulsemetry-api'), 'API 앱 대시보드(ADR-0059)');
+assert.ok(dashboards.some(x => x.uid === 'pulsemetry-loadtest'), '부하 시험 대시보드(ADR-0064)');
 // 빈 패널 문구는 이유를 구분하는 고정 집합만 쓴다. 0이나 숫자로 빈값을 덮지 않는다.
 const noValueTexts = new Set([
   '미수집',
@@ -113,6 +120,19 @@ const usedPlatformMetrics = new Set();
 const expressions = [];
 const usedCustomMetrics = new Set();
 const usedNativeMetrics = new Set();
+// 부하 시험 화면의 k6 지표는 로컬 E2E sidecar scrape(fixtures/k6-otel-sidecar.prom)와 대조한다.
+const usedK6Metrics = new Set();
+// 부하 시험 화면은 구성요소 묶음마다 service 를 고정한다(ClickHouse 화면과 같은 예외). 지표 계열 → 허용 service.
+const loadtestServices = [
+  [/pulsemetry_gateway_/, ['service="telemetry-gateway"']],
+  [/pulsemetry_pipeline_/, ['service="telemetry-ingest"']],
+  [/ClickHouse/, ['service="clickhouse"']],
+  [/jvm_|tomcat_|hikaricp_|http_server_|kafka_producer_/, ['service="telemetry-gateway"', 'service="telemetry-ingest"', 'service=~"telemetry-gateway|telemetry-ingest"']],
+];
+const k6Query = (dashboard, expr) => {
+  assert.ok(expr.includes('testid="$testid"'), `${dashboard.uid} k6 질의는 testid="$testid" 필수: ${expr}`);
+  for (const metric of expr.match(/\bk6_[a-z0-9_]+/g) ?? []) usedK6Metrics.add(metric);
+};
 for (const dashboard of dashboards) {
   assert.equal(dashboard.timezone, 'utc');
   // 로그·trace 조회는 Logs Insights 스캔 비용·Tempo 검색 비용이 들어 지표 10초 주기와 분리한다.
@@ -158,8 +178,14 @@ for (const dashboard of dashboards) {
           // ClickHouse 화면은 서버 지표(clickhouse)와 ingest의 앱 지표를 서비스 선택과 분리해 고정 service로 조회한다.
           if (dashboard.uid === 'pulsemetry-clickhouse') {
             assert.ok(expr.includes(/pulsemetry_clickhouse_/.test(expr) ? 'service="telemetry-ingest"' : 'service="clickhouse"'), `ClickHouse service 고정 누락: ${expr}`);
+          } else if (dashboard.uid === 'pulsemetry-loadtest') {
+            for (const [family, allowed] of loadtestServices) {
+              if (family.test(expr)) assert.ok(allowed.some(x => expr.includes(x)), `부하 시험 service 고정 누락: ${expr}`);
+            }
+            assert.ok(!expr.includes('$service'), `부하 시험 화면은 $service 를 쓰지 않는다: ${expr}`);
           } else assert.ok(expr.includes('service=~"$service"'), `필터 누락: ${expr}`);
         }
+        if (dashboard.uid === 'pulsemetry-loadtest' && /\bk6_/.test(expr)) k6Query(dashboard, target.expr);
       }
       if (target.queryMode === 'Logs') {
         assert.ok(!target.expression.includes('like /ERROR|WARN'));
@@ -173,6 +199,18 @@ for (const dashboard of dashboards) {
     }
   }
 }
+// 부하 시험 화면(ADR-0064): 목표 RPS 변경 주석도 같은 k6 규칙과 promtool 검사를 받는다. 실행 목록은 부하 시험 전용 지표에서 고른다.
+const loadtestDashboard = dashboards.find(x => x.uid === 'pulsemetry-loadtest');
+const loadtestAnnotations = loadtestDashboard.annotations.list.filter(x => x.datasource?.uid === 'pulsemetry-prometheus');
+assert.equal(loadtestAnnotations.length, 1, '부하 시험 목표 RPS 변경 주석');
+for (const annotation of loadtestAnnotations) {
+  k6Query(loadtestDashboard, annotation.expr);
+  expressions.push({record:`dashboard_query_${expressions.length}`, expr: annotation.expr});
+}
+assert.ok(loadtestDashboard.templating.list.some(x => x.name === 'testid' && x.query.includes('k6_loadtest_target_rps')), '부하 시험 testid 변수');
+const k6Names = new Set(readFileSync(resolve(fixtures, 'fixtures/k6-otel-sidecar.prom'), 'utf8').split('\n').filter(x => x && !x.startsWith('#')).map(x => x.split(/[\s{]/)[0]));
+assert.ok(usedK6Metrics.size > 0, '부하 시험 화면에 k6 질의가 없다');
+for (const metric of usedK6Metrics) assert.ok(k6Names.has(metric), `k6 sidecar fixture에 없는 지표: ${metric}`);
 // 첫 화면은 구성요소별 수집 상태를 먼저 보여 준다. 상태 값의 의미는 rules/pulsemetry.yaml의 collection group과 같다.
 const overview = dashboards.find(x => x.uid === 'pulsemetry-overview');
 const summary = overview.panels.find(x => x.gridPos.y === 0);
@@ -264,6 +302,35 @@ for (const image of running) {
 // perf values는 주소·식별자를 복제하지 않고 같은 차트의 환경 입력만 바꾼다.
 const perf = loadAll(checked(helm, [...base, '-f', resolve(root, 'helm/observability/values-perf.yaml')])).filter(Boolean);
 assert.deepEqual(perf.find(x => x.kind === 'ServiceMonitor' && x.metadata.name === 'telemetry-gateway').spec.namespaceSelector.matchNames, ['pulsemetry-perf']);
+// k6 부하 시험 PodMonitor(ADR-0064)는 dev values 에서만 켠다. 기본·perf 렌더에는 없다.
+const loadtestMonitor = 'pulsemetry-loadtest-k6';
+const isLoadtestMonitor = x => x.kind === 'PodMonitor' && x.metadata.name === loadtestMonitor;
+assert.ok(!resources.some(isLoadtestMonitor), '기본 렌더에 k6 PodMonitor가 있다');
+assert.ok(!perf.some(isLoadtestMonitor), 'perf 렌더에 k6 PodMonitor가 있다');
+const devRendered = loadAll(checked(helm, [...base.slice(0, 5), '-f', resolve(root, 'helm/observability/values-dev.yaml'), '-f', fixture])).filter(Boolean);
+const devLoadtest = devRendered.filter(isLoadtestMonitor);
+assert.equal(devLoadtest.length, 1, 'dev 렌더에 k6 PodMonitor가 하나여야 한다');
+// values-dev.yaml 은 이 PodMonitor 외에 아무것도 바꾸지 않는다.
+assert.deepEqual(devRendered.filter(x => !isLoadtestMonitor(x)), resources);
+const loadtestSpec = devLoadtest[0].spec;
+assert.equal(devLoadtest[0].metadata.namespace, 'pulsemetry-observability');
+assert.equal(devLoadtest[0].metadata.labels['observability.pulsemetry.io/stack'], 'pulsemetry');
+assert.deepEqual(loadtestSpec.namespaceSelector.matchNames, ['pulsemetry-loadtest']);
+assert.equal(loadtestSpec.podMetricsEndpoints.length, 1);
+const loadtestEndpoint = loadtestSpec.podMetricsEndpoints[0];
+assert.deepEqual([loadtestEndpoint.port, loadtestEndpoint.path, loadtestEndpoint.interval, loadtestEndpoint.honorLabels], ['metrics', '/metrics', '10s', false]);
+for (const [label, value] of [['job', 'k6'], ['cluster', 'fixture-eks'], ['environment', 'dev']]) {
+  assert.ok(loadtestEndpoint.relabelings.some(x => x.targetLabel === label && x.replacement === value), `k6 PodMonitor ${label} relabel`);
+}
+// k6 지표의 testid 라벨이 기준이다. Pod 라벨을 target label 로 옮겨 겹치게 하지 않는다.
+assert.ok(!JSON.stringify(loadtestEndpoint.relabelings).includes('testid'), 'Pod testid 라벨을 relabel 하지 않는다');
+assert.ok(loadtestEndpoint.metricRelabelings.some(x => x.action === 'labeldrop' && new RegExp(`^(?:${x.regex})$`).test('exported_job')));
+// 선택자와 포트 이름은 k6 Job 차트(helm/dev/loadtest)가 실제로 렌더하는 Pod 와 맞아야 한다.
+const loadtestJob = loadAll(checked(helm, ['template', 'x', resolve(root, 'helm/dev/loadtest'), '-n', 'pulsemetry-loadtest', '--kube-version', '1.36.0',
+  '--set', 'testid=validate-01', '--set', 'configMapName=loadtest-k6-validate'])).filter(Boolean).find(x => x.kind === 'Job');
+const loadtestPod = loadtestJob.spec.template;
+for (const [key, value] of Object.entries(loadtestSpec.selector.matchLabels)) assert.equal(loadtestPod.metadata.labels[key], value, `k6 Pod 라벨 ${key}`);
+assert.ok([...(loadtestPod.spec.initContainers ?? []), ...loadtestPod.spec.containers].some(c => (c.ports ?? []).some(port => port.name === loadtestEndpoint.port && port.containerPort === 9404)), 'k6 Pod 에 metrics(9404) 포트가 없다');
 const regionalFixture = load(readFileSync(fixture,'utf8'));
 regionalFixture.global.pulsemetry.region='eu-west-1';
 regionalFixture.global.pulsemetry.grafanaAdminSecretArn=regionalFixture.global.pulsemetry.grafanaAdminSecretArn.replace('ap-northeast-2','eu-west-1');
@@ -277,6 +344,8 @@ for (const overrides of [
   ['--set', 'monitoring.prometheus.ingress.enabled=true'],
   ['--set', 'monitoring.grafana.adminPassword=not-a-real-secret'],
   ['--set', 'global.pulsemetry.targetNamespace=unrelated'],
+  ['--set', 'loadtest.enabled=yes'],
+  ['--set', 'loadtest.namespace=pulsemetry-dev'],
 ]) {
   const failed = spawnSync(helm, [...base, ...overrides], {cwd:root,encoding:'utf8'});
   assert.notEqual(failed.status, 0, `잘못된 입력이 허용됨: ${overrides.join(' ')}`);
@@ -290,8 +359,8 @@ if (process.env.KUBECONFORM_BIN) {
     schema.additionalProperties = false;
     writeFileSync(resolve(schemaDir, `${crd.spec.names.kind.toLowerCase()}_${crd.spec.group}_${version.name}.json`), JSON.stringify(schema));
   }
-  const monitoringResources = resources.filter(x => x.apiVersion.startsWith('monitoring.coreos.com/'));
+  const monitoringResources = [...resources, ...devLoadtest].filter(x => x.apiVersion.startsWith('monitoring.coreos.com/'));
   const path = resolve(temp, 'monitoring.yaml'); writeFileSync(path, monitoringResources.map(x => dump(x)).join('---\n'));
   checked(process.env.KUBECONFORM_BIN, ['-strict','-summary','-schema-location',`${schemaDir}/{{.ResourceKind}}_{{.Group}}_{{.ResourceAPIVersion}}.json`,path]);
 }
-console.log(`관측 차트/10 dashboards/${expressions.length} PromQL/${load(readFileSync(resolve(chart, "rules/pulsemetry.yaml"), "utf8")).groups.reduce((n,g) => n + g.rules.length, 0)} rules/metric fixture/실패 경계 통과 (live 미실행)`);
+console.log(`관측 차트/${dashboards.length} dashboards/${expressions.length} PromQL/${load(readFileSync(resolve(chart, "rules/pulsemetry.yaml"), "utf8")).groups.reduce((n,g) => n + g.rules.length, 0)} rules/metric fixture/실패 경계 통과 (live 미실행)`);

@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["testid", "scenario", "configMapName", "seedSecretName", "gatewayUrl", "enrollmentUrl", "images", "resources"],
+  "definitions": {
+    "rps": {"type": "integer", "minimum": 1, "maximum": 1000},
+    "duration": {
+      "oneOf": [
+        {"type": "integer", "minimum": 0},
+        {"type": "string", "pattern": "^([0-9]+|([0-9]+h)?([0-9]+m)?([0-9]+s)?)$", "minLength": 1}
+      ]
+    },
+    "pinnedImage": {"type": "string", "pattern": "^[a-z0-9.-]+(/[a-z0-9._-]+)+:[A-Za-z0-9._-]+@sha256:[a-f0-9]{64}$"},
+    "dnsName": {"type": "string", "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"},
+    "url": {"type": "string", "pattern": "^https?://[^\\s/]+(/[^\\s]*)?$"},
+    "mix": {"type": "string", "minLength": 1},
+    "quantity": {"type": ["string", "integer"]},
+    "resourceSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requests", "limits"],
+      "properties": {
+        "requests": {"type": "object", "additionalProperties": false, "required": ["cpu", "memory"], "properties": {"cpu": {"$ref": "#/definitions/quantity"}, "memory": {"$ref": "#/definitions/quantity"}}},
+        "limits": {"type": "object", "additionalProperties": false, "required": ["cpu", "memory"], "properties": {"cpu": {"$ref": "#/definitions/quantity"}, "memory": {"$ref": "#/definitions/quantity"}}}
+      }
+    }
+  },
+  "properties": {
+    "testid": {"type": "string", "pattern": "^[a-z0-9-]{3,40}$"},
+    "scenario": {"enum": ["smoke", "stair", "hold"]},
+    "startRps": {"$ref": "#/definitions/rps"},
+    "stepRps": {"$ref": "#/definitions/rps"},
+    "maxRps": {"$ref": "#/definitions/rps"},
+    "ramp": {"$ref": "#/definitions/duration"},
+    "stepHold": {"$ref": "#/definitions/duration"},
+    "cooldown": {"$ref": "#/definitions/duration"},
+    "finalFlush": {"$ref": "#/definitions/duration"},
+    "holdRps": {"oneOf": [{"type": "null"}, {"$ref": "#/definitions/rps"}]},
+    "holdDuration": {"$ref": "#/definitions/duration"},
+    "mixSignal": {"$ref": "#/definitions/mix"},
+    "mixProduct": {"$ref": "#/definitions/mix"},
+    "gzip": {"type": "boolean"},
+    "configMapName": {"$ref": "#/definitions/dnsName"},
+    "seedSecretName": {"$ref": "#/definitions/dnsName"},
+    "gatewayUrl": {"$ref": "#/definitions/url"},
+    "enrollmentUrl": {"$ref": "#/definitions/url"},
+    "activeDeadlineSeconds": {"oneOf": [{"type": "null"}, {"type": "integer", "minimum": 1}]},
+    "images": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["k6", "collector"],
+      "properties": {"k6": {"$ref": "#/definitions/pinnedImage"}, "collector": {"$ref": "#/definitions/pinnedImage"}}
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["k6", "collector"],
+      "properties": {"k6": {"$ref": "#/definitions/resourceSet"}, "collector": {"$ref": "#/definitions/resourceSet"}}
+    },
+    "tmpSizeLimit": {"$ref": "#/definitions/quantity"}
+  }
+}

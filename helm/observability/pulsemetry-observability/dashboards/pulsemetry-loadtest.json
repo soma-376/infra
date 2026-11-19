@@ -1,0 +1,1697 @@
+{
+  "uid": "pulsemetry-loadtest",
+  "title": "Pulsemetry · 부하 시험",
+  "description": "dev 파이프라인 부하 시험(ADR 0064) 한 화면이다. k6 → Gateway → Kafka → ingest → ClickHouse를 testid 하나로 본다. 빈 시계열은 미실행·미수집·필터 불일치일 수 있으며 0으로 대체하지 않는다. 시각은 UTC다.",
+  "tags": [
+    "pulsemetry",
+    "PROJ-192"
+  ],
+  "timezone": "utc",
+  "editable": false,
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "10s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "type": "constant",
+        "query": "__ENVIRONMENT__",
+        "hide": 2,
+        "current": {
+          "text": "__ENVIRONMENT__",
+          "value": "__ENVIRONMENT__"
+        }
+      },
+      {
+        "name": "namespace",
+        "type": "constant",
+        "query": "__TARGET_NAMESPACE__",
+        "hide": 2,
+        "current": {
+          "text": "__TARGET_NAMESPACE__",
+          "value": "__TARGET_NAMESPACE__"
+        }
+      },
+      {
+        "name": "cluster",
+        "type": "constant",
+        "query": "__CLUSTER_NAME__",
+        "hide": 2,
+        "current": {
+          "text": "__CLUSTER_NAME__",
+          "value": "__CLUSTER_NAME__"
+        }
+      },
+      {
+        "name": "kafka_cluster",
+        "type": "constant",
+        "query": "__KAFKA_CLUSTER__",
+        "hide": 2,
+        "current": {
+          "text": "__KAFKA_CLUSTER__",
+          "value": "__KAFKA_CLUSTER__"
+        }
+      },
+      {
+        "name": "topic",
+        "type": "constant",
+        "query": "__TOPIC__",
+        "hide": 2,
+        "current": {
+          "text": "__TOPIC__",
+          "value": "__TOPIC__"
+        }
+      },
+      {
+        "name": "consumer_group",
+        "type": "constant",
+        "query": "__CONSUMER_GROUP__",
+        "hide": 2,
+        "current": {
+          "text": "__CONSUMER_GROUP__",
+          "value": "__CONSUMER_GROUP__"
+        }
+      },
+      {
+        "name": "testid",
+        "label": "부하 시험 실행",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "pulsemetry-prometheus"
+        },
+        "query": "label_values(k6_loadtest_target_rps{cluster=\"$cluster\"}, testid)",
+        "refresh": 2,
+        "includeAll": false,
+        "multi": false,
+        "sort": 2,
+        "current": {
+          "text": "선택하세요",
+          "value": ""
+        }
+      },
+      {
+        "name": "pod",
+        "label": "Pod(정규식)",
+        "type": "textbox",
+        "query": ".*",
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        }
+      },
+      {
+        "name": "service",
+        "type": "constant",
+        "query": ".*",
+        "hide": 2,
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "pulsemetry-prometheus"
+        },
+        "enable": true,
+        "hide": false,
+        "iconColor": "rgba(255, 180, 0, 1)",
+        "name": "목표 RPS 변경",
+        "expr": "changes(max(k6_loadtest_target_rps{cluster=\"$cluster\",testid=\"$testid\"})[30s:10s]) > 0",
+        "step": "10s",
+        "titleFormat": "목표 RPS 변경",
+        "textFormat": "새 단계 시작"
+      }
+    ]
+  },
+  "links": [
+    {
+      "type": "dashboards",
+      "title": "Pulsemetry 대시보드",
+      "tags": [
+        "pulsemetry"
+      ],
+      "keepTime": true,
+      "includeVars": true
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "판정 범위와 보는 순서",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "실행(`testid`)을 고른다. 위 **k6**에서 목표 대비 실제 요청률·유지 구간 p95·오류율·dropped를 보고(① Gateway 수용), 아래 **Kafka lag 기울기**와 **ingest 완료 p95**로 지속 처리(②)를 본다. 주석의 세로선은 목표 RPS가 바뀐 시각(단계 시작)이다. 판정은 `phase=hold` 구간만 쓰며 최종 값은 결과 추출 스크립트(`loadtest-results-export.mjs`)가 summary의 단계별 절대 시각으로 계산한다. Gateway 200은 Kafka 접수이고 저장 완료가 아니다 — ClickHouse 삽입 행과 k6의 기대 저장 건수를 함께 본다. 빈 값·NaN은 0이나 통과가 아니다."
+      }
+    },
+    {
+      "id": 2,
+      "type": "text",
+      "title": "k6 — 부하 발생기",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 2
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "목표는 `loadtest_target_rps`(단계 목표), 실제는 OTLP 경로 요청률이다. setup의 토큰 교환(`telemetry-token`)은 제외한다."
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "목표 RPS 대 실제 요청률",
+      "description": "목표는 단계의 목표 RPS(상승 구간도 그 단계 목표), 실제는 Gateway OTLP 요청의 초당 수다. 실제가 목표에 못 미치면 발생기 VU 부족(dropped) 또는 응답 지연이다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(k6_loadtest_target_rps{cluster=\"$cluster\",testid=\"$testid\"})",
+          "legendFormat": "목표",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(k6_http_reqs_total{cluster=\"$cluster\",testid=\"$testid\",name=~\"/v1/.*\"}[$__rate_interval]))",
+          "legendFormat": "실제",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "값 없음 · k6 미실행 또는 미수신 · testid·기간 확인",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "k6 응답 p95·p99 (유지 구간)",
+      "description": "클라이언트 관측 응답 시간(연결 포함)이다. 유지 구간(`phase=hold`)만 합산한다. ① 판정 기준 p95 ≤ 1s·p99 ≤ 3s.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 6,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95,sum by(le)(rate(k6_http_req_duration_milliseconds_bucket{cluster=\"$cluster\",testid=\"$testid\",name=~\"/v1/.*\",phase=\"hold\"}[$__rate_interval])))",
+          "legendFormat": "p95",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.99,sum by(le)(rate(k6_http_req_duration_milliseconds_bucket{cluster=\"$cluster\",testid=\"$testid\",name=~\"/v1/.*\",phase=\"hold\"}[$__rate_interval])))",
+          "legendFormat": "p99",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "noValue": "값 없음 · k6 미실행 또는 미수신 · testid·기간 확인",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "k6 오류율",
+      "description": "2xx가 아닌 응답과 연결 실패의 비율이다(`http_req_failed`의 nonzero 비율). ① 판정 기준 ≤ 0.1%, 안전 정지 5%.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 6,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(k6_http_req_failed_total{cluster=\"$cluster\",testid=\"$testid\",name=~\"/v1/.*\",condition=\"nonzero\"}[$__rate_interval])) / sum(rate(k6_http_req_failed_total{cluster=\"$cluster\",testid=\"$testid\",name=~\"/v1/.*\"}[$__rate_interval]))",
+          "legendFormat": "오류율",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "값 없음 · k6 미실행 또는 미수신 · testid·기간 확인",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Dropped iteration",
+      "description": "VU가 모자라 시작하지 못한 반복의 실행 누적값이다. 지표는 첫 drop 때 생기므로 증가율 식은 첫 drop을 놓친다 — 누적값으로 그린다. 빈 값은 drop이 없었거나 수집되지 않은 것이며, 이 패널로는 둘을 구분하지 않는다. 단계별 ① 판정 값(기준 0)은 k6 summary의 droppedIterations이고, 안전 정지는 3000이다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(k6_dropped_iterations_total{cluster=\"$cluster\",testid=\"$testid\"})",
+          "legendFormat": "dropped",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "값 없음 · 미발생·미실행·미수신 가능 · testid·기간 확인",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "VU 사용량과 상한",
+      "description": "도착률 실행기의 활성 VU와 상한이다. 상한에 붙으면 dropped가 생긴다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 14,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(k6_vus{cluster=\"$cluster\",testid=\"$testid\"})",
+          "legendFormat": "VU",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "max(k6_vus_max{cluster=\"$cluster\",testid=\"$testid\"})",
+          "legendFormat": "상한",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "값 없음 · k6 미실행 또는 미수신 · testid·기간 확인",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "200 응답의 기대 저장 건수 / 초",
+      "description": "200 응답 템플릿의 기대 events·metric points 합이다(실제 캡처의 기대 결과 파일). ClickHouse 삽입 행과 비교한다 — 삽입 행은 다른 tenant를 포함한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 14,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(k6_loadtest_expected_events_total{cluster=\"$cluster\",testid=\"$testid\"}[$__rate_interval]))",
+          "legendFormat": "events",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(k6_loadtest_expected_metric_points_total{cluster=\"$cluster\",testid=\"$testid\"}[$__rate_interval]))",
+          "legendFormat": "metric points",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "값 없음 · k6 미실행 또는 미수신 · testid·기간 확인",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "text",
+      "title": "Gateway — ① 수용",
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 24,
+        "h": 2
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Gateway 200 = Kafka 접수. 응답 지연·inflight·Tomcat thread 포화가 ① 한계의 신호다."
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Gateway 응답 p95·p99",
+      "description": "Gateway가 기록한 요청 처리 시간(본문 수신 → Kafka 발행 응답)이다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95,sum by(le)(rate(pulsemetry_gateway_request_duration_seconds_bucket{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"telemetry-gateway\",pod=~\"$pod\"}[$__rate_interval])))",
+          "legendFormat": "p95",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.99,sum by(le)(rate(pulsemetry_gateway_request_duration_seconds_bucket{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"telemetry-gateway\",pod=~\"$pod\"}[$__rate_interval])))",
+          "legendFormat": "p99",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Gateway 요청 결과 / 초",
+      "description": "상태·결과별 요청률이다. 503은 Kafka 발행 기한 초과, 401은 토큰 거부다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 24,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(status,outcome)(rate(pulsemetry_gateway_requests_total{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"telemetry-gateway\",pod=~\"$pod\"}[$__rate_interval]))",
+          "legendFormat": "{{status}} {{outcome}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Gateway 동시 처리·Tomcat thread",
+      "description": "처리 중 요청 수와 Tomcat 작업 thread 사용량·상한이다. busy가 상한에 붙으면 요청이 대기한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 24,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(pulsemetry_gateway_inflight{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"telemetry-gateway\",pod=~\"$pod\"})",
+          "legendFormat": "inflight",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum(tomcat_threads_busy_threads{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"telemetry-gateway\",pod=~\"$pod\"})",
+          "legendFormat": "busy",
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "sum(tomcat_threads_config_max_threads{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"telemetry-gateway\",pod=~\"$pod\"})",
+          "legendFormat": "max",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "text",
+      "title": "Kafka — ② 지속 처리",
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 24,
+        "h": 2
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "유지 구간에서 lag 기울기가 0 근처면 ingest가 따라간다. 양수가 이어지면 ② 한계를 넘었다."
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "확인된 commit 기준 lag",
+      "description": "commit offset이 확인된 partition의 lag 합(record 수)이다. 미커밋 partition은 빠진다 — Kafka 대시보드의 미커밋 수를 함께 본다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 34,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pulsemetry:kafka_committed_lag:sum{topic=\"$topic\",consumergroup=\"$consumer_group\",cluster=\"$cluster\",kafka_cluster=\"$kafka_cluster\"}",
+          "legendFormat": "lag",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "lag 기울기 (2분)",
+      "description": "lag의 초당 변화(2분 선형 회귀)다. 유지 구간에서 0보다 계속 크면 backlog가 쌓인다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 34,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "deriv(pulsemetry:kafka_committed_lag:sum{topic=\"$topic\",consumergroup=\"$consumer_group\",cluster=\"$cluster\",kafka_cluster=\"$kafka_cluster\"}[2m])",
+          "legendFormat": "records/s",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "text",
+      "title": "ingest — ② 지속 처리",
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 24,
+        "h": 2
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Kafka 접수 → ClickHouse 저장 완료까지의 시간과 처리 결과다."
+      }
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "접수 → 완료 p95",
+      "description": "Gateway 접수 시각부터 ingest 처리 완료까지다. ② 판정은 직전 통과 단계의 2배 이하.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 44,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95,sum by(le)(rate(pulsemetry_pipeline_accepted_to_completion_seconds_bucket{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"telemetry-ingest\",pod=~\"$pod\"}[$__rate_interval])))",
+          "legendFormat": "p95",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "처리 시도 결과 / 초",
+      "description": "Kafka record 처리 시도의 결과별 초당 수다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 44,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(outcome)(rate(pulsemetry_pipeline_attempts_total{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"telemetry-ingest\",pod=~\"$pod\"}[$__rate_interval]))",
+          "legendFormat": "{{outcome}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "재시도 소진·실패 분류",
+      "description": "재시도 소진과 실패 사유별 건수다. ② 판정은 유지 구간 증가 0.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 44,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(pulsemetry_pipeline_retry_exhausted_total{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"telemetry-ingest\",pod=~\"$pod\"}[$__rate_interval]))",
+          "legendFormat": "재시도 소진",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum by(reason)(increase(pulsemetry_pipeline_failures_total{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"telemetry-ingest\",pod=~\"$pod\"}[$__rate_interval]))",
+          "legendFormat": "{{reason}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "값 없음 · 미발생·미실행·미수신 가능 · testid·기간 확인",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "text",
+      "title": "ClickHouse",
+      "gridPos": {
+        "x": 0,
+        "y": 52,
+        "w": 24,
+        "h": 2
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "서버 지표(`service=clickhouse`)다. 삽입 행은 모든 tenant를 합친 값이다."
+      }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "삽입 행 / 초",
+      "description": "서버가 받은 INSERT 행의 초당 수다. k6의 기대 저장 건수 / 초와 비교한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 54,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(ClickHouseProfileEvents_InsertedRows{job=\"clickhouse\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"clickhouse\",pod=~\"$pod\"}[$__rate_interval]))",
+          "legendFormat": "rows/s",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "지연·실패 INSERT",
+      "description": "parts 과다로 지연된 INSERT와 실패한 INSERT 건수다. ② 판정은 유지 구간 증가 0.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 54,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(ClickHouseProfileEvents_DelayedInserts{job=\"clickhouse\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"clickhouse\",pod=~\"$pod\"}[$__rate_interval]))",
+          "legendFormat": "지연",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum(increase(ClickHouseProfileEvents_FailedInsertQuery{job=\"clickhouse\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"clickhouse\",pod=~\"$pod\"}[$__rate_interval]))",
+          "legendFormat": "실패",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "값 없음 · 미발생·미실행·미수신 가능 · testid·기간 확인",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "MergeTree parts",
+      "description": "전체 MergeTree parts 수다. 계속 늘면 merge가 INSERT를 따라가지 못한다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 54,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(ClickHouseAsyncMetrics_TotalPartsOfMergeTreeTables{job=\"clickhouse\",cluster=\"$cluster\",namespace=\"$namespace\",service=\"clickhouse\",pod=~\"$pod\"})",
+          "legendFormat": "parts",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "text",
+      "title": "JVM·자원",
+      "gridPos": {
+        "x": 0,
+        "y": 62,
+        "w": 24,
+        "h": 2
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Gateway·ingest JVM과 Pod CPU다. ClickHouse는 CPU limit이 없어 CPU / limit 행이 없다(ADR 0063)."
+      }
+    },
+    {
+      "id": 25,
+      "type": "timeseries",
+      "title": "JVM heap 사용·committed·max",
+      "description": "Gateway·ingest의 heap 사용량·committed·최대값이다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 64,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(service)(jvm_memory_used_bytes{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"telemetry-gateway|telemetry-ingest\",pod=~\"$pod\",area=\"heap\"})",
+          "legendFormat": "{{service}} used",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum by(service)(jvm_memory_committed_bytes{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"telemetry-gateway|telemetry-ingest\",pod=~\"$pod\",area=\"heap\"})",
+          "legendFormat": "{{service}} committed",
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "sum by(service)(jvm_memory_max_bytes{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"telemetry-gateway|telemetry-ingest\",pod=~\"$pod\",area=\"heap\"})",
+          "legendFormat": "{{service}} max",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "type": "timeseries",
+      "title": "GC 뒤 heap 사용률",
+      "description": "가장 최근 GC 뒤 long-lived heap 사용률이다. 계속 오르면 메모리 압박이다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 64,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by(service)(jvm_memory_usage_after_gc{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"telemetry-gateway|telemetry-ingest\",pod=~\"$pod\",area=\"heap\"})",
+          "legendFormat": "{{service}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "type": "timeseries",
+      "title": "GC pause 평균·최대",
+      "description": "GC 1회 평균 pause와 최근 최대 pause다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 64,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(service)(rate(jvm_gc_pause_seconds_sum{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"telemetry-gateway|telemetry-ingest\",pod=~\"$pod\"}[$__rate_interval])) / sum by(service)(rate(jvm_gc_pause_seconds_count{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"telemetry-gateway|telemetry-ingest\",pod=~\"$pod\"}[$__rate_interval]))",
+          "legendFormat": "{{service}} 평균",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "max by(service)(jvm_gc_pause_seconds_max{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"telemetry-gateway|telemetry-ingest\",pod=~\"$pod\"})",
+          "legendFormat": "{{service}} 최대",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "type": "timeseries",
+      "title": "Pod CPU / limit",
+      "description": "Gateway·ingest 컨테이너 CPU 사용량을 CPU limit으로 나눈 값이다. t4g CPU credit 모드와 초과 과금은 CloudWatch에서 따로 본다(런북 §11).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 72,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(pod)(rate(container_cpu_usage_seconds_total{namespace=\"$namespace\",container!=\"\",container!=\"POD\",cluster=\"$cluster\",pod=~\"(telemetry-gateway|telemetry-ingest)-.+|clickhouse-[0-9]+\"}[$__rate_interval])) / sum by(pod)(kube_pod_container_resource_limits{namespace=\"$namespace\",cluster=\"$cluster\",resource=\"cpu\",pod=~\"(telemetry-gateway|telemetry-ingest)-.+|clickhouse-[0-9]+\"})",
+          "legendFormat": "{{pod}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "type": "timeseries",
+      "title": "CPU throttling 비율",
+      "description": "CFS 주기 중 throttle된 비율이다. 높으면 limit이 처리량을 막는다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 72,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(pod)(rate(container_cpu_cfs_throttled_periods_total{namespace=\"$namespace\",container!=\"\",container!=\"POD\",cluster=\"$cluster\",pod=~\"(telemetry-gateway|telemetry-ingest)-.+|clickhouse-[0-9]+\"}[$__rate_interval])) / sum by(pod)(rate(container_cpu_cfs_periods_total{namespace=\"$namespace\",container!=\"\",container!=\"POD\",cluster=\"$cluster\",pod=~\"(telemetry-gateway|telemetry-ingest)-.+|clickhouse-[0-9]+\"}[$__rate_interval]))",
+          "legendFormat": "{{pod}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "미수집",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "timeseries",
+      "title": "k6 Pod CPU",
+      "description": "부하 발생기 k6 컨테이너 CPU core 사용량이다. limit(2)에 붙으면 결과가 발생기에 묶인다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "pulsemetry-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 72,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"pulsemetry-loadtest\",cluster=\"$cluster\",pod=~\"loadtest-$testid-.+\",container=\"k6\"}[$__rate_interval]))",
+          "legendFormat": "k6",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "값 없음 · k6 미실행 또는 미수신 · testid·기간 확인",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "같은 시간의 서버 진단",
+          "url": "/d/pulsemetry-diagnostics?${__url_time_range}&${environment:queryparam}&${cluster:queryparam}&${namespace:queryparam}&${service:queryparam}&${pod:queryparam}&${testid:queryparam}",
+          "targetBlank": false
+        }
+      ]
+    }
+  ]
+}

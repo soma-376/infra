@@ -42,6 +42,16 @@ suite('Strimzi 관측 계약', () => {
           expect(endpoint.metricRelabelings).toContainEqual({ sourceLabels: ['exported_cluster'], regex: '(.+)', targetLabel: 'kafka_cluster', replacement: '$1' });
         }
       }
+      // 실제 dev 는 Strimzi + values-dev.yaml 이다. 여기에만 k6 부하 시험 PodMonitor(ADR-0064)가 더해진다.
+      const devMonitors = (loadAll(command(helm, ['template', 'observability', chart, '-n', 'pulsemetry-observability',
+        '-f', resolve(root, 'helm/observability/values-dev.yaml'), '-f', fixture])).filter(Boolean) as any[]).filter(x => x.kind === 'PodMonitor');
+      expect(devMonitors.map(x => x.metadata.name).sort()).toEqual(['pulsemetry-loadtest-k6', 'strimzi-cluster-operator', 'strimzi-entity-operator', 'strimzi-exporter', 'strimzi-jmx']);
+      const k6Monitor = devMonitors.find(x => x.metadata.name === 'pulsemetry-loadtest-k6');
+      expect(k6Monitor.spec.namespaceSelector.matchNames).toEqual(['pulsemetry-loadtest']);
+      expect(k6Monitor.spec.selector.matchLabels).toEqual({ 'app.kubernetes.io/name': 'pulsemetry-loadtest-k6' });
+      expect(k6Monitor.spec.podMetricsEndpoints.map((e: any) => [e.port, e.interval])).toEqual([['metrics', '10s']]);
+      expect(k6Monitor.spec.podMetricsEndpoints[0].relabelings).toEqual(expect.arrayContaining([
+        { targetLabel: 'job', replacement: 'k6' }, { targetLabel: 'cluster', replacement: 'fixture-eks' }, { targetLabel: 'environment', replacement: 'dev' }]));
       // 공급자 전환 후 MSK endpoint·AWS/Kafka 지표를 조회하지 않는다. 일반 앱/로그 CloudWatch는 유지한다.
       const prometheus = find('Prometheus').spec;
       const scrapeSecret = find('Secret', prometheus.additionalScrapeConfigs.name);
@@ -62,9 +72,12 @@ suite('Strimzi 관측 계약', () => {
       writeFileSync(resolve(temp, 'rules.test.yaml'), dump(tests));
       command(promtool, ['test', 'rules', resolve(temp, 'rules.test.yaml')]);
       const dashboards: any[] = Object.values(find('ConfigMap', 'pulsemetry-dashboards').data).map(x => JSON.parse(x as string));
-      expect(dashboards).toHaveLength(11);
+      expect(dashboards).toHaveLength(12);
       expect(dashboards.map(x => x.uid)).toContain('pulsemetry-kafka');
-      expect(dashboards.filter(x => x.tags.includes('pulsemetry'))).toHaveLength(10);
+      // 부하 시험 화면(ADR-0064)은 Strimzi lag 기록 규칙을 쓴다. 변수 자리표시자가 Strimzi 값으로 바뀌어야 한다.
+      const loadtest = dashboards.find(x => x.uid === 'pulsemetry-loadtest');
+      expect(JSON.stringify(loadtest)).not.toMatch(/__KAFKA_CLUSTER__|__TOPIC__|__CONSUMER_GROUP__|msk_cluster/);
+      expect(dashboards.filter(x => x.tags.includes('pulsemetry'))).toHaveLength(11);
       expect(JSON.stringify(dashboards.filter(x => x.tags.includes('pulsemetry')))).not.toMatch(/SumOffsetLag|STABLE|EMPTY|MSK/);
       const modeGuidance = dashboards.find(x => x.uid === 'pulsemetry-pipeline').panels.find((p: any) => p.title === '모드별로 비는 패널').options.content;
       expect(modeGuidance).toContain('commit offset이 확인된 partition의 lag 합계');
