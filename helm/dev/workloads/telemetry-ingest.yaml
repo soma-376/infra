@@ -7,6 +7,9 @@ env:
   PULSEMETRY_ARCHIVE_PREFIX: eks_validation
   PULSEMETRY_CLICKHOUSE_URL: http://clickhouse.pulsemetry-dev.svc.cluster.local:8123
   PULSEMETRY_CLICKHOUSE_DATABASE: default
+  # Kafka listener 스레드 수(backend 기본 1). topic partition 6개를 스레드마다 나눠 맡는다.
+  # 2026-11-20 부하 시험에서 직렬 처리(약 14건/초)가 상한이었다. CPU·메모리 limit은 그대로다.
+  PULSEMETRY_TELEMETRY_KAFKA_CONSUMER_CONCURRENCY: "6"
 # ADR-0063: 단일 파이프라인 측정 전 Gateway·ingest의 자원 예산을 맞춘다.
 resources:
   requests:
