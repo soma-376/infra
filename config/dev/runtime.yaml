@@ -68,14 +68,14 @@ postgresSslMode:
 # 허브 ADR-0023: 기존 metric_log ALTER와 같은 유지보수 구간에 적용한다.
 clickhouse:
   imageDigest: sha256:b002e56ed5c16e224c312527f6fcba7e77216fec5d7a88a7828f59efc614feb5
-  # ADR-0063: 시스템 여유를 남기고 CPU 기본 제한은 Helm 병합에서 제거한다.
+  # ADR-0066: m7g.xlarge(16GiB)에서 시스템·DaemonSet 여유를 남긴다. CPU 기본 제한은 Helm 병합에서 제거한다.
   resources:
     requests:
       cpu: 1500m
-      memory: 6Gi
+      memory: 13Gi
     limits:
       cpu: null
-      memory: 6Gi
+      memory: 13Gi
   metricLog:
     maxCompressBlockSize: 65536
     mergeMaxBlockSize: 512

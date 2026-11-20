@@ -86,8 +86,8 @@ TCP liveness는 외부 DB 실패만으로 프로세스를 재시작하지 않는
 ClickHouse는 `24.8-alpine`과 기존 default user 설정, 50Gi PVC를 유지한다.
 수동 Argo 인계에서는 실제 메모리를 낮추지 않도록 generated values에 기존 `resources`를 보존한다.
 dev 기본값 request `1Gi`/limit `2Gi`는 유지하며, 확인된 운영값 request `2Gi`/limit `2560Mi`도 허용한다.
-공식 `config/dev/runtime.yaml`은 ADR 0063의 request `1500m/6Gi`, memory limit `6Gi`, CPU limit 없음으로
-변경하고 generator가 그대로 전달한다. runtime의 `limits.cpu: null`은 Helm의 기본 CPU 제한을 제거한다.
+공식 `config/dev/runtime.yaml`은 ADR 0066의 request `1500m/13Gi`, memory limit `13Gi`, CPU limit 없음이며
+(ADR 0063의 `6Gi` 조합도 되돌림용으로 허용) generator가 그대로 전달한다. runtime의 `limits.cpu: null`은 Helm의 기본 CPU 제한을 제거한다.
 선택 입력을 생략하면 chart 기본값을 유지한다. 기존 두 조합(CPU request `250m`/limit `'1'`)과
 새 확대 조합만 허용하며, 실제 배포 여부는 별도로 확인한다.
 스토리지와 다른 설정의 경계는 그대로다.

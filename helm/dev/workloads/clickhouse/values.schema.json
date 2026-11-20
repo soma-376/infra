@@ -103,6 +103,17 @@
                   "memory": "6Gi"
                 }
               }
+            },
+            {
+              "const": {
+                "requests": {
+                  "cpu": "1500m",
+                  "memory": "13Gi"
+                },
+                "limits": {
+                  "memory": "13Gi"
+                }
+              }
             }
           ]
         },

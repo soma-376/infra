@@ -78,7 +78,7 @@ spec:
           values: [on-demand]
         - key: node.kubernetes.io/instance-type
           operator: In
-          values: [{{ ternary "t4g.large" "m7g.large" (eq $pool "apps") }}]
+          values: [{{ (index $.Values $pool).instanceType }}]
         {{- if eq $pool "clickhouse" }}
         - key: topology.kubernetes.io/zone
           operator: In
