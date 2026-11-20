@@ -29,9 +29,9 @@ const { loadAll } = require('js-yaml');
     }
   });
 
-  test('확대한 자원은 기본 CPU 제한을 제거하고 StatefulSet·PVC 선언을 보존한다', () => {
+  test.each(['6Gi', '13Gi'])('확대한 자원(%s)은 기본 CPU 제한을 제거하고 StatefulSet·PVC 선언을 보존한다', memory => {
     const baseline = render();
-    const expanded = render(['--set', 'resources.requests.cpu=1500m,resources.requests.memory=6Gi,resources.limits.cpu=null,resources.limits.memory=6Gi']);
+    const expanded = render(['--set', `resources.requests.cpu=1500m,resources.requests.memory=${memory},resources.limits.cpu=null,resources.limits.memory=${memory}`]);
     expect([baseline.status, expanded.status]).toEqual([0, 0]);
     const before = loadAll(baseline.stdout).filter(Boolean);
     const after = loadAll(expanded.stdout).filter(Boolean);
@@ -39,7 +39,7 @@ const { loadAll } = require('js-yaml');
     expect(statefulset.spec.replicas).toBe(1);
     expect(statefulset.spec.updateStrategy).toBeUndefined();
     expect(statefulset.spec.template.spec.containers[0].resources).toEqual({
-      requests: { cpu: '1500m', memory: '6Gi' }, limits: { memory: '6Gi' },
+      requests: { cpu: '1500m', memory }, limits: { memory },
     });
     statefulset.spec.template.spec.containers[0].resources =
       before.find((doc: any) => doc.kind === 'StatefulSet').spec.template.spec.containers[0].resources;
@@ -50,6 +50,8 @@ const { loadAll } = require('js-yaml');
     for (const setting of [
       'resources.requests.cpu=1500m,resources.requests.memory=6Gi,resources.limits.memory=6Gi',
       'resources.requests.cpu=1500m,resources.requests.memory=6Gi,resources.limits.cpu=null,resources.limits.memory=8Gi',
+      'resources.requests.cpu=1500m,resources.requests.memory=6Gi,resources.limits.cpu=null,resources.limits.memory=13Gi',
+      'resources.requests.cpu=1500m,resources.requests.memory=13Gi,resources.limits.memory=13Gi',
       'resources.limits.cpu=null',
     ]) {
       expect(render(['--set', setting]).status).not.toBe(0);

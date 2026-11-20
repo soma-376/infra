@@ -388,7 +388,7 @@ function checkPlatform() {
     assert.deepEqual(requirements.slice(0, 3), [
       { key: 'kubernetes.io/arch', operator: 'In', values: ['arm64'] },
       { key: 'karpenter.sh/capacity-type', operator: 'In', values: ['on-demand'] },
-      { key: 'node.kubernetes.io/instance-type', operator: 'In', values: [pool === 'apps' ? 't4g.large' : 'm7g.large'] },
+      { key: 'node.kubernetes.io/instance-type', operator: 'In', values: [pool === 'apps' ? 't4g.large' : 'm7g.xlarge'] },
     ]);
     assert.equal(requirements.some(requirement => requirement.key === 'kubernetes.io/os'), false);
     if (pool === 'clickhouse') {
@@ -396,7 +396,7 @@ function checkPlatform() {
         [{ key: 'workload', value: 'clickhouse', effect: 'NoSchedule' }]);
       assert.deepEqual(requirements[3], { key: 'topology.kubernetes.io/zone', operator: 'In', values: ['ap-northeast-2a'] });
     } else assert.equal(nodePool.spec.template.spec.taints, undefined);
-    assert.equal(nodePool.spec.limits.cpu, pool === 'apps' ? '8' : '4');
+    assert.equal(nodePool.spec.limits.cpu, '8');
   }
   // AWS가 배포하는 NodeClass/Auto Mode NodePool CRD는 live 설치 전 구조만 검사한다.
   const observationStorage = find(documents, 'StorageClass', 'gp3-observability');

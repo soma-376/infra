@@ -4,6 +4,9 @@
 
 Accepted (PROJ-304의 코드·로컬 검증 범위이며 실제 dev 배포·성능 시험은 별도다.)
 
+ClickHouse의 노드 타입(`m7g.large`)·메모리(6Gi)·NodePool CPU 예산(4)은
+[ADR 0066](0066-dev-clickhouse-xlarge-memory.md)(Proposed)이 부분 대체를 제안한다. 나머지 결정은 그대로 유효하다.
+
 [ADR 0028](0028-dev-eks-auto-mode-transition.md)의 apps·ClickHouse 초기 노드 타입과
 Gateway·ingest 초기 Pod 자원만 부분 대체한다. CDK/Helm/Auto Mode 소유권과 ARM64,
 On-Demand, 기존 NodeClass·SG·AZ·PVC 경계는 유지한다.

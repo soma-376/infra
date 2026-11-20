@@ -153,6 +153,7 @@ describe('배포 output→values 변환', () => {
     { requests: { cpu: '250m', memory: '1Gi' }, limits: { cpu: '1', memory: '2Gi' } },
     { requests: { cpu: '250m', memory: '2Gi' }, limits: { cpu: '1', memory: '2560Mi' } },
     { requests: { cpu: '1500m', memory: '6Gi' }, limits: { cpu: null, memory: '6Gi' } },
+    { requests: { cpu: '1500m', memory: '13Gi' }, limits: { cpu: null, memory: '13Gi' } },
   ])('검증한 ClickHouse 자원 %j만 전달하고 다른 values는 보존한다', resources => {
     const runtime = load(readFileSync(runtimeFile, 'utf8'));
     const baseline = run(outputs());
@@ -169,6 +170,9 @@ describe('배포 output→values 변환', () => {
     { requests: { cpu: '1500m', memory: '6Gi' }, limits: { memory: '6Gi' } },
     { requests: { cpu: '1500m', memory: '6Gi' }, limits: { cpu: '1', memory: '6Gi' } },
     { requests: { cpu: '1500m', memory: '6Gi' }, limits: { cpu: null, memory: '8Gi' } },
+    { requests: { cpu: '1500m', memory: '6Gi' }, limits: { cpu: null, memory: '13Gi' } },
+    { requests: { cpu: '1500m', memory: '13Gi' }, limits: { cpu: '2', memory: '13Gi' } },
+    { requests: { cpu: '1500m', memory: '14Gi' }, limits: { cpu: null, memory: '14Gi' } },
     { requests: { cpu: '250m', memory: '2Gi' }, limits: { cpu: null, memory: '2560Mi' } },
     { requests: { cpu: '250m', memory: '2Gi' } },
     { requests: { memory: '2Gi' }, limits: { cpu: '1', memory: '2560Mi' } },
@@ -187,9 +191,9 @@ describe('배포 output→values 변환', () => {
     expect(existsSync(candidate.dir)).toBe(false);
   });
 
-  helmTest('생성한 ClickHouse 확대 values를 병합하면 CPU 제한 없이 렌더링된다', () => {
+  helmTest.each(['6Gi', '13Gi'])('생성한 ClickHouse 확대 values(%s)를 병합하면 CPU 제한 없이 렌더링된다', memory => {
     const runtime = load(readFileSync(runtimeFile, 'utf8'));
-    const resources = { requests: { cpu: '1500m', memory: '6Gi' }, limits: { cpu: null, memory: '6Gi' } };
+    const resources = { requests: { cpu: '1500m', memory }, limits: { cpu: null, memory } };
     const output = run(outputs(), undefined, undefined, dump({ ...runtime, clickhouse: { resources } }));
     expect({ status: output.result.status, stderr: output.result.stderr }).toEqual({ status: 0, stderr: '' });
     const rendered = spawnSync(process.env.HELM_BIN!, [
@@ -199,7 +203,7 @@ describe('배포 output→values 변환', () => {
     expect({ status: rendered.status, stderr: rendered.stderr }).toEqual({ status: 0, stderr: '' });
     const statefulset = loadAll(rendered.stdout).find((doc: any) => doc?.kind === 'StatefulSet');
     expect(statefulset.spec.template.spec.containers[0].resources).toEqual({
-      requests: resources.requests, limits: { memory: '6Gi' },
+      requests: resources.requests, limits: { memory },
     });
   });
 
@@ -230,7 +234,7 @@ describe('배포 output→values 변환', () => {
     const ingest = output.read('telemetry-ingest.yaml');
     const gateway = output.read('telemetry-gateway.yaml');
     expect(output.read('clickhouse.yaml').resources).toEqual({
-      requests: { cpu: '1500m', memory: '6Gi' }, limits: { cpu: null, memory: '6Gi' },
+      requests: { cpu: '1500m', memory: '13Gi' }, limits: { cpu: null, memory: '13Gi' },
     });
     for (const app of [enrollment, dashboard]) {
       expect(app.userAuth.issuer).toBe(runtime.userAuth.issuer);

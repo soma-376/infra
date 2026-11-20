@@ -4,11 +4,14 @@ subnetIds: []
 appNodeSecurityGroupId: ""
 clickhouseNodeSecurityGroupId: ""
 clickhouseAvailabilityZone: ""
-# ADR 0063: apps 정상 2대·ClickHouse 1대와 교체 여유를 위한 예산이다. 실제 대수는 배치에 따른다.
+# ADR 0063: apps 정상 2대와 교체 여유를 위한 예산이다. 실제 대수는 배치에 따른다.
 apps:
+  instanceType: t4g.large
   cpuLimit: "8"
+# ADR 0066: ClickHouse 1대(4 vCPU)와 노드 교체 중 옛 노드를 함께 수용하는 예산이다.
 clickhouse:
-  cpuLimit: "4"
+  instanceType: m7g.xlarge
+  cpuLimit: "8"
 
 observabilityNodeSecurityGroupId: ""
 

@@ -87,6 +87,8 @@ root와 child 모두 auto sync·self-heal을 켜되 prune·allowEmpty·삭제 fi
 Gateway·ingest 모두 request 500m/2Gi, limit 2 CPU/4Gi이며 replica 1·Recreate를 유지한다.
 apps는 t4g.large, ClickHouse는 m7g.large이며 후자는 request 1500m/6Gi, memory limit 6Gi와
 CPU limit 없음이다. CPU 예산 8/4는 유지하며 정상 apps 2대·ClickHouse 1대는 고정 대수가 아니다.
+[ADR 0066](../adr/0066-dev-clickhouse-xlarge-memory.md)(PROJ-339)은 ClickHouse를 m7g.xlarge·1500m/13Gi·CPU 예산 8로 바꾼다.
+적용하면 ClickHouse 노드가 교체되며 몇 분 중단된다. 아래 절차의 1500m/6Gi는 그 값으로 읽는다.
 
 ### 적용 전
 

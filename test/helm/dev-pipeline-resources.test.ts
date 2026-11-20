@@ -77,7 +77,7 @@ suite('PROJ-304 dev 파이프라인 자원과 노드 분리', () => {
     const documents = loadAll(result.stdout).filter(Boolean);
     const expectedPools = [
       ['pulsemetry-dev-apps', 't4g.large', '8', values.appNodeSecurityGroupId],
-      ['pulsemetry-dev-clickhouse', 'm7g.large', '4', values.clickhouseNodeSecurityGroupId],
+      ['pulsemetry-dev-clickhouse', 'm7g.xlarge', '8', values.clickhouseNodeSecurityGroupId],
       ['pulsemetry-dev-kafka', 'm7g.large', '8', values.kafka.securityGroupId],
       ['pulsemetry-observability', 'm7g.large', '4', values.observabilityNodeSecurityGroupId],
     ];

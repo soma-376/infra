@@ -80,13 +80,14 @@
 | 0058 | [dev LBC 인증서는 cert-manager가 관리하고 Argo 인계 선언은 별도로 생성한다](0058-dev-lbc-cert-manager-and-argocd-handoff.md) | Accepted (PROJ-310; 18개 수동 인계 구성·인증서 소유권, 실제 운영 수락 별도) |
 | 0062 | [dev Kafka offset 작업은 기존 operator 권한의 수동 workflow로 실행한다](0062-dev-kafka-offset-workflow.md) | Accepted (PROJ-288; dev main 계획·실행, 권한 배포·실제 실행 검증 별도) |
 
-| 0063 | [dev 파이프라인 자원을 확대하고 Gateway와 ingest를 서로 다른 노드에 배치한다](0063-dev-pipeline-resource-sizing.md) | Accepted (PROJ-304; 코드·로컬 검증, 실제 배포·성능 시험 별도) |
+| 0063 | [dev 파이프라인 자원을 확대하고 Gateway와 ingest를 서로 다른 노드에 배치한다](0063-dev-pipeline-resource-sizing.md) | Accepted (PROJ-304; 코드·로컬 검증, 실제 배포·성능 시험 별도; ClickHouse 노드·메모리·CPU 예산은 0066(Proposed)이 부분 대체 제안) |
 | 0064 | [dev 파이프라인에 직접 계단식 부하를 걸고 k6 지표는 sidecar에서 pull한다](0064-dev-pipeline-loadtest.md) | Proposed (PROJ-192; 코드·로컬 검증, 팀 동의·실제 dev 부하 실행 별도; k6 remote write 추가는 0065(Proposed)가 제안) |
 | 0065 | [dev 부하 시험 k6는 Prometheus remote write로도 지표를 보낸다](0065-dev-loadtest-k6-prometheus-remote-write.md) | Proposed (PROJ-337; 0064 결정 3의 remote write 제외와 0039의 관측 인그레스 규칙 수를 개정 제안; sidecar pull 유지; 배포 별도) |
+| 0066 | [dev ClickHouse를 m7g.xlarge 노드와 13Gi 메모리로 키운다](0066-dev-clickhouse-xlarge-memory.md) | Proposed (PROJ-339; 0063의 ClickHouse 노드 타입·메모리·CPU 예산 부분 대체; 부하 시험 메모리 한도 대응; 배포·재측정 별도) |
 
 병행 작업에서 사용한 `0035`·`0036`은 각각 파일명·제목·링크를 보존한다. 번호만으로 대상을 식별하지 않는다.
 
-새 ADR을 작성할 때는 다음 미사용 번호(`0066-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
+새 ADR을 작성할 때는 다음 미사용 번호(`0067-...`)를 사용하고 [`0000-adr-template.md`](0000-adr-template.md)의 구조를 따른다. `0020`은 프론트엔드 로그 정책에 사용했다. 기존 CDK 로그 정책은 별도 후속 ADR의 미결 사항이며 `AGENTS.md` 섹션 5 (F)를 따른다.
 
 섹션 순서는 다음과 같다. 괄호로 표시한 것은 내용이 있을 때만 둔다.
 
