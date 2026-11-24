@@ -16,6 +16,12 @@ export const DEV_TELEMETRY_LOG_EVENTS = {
   telemetry_permanent_failure: { metricName: 'TelemetryPermanentFailure', threshold: 1 },
   telemetry_retry_exhausted: { metricName: 'TelemetryRetryExhausted', threshold: 1 },
   telemetry_commit_failed: { metricName: 'TelemetryCommitFailed', threshold: 1 },
+  // ingest 배치 소비(backend ADR 0083). 넘김은 ClickHouse에 없는 채 offset을 확정한 것이다. 나머지 셋은 넘길 근거 없는 긴 대기·
+  // 분류하지 않은 예외·진척 없는 마감 반복이다. 모두 배치마다 한 줄이다.
+  telemetry_archive_handoff: { metricName: 'TelemetryArchiveHandoff', threshold: 1 },
+  telemetry_batch_waiting: { metricName: 'TelemetryBatchWaiting', threshold: 1 },
+  telemetry_batch_unexpected_failure: { metricName: 'TelemetryBatchUnexpectedFailure', threshold: 1 },
+  telemetry_batch_stalled: { metricName: 'TelemetryBatchStalled', threshold: 1 },
 } as const;
 
 export const DEV_TELEMETRY_METRIC_NAMESPACE = 'Pulsemetry/Dev/Telemetry';

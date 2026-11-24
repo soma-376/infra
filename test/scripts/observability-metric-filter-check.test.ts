@@ -38,13 +38,14 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }));
 test.each([0, 1])('AWS eventNumber가 %i부터 세도 eventMessage로 샘플을 찾아 통과하고 원본 번호를 남긴다', base => {
   const result = run({ FAKE_AWS_BASE: String(base) });
   expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' });
-  expect(result.stdout).toContain('PASS: 5개 실패 event filter');
+  expect(result.stdout).toContain('PASS: 9개 실패 event filter');
   const evidence = JSON.parse(readFileSync(result.output, 'utf8'));
   expect(evidence.engine).toBe('CloudWatch TestMetricFilter');
-  // commit-failed는 다섯째 샘플이다.
+  // commit-failed는 다섯째, 배치 모드의 예외 줄 commit-failed-batch는 열한째 샘플이다.
   expect(evidence.results.telemetry_commit_failed).toEqual({
-    pattern: '"event=telemetry_commit_failed"', matchedSamples: ['commit-failed'], awsEventNumbers: [4 + base],
+    pattern: '"event=telemetry_commit_failed"', matchedSamples: ['commit-failed', 'commit-failed-batch'], awsEventNumbers: [4 + base, 10 + base],
   });
+  expect(evidence.results.telemetry_archive_handoff.matchedSamples).toEqual(['archive-handoff']);
   expect(evidence.results.telemetry_gateway_rejected.matchedSamples).toEqual(['gateway-rejected', 'gateway-rejected-split']);
 });
 

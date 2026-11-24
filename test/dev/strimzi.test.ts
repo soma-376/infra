@@ -105,10 +105,11 @@ describe('dev Strimzi 병렬 설치와 MSK 단계별 제거', () => {
   test('Strimzi에서는 AWS/Kafka 경보만 제거하며 애플리케이션 로그 경보를 유지한다', () => {
     const json = asJson(parallel.eks);
     const alarms = Object.values<any>(json.Resources).filter(resource => resource.Type === 'AWS::CloudWatch::Alarm');
-    expect(alarms).toHaveLength(5);
+    expect(alarms).toHaveLength(9);
     expect(JSON.stringify(alarms)).not.toContain('AWS/Kafka');
     expect(alarms.map(alarm => alarm.Properties.MetricName)).toEqual(expect.arrayContaining([
       'TelemetryGatewayRejected', 'TelemetryPublishFailed', 'TelemetryPermanentFailure', 'TelemetryRetryExhausted', 'TelemetryCommitFailed',
+      'TelemetryArchiveHandoff', 'TelemetryBatchWaiting', 'TelemetryBatchUnexpectedFailure', 'TelemetryBatchStalled',
     ]));
   });
 

@@ -10,7 +10,7 @@ const samples = readFileSync(resolve(fixtures, 'fluent-bit/metric-filter-samples
   .split('\n').filter(Boolean).map(line => JSON.parse(line));
 const evidence = JSON.parse(readFileSync(resolve(fixtures, 'fluent-bit/envelope-evidence.json'), 'utf8'));
 
-test('실제 Fluent Bit envelope 샘플이 CDK 실패 event 5종을 하나 이상씩 담고 음성 샘플을 포함한다', () => {
+test('실제 Fluent Bit envelope 샘플이 CDK 실패 event 9종을 하나 이상씩 담고 음성 샘플을 포함한다', () => {
   const events = [...new Set(samples.map(sample => sample.expectedEvent).filter(Boolean))].sort();
   expect(events).toEqual(Object.keys(DEV_TELEMETRY_LOG_EVENTS).sort());
   expect(samples.filter(sample => !sample.expectedEvent).length).toBeGreaterThanOrEqual(3);
@@ -26,7 +26,7 @@ test('실제 Fluent Bit envelope 샘플이 CDK 실패 event 5종을 하나 이�
 test('로컬 대조 스크립트가 각 filter의 기대 샘플만 일치시킨다', () => {
   const result = spawnSync(process.execPath, [resolve(root, 'scripts/observability-metric-filter-check.mjs')], { encoding: 'utf8' });
   expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' });
-  expect(result.stdout).toContain('PASS: 5개 실패 event filter');
+  expect(result.stdout).toContain('PASS: 9개 실패 event filter');
 });
 
 test('Fluent Bit은 label로 구성요소를 식별하고 annotation·임의 JSON 병합을 보내지 않는다', () => {

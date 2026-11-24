@@ -33,8 +33,8 @@ DB 재시작, CloudWatch 권한·배송·재시도, Events PVC 중복 제거와 
 
 `scripts/observability-log-envelope-smoke.py`는 같은 이미지로 실제 values의 tail·CRI multiline·grep·
 record_modifier·rewrite_tag를 실행해 file output의 JSON을 만든다. Kubernetes API가 없으므로 kubernetes filter만
-같은 metadata 구조를 붙이는 Lua로 재현한다. 결과는 `metric-filter-samples.jsonl`(실패 event 5종·CRI 분할 줄·
-음성 4건)과 `envelope-evidence.json`(실제 필드 목록·envelope overhead)이다.
+같은 metadata 구조를 붙이는 Lua로 재현한다. 결과는 `metric-filter-samples.jsonl`(실패 event 9종·CRI 분할 줄·
+음성 6건)과 `envelope-evidence.json`(실제 필드 목록·envelope overhead)이다.
 
 ```bash
 python3 scripts/observability-log-envelope-smoke.py

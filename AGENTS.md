@@ -43,6 +43,12 @@ shared root가 별도 VPC·dev/prod 피어링·왕복 경로·SG 규칙·캐시�
 [ADR 0065](docs/adr/0065-dev-loadtest-k6-prometheus-remote-write.md)(PROJ-337, Proposed)는 커뮤니티 k6 대시보드용으로 같은 Job에 Prometheus remote write 출력을 더한다.
 apps SG → 관측 SG 9090 규칙 하나와 Prometheus 수신 NetworkPolicy(dev values에서만)가 함께다. sidecar pull·판정 경로는 그대로다.
 
+## PROJ-341 dev ingest 배치 소비
+
+backend [ADR 0083](https://github.com/soma-376/pulsemetry-backend/blob/develop/docs/adr/)에 따라 dev ingest에 `PULSEMETRY_TELEMETRY_KAFKA_CONSUMER_BATCH_ENABLED=true`를 둔다.
+같은 consumer group·앱 Recreate·기존 S3 PutObject 범위(`eks/*`, 넘김 목록 `eks/handoff/`)를 그대로 쓴다. 로그 경보에 배치 event 4종을 더했다.
+되돌릴 때는 같은 값을 false로 바꾼다. 넘긴 레코드는 ClickHouse로 돌아오지 않으며 재적재는 별도 모듈 몫이다.
+
 ## PROJ-304 dev 파이프라인 자원 확대
 
 [ADR 0063](docs/adr/0063-dev-pipeline-resource-sizing.md)을 따른다. apps는 `t4g.large`, ClickHouse는

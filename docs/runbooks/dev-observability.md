@@ -426,12 +426,13 @@ CRI/docker multiline parser는 런타임 분할 레코드를 결합한다. Java 
 종료·회전된 파일의 발견 간격은 5초다. node-local buffer는 노드 종료, 로컬 디스크 손상과 재생성에서 사라진다.
 
 기존 경보의 `"event=<code>"` filter 문구를 유지한다. JSON envelope의 `log`에도 원문이 그대로 있으므로
-동일 term이 남아야 한다. 입력 샘플은 실제 Fluent Bit 5.1.3이 runtime 설정으로 만든 envelope 10건이다
+동일 term이 남아야 한다. 입력 샘플은 실제 Fluent Bit 5.1.3이 runtime 설정으로 만든 envelope 17건이다
 ([metric-filter-samples.jsonl](../../helm/observability/tests/fluent-bit/metric-filter-samples.jsonl)).
-실패 event 5종, CRI 분할 줄, 경보 대상이 아닌 `telemetry_transient_failure`·시작·GC stderr·ClickHouse JSON을 담는다.
+실패 event 9종(ingest 배치 소비 4종과 배치 모드의 커밋 실패 예외 줄 포함), CRI 분할 줄, 경보 대상이 아닌
+`telemetry_transient_failure`·배치 커밋 실패의 WARN 머리말·stack 줄·시작·GC stderr·ClickHouse JSON을 담는다.
 로컬 테스트는 부분 문자열 대조만 하며 CloudWatch filter engine을 실행하지 않는다.
 
-**배포 전 관문.** 읽기 전용 `TestMetricFilter`로 5개 filter가 각각 기대 샘플만 일치하는지 확인한다.
+**배포 전 관문.** 읽기 전용 `TestMetricFilter`로 9개 filter가 각각 기대 샘플만 일치하는지 확인한다.
 하나라도 다르면 Fluent Bit 적용을 멈춘다. 결과 파일은 덮어쓰지 않으며 실행 기록에 경로를 남긴다.
 응답은 `eventMessage`로 샘플에 대응시킨다. `eventNumber`가 0과 1 중 어디서 시작하는지는 AWS 문서 예시(0)로만
 알고 있어서, 결과 파일의 `awsEventNumbers`에 원본 번호를 남겨 첫 실행에서 확인한다.

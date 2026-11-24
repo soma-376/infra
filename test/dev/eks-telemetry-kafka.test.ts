@@ -225,8 +225,9 @@ describe('telemetry 관측 경보', () => {
   const logGroupId = Object.entries(template.findResources('AWS::Logs::LogGroup'))
     .find(([, group]: [string, any]) => group.Properties.LogGroupName === '/eks/dev/application')![0];
 
-  test('MSK 공간·ISR·offline·consumer lag와 로그 이벤트 경보 10개는 알림 action 없이 상태만 남긴다', () => {
+  test('MSK 공간·ISR·offline·consumer lag와 로그 이벤트 경보 14개는 알림 action 없이 상태만 남긴다', () => {
     expect(alarms.map(item => item.AlarmName).sort()).toEqual([
+      'archive-handoff', 'batch-stalled', 'batch-unexpected-failure', 'batch-waiting',
       'commit-failed', 'consumer-offset-lag', 'consumer-time-lag', 'gateway-rejected', 'msk-disk-used',
       'msk-offline-partitions', 'msk-under-min-isr', 'permanent-failure', 'publish-failed', 'retry-exhausted',
     ].map(name => `soma-376-dev-telemetry-${name}`));
@@ -270,6 +271,10 @@ describe('telemetry 관측 경보', () => {
     ['telemetry_permanent_failure', 'TelemetryPermanentFailure', 'permanent-failure', 1],
     ['telemetry_retry_exhausted', 'TelemetryRetryExhausted', 'retry-exhausted', 1],
     ['telemetry_commit_failed', 'TelemetryCommitFailed', 'commit-failed', 1],
+    ['telemetry_archive_handoff', 'TelemetryArchiveHandoff', 'archive-handoff', 1],
+    ['telemetry_batch_waiting', 'TelemetryBatchWaiting', 'batch-waiting', 1],
+    ['telemetry_batch_unexpected_failure', 'TelemetryBatchUnexpectedFailure', 'batch-unexpected-failure', 1],
+    ['telemetry_batch_stalled', 'TelemetryBatchStalled', 'batch-stalled', 1],
   ])('event=%s 평문 term을 /eks/dev/application에서 집계한다', (event, metric, name, threshold) => {
     template.hasResourceProperties('AWS::Logs::MetricFilter', {
       LogGroupName: { Ref: logGroupId }, FilterPattern: `"event=${event}"`,
