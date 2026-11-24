@@ -35,7 +35,7 @@
     "pod_id",
     "pod_name"
   ],
-  "applicationRecords": 10,
+  "applicationRecords": 17,
   "observabilityRecords": 1,
   "envelopeOverheadBytes": {
     "min": 641,

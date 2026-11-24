@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 실패 event 5종의 CloudWatch metric filter가 Fluent Bit envelope 샘플과 정확히 일치하는지 확인한다.
+// 실패 event 9종의 CloudWatch metric filter가 Fluent Bit envelope 샘플과 정확히 일치하는지 확인한다.
 // 기본은 로컬 부분 문자열 대조이며 CloudWatch filter engine을 대신하지 않는다.
 // 배포 전 --aws로 읽기 전용 TestMetricFilter를 실행해 실제 engine 결과를 새 증거 파일에 남긴다.
 import assert from 'node:assert/strict';

@@ -37,6 +37,30 @@ SAMPLES = [
     ("commit-failed", "telemetry-ingest", "telemetry_commit_failed", "stdout", SPRING.format(
         level="ERROR", app="pulsemetry-telemetry-ingest", thread="ntainer#0-0-C-1", logger="c.t.p.t.c.TelemetryFailureReporter",
         message="event=telemetry_commit_failed topic=pulsemetry-dev-telemetry-ingress-main partition=2 offset=9 stage=commit reason=commit_failed cause=CommitFailedException")),
+    # ingest 배치 소비(backend ADR 0083). 앱 로거가 평문 한 줄로 남긴다.
+    ("archive-handoff", "telemetry-ingest", "telemetry_archive_handoff", "stdout", SPRING.format(
+        level="WARN", app="pulsemetry-telemetry-ingest", thread="ntainer#0-0-C-1", logger="c.t.p.t.c.batch.BatchIngestProcessor",
+        # 앱은 값마다 128자로 자른다 — 넘김 key 도 잘린 채 남는다.
+        message="event=telemetry_archive_handoff cause=TelemetrySinkUnavailableException topic=pulsemetry-dev-telemetry-ingress-main p0=51-90 records=40 trigger=breaker stage=insert code=- memoryScope=- key="
+        + ("handoff/pulsemetry-dev-telemetry-ingest-main/pulsemetry-dev-telemetry-ingress-main/" + "3f" * 32 + ".json")[:128])),
+    ("batch-waiting", "telemetry-ingest", "telemetry_batch_waiting", "stdout", SPRING.format(
+        level="WARN", app="pulsemetry-telemetry-ingest", thread="ntainer#0-1-C-1", logger="c.t.p.t.c.batch.TelemetryBatchListener",
+        message="event=telemetry_batch_waiting topic=pulsemetry-dev-telemetry-ingress-main p1=101-200 stage=authorize reason=dependency cause=CannotGetJdbcConnectionException oldestAgeSeconds=37 failures=4")),
+    ("batch-unexpected-failure", "telemetry-ingest", "telemetry_batch_unexpected_failure", "stdout", SPRING.format(
+        level="ERROR", app="pulsemetry-telemetry-ingest", thread="ntainer#0-2-C-1", logger="c.t.p.t.c.batch.TelemetryBatchListener",
+        message="event=telemetry_batch_unexpected_failure topic=pulsemetry-dev-telemetry-ingress-main p2=7-9 stage=process cause=IllegalStateException attempt=1")),
+    ("batch-stalled", "telemetry-ingest", "telemetry_batch_stalled", "stdout", SPRING.format(
+        level="WARN", app="pulsemetry-telemetry-ingest", thread="ntainer#0-3-C-1", logger="c.t.p.t.c.batch.TelemetryBatchListener",
+        message="event=telemetry_batch_stalled topic=pulsemetry-dev-telemetry-ingress-main p3=11-60 stalls=3 attempt=5")),
+    # 배치 모드의 저장 뒤 커밋 실패는 컨테이너가 WARN 머리말을 쓰고 다음 예외 설명 줄에 코드를 싣는다.
+    # Fluent Bit은 Java stacktrace를 결합하지 않으므로(Merge_Log Off) 예외 줄이 따로 들어와야 filter와 일치한다.
+    ("commit-failed-batch-header", "telemetry-ingest", None, "stdout", SPRING.format(
+        level="WARN", app="pulsemetry-telemetry-ingest", thread="ntainer#0-4-C-1", logger="o.s.k.l.KafkaMessageListenerContainer",
+        message="Error handler threw an exception")),
+    ("commit-failed-batch", "telemetry-ingest", "telemetry_commit_failed", "stdout",
+        "org.springframework.kafka.KafkaException: event=telemetry_commit_failed cause=CommitFailedException topic=pulsemetry-dev-telemetry-ingress-main p4=201-260"),
+    ("commit-failed-batch-stack", "telemetry-ingest", None, "stdout",
+        "\tat com.team376.pulsemetry.telemetry.consumer.batch.TelemetryBatchErrorHandler.handleBatch(TelemetryBatchErrorHandler.kt:68)"),
     # CRI가 한 줄을 P/F 두 조각으로 나눠도 결합 후 filter와 일치해야 한다.
     ("gateway-rejected-split", "telemetry-gateway", "telemetry_gateway_rejected", "split", SPRING.format(
         level="INFO", app="pulsemetry-telemetry-gateway", thread="nio-8082-exec-3", logger="c.t.p.t.g.api.GatewayOtlpController",

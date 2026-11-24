@@ -56,6 +56,8 @@ backend(PROJ-245)는 아래 이름을 그대로 읽는다. backend 브랜치 `fe
 - Gateway는 DB·HMAC·S3 설정 없이 기동한다. chart는 Gateway의 `PULSEMETRY_DB_*`·`ARCHIVE_*`·`CLICKHOUSE_*` env와 configtree mount를 거부한다.
 - 실패 로그는 평문 한 줄 `event=<code>`다. `telemetry_gateway_rejected`, `telemetry_publish_failed`, `telemetry_permanent_failure`,
   `telemetry_retry_exhausted`, `telemetry_commit_failed`를 CloudWatch Logs term으로 집계한다.
+  ingest 배치 소비(backend ADR 0083)는 `telemetry_archive_handoff`, `telemetry_batch_waiting`, `telemetry_batch_unexpected_failure`,
+  `telemetry_batch_stalled`를 더한다. 배치 모드의 `telemetry_commit_failed`는 컨테이너 WARN 머리말 다음 예외 줄에 남는다.
 - Gateway 앱 종료는 30s 안, Consumer 컨테이너 종료는 45s 안이다. Pod grace는 Gateway 60s, dual/kafka ingest 90s다.
 
 ## 3. 사전 준비
@@ -202,6 +204,7 @@ aws cloudwatch describe-alarms --alarm-name-prefix soma-376-dev-telemetry- --reg
 | `consumer-time-lag` / `consumer-offset-lag` | stage group·topic의 `EstimatedMaxTimeLag` ≥ 600s / `SumOffsetLag` ≥ 10000, 5분 3회 |
 | `gateway-rejected` | `event=telemetry_gateway_rejected` 5분 합 ≥ 50 |
 | `publish-failed`·`permanent-failure`·`retry-exhausted`·`commit-failed` | 해당 `event=` 5분 합 ≥ 1 |
+| `archive-handoff`·`batch-waiting`·`batch-unexpected-failure`·`batch-stalled` | ingest 배치 소비의 해당 `event=` 5분 합 ≥ 1. 넘김은 ClickHouse에 없는 채 offset을 확정한 것이고 목록은 `eks/handoff/`에 있다 |
 
 경보 action이 없다. 운영자가 상태를 조회한다. Pod 재시작·OOM 경보는 Container Insights가 없어 이번 범위에서 제외했다(ADR-0035 Follow-up).
 broker 로그는 output `MskBrokerLogGroupName`(14일)이다.
