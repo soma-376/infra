@@ -779,6 +779,9 @@ Gateway도 같은 chart를 사용한다. 앱 전용 mount를 기존 initContaine
 
 ## 6. 명령어
 
+작업별 실행 진입점, 입력과 출력, 실행 영향을 확인하려면 [인프라 스크립트 인덱스](scripts/README.md)를 먼저 본다.
+운영 명령의 실행 순서와 권한은 인덱스에서 연결한 런북을 따른다.
+
 ```bash
 npm run build
 # 조건부 Helm suite를 건너뛰지 않도록 실제 Helm 3.22.0 / kubeconform 0.8.0 / promtool 3.9.1 경로를 사용한다.

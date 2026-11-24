@@ -6,6 +6,7 @@ AWS CDK v2로 prod·dev·cicd를 관리한다. dev 백엔드는 EKS 전용이며
 ## 문서 진입점
 
 - [AGENTS.md](AGENTS.md): 스택 구조·입력·불변 규칙
+- [인프라 스크립트 인덱스](scripts/README.md)에서 작업별 실행 진입점과 호출 관계를 찾을 수 있다.
 - [ADR 인덱스](docs/adr/README.md), [dev EKS 전용 ADR-0035](docs/adr/0035-dev-backend-eks-only.md)
 - [기존 dev ECS 수동 철거](docs/runbooks/dev-ecs-retirement.md): PROJ-249 선행·수동 Snapshot·Application 삭제·Edge/Network/IAM 순서
 - [EKS 수동 설치·검증·복구](docs/runbooks/dev-eks-manual-deployment.md)
