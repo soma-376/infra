@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: 호스트 설치·ECS 전환 정리 검증 (AWS 인증 없음)
+      - name: SSM 전환 정리와 ECS 호스트·AZ 식별 검증 (AWS 인증 없음)
         run: python3 frontend/scripts/test-host-agent.py
       - name: 격리된 관측 스택 검증 (AWS 인증 없음)
         run: python3 frontend/scripts/test-observability.py
