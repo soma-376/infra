@@ -189,7 +189,8 @@ node scripts/loadtest-results-export.mjs --prometheus http://127.0.0.1:9090 --cl
 ```
 
 `result/`에 `REPORT.md`(단계별 표·①·② 한계·실패 사유), `judgement.json`, `queries/sNN.json`(대시보드와 같은 식의 원자료),
-`summary.json`, `config.json`(replica·자원·`PULSEMETRY_*` env·이미지 digest·nodeSelector, 비밀로 보이는 값은 `<redacted>`)이 남는다.
+`summary.json`, `config.json`(replica·갱신 방식(`strategy`·`updateStrategy`)·자원·`PULSEMETRY_*` env·이미지 digest·nodeSelector, 비밀로 보이는 값은 `<redacted>`)이 남는다.
+REPORT의 `heap 최대`는 Pod별 heap의 최댓값이다(서비스마다 Pod가 1개면 예전 값과 같다).
 판정 기본값은 ① p95 ≤ 1초·p99 ≤ 3초·오류율 ≤ 0.1%·dropped 0, ② 유지 구간 lag 증가 ≤ max(100, 목표 RPS × 10)·접수→완료 p95 ≤ 직전 통과 단계 × 2·영구 거부·재시도 소진·ClickHouse 지연/실패 INSERT 0이다(`scripts/lib/loadtest-judge.mjs`). 팀이 정한 값은 `--max-p95-seconds`·`--max-p99-seconds`·`--max-error-rate`·`--max-dropped`·
 `--lag-min-growth`·`--lag-growth-per-rps`·`--completion-p95-factor`로 준다. Kafka 이름이 dev main 기본값과 다르면
 `--kafka-cluster`·`--topic`·`--consumer-group`을 준다. 출력 디렉터리는 실행마다 새로 쓴다.
@@ -200,7 +201,9 @@ node scripts/loadtest-results-export.mjs --prometheus http://127.0.0.1:9090 --cl
   drop 카운터는 첫 drop 때 생겨 증가율로는 첫 drop 을 놓친다. summary 에 단계별 dropped 가 없으면(이전 스크립트) 미수집이다.
 - 영구 거부·재시도 소진·ClickHouse 지연/실패 INSERT 는 창을 유지 구간 끝 + `--boundary-delay`(기본 20s)까지 늘린다. 끝 직전 이벤트가
   다음 scrape 에 찍히기 때문이다. 다음 단계 상승 초반이 섞이면 실패 쪽으로만 기운다.
-- 그 창에서 ingest 재시작·Pod 교체·scrape 실패·표본 부족(창 ÷ `--scrape-interval` − 1 미만)이 있으면 그 값은 미수집이다(PROJ-346에서 Pod 여러 개 대응).
+- 그 창에서 ingest 재시작·Pod 교체·scrape 실패·표본 부족(창 ÷ `--scrape-interval` − 1 미만)이 있으면 그 값은 미수집이다.
+  ingest Pod가 여럿이어도 창 내내 같은 Pod들이면 미수집이 아니다. 창 안에서 Pod가 바뀌거나 줄면 미수집이다(사유: `ingest Pod 교체` 또는 새 Pod의
+  `scrape 표본 부족`). 그래서 시험 중에는 ingest 배포(이미지·설정 게시, Argo sync에 따른 RollingUpdate)를 하지 않는다.
 - lag 증가는 두 경계의 표본 시각이 `--max-sample-age`(기본 30s)보다 오래됐거나 같은 표본이면 미수집이다.
 - 중단·미실행 단계(k6 summary `completed: false`)는 두 층 모두 실패로 표시하고 한계 산정에서 뺀다. 유지 구간을 끝까지 실행하지 않은
   결과를 통과로 세지 않는다. 조기 정지한 실행의 한계는 그 앞에서 이어서 통과한 완료 단계다.
@@ -208,7 +211,7 @@ node scripts/loadtest-results-export.mjs --prometheus http://127.0.0.1:9090 --cl
   되살릴 수 없기 때문이다. 재시작은 두 신호로 본다. `ClickHouseAsyncMetrics_Uptime` 이 줄었거나, 추정 시작 시각(표본 시각 − 가동 초)이
   `--max-start-shift`(기본 3s)보다 크게 움직였으면 재시작이다. 둘째 신호는 재시작 직후 다시 재시작해 가동 시간이 줄지 않는 경우를 잡는다.
   정상일 때 흔들림은 비동기 지표 갱신 주기(1s) 정도다. 부하로 갱신이 밀려 오탐이 나면 REPORT 사유의 이동 폭을 보고 Grafana 로 확인한다.
-  ingest 는 시작 시각 변화·Pod 교체로 같은 판단을 한다(PROJ-346에서 Pod 여러 개 대응).
+  ingest 는 시작 시각 변화·Pod 교체로 같은 판단을 한다(Pod 여러 개면 Pod마다 본다).
 - 미수집은 실패로 표시되고 사유가 REPORT 에 함께 남는다. 이때는 Grafana 로 그 구간을 직접 본다.
 - 지연·처리율(서버 p95·p99, 실제 RPS)은 유지 구간 창 그대로다. 수집 지연(최대 10초)만큼 경계가 어긋나지만 2~5분 창에서는 무시할 수준이다.
 - 마지막 유지 구간 끝 + 경계 지연 전에는 실행을 거부한다.
