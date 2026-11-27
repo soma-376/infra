@@ -95,6 +95,7 @@ node scripts/dev-argocd-management.mjs \
 
 `argocd-values.yaml`은 기존 bootstrap values 뒤에 더할 관리 overlay이고, `management-values.yaml`은
 수동 release `argocd-management`의 입력이다. 실제 게시 전 CMP digest를 운영값으로 꾸며 넣지 않는다.
+인계 뒤 AppProject·관리 RBAC 변경의 반영 순서는 §3.1을 따른다.
 관리 chart는 root/platform/workload Project와 controller Role·server 조회 Role을 분리한다.
 Argo 3.5의 cache는 등록 namespace 전체에서 같은 종류를 조회하므로, controller 전용
 `argocd-dev-cache-reader`가 `argocd`와 관리 namespace 6개에서 동일한 리소스 종류의 `get/list/watch`를
@@ -407,6 +408,26 @@ Namespace·CRD·PVC·Kafka·ClickHouse 삭제는 대상·데이터 영향·복�
 chart·runtime만 바뀐 경우에도 C/V를 새로 검증해 함께 선택한다. 가변 `develop` chart와 최신 values를
 따로 읽거나 Application parameter/`--set`으로 Git 바깥 값을 덧씌우지 않는다. `image.repository` +
 `image.digest`와 overlay 없는 구성을 유지하며 Image Updater·태그 감시는 도입하지 않는다.
+
+### 3.1 관리 구성 변경
+
+`helm/dev/platform/argocd/management/`(AppProject·관리 RBAC)은 수동 release `argocd-management`다.
+root·child가 관리하지 않으므로 위 게시·Argo sync로는 바뀌지 않는다.
+AppProject 허용 목록이나 관리 RBAC가 바뀐 C는, 그 리소스를 쓰는 child를 sync하기 전에 운영자가 `argocd-management`를 먼저 갱신한다.
+갱신은 §2.0.4의 관리 구성 적용과 같은 방식이다. 새 C의 management chart와 §2.0.4의 관리 values 입력을 쓰고, `--reuse-values`나 임의 `--set`으로 대신하지 않는다.
+순서를 어기면 child sync가 허용되지 않은 리소스에서 실패한다.
+
+PROJ-346([ADR 0067](../adr/0067-dev-ingest-horizontal-scale.md))은 workloads Project(`pulsemetry-dev-workloads`)에
+`policy/PodDisruptionBudget`을 더한다. 관리 RBAC는 이미 PDB 쓰기(삭제 제외)를 갖는다. 반영 순서는 다음과 같다.
+
+1. **[운영자]** 위 방식으로 `argocd-management`를 갱신한다. workloads Project의 `namespaceResourceWhitelist`에 PDB가 있는지 확인한다.
+2. Dev CDK Deploy를 승인한다. `helm/**` 변경도 경로 필터에 들어가며 CDK가 no-op이어도 설정 게시를 수행한다([게시 런북 §3](dev-gitops-image-promotion.md#3-infra-설정-게시)).
+3. 게시가 C·V를 private main에 올린다.
+4. Argo 자동 sync가 base(apps CPU 예산 12)와 ingest(replica 2·RollingUpdate·PDB)를 반영한다.
+
+완료는 머지·승인·게시·Synced/Healthy·기능 성공을 따로 판정한다(ADR 0056). dev 확인 항목은 ADR 0067의 Acceptance Criteria다.
+ingest를 replica 1로 되돌리면 PDB가 남는다. `prune=false`이고 controller에 삭제 권한이 없기 때문이다.
+운영자가 `kubectl -n pulsemetry-dev get pdb`로 확인해 지운다.
 
 ## 4. 순차 적용과 성공 판정
 
