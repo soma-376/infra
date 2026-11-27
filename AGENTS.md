@@ -50,6 +50,8 @@ backend [ADR 0083](https://github.com/soma-376/pulsemetry-backend/blob/develop/d
 되돌릴 때는 같은 값을 false로 바꾼다. ingest가 replica 2·RollingUpdate라 값 변경과 `strategy: {type: Recreate}`를 한 커밋에 넣고
 다음 커밋에서 RollingUpdate로 되돌린다([workloads 안내](helm/dev/workloads/README.md#ingest-수평-확장과-처리-방식-전환-proj-346), ADR 0067).
 넘긴 레코드는 ClickHouse로 돌아오지 않으며 재적재는 별도 모듈 몫이다.
+PROJ-347은 배치 하나의 동시 S3 PUT 수를 `PULSEMETRY_TELEMETRY_KAFKA_CONSUMER_BATCH_ARCHIVE_CONCURRENCY=16`으로 둔다(backend 기본 8).
+S3 연결 풀은 backend가 `max(50, 소비자 수 × (동시 수 + 1))`로 맞추므로 그 backend 이미지가 먼저 반영돼야 한다. IAM·S3 동작은 그대로다.
 
 ## PROJ-346 dev ingest 수평 확장
 
