@@ -495,7 +495,9 @@ Synced가 아닌 child를 Progressing으로 보므로, root sync가 ingest(wave 
 남은 `minAvailable 1`은 Pod 하나의 축출도 막아 그 노드의 drain을 막는다. 그래서 되돌림 sync 직후 PDB를 바로 지운다.
 
 1. workloads 되돌림(replica 1·`Recreate`·`PULSEMETRY_TELEMETRY_KAFKA_CONSUMER_CONCURRENCY` `"6"`)을 일반 경로로 게시한다.
-   소비 스레드를 6으로 되돌리지 않으면 Pod 하나가 스레드 3개로 partition 6개를 맡아 병렬도가 절반이 된다. Deployment의 replica가 1이 된 것으로 반영을 확인한다.
+   소비 스레드를 6으로 되돌리지 않으면 Pod 하나가 스레드 3개로 partition 6개를 맡아 병렬도가 절반이 된다.
+   PROJ-347의 `PULSEMETRY_TELEMETRY_KAFKA_CONSUMER_BATCH_ARCHIVE_CONCURRENCY` `"16"`도 지운다(기본 8). 남기면 Pod 하나가 레코드 96개를
+   동시에 준비해 메모리와 S3 연결이 두 배가 된다. Deployment의 replica가 1이 된 것으로 반영을 확인한다.
    이때 ingest Application은 남은 PDB 때문에 OutOfSync다. 반영 전에 PDB를 지우면 self-heal이 Git의 PDB를 다시 만든다.
 2. **[운영자]** PDB를 지우고 ingest Application이 Synced로 돌아오는지 본다.
 

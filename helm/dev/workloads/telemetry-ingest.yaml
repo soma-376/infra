@@ -25,6 +25,10 @@ env:
   # (두 커밋은 따로 게시한다 — 절차는 helm/dev/workloads/README.md, ADR 0067).
   # 끄면(false) 마지막 커밋 위치부터 단건 리스너로 돌아간다. 넘긴 레코드는 되돌아오지 않는다.
   PULSEMETRY_TELEMETRY_KAFKA_CONSUMER_BATCH_ENABLED: "true"
+  # PROJ-347: 배치 하나에서 동시에 준비·S3 PUT하는 레코드 수(소비 스레드마다, backend 기본 8). 배치당 아카이브 시간을 줄인다.
+  # Pod당 동시 PUT은 최대 3 × 16 = 48이다. backend(PROJ-347 이미지)가 S3 연결 풀을 max(50, 소비자 수 × (동시 수 + 1)) = 51로 잡는다.
+  # replica 1·스레드 6으로 되돌리면 6 × 16 = 96이라 이 값도 8로 함께 되돌린다(helm/dev/workloads/README.md).
+  PULSEMETRY_TELEMETRY_KAFKA_CONSUMER_BATCH_ARCHIVE_CONCURRENCY: "16"
 # ADR-0063: 단일 파이프라인 측정 전 Gateway·ingest의 자원 예산을 맞춘다.
 resources:
   requests:
