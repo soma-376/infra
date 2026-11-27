@@ -180,17 +180,21 @@ function checkLiveness(container, listenerHealth) {
 
 // ADR 0067: dev ingest만 replica 2·RollingUpdate(maxSurge 0·maxUnavailable 1)·PDB(minAvailable 1)다.
 // 다른 앱은 replica 1·Recreate이고 PDB가 없다. PDB selector는 Deployment selector와 같아야 한다.
-function checkScaling(documents, workload) {
+// 처리 방식 전환 커밋은 ingest를 replica 2·Recreate로 렌더한다(strategy 인자). PDB는 replica로만 정해진다.
+function checkScaling(documents, workload, strategy = { type: 'RollingUpdate', rollingUpdate: { maxSurge: 0, maxUnavailable: 1 } }) {
   const deployment = find(documents, 'Deployment', workload);
   const budgets = documents.filter(document => document.kind === 'PodDisruptionBudget');
   if (workload === 'telemetry-ingest') {
     assert.equal(deployment.spec.replicas, 2);
-    assert.deepEqual(deployment.spec.strategy, { type: 'RollingUpdate', rollingUpdate: { maxSurge: 0, maxUnavailable: 1 } });
+    assert.deepEqual(deployment.spec.strategy, strategy);
     assert.equal(budgets.length, 1, `${workload} PDB는 하나여야 한다`);
     const budget = find(documents, 'PodDisruptionBudget', workload);
     assert.equal(budget.apiVersion, 'policy/v1');
     assert.deepEqual(budget.metadata.labels, find(documents, 'Service', workload).metadata.labels);
-    assert.deepEqual(budget.spec, { minAvailable: 1, selector: { matchLabels: deployment.spec.selector.matchLabels } });
+    // Ready가 아닌 Pod는 축출을 허용해 두 Pod가 모두 NotReady여도 노드 drain이 막히지 않는다.
+    assert.deepEqual(budget.spec, {
+      minAvailable: 1, unhealthyPodEvictionPolicy: 'AlwaysAllow', selector: { matchLabels: deployment.spec.selector.matchLabels },
+    });
   } else {
     assert.equal(deployment.spec.replicas, 1);
     assert.deepEqual(deployment.spec.strategy, { type: 'Recreate' });
@@ -547,12 +551,14 @@ function checkTelemetry(chart) {
     { ...gw, service: { type: 'ClusterIP' }, targetGroupBindings: [] },
     { ...gw, nodePort: 30081 },
     { ...gw, ingestMode: 'kafka' },
-    // ADR 0067: Gateway는 ingest와 같은 anti-affinity를 쓰지만 replica 1·Recreate를 유지한다.
-    { ...gw, replicaCount: 2 },
-    { ...gw, strategy: { type: 'RollingUpdate', rollingUpdate: { maxSurge: 0, maxUnavailable: 1 } } },
     (({ nodePort, ...rest }) => rest)(gw),
     (({ kafka: _kafka, ...rest }) => rest)(gw),
   ]) rejects('telemetry-gateway', chart, invalid);
+  // ADR 0067: Gateway는 ingest와 같은 anti-affinity를 쓰지만 replica 1·Recreate를 유지한다. schema는 통과하므로 workload 규칙이 거부해야 한다.
+  for (const invalid of [
+    { ...gw, replicaCount: 2 },
+    { ...gw, strategy: { type: 'RollingUpdate', rollingUpdate: { maxSurge: 0, maxUnavailable: 1 } } },
+  ]) assert.match(rejects('telemetry-gateway', chart, invalid).stderr, /telemetry-ingest 전용이다\(ADR 0067\)/);
 
   // ingest: http는 기존 경로, dual은 HTTP+Consumer, kafka는 ClusterIP health만 둔다.
   for (const mode of ['http', 'dual', 'kafka']) {
@@ -917,6 +923,24 @@ try {
       { type: 'OnDelete' },
     ]) rejects(workload, chart, { ...values, strategy });
     if (workload === 'telemetry-ingest') {
+      // 처리 방식 전환 커밋 모양: replica 2·Recreate다. PDB는 그대로이고 Pod template은 RollingUpdate 렌더와 같다.
+      // strategy가 template 밖이라 다음 커밋에서 RollingUpdate로 되돌려도 template hash가 같아 rollout이 없다.
+      const switching = render(workload, chart, { ...values, strategy: { type: 'Recreate' } });
+      checkScaling(switching, workload, { type: 'Recreate' });
+      assert.deepEqual(find(switching, 'Deployment', workload).spec.template, find(base, 'Deployment', workload).spec.template);
+      allDocuments.push(...switching);
+      // 뒤 values 층에서는 Recreate로 바꿀 수 없다. 깊은 병합으로 앞 층의 rollingUpdate가 남고, null도 값으로 남는다.
+      for (const override of [{ strategy: { type: 'Recreate' } }, { strategy: { type: 'Recreate', rollingUpdate: null } }]) {
+        const layered = run(helm, ['template', ...chartArgs(workload, chart, values), '-f', fixture(override)]);
+        assert.notEqual(layered.status, 0, `뒤 층의 strategy 덮어쓰기를 허용했다: ${JSON.stringify(override)}`);
+        assert.match(layered.stderr, /'\/strategy': 'enum' failed/);
+        negativeCases++;
+      }
+      // 현재 동작 고정: replica 1·RollingUpdate도 렌더되고 PDB는 없다.
+      const singleRolling = render(workload, chart, { ...values, replicaCount: 1 });
+      assert.equal(find(singleRolling, 'Deployment', workload).spec.replicas, 1);
+      assert.deepEqual(find(singleRolling, 'Deployment', workload).spec.strategy, values.strategy);
+      assert.deepEqual(singleRolling.filter(document => document.kind === 'PodDisruptionBudget'), []);
       // replica 1·Recreate로 되돌리면 PDB도 렌더하지 않는다.
       const single = render(workload, chart, { ...values, replicaCount: 1, strategy: { type: 'Recreate' } });
       assert.equal(find(single, 'Deployment', workload).spec.replicas, 1);

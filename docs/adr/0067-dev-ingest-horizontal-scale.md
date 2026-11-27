@@ -46,6 +46,7 @@ apps 노드 타입 `t4g.large`, 다른 앱의 replica 1·`Recreate`는 그대로
 2. **ingest는 RollingUpdate `maxSurge 0`·`maxUnavailable 1`이다.** 옛 Pod 하나를 먼저 내리고 비운 노드에 새 Pod를 올린다.
    새 노드 없이 노드 예산 안에서 교체한다. chart가 받는 strategy는 `Recreate`와 이 조합 둘뿐이다.
 3. **PDB `minAvailable 1`을 둔다.** replica가 2 이상일 때만 렌더한다.
+   `unhealthyPodEvictionPolicy: AlwaysAllow`로 Ready가 아닌 Pod는 예산과 관계없이 축출한다.
    workloads AppProject 허용 목록에 `policy/PodDisruptionBudget`을 더한다.
 4. **anti-affinity는 그대로 둔다.** ingest끼리도 다른 노드에 놓는 기존 hostname 필수 규칙이 Pod마다 노드 하나의 CPU를 주는
    격리 장치다. 완화하지 않는다.
@@ -112,7 +113,8 @@ apps 노드 타입 `t4g.large`, 다른 앱의 replica 1·`Recreate`는 그대로
   부족하면 ingest Hikari 최대 연결을 낮추는 env를 검토한다.
 - **PDB 정리.** Argo는 `prune=false`이고 관리 RBAC에 삭제 권한이 없다. replica 1로 되돌리면 PDB가 남아 Pod 하나의 drain을 막는다.
   운영자가 수동으로 지운다.
-- **PDB와 노드 교체.** 한 Pod가 Ready가 아니면 다른 Pod 노드의 drain(Auto Mode 교체 포함)이 막힌다.
+- **PDB와 노드 교체.** 한 Pod가 Ready가 아니면 Ready인 다른 Pod는 축출되지 않아 그 노드의 drain(Auto Mode 교체 포함)이 막힌다.
+  Ready가 아닌 Pod는 `AlwaysAllow`로 축출되므로 그 Pod의 노드는 drain된다. 두 Pod가 모두 Ready가 아니어도 두 노드 모두 drain된다.
 - **관리 구성 선적용.** `argocd-management`는 수동 release다. 운영자가 workloads 변경보다 먼저 갱신해야 한다.
   빠뜨리면 ingest sync가 PDB에서 실패한다.
 - **처리 방식 전환.** 단건↔배치 전환 배포가 자동 sync를 멈추는 수동 절차가 된다.
@@ -132,7 +134,7 @@ apps 노드 타입 `t4g.large`, 다른 앱의 replica 1·`Recreate`는 그대로
 
 ## Acceptance Criteria
 
-- 렌더: ingest는 replica 2·RollingUpdate(`maxSurge 0`·`maxUnavailable 1`)·PDB `minAvailable 1`이다.
+- 렌더: ingest는 replica 2·RollingUpdate(`maxSurge 0`·`maxUnavailable 1`)·PDB `minAvailable 1`·`unhealthyPodEvictionPolicy: AlwaysAllow`이다.
   다른 앱은 replica 1·`Recreate`·PDB 없음이다. 다른 앱의 replica 2와 허용 밖 strategy는 거부한다.
 - platform base의 apps `cpuLimit`이 `"12"`이고, workloads AppProject 허용 목록에 `policy/PodDisruptionBudget`이 있다.
 - dev: ingest Pod 2개가 서로 다른 노드에 있다. `kubectl -n pulsemetry-dev get pdb`의 `ALLOWED DISRUPTIONS`가 1이다.

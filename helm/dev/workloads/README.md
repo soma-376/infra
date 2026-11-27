@@ -138,7 +138,8 @@ execute는 committed offset을 `--to-current --dry-run`으로 다시 읽어 CLI 
 
 [ADR 0067](../../../docs/adr/0067-dev-ingest-horizontal-scale.md)에 따라 `telemetry-ingest`만 replica 2·RollingUpdate
 (`maxSurge 0`·`maxUnavailable 1`)다. Pod당 소비 스레드 3, 합 6이 topic partition 6과 같다.
-replica가 2 이상이면 chart가 PodDisruptionBudget(`minAvailable 1`)을 함께 렌더한다. ingest 외 workload의 replica 2·RollingUpdate는 렌더링을 거부한다.
+replica가 2 이상이면 chart가 PodDisruptionBudget(`minAvailable 1`·`unhealthyPodEvictionPolicy: AlwaysAllow`)을 함께 렌더한다.
+Ready가 아닌 Pod는 예산과 관계없이 축출돼, 두 Pod가 모두 NotReady여도 노드 drain이 막히지 않는다. ingest 외 workload의 replica 2·RollingUpdate는 렌더링을 거부한다.
 ingest Pod끼리도 hostname 필수 anti-affinity로 서로 다른 노드에 놓인다. 옛 Pod 하나를 먼저 내리고 비운 노드에 새 Pod를 올리므로 교체에 새 노드가 필요 없다.
 PDB를 허용하는 workloads AppProject는 수동 release `argocd-management`가 소유한다.
 처음 반영할 때는 [Argo 운영 런북 §3.1](../../../docs/runbooks/dev-argocd-operations.md#31-관리-구성-변경)의 순서를 따른다.

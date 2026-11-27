@@ -9,6 +9,8 @@ metadata:
     {{- include "pulsemetry.app.labels" . | nindent 4 }}
 spec:
   minAvailable: 1
+  # Ready가 아닌 Pod는 예산과 관계없이 축출한다. 기본값 IfHealthyBudget이면 두 Pod가 모두 NotReady일 때 두 노드의 drain이 막힌다.
+  unhealthyPodEvictionPolicy: AlwaysAllow
   selector:
     matchLabels:
       {{- include "pulsemetry.app.selector" . | nindent 6 }}
