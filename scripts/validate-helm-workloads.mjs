@@ -416,7 +416,8 @@ function checkPlatform() {
         [{ key: 'workload', value: 'clickhouse', effect: 'NoSchedule' }]);
       assert.deepEqual(requirements[3], { key: 'topology.kubernetes.io/zone', operator: 'In', values: ['ap-northeast-2a'] });
     } else assert.equal(nodePool.spec.template.spec.taints, undefined);
-    assert.equal(nodePool.spec.limits.cpu, '8');
+    // ADR 0067: apps는 정상 4대(Gateway·ingest 2·k6)와 교체 여유 2대, ClickHouse는 ADR 0066의 8이다.
+    assert.equal(nodePool.spec.limits.cpu, pool === 'apps' ? '12' : '8');
   }
   // AWS가 배포하는 NodeClass/Auto Mode NodePool CRD는 live 설치 전 구조만 검사한다.
   const observationStorage = find(documents, 'StorageClass', 'gp3-observability');

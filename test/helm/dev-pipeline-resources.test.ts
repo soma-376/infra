@@ -76,7 +76,8 @@ suite('PROJ-304 dev 파이프라인 자원과 노드 분리', () => {
     expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' });
     const documents = loadAll(result.stdout).filter(Boolean);
     const expectedPools = [
-      ['pulsemetry-dev-apps', 't4g.large', '8', values.appNodeSecurityGroupId],
+      // ADR 0067: 부하 시험 정상 4대(Gateway·ingest 2·k6)와 교체 여유 2대
+      ['pulsemetry-dev-apps', 't4g.large', '12', values.appNodeSecurityGroupId],
       ['pulsemetry-dev-clickhouse', 'm7g.xlarge', '8', values.clickhouseNodeSecurityGroupId],
       ['pulsemetry-dev-kafka', 'm7g.large', '8', values.kafka.securityGroupId],
       ['pulsemetry-observability', 'm7g.large', '4', values.observabilityNodeSecurityGroupId],
