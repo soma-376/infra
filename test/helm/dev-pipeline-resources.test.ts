@@ -108,8 +108,14 @@ suite('PROJ-304 dev 파이프라인 자원과 노드 분리', () => {
     const resource = deployment(workload);
     const pod = resource.spec.template.spec;
     expect(pod.containers[0].resources).toEqual(pipelineResources);
-    expect(resource.spec.replicas).toBe(1);
-    expect(resource.spec.strategy).toEqual({ type: 'Recreate' });
+    // ADR 0067: ingest만 replica 2·RollingUpdate로 노드 두 대에 나뉜다. Gateway는 replica 1·Recreate다.
+    if (workload === 'telemetry-ingest') {
+      expect(resource.spec.replicas).toBe(2);
+      expect(resource.spec.strategy).toEqual({ type: 'RollingUpdate', rollingUpdate: { maxSurge: 0, maxUnavailable: 1 } });
+    } else {
+      expect(resource.spec.replicas).toBe(1);
+      expect(resource.spec.strategy).toEqual({ type: 'Recreate' });
+    }
     expect(pod.nodeSelector).toEqual({ 'kubernetes.io/arch': 'arm64', 'karpenter.sh/nodepool': 'pulsemetry-dev-apps' });
     expect(pod.affinity).toEqual({ podAntiAffinity: { requiredDuringSchedulingIgnoredDuringExecution: [{
       labelSelector: { matchExpressions: [{ key: 'app.kubernetes.io/name', operator: 'In', values: ['telemetry-gateway', 'telemetry-ingest'] }] },

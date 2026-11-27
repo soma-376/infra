@@ -288,6 +288,9 @@ suite('perf Helm chart', () => {
     const chart = 'helm/dev/workloads/spring-app';
     rejects(chart, 'pulsemetry-dev', workload('telemetry-gateway'));
     rejects(chart, 'pulsemetry-perf', workload('telemetry-gateway'), ['replicaCount=0']);
+    // ADR 0067의 replica 2·RollingUpdate는 dev ingest 전용이다. perf는 replica 0|1·Recreate를 유지한다.
+    rejects(chart, 'pulsemetry-perf', workload('telemetry-ingest'), ['replicaCount=2']);
+    rejects(chart, 'pulsemetry-perf', workload('telemetry-ingest'), ['strategy.type=RollingUpdate', 'strategy.rollingUpdate.maxSurge=0', 'strategy.rollingUpdate.maxUnavailable=1']);
     rejects(chart, 'pulsemetry-perf', workload('telemetry-gateway'), ['service.type=NodePort']);
     rejects(chart, 'pulsemetry-perf', workload('telemetry-gateway'), ['nodePort=30082']);
     rejects(chart, 'pulsemetry-perf', workload('telemetry-gateway'), ['placement.nodePool=perf-system']);

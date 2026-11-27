@@ -44,6 +44,13 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- else if .Values.placement -}}
 {{- fail "placement는 perf 전용이다" -}}
 {{- end -}}
+{{- if not $perf -}}
+{{- /* ADR 0067: dev 수평 확장·RollingUpdate는 telemetry-ingest만 쓴다. 다른 앱은 replica 1·Recreate를 유지한다. */ -}}
+{{- $strategy := .Values.strategy | default dict -}}
+{{- if and (ne .Values.workload "telemetry-ingest") (or (ne (int .Values.replicaCount) 1) (ne (get $strategy "type") "Recreate")) -}}
+{{- fail (printf "dev %s는 replica 1·Recreate만 쓴다. replica 2·RollingUpdate는 telemetry-ingest 전용이다(ADR 0067)" .Values.workload) -}}
+{{- end -}}
+{{- end -}}
 {{- $oidc := .Values.oidc | default (dict "enabled" false) -}}
 {{- $telemetry := .Values.telemetryJwt | default (dict "enabled" false) -}}
 {{- $kafka := .Values.kafka | default (dict "enabled" false) -}}

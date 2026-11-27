@@ -1,0 +1,15 @@
+{{- /* ADR 0067: replica가 둘 이상일 때만 자발적 중단(노드 교체·drain)에서 Pod 하나를 남긴다. dev에서는 telemetry-ingest만 해당한다. */}}
+{{- if gt (int .Values.replicaCount) 1 }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Values.workload }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pulsemetry.app.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "pulsemetry.app.selector" . | nindent 6 }}
+{{- end }}

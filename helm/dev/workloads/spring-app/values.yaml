@@ -3,6 +3,9 @@
 environment: dev
 workload: ""
 replicaCount: 1
+# ADR 0067: dev 앱은 Recreate가 기본이다. telemetry-ingest만 RollingUpdate(maxSurge 0·maxUnavailable 1)를 쓴다. perf는 Recreate만 받는다.
+strategy:
+  type: Recreate
 image:
   repository: ""
   digest: ""

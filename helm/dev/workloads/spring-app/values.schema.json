@@ -8,6 +8,7 @@
       "required": [
         "workload",
         "replicaCount",
+        "strategy",
         "image",
         "resources",
         "env",
@@ -32,7 +33,13 @@
           ]
         },
         "replicaCount": {
-          "const": 1
+          "enum": [
+            1,
+            2
+          ]
+        },
+        "strategy": {
+          "$ref": "#/definitions/devStrategy"
         },
         "image": {
           "type": "object",
@@ -840,6 +847,7 @@
       "required": [
         "workload",
         "replicaCount",
+        "strategy",
         "image",
         "resources",
         "env",
@@ -869,6 +877,11 @@
             0,
             1
           ]
+        },
+        "strategy": {
+          "const": {
+            "type": "Recreate"
+          }
         },
         "image": {
           "type": "object",
@@ -2021,6 +2034,20 @@
           }
         }
       }
+    },
+    "devStrategy": {
+      "enum": [
+        {
+          "type": "Recreate"
+        },
+        {
+          "type": "RollingUpdate",
+          "rollingUpdate": {
+            "maxSurge": 0,
+            "maxUnavailable": 1
+          }
+        }
+      ]
     }
   }
 }

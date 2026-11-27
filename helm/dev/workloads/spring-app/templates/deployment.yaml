@@ -60,8 +60,9 @@ metadata:
     {{- include "pulsemetry.app.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  {{- /* 허용 조합은 schema와 validate가 정한다(ADR 0067). Recreate는 기존 렌더와 같은 바이트다. */}}
   strategy:
-    type: Recreate
+    {{- toYaml .Values.strategy | nindent 4 }}
   selector:
     matchLabels:
       {{- include "pulsemetry.app.selector" . | nindent 6 }}

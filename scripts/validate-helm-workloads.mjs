@@ -61,6 +61,7 @@ function rejects(release, chart, values, namespace) {
   const result = run(helm, ['template', ...chartArgs(release, chart, values, namespace)]);
   assert.notEqual(result.status, 0, `잘못된 입력을 허용했다: ${JSON.stringify(values)}`);
   negativeCases++;
+  return result;
 }
 
 function find(documents, kind, name) {
@@ -177,6 +178,26 @@ function checkLiveness(container, listenerHealth) {
   assert.equal(container.livenessProbe.periodSeconds * container.livenessProbe.failureThreshold, 30);
 }
 
+// ADR 0067: dev ingest만 replica 2·RollingUpdate(maxSurge 0·maxUnavailable 1)·PDB(minAvailable 1)다.
+// 다른 앱은 replica 1·Recreate이고 PDB가 없다. PDB selector는 Deployment selector와 같아야 한다.
+function checkScaling(documents, workload) {
+  const deployment = find(documents, 'Deployment', workload);
+  const budgets = documents.filter(document => document.kind === 'PodDisruptionBudget');
+  if (workload === 'telemetry-ingest') {
+    assert.equal(deployment.spec.replicas, 2);
+    assert.deepEqual(deployment.spec.strategy, { type: 'RollingUpdate', rollingUpdate: { maxSurge: 0, maxUnavailable: 1 } });
+    assert.equal(budgets.length, 1, `${workload} PDB는 하나여야 한다`);
+    const budget = find(documents, 'PodDisruptionBudget', workload);
+    assert.equal(budget.apiVersion, 'policy/v1');
+    assert.deepEqual(budget.metadata.labels, find(documents, 'Service', workload).metadata.labels);
+    assert.deepEqual(budget.spec, { minAvailable: 1, selector: { matchLabels: deployment.spec.selector.matchLabels } });
+  } else {
+    assert.equal(deployment.spec.replicas, 1);
+    assert.deepEqual(deployment.spec.strategy, { type: 'Recreate' });
+    assert.deepEqual(budgets, [], `${workload}에는 PDB가 없어야 한다`);
+  }
+}
+
 function checkApp(documents, workload, grace = 60) {
   const deployment = find(documents, 'Deployment', workload);
   const pod = deployment.spec.template.spec;
@@ -184,8 +205,7 @@ function checkApp(documents, workload, grace = 60) {
   const service = find(documents, 'Service', workload);
   const port = { 'telemetry-ingest': 4316, 'enrollment-api': 8080, 'dashboard-api': 8081, 'telemetry-gateway': 8082 }[workload];
   assert.equal(pod.terminationGracePeriodSeconds, grace);
-  assert.equal(deployment.spec.replicas, 1);
-  assert.deepEqual(deployment.spec.strategy, { type: 'Recreate' });
+  checkScaling(documents, workload);
   assert.deepEqual(deployment.spec.selector.matchLabels, deployment.spec.template.metadata.labels);
   assert.deepEqual(service.spec.selector, deployment.spec.selector.matchLabels);
   assert.equal(service.spec.type, 'NodePort');
@@ -526,6 +546,9 @@ function checkTelemetry(chart) {
     { ...gw, service: { type: 'ClusterIP' }, targetGroupBindings: [] },
     { ...gw, nodePort: 30081 },
     { ...gw, ingestMode: 'kafka' },
+    // ADR 0067: Gateway는 ingest와 같은 anti-affinity를 쓰지만 replica 1·Recreate를 유지한다.
+    { ...gw, replicaCount: 2 },
+    { ...gw, strategy: { type: 'RollingUpdate', rollingUpdate: { maxSurge: 0, maxUnavailable: 1 } } },
     (({ nodePort, ...rest }) => rest)(gw),
     (({ kafka: _kafka, ...rest }) => rest)(gw),
   ]) rejects('telemetry-gateway', chart, invalid);
@@ -548,6 +571,7 @@ function checkTelemetry(chart) {
       assert.deepEqual(service.spec.ports, [{ name: 'http', port: 4316, targetPort: 'http', protocol: 'TCP' }]);
       assert.equal(ingest.filter(document => document.kind === 'TargetGroupBinding').length, 0);
       assert.equal(find(ingest, 'Deployment', 'telemetry-ingest').spec.template.spec.terminationGracePeriodSeconds, grace);
+      checkScaling(ingest, 'telemetry-ingest');
     } else checkApp(ingest, 'telemetry-ingest', grace);
     const pod = find(ingest, 'Deployment', 'telemetry-ingest').spec.template.spec;
     assert.deepEqual(pod.volumes.map(volume => volume.name), ['secrets-store', 'telemetry-jwt', 'blocked-certs']);
@@ -880,7 +904,29 @@ try {
     rejects(workload, chart, { ...values, image: { ...values.image, digest: '' } });
     rejects(workload, chart, { ...values, image: { ...values.image, digest: 'latest' } });
     rejects(workload, chart, { ...values, image: { ...values.image, repository: 'example.invalid/app:latest' } });
-    rejects(workload, chart, { ...values, replicaCount: 2 });
+    // ADR 0067: replica 2·RollingUpdate는 ingest 전용이고, strategy는 Recreate와 RollingUpdate(maxSurge 0·maxUnavailable 1) 두 조합만 받는다.
+    const rolling = { type: 'RollingUpdate', rollingUpdate: { maxSurge: 0, maxUnavailable: 1 } };
+    for (const replicaCount of [0, 3]) rejects(workload, chart, { ...values, replicaCount });
+    for (const strategy of [
+      { type: 'RollingUpdate' },
+      { type: 'RollingUpdate', rollingUpdate: { maxSurge: 1, maxUnavailable: 0 } },
+      { type: 'RollingUpdate', rollingUpdate: { maxSurge: 0, maxUnavailable: 2 } },
+      { type: 'RollingUpdate', rollingUpdate: { maxSurge: 0, maxUnavailable: '50%' } },
+      { type: 'Recreate', rollingUpdate: rolling.rollingUpdate },
+      { type: 'OnDelete' },
+    ]) rejects(workload, chart, { ...values, strategy });
+    if (workload === 'telemetry-ingest') {
+      // replica 1·Recreate로 되돌리면 PDB도 렌더하지 않는다.
+      const single = render(workload, chart, { ...values, replicaCount: 1, strategy: { type: 'Recreate' } });
+      assert.equal(find(single, 'Deployment', workload).spec.replicas, 1);
+      assert.deepEqual(find(single, 'Deployment', workload).spec.strategy, { type: 'Recreate' });
+      assert.deepEqual(single.filter(document => document.kind === 'PodDisruptionBudget'), []);
+    } else {
+      // schema는 통과하는 조합이라 validate의 workload 규칙이 거부해야 한다.
+      for (const invalid of [{ replicaCount: 2 }, { strategy: rolling }, { replicaCount: 2, strategy: rolling }]) {
+        assert.match(rejects(workload, chart, { ...values, ...invalid }).stderr, /telemetry-ingest 전용이다\(ADR 0067\)/);
+      }
+    }
     rejects(workload, chart, { ...values, resources: { limits: { memory: '512Mi' } } });
     rejects(workload, chart, { ...values, env: { PULSEMETRY_DB_PASSWORD: 'fixture-only' } });
     rejects(workload, chart, { ...values, env: { PULSEMETRY_ADMIN_API_TOKEN: 'fixture-only' } });
