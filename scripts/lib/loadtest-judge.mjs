@@ -155,7 +155,7 @@ export function extractSummary(text) {
 const SECRET_NAME = /SECRET|PASSWORD|PASSWD|TOKEN|PRIVATE|CREDENTIAL|_KEY$|_KEYS$|API_KEY|DSN|AUTH/i;
 
 /**
- * 구성 스냅샷 — `kubectl get deploy,sts,cm -n pulsemetry-dev -o json` 에서 replica·resources·env(PULSEMETRY_*)·이미지·nodeSelector 만.
+ * 구성 스냅샷 — `kubectl get deploy,sts,cm -n pulsemetry-dev -o json` 에서 replica·갱신 방식·resources·env(PULSEMETRY_*)·이미지·nodeSelector 만.
  * Secret 참조(valueFrom)는 참조라는 사실만, 비밀로 보이는 이름의 값은 `<redacted>` 로 둔다. Secret·ConfigMap 의 다른 값은 옮기지 않는다.
  */
 export function configSnapshot(list) {
@@ -174,6 +174,8 @@ export function configSnapshot(list) {
       name: item.metadata?.name,
       replicas: item.spec?.replicas ?? null,
       readyReplicas: item.status?.readyReplicas ?? null,
+      // 갱신 방식(Deployment strategy·StatefulSet updateStrategy). replica 여럿의 RollingUpdate 는 배포 중 Pod 가 겹친다 — 실행끼리 비교할 때 본다.
+      strategy: item.spec?.strategy ?? item.spec?.updateStrategy ?? null,
       nodeSelector: pod.nodeSelector ?? {},
       containers: [...(pod.initContainers ?? []), ...(pod.containers ?? [])].map(container => ({
         name: container.name,

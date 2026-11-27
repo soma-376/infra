@@ -152,9 +152,14 @@ describe('summary·구성 스냅샷', () => {
     expect(call('extractSummary', JSON.stringify(json))).toEqual(json);
   });
 
-  test('구성 스냅샷은 PULSEMETRY_* env·이미지·자원·replica·nodeSelector 만 남기고 비밀 값을 버린다', () => {
+  test('구성 스냅샷은 PULSEMETRY_* env·이미지·자원·replica·갱신 방식·nodeSelector 만 남기고 비밀 값을 버린다', () => {
+    // ingest 는 PROJ-346 의 replica 2·RollingUpdate 모양이다. 갱신 방식은 Deployment strategy·StatefulSet updateStrategy 를 그대로 옮긴다.
+    const rolling = { type: 'RollingUpdate', rollingUpdate: { maxSurge: 1, maxUnavailable: 0 } };
     const snapshot = call('configSnapshot', { items: [
-      { kind: 'Deployment', metadata: { name: 'telemetry-ingest' }, status: { readyReplicas: 1 }, spec: { replicas: 1, template: { spec: {
+      { kind: 'StatefulSet', metadata: { name: 'clickhouse' }, status: { readyReplicas: 1 }, spec: { replicas: 1,
+        updateStrategy: { type: 'RollingUpdate', rollingUpdate: { partition: 0 } }, template: { spec: { containers: [{ name: 'clickhouse', image: 'x/ch@sha256:def' }] } } } },
+      { kind: 'Deployment', metadata: { name: 'telemetry-gateway' }, spec: { replicas: 1, template: { spec: { containers: [] } } } },
+      { kind: 'Deployment', metadata: { name: 'telemetry-ingest' }, status: { readyReplicas: 2 }, spec: { replicas: 2, strategy: rolling, template: { spec: {
         nodeSelector: { 'karpenter.sh/nodepool': 'pulsemetry-dev-apps' },
         containers: [{ name: 'telemetry-ingest', image: 'x/ingest@sha256:abc', resources: { requests: { cpu: '500m' } }, env: [
           { name: 'PULSEMETRY_KAFKA_MAX_POLL_RECORDS', value: '5' },
@@ -168,8 +173,14 @@ describe('summary·구성 스냅샷', () => {
     ] });
     const text = JSON.stringify(snapshot);
     for (const secret of ['hunter2-secret-value', 'other-secret', 'k-secret', 'aHVudGVyMg==', 'password: x']) expect(text).not.toContain(secret);
-    expect(snapshot.workloads[0]).toEqual({
-      kind: 'Deployment', name: 'telemetry-ingest', replicas: 1, readyReplicas: 1, nodeSelector: { 'karpenter.sh/nodepool': 'pulsemetry-dev-apps' },
+    expect(snapshot.workloads.map((w: any) => [w.name, w.replicas, w.strategy])).toEqual([
+      ['clickhouse', 1, { type: 'RollingUpdate', rollingUpdate: { partition: 0 } }],
+      // 갱신 방식이 없는 입력(kubectl 출력에는 늘 있다)은 null 이다 — 기본값을 추정해 채우지 않는다.
+      ['telemetry-gateway', 1, null],
+      ['telemetry-ingest', 2, rolling],
+    ]);
+    expect(snapshot.workloads[2]).toEqual({
+      kind: 'Deployment', name: 'telemetry-ingest', replicas: 2, readyReplicas: 2, strategy: rolling, nodeSelector: { 'karpenter.sh/nodepool': 'pulsemetry-dev-apps' },
       containers: [{ name: 'telemetry-ingest', image: 'x/ingest@sha256:abc', resources: { requests: { cpu: '500m' } }, env: [
         { name: 'PULSEMETRY_DB_PASSWORD', value: '<redacted>' },
         { name: 'PULSEMETRY_KAFKA_MAX_POLL_RECORDS', value: '5' },

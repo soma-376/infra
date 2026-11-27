@@ -1325,7 +1325,7 @@
       "id": 25,
       "type": "timeseries",
       "title": "JVM heap 사용·committed·max",
-      "description": "Gateway·ingest의 heap 사용량·committed·최대값이다.",
+      "description": "Gateway·ingest Pod별 heap 사용량·committed·최대값이다. replica가 여럿이면 Pod마다 선이 따로 있다 — 서비스 합은 Pod 한도와 비교할 수 없다.",
       "datasource": {
         "type": "prometheus",
         "uid": "pulsemetry-prometheus"
@@ -1339,20 +1339,20 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by(service)(jvm_memory_used_bytes{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"telemetry-gateway|telemetry-ingest\",pod=~\"$pod\",area=\"heap\"})",
-          "legendFormat": "{{service}} used",
+          "expr": "sum by(service,pod)(jvm_memory_used_bytes{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"telemetry-gateway|telemetry-ingest\",pod=~\"$pod\",area=\"heap\"})",
+          "legendFormat": "{{pod}} used",
           "range": true
         },
         {
           "refId": "B",
-          "expr": "sum by(service)(jvm_memory_committed_bytes{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"telemetry-gateway|telemetry-ingest\",pod=~\"$pod\",area=\"heap\"})",
-          "legendFormat": "{{service}} committed",
+          "expr": "sum by(service,pod)(jvm_memory_committed_bytes{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"telemetry-gateway|telemetry-ingest\",pod=~\"$pod\",area=\"heap\"})",
+          "legendFormat": "{{pod}} committed",
           "range": true
         },
         {
           "refId": "C",
-          "expr": "sum by(service)(jvm_memory_max_bytes{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"telemetry-gateway|telemetry-ingest\",pod=~\"$pod\",area=\"heap\"})",
-          "legendFormat": "{{service}} max",
+          "expr": "sum by(service,pod)(jvm_memory_max_bytes{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"telemetry-gateway|telemetry-ingest\",pod=~\"$pod\",area=\"heap\"})",
+          "legendFormat": "{{pod}} max",
           "range": true
         }
       ],

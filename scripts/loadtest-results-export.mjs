@@ -76,7 +76,11 @@ function selectors(vars) {
   };
 }
 
-/** 유지 구간 전체 창의 판정 값. 모두 holdEnd 시각의 instant 질의다. H = 유지 구간 초. */
+/**
+ * 유지 구간 전체 창의 판정 값. 모두 holdEnd 시각의 instant 질의다. H = 유지 구간 초.
+ * 자원 값(CPU/limit·heap)은 Pod 마다 계산한 뒤 최댓값이다 — replica 가 여럿이면 서비스 합은 Pod 한도와 비교할 수 없다.
+ * 서비스마다 Pod 가 하나면 서비스 합과 같은 값이다.
+ */
 function windowQueries(vars, holdSeconds) {
   const s = selectors(vars);
   const w = `${Math.max(1, Math.round(holdSeconds))}s`;
@@ -89,7 +93,7 @@ function windowQueries(vars, holdSeconds) {
     completionP95Seconds: quantile(0.95, 'pulsemetry_pipeline_accepted_to_completion_seconds_bucket', s.ingest),
     chInsertedRows: `sum(increase(ClickHouseProfileEvents_InsertedRows{${s.clickhouse}}[${w}]))`,
     cpuLimitRatioMax: `max(max_over_time((sum by(pod)(rate(container_cpu_usage_seconds_total{${s.pods}}[1m])) / sum by(pod)(kube_pod_container_resource_limits{${s.limits}}))[${w}:15s]))`,
-    heapMaxBytes: `max(max_over_time((sum by(service)(jvm_memory_used_bytes{${s.apps},area="heap"}))[${w}:15s]))`,
+    heapMaxBytes: `max(max_over_time((sum by(service,pod)(jvm_memory_used_bytes{${s.apps},area="heap"}))[${w}:15s]))`,
   };
 }
 
