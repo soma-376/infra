@@ -7,6 +7,10 @@ Accepted (PROJ-304의 코드·로컬 검증 범위이며 실제 dev 배포·성�
 ClickHouse의 노드 타입(`m7g.large`)·메모리(6Gi)·NodePool CPU 예산(4)은
 [ADR 0066](0066-dev-clickhouse-xlarge-memory.md)(Proposed)이 부분 대체를 제안한다. 나머지 결정은 그대로 유효하다.
 
+ingest의 replica 1·`Recreate`, 제외 대안 중 ingest replica 증가, apps CPU 예산 8은
+[ADR 0067](0067-dev-ingest-horizontal-scale.md)(Accepted)이 부분 대체한다. ingest는 replica 2·RollingUpdate·PDB, apps CPU 예산은 12다.
+Gateway·ingest 자원과 anti-affinity, apps `t4g.large`, 다른 앱의 replica 1·`Recreate`, 전용 앱 풀 제외는 그대로 유효하다.
+
 [ADR 0028](0028-dev-eks-auto-mode-transition.md)의 apps·ClickHouse 초기 노드 타입과
 Gateway·ingest 초기 Pod 자원만 부분 대체한다. CDK/Helm/Auto Mode 소유권과 ARM64,
 On-Demand, 기존 NodeClass·SG·AZ·PVC 경계는 유지한다.
@@ -29,12 +33,13 @@ ClickHouse의 가용 자원 사용은 노드의 명목 2 vCPU·8Gi 전체를 예
 
 - apps NodePool은 `t4g.large`, ClickHouse NodePool은 `m7g.large`만 허용한다.
   기존 NodePool·NodeClass 이름, SG, ARM64·On-Demand, ClickHouse AZ와 taint를 보존한다.
-- apps의 CPU 예산 8, ClickHouse의 CPU 예산 4를 유지한다. 정상 apps 2대·ClickHouse 1대는
-  예상치이며 고정 대수가 아니다. Auto Mode가 requests와 배치 제약에 따라 증설하고 교체한다.
+- **부분 대체됨(ADR 0067)** — apps CPU 예산은 12다. 기존 결정: apps의 CPU 예산 8, ClickHouse의 CPU 예산 4를 유지한다.
+  정상 apps 2대·ClickHouse 1대는 예상치이며 고정 대수가 아니다. Auto Mode가 requests와 배치 제약에 따라 증설하고 교체한다.
 - Gateway·ingest에만 같은 namespace의 두 workload 이름을 선택하는
   `requiredDuringSchedulingIgnoredDuringExecution` Pod anti-affinity를 적용한다.
   `kubernetes.io/hostname`으로 분리하며 AZ 분리나 다른 앱과의 독점 배치를 보장하지 않는다.
-- replica 1과 앱 `Recreate`를 유지한다. ClickHouse는 기존 단일 Pod StatefulSet의 기본
+- **부분 대체됨(ADR 0067)** — ingest만 replica 2·RollingUpdate(`maxSurge 0`·`maxUnavailable 1`)·PDB다.
+  기존 결정(다른 앱·ClickHouse는 유효): replica 1과 앱 `Recreate`를 유지한다. ClickHouse는 기존 단일 Pod StatefulSet의 기본
   순차 교체를 유지한다. OnDelete·RollingUpdate Deployment로 바꾸지 않는다.
 - 앱별 정적 values에서 새 사양을 고정한다. ClickHouse는 공식 runtime 입력과 생성기로
   전달한다. `limits.cpu: null`로 Helm 기본 CPU 제한을 제거하고 최종 렌더에는 해당 키가 없어야 한다.
@@ -47,7 +52,8 @@ ClickHouse의 가용 자원 사용은 노드의 명목 2 vCPU·8Gi 전체를 예
   지속 부하에서 credit이 비용·결과 해석을 방해하면 별도 변경으로 재검토한다.
 - **c7g.large:** 메모리 4Gi가 앱 limit과 같아 시스템·다른 Pod 여유가 없어 제외한다.
 - **apps를 정확히 2대로 제한:** 교체·배치 여유를 없애므로 기존 최대 4대 예산을 보존한다.
-- **replica 증가·전용 앱 풀 추가:** 단일 파이프라인 측정 목적과 기존 풀 재사용 범위를 넘으므로 제외한다.
+- **부분 대체됨(ADR 0067)** — ingest replica 증가는 ADR 0067이 채택했다. 전용 앱 풀은 계속 제외한다.
+  기존: **replica 증가·전용 앱 풀 추가:** 단일 파이프라인 측정 목적과 기존 풀 재사용 범위를 넘으므로 제외한다.
 
 서울 Linux On-Demand 공개 단가와 EKS Auto Mode 요금을 합산한 730시간 추정에서,
 apps t4g.large 2대는 약 $136.04, m7g.large 2대는 약 $164.02다. 선택한 apps 2대와

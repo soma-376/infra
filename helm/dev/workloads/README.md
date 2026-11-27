@@ -63,7 +63,8 @@ chart에 포함된 공식 Unix용 `blocked.certs`를 사용한다. 출처·취�
 
 Pod annotation `pulsemetry.io/blocked-certs-revision`은 번들 파일의 SHA-256이다. 파일 변경은 각 앱의
 Helm upgrade로 적용하며 checksum 변경이 새 Pod를 생성한다. 실행 중인 Pod의 `subPath` 파일이나
-JVM의 목록이 자동 갱신된다고 가정하지 않는다. replica 1·`Recreate`이므로 재시작 중 중단이 있다.
+JVM의 목록이 자동 갱신된다고 가정하지 않는다. ingest 외 앱은 replica 1·`Recreate`라 재시작 중 중단이 있다.
+ingest는 RollingUpdate로 한 Pod씩 바꾼다(아래 PROJ-346 절).
 파일 누락·빈 내용은 렌더링 오류이고 원본 확보·해시 검증에 실패하면 적용하지 않는다.
 패치된 Temurin 이미지 자체의 차단 목록을 먼저 검증하고, 해당 digest 배포와 임시
 ConfigMap·mount·annotation 제거를 함께 수행한다. 자세한 적용·해제·복구는
@@ -78,7 +79,8 @@ ConfigMap·mount·annotation 제거를 함께 수행한다. 자세한 적용·�
 
 ADR 0063에 따라 Gateway·ingest는 request 500m/2Gi·limit 2 CPU/4Gi이며 hostname 필수
 anti-affinity로 서로 다른 노드에 배치한다. enrollment·dashboard는 request 250m/1Gi·limit 1 CPU/2Gi다.
-모든 앱은 replica 1과 `Recreate`를 사용한다. HTTP readiness
+ingest를 뺀 앱은 replica 1과 `Recreate`를 사용한다. ingest는 [ADR 0067](../../../docs/adr/0067-dev-ingest-horizontal-scale.md)의
+replica 2·RollingUpdate·PDB다(아래 PROJ-346 절). HTTP readiness
 `/api/v1/healthz`를 사용한다. dashboard health는 저장소·인증 기능 성공을 대신하지 않는다.
 TCP liveness는 외부 DB 실패만으로 프로세스를 재시작하지 않는다. startup probe는 ingest에 48회 × 5초, enrollment·dashboard에 12회 × 5초를 허용한다. 이 값과
 메모리·CPU의 실제 부하 여유는 배포 후 검증한다.
@@ -131,3 +133,42 @@ Kafka 3.9 CLI는 오류를 출력하고도 종료 코드 0으로 끝나므로, J
 execute는 committed offset을 `--to-current --dry-run`으로 다시 읽어 CLI 계획과 다르면 실패한다.
 두 Job은 각각 `telemetry-kafka-admin`·`telemetry-kafka-offsets` ServiceAccount와 Pod Identity, 서로 다른 MSK 역할을 쓴다.
 `validate-helm-workloads.mjs`는 Kafka CLI를 stub으로 바꿔 Job shell의 생성·대조·거부 동작을 실행한다. 실제 MSK 접속은 검증하지 않는다.
+
+## ingest 수평 확장과 처리 방식 전환 (PROJ-346)
+
+[ADR 0067](../../../docs/adr/0067-dev-ingest-horizontal-scale.md)에 따라 `telemetry-ingest`만 replica 2·RollingUpdate
+(`maxSurge 0`·`maxUnavailable 1`)다. Pod당 소비 스레드 3, 합 6이 topic partition 6과 같다.
+replica가 2 이상이면 chart가 PodDisruptionBudget(`minAvailable 1`·`unhealthyPodEvictionPolicy: AlwaysAllow`)을 함께 렌더한다.
+Ready가 아닌 Pod는 예산과 관계없이 축출돼, 두 Pod가 모두 NotReady여도 노드 drain이 막히지 않는다. ingest 외 workload의 replica 2·RollingUpdate는 렌더링을 거부한다.
+ingest Pod끼리도 hostname 필수 anti-affinity로 서로 다른 노드에 놓인다. 옛 Pod 하나를 먼저 내리고 새 Pod를 올리므로 교체에 새 노드가 필수는 아니다.
+종료 중 Pod가 anti-affinity 계산에 남아 Auto Mode가 잠깐 노드를 띄울 수 있고, 빈 노드는 `WhenEmpty` 5분 뒤 정리된다.
+PDB를 허용하는 workloads AppProject는 수동 release `argocd-management`가 소유한다.
+처음 반영할 때는 [Argo 운영 런북 §3.1](../../../docs/runbooks/dev-argocd-operations.md#31-관리-구성-변경)의 순서를 따른다.
+
+처리 방식(단건↔배치, `PULSEMETRY_TELEMETRY_KAFKA_CONSUMER_BATCH_ENABLED`)을 바꾸는 배포는 RollingUpdate로 하지 않는다.
+교체 중 옛·새 Pod가 같은 consumer group에서 함께 소비해 두 방식이 섞인다. 커밋 두 개로 `Recreate`를 한 번 거친다.
+chart는 ingest의 replica 2·`Recreate` 조합을 받고 PDB도 그대로 렌더한다.
+
+1. 전환 커밋: `telemetry-ingest.yaml`에서 값을 바꾸고 `strategy` 블록 전체를 `strategy: {type: Recreate}`로 바꾼다.
+   `strategy`는 이 파일에서 블록째 바꾼다. 뒤 values 층에서는 깊은 병합 때문에 `Recreate`로 바꿀 수 없다(spring-app `values.yaml` 주석).
+2. 전환 커밋을 일반 경로(머지 → Dev CDK Deploy 승인 → 게시)로 올린다. Argo 자동 sync가 반영하면 Deployment controller가
+   옛 Pod 두 개를 모두 끝낸 뒤 새 Pod 두 개를 띄운다. Recreate는 Pod를 eviction 없이 지우므로 PDB에 막히지 않는다. 그동안 소비가 멈춘다.
+3. 두 Pod가 Ready이고, Pod마다 로그의 `partitions assigned` 합이 3(스레드당 1, 기본 RangeAssignor)인지 확인한다.
+
+   ```bash
+   kubectl -n pulsemetry-dev rollout status deployment/telemetry-ingest --timeout=10m
+   kubectl -n pulsemetry-dev get pod -l app.kubernetes.io/name=telemetry-ingest -o wide
+   kubectl -n pulsemetry-dev get deployment telemetry-ingest -o jsonpath='{.metadata.annotations.deployment\.kubernetes\.io/revision}{"\n"}'
+   ```
+
+4. 되돌림 커밋: `strategy`를 RollingUpdate 블록(`maxSurge 0`·`maxUnavailable 1`)으로 되돌려 같은 경로로 올린다.
+   strategy는 Pod template 밖이라 template hash가 그대로이고 rollout이 없다. 3단계에서 본 Deployment `revision`이 그대로인지 확인한다.
+
+두 커밋을 한 게시에 묶으면 최종 선언이 RollingUpdate라 두 방식이 섞인다. 전환 커밋의 rollout이 끝난 뒤 되돌림 커밋을 머지한다.
+Argo 자동 sync 중지와 `kubectl scale`은 필요 없다. 다른 이유로 소비를 멈춰야 할 때만
+[Argo 유지보수 절차](../../../docs/runbooks/dev-argocd-simple-auto-sync.md#4-완료-확인과-이후-운영)로 자동 sync·self-heal을 끄고 replica를 줄인다.
+
+ingest를 replica 1로 되돌리면 chart는 PDB를 렌더하지 않지만, `prune=false`이고 controller에 PDB 삭제 권한이 없어 기존 PDB가 남는다.
+남은 PDB는 ingest Application을 OutOfSync로 남겨 root의 다음 wave(Gateway 70·dashboard 80)를 기다리게 하고, Pod 하나의 drain을 막는다.
+되돌림 sync 직후 운영자가 바로 지운다. 순서는 workloads 되돌림(replica 1·`Recreate`·소비 스레드 `"6"`) → PDB 삭제 → (필요하면) 관리 구성의 PDB 허용 제거이며
+[Argo 운영 런북 §3.1](../../../docs/runbooks/dev-argocd-operations.md#31-관리-구성-변경)을 따른다.

@@ -1,0 +1,17 @@
+{{- /* ADR 0067: replica가 둘 이상일 때만 자발적 중단(노드 교체·drain)에서 Pod 하나를 남긴다. dev에서는 telemetry-ingest만 해당한다. */}}
+{{- if gt (int .Values.replicaCount) 1 }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Values.workload }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pulsemetry.app.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  # Ready가 아닌 Pod는 예산과 관계없이 축출한다. 기본값 IfHealthyBudget이면 두 Pod가 모두 NotReady일 때 두 노드의 drain이 막힌다.
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      {{- include "pulsemetry.app.selector" . | nindent 6 }}
+{{- end }}

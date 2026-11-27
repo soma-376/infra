@@ -41,16 +41,19 @@ C="$RUN_DIR/loadtest/$CAMPAIGN"; mkdir -p "$C" && chmod 700 "$C"
   ```bash
   kubectl -n pulsemetry-observability get networkpolicy pulsemetry-prometheus-ingress
   ```
-- 실제 사양이 [ADR 0063](../adr/0063-dev-pipeline-resource-sizing.md)과 같다. 다르면 결과에 그 사양을 적는다(결과 추출의 `config.json`이 남긴다).
+- 실제 사양이 [ADR 0063](../adr/0063-dev-pipeline-resource-sizing.md)·[ADR 0067](../adr/0067-dev-ingest-horizontal-scale.md)과 같다(ingest `replicas=2`, 두 Pod가 서로 다른 노드).
+  다르면 결과에 그 사양을 적는다(결과 추출의 `config.json`이 남긴다).
 
   ```bash
   kubectl -n pulsemetry-dev get deploy telemetry-gateway telemetry-ingest \
     -o jsonpath='{range .items[*]}{.metadata.name} replicas={.spec.replicas} {.spec.template.spec.containers[0].resources}{"\n"}{end}'
   kubectl -n pulsemetry-dev get sts clickhouse -o jsonpath='{.spec.template.spec.containers[0].resources}{"\n"}'
+  kubectl -n pulsemetry-dev get pod -l app.kubernetes.io/name=telemetry-ingest -o wide    # NODE 두 개가 서로 다른지 본다
   kubectl get nodes -L karpenter.sh/nodepool,node.kubernetes.io/instance-type
   ```
 
-- apps 노드 여유: k6 Pod(요청 1.1 CPU·1.1Gi)는 Gateway·ingest가 없는 apps 노드에만 뜬다. 없으면 Karpenter가 노드를 더한다(apps CPU 예산 8).
+- apps 노드 여유: k6 Pod(요청 1.1 CPU·1.1Gi)는 Gateway·ingest Pod(ingest 2개)가 없는 apps 노드에만 뜬다. 그래서 시험 중 apps 노드는 최소 4대다.
+  없으면 Karpenter가 노드를 더한다(apps CPU 예산 12, ADR 0067).
   `kubectl describe nodes -l karpenter.sh/nodepool=pulsemetry-dev-apps | grep -A8 'Allocated resources'`
 - ClickHouse PVC 여유가 충분하다(80% 미만 유지): `kubectl -n pulsemetry-dev exec statefulset/clickhouse -- df -h /var/lib/clickhouse`
 - 시작 전 consumer lag이 0이다(대시보드 `확인된 commit 기준 lag`).
@@ -112,7 +115,7 @@ run() {   # run <testid> [helm --set ...]
   local testid=$1; shift
   "$T/helm" install "loadtest-$testid" helm/dev/loadtest -n pulsemetry-loadtest \
     --set testid="$testid" --set configMapName="loadtest-k6-$SHA" --set seedSecretName="loadtest-seed-$CAMPAIGN" "$@"
-  kubectl -n pulsemetry-loadtest get pods -l "pulsemetry.io/testid=$testid" -o wide    # NODE 가 Gateway·ingest 와 다른지 본다
+  kubectl -n pulsemetry-loadtest get pods -l "pulsemetry.io/testid=$testid" -o wide    # NODE 가 Gateway·ingest 두 Pod 와 다른지 본다
 }
 ```
 
@@ -148,7 +151,8 @@ k6가 스스로 멈추는 것: 오류율 ≥ 5%·p95 ≥ 4s·dropped ≥ 3000(1�
 사람이 멈출 때(대시보드로 본다):
 - lag이 배수 예산(§5-4)을 넘어 쌓인다.
 - ingest 재시도 소진·실패 분류가 늘거나 ClickHouse 지연·실패 INSERT가 는다.
-- Gateway·ingest·ClickHouse의 OOM·재시작(`kubectl -n pulsemetry-dev get pods`의 RESTARTS).
+- Gateway·ingest·ClickHouse의 OOM·재시작(`kubectl -n pulsemetry-dev get pods`의 RESTARTS). ingest는 Pod 2개를 모두 본다.
+  하나가 재시작하면 재할당 동안 소비가 잠깐 멈추고, 그동안 남은 Pod가 6개 partition을 맡는다(ADR 0067).
 - ClickHouse PVC 80% 초과.
 
 ```bash
@@ -185,7 +189,8 @@ node scripts/loadtest-results-export.mjs --prometheus http://127.0.0.1:9090 --cl
 ```
 
 `result/`에 `REPORT.md`(단계별 표·①·② 한계·실패 사유), `judgement.json`, `queries/sNN.json`(대시보드와 같은 식의 원자료),
-`summary.json`, `config.json`(replica·자원·`PULSEMETRY_*` env·이미지 digest·nodeSelector, 비밀로 보이는 값은 `<redacted>`)이 남는다.
+`summary.json`, `config.json`(replica·갱신 방식(`strategy`·`updateStrategy`)·자원·`PULSEMETRY_*` env·이미지 digest·nodeSelector, 비밀로 보이는 값은 `<redacted>`)이 남는다.
+REPORT의 `heap 최대`는 Pod별 heap의 최댓값이다(서비스마다 Pod가 1개면 예전 값과 같다).
 판정 기본값은 ① p95 ≤ 1초·p99 ≤ 3초·오류율 ≤ 0.1%·dropped 0, ② 유지 구간 lag 증가 ≤ max(100, 목표 RPS × 10)·접수→완료 p95 ≤ 직전 통과 단계 × 2·영구 거부·재시도 소진·ClickHouse 지연/실패 INSERT 0이다(`scripts/lib/loadtest-judge.mjs`). 팀이 정한 값은 `--max-p95-seconds`·`--max-p99-seconds`·`--max-error-rate`·`--max-dropped`·
 `--lag-min-growth`·`--lag-growth-per-rps`·`--completion-p95-factor`로 준다. Kafka 이름이 dev main 기본값과 다르면
 `--kafka-cluster`·`--topic`·`--consumer-group`을 준다. 출력 디렉터리는 실행마다 새로 쓴다.
@@ -197,6 +202,8 @@ node scripts/loadtest-results-export.mjs --prometheus http://127.0.0.1:9090 --cl
 - 영구 거부·재시도 소진·ClickHouse 지연/실패 INSERT 는 창을 유지 구간 끝 + `--boundary-delay`(기본 20s)까지 늘린다. 끝 직전 이벤트가
   다음 scrape 에 찍히기 때문이다. 다음 단계 상승 초반이 섞이면 실패 쪽으로만 기운다.
 - 그 창에서 ingest 재시작·Pod 교체·scrape 실패·표본 부족(창 ÷ `--scrape-interval` − 1 미만)이 있으면 그 값은 미수집이다.
+  ingest Pod가 여럿이어도 창 내내 같은 Pod들이면 미수집이 아니다. 창 안에서 Pod가 바뀌거나 줄면 미수집이다(사유: `ingest Pod 교체` 또는 새 Pod의
+  `scrape 표본 부족`). 그래서 시험 중에는 ingest 배포(이미지·설정 게시, Argo sync에 따른 RollingUpdate)를 하지 않는다.
 - lag 증가는 두 경계의 표본 시각이 `--max-sample-age`(기본 30s)보다 오래됐거나 같은 표본이면 미수집이다.
 - 중단·미실행 단계(k6 summary `completed: false`)는 두 층 모두 실패로 표시하고 한계 산정에서 뺀다. 유지 구간을 끝까지 실행하지 않은
   결과를 통과로 세지 않는다. 조기 정지한 실행의 한계는 그 앞에서 이어서 통과한 완료 단계다.
@@ -204,7 +211,7 @@ node scripts/loadtest-results-export.mjs --prometheus http://127.0.0.1:9090 --cl
   되살릴 수 없기 때문이다. 재시작은 두 신호로 본다. `ClickHouseAsyncMetrics_Uptime` 이 줄었거나, 추정 시작 시각(표본 시각 − 가동 초)이
   `--max-start-shift`(기본 3s)보다 크게 움직였으면 재시작이다. 둘째 신호는 재시작 직후 다시 재시작해 가동 시간이 줄지 않는 경우를 잡는다.
   정상일 때 흔들림은 비동기 지표 갱신 주기(1s) 정도다. 부하로 갱신이 밀려 오탐이 나면 REPORT 사유의 이동 폭을 보고 Grafana 로 확인한다.
-  ingest 는 시작 시각 변화·Pod 교체로 같은 판단을 한다.
+  ingest 는 시작 시각 변화·Pod 교체로 같은 판단을 한다(Pod 여러 개면 Pod마다 본다).
 - 미수집은 실패로 표시되고 사유가 REPORT 에 함께 남는다. 이때는 Grafana 로 그 구간을 직접 본다.
 - 지연·처리율(서버 p95·p99, 실제 RPS)은 유지 구간 창 그대로다. 수집 지연(최대 10초)만큼 경계가 어긋나지만 2~5분 창에서는 무시할 수준이다.
 - 마지막 유지 구간 끝 + 경계 지연 전에는 실행을 거부한다.
@@ -250,13 +257,14 @@ node scripts/loadtest-results-export.mjs --prometheus http://127.0.0.1:9090 --cl
 |---|---|---|
 | lag 기울기 > 0, ingest CPU 여유 | ingest concurrency, max.poll.records, replica, partition 수 | 설정 |
 | CPU throttling | CPU limit | values (ADR 0063 영향) |
+| ingest 노드 busy ≈ 2 vCPU, throttling 0 | ingest replica·노드 유형 | ADR 0067(replica 2, `t4g.large` 유지) |
 | Tomcat busy가 max에 닿음 | `threads.max` (16) | 설정 |
 | producer buffer 고갈, 대기 시간 증가 | linger·batch·compression | **코드** |
 | CH INSERT p95·parts 증가 | async_insert, 일괄 INSERT | **코드** |
 | heap committed ≈ max, GC 최대 증가 | JVM 옵션, 메모리 limit | **차트** (현재 JVM env 주입을 막는다) |
 | apps 노드 초과 credit 과금(`CPUSurplusCreditsCharged`) 증가 | 노드 타입 | 이번 범위 밖. 성능 제한이 아니라 비용 문제다(§11) |
 
-사양을 바꾸는 변경은 별도 ADR(0063 개정 등)로 한다. 바꾼 뒤에는 같은 시나리오를 새 캠페인으로 다시 돌려 `config.json`과 함께 비교한다.
+사양을 바꾸는 변경은 별도 ADR(0063·0067 개정 등)로 한다. 바꾼 뒤에는 같은 시나리오를 새 캠페인으로 다시 돌려 `config.json`과 함께 비교한다.
 
 ## 11. 대시보드 밖에서 볼 것
 
@@ -275,6 +283,7 @@ aws ec2 describe-instance-credit-specifications --region ap-northeast-2 --instan
 ```
 
 ingest는 레코드마다 PostgreSQL을 여러 번 조회한다. RDS(`db.t4g.micro`) CPU·연결이 ② 한계를 먼저 정할 수 있다.
+PROJ-346부터 ingest Pod가 2개라 연결도 Pod 수만큼 는다(Hikari 최대 10 × 2). CPU credit도 ingest 노드 두 대를 모두 본다.
 
 apps 노드(`t4g.large`)는 버스트형이라 CPU credit이 있다. 기준선(vCPU당 30%)을 넘게 쓰면 credit을 소모한다. m·c 계열(ClickHouse·Kafka·관측 노드의 `m7g.large`)에는 credit이 없다.
 credit이 0이 됐을 때의 동작은 모드에 따라 다르다. 시작 전에 위 `describe-instance-credit-specifications`로 확인한다.

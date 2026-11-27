@@ -572,13 +572,14 @@ kubectl -n pulsemetry-dev rollout status deployment/enrollment-api --timeout=5m
 helm upgrade --install telemetry-ingest helm/dev/workloads/spring-app --namespace pulsemetry-dev \
   --values helm/dev/workloads/telemetry-ingest.yaml \
   --values "$RUN_DIR/generated/telemetry-ingest.yaml" --wait --timeout 10m
-kubectl -n pulsemetry-dev rollout status deployment/telemetry-ingest --timeout=5m
+# ingest는 Pod 두 개를 차례로 바꾼다. Pod마다 종료(최대 90초)와 시작 검사(최대 240초)를 거쳐 5분이면 두 번째 Pod 중에 끊길 수 있다.
+kubectl -n pulsemetry-dev rollout status deployment/telemetry-ingest --timeout=10m
 kubectl -n pulsemetry-dev get pods,services,targetgroupbindings -o wide
 ```
 
 ClickHouse PVC가 `pulsemetry-dev-gp3`·50Gi·Retain·첫 AZ를 쓰는지 확인한다.
 각 Pod의 nodepool/architecture, enrollment·dashboard 250m/1Gi request·1 CPU/2Gi limit,
-Gateway·ingest 500m/2Gi request·2 CPU/4Gi limit, Recreate 배포와 실제 시작 시간을 기록한다.
+Gateway·ingest 500m/2Gi request·2 CPU/4Gi limit, Recreate 배포(ingest는 ADR 0067의 replica 2·RollingUpdate)와 실제 시작 시간을 기록한다.
 Gateway·ingest hostname 분리와 자원 확대는 [PROJ-304 적용 절차](dev-gitops-image-promotion.md#8-proj-304-파이프라인-자원-확대-적용)를 따른다.
 앱의 필수 Secret 파일 검사가 실패하면 원문을 읽지 않고 association·권한·SPC alias·CSI 이벤트를 점검한다.
 기존 DB·HMAC Secret 변경은 enrollment부터 명시적으로 재시작하고 ready를 확인한 다음 ingest를 재시작한다.
@@ -630,10 +631,10 @@ PROJ-248은 prefix를 변경하지 않는다. 아래는 별도로 prefix 전환�
 PutObject IAM과 Helm values가 한쪽만 바뀐 상태에서 ingest가 계속 수신하면 S3 쓰기가 실패하므로 다음 순서다.
 
 1. 수신 트래픽을 멈추고 처리 완료를 확인한다.
-2. EKS ingest를 0 replica로 내려 쓰기를 멈춘다. 직접 scale은 임시 운영 조치이고 Helm 선언은 replica 1을 유지한다.
+2. EKS ingest를 0 replica로 내려 쓰기를 멈춘다. 직접 scale은 임시 운영 조치이고 Helm 선언의 replica(ADR 0067 뒤 2)는 그대로다.
 3. 영속 CDK 설정의 `devEksArchivePrefix=eks`를 반영하고 EKS stack의 IAM을 배포한다. `devEksEnabled=true`를 유지한다.
 4. 배포 output을 다시 조회해 generator를 실행한다. generated ingest prefix가 `eks`, IAM Resource가 `eks/*`인지 대조한다.
-5. Helm upgrade로 replica 1을 복구하고 새 event ID가 `eks/`에 기록되는지 확인한다.
+5. Helm upgrade로 선언 replica를 복구하고 새 event ID가 `eks/`에 기록되는지 확인한다.
 
 ```bash
 kubectl -n pulsemetry-dev scale deployment/telemetry-ingest --replicas=0
@@ -988,7 +989,7 @@ initContainer는 기존 Secret/JWT 검증만 수행하고 차단 목록 파일�
 
 최초 설치는 §4·§10의 순서를 따른다. 이미 네 앱을 운영하는 환경에서 임시 보호만 적용하거나 목록을
 갱신할 때는 현재 사용 중인 image digest·runtime 입력을 유지하고 아래처럼 앱 release만 갱신한다.
-각 앱이 실패하면 다음 앱으로 넘어가지 않는다. **replica 1·`Recreate`이므로 앱별 재시작 중 중단이 있다.**
+각 앱이 실패하면 다음 앱으로 넘어가지 않는다. **ingest 외 앱은 replica 1·`Recreate`라 앱별 재시작 중 중단이 있다(ingest는 ADR 0067의 RollingUpdate).**
 
 ```bash
 set -euo pipefail
@@ -997,7 +998,8 @@ for release in enrollment-api telemetry-ingest dashboard-api telemetry-gateway; 
   helm upgrade "$release" helm/dev/workloads/spring-app --namespace pulsemetry-dev \
     --values "helm/dev/workloads/$release.yaml" \
     --values "$RUN_DIR/generated/$release.yaml" --wait --timeout 10m
-  kubectl -n pulsemetry-dev rollout status "deployment/$release" --timeout=5m
+  # ingest는 Pod 두 개를 차례로 바꿔(ADR 0067) 5분이면 두 번째 Pod 중에 끊길 수 있다. 다른 앱도 같은 상한을 쓴다.
+  kubectl -n pulsemetry-dev rollout status "deployment/$release" --timeout=10m
 done
 ```
 

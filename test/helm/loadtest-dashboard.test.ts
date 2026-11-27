@@ -23,6 +23,7 @@ const annotation = () => substitute(dashboard.annotations.list.find((a: any) => 
 
 const k6 = 'cluster="fixture-eks",testid="fixture-run"';
 const lagLabels = 'cluster="fixture-eks",kafka_cluster="fixture-kafka",topic="fixture-topic",consumergroup="fixture-group"';
+const app = (service: string, pod: string) => `environment="dev",cluster="fixture-eks",namespace="pulsemetry-dev",service="${service}",pod="${pod}"`;
 
 suite('부하 시험 대시보드의 판정 식', () => {
   test('lag 기울기·유지 구간 p95·오류율·단계 주석을 계산하고 미수신은 비워 둔다', () => {
@@ -68,6 +69,21 @@ suite('부하 시험 대시보드의 판정 식', () => {
           { expr: annotation(), eval_time: '70s', exp_samples: [{ labels: '{}', value: 1 }] },
           { expr: annotation(), eval_time: '30s', exp_samples: [] },
           { expr: annotation(), eval_time: '150s', exp_samples: [] },
+        ] },
+        // ingest replica 2(PROJ-346): heap 은 Pod 별 pool 합이다. 서비스 합(500 + 700)은 Pod 한도와 비교할 수 없다.
+        { interval: '1m', input_series: [
+          { series: `jvm_memory_used_bytes{${app('telemetry-gateway', 'g1')},area="heap",id="G1 Eden Space"}`, values: '100x3' },
+          { series: `jvm_memory_used_bytes{${app('telemetry-gateway', 'g1')},area="heap",id="G1 Old Gen"}`, values: '200x3' },
+          { series: `jvm_memory_used_bytes{${app('telemetry-ingest', 'i1')},area="heap",id="G1 Eden Space"}`, values: '100x3' },
+          { series: `jvm_memory_used_bytes{${app('telemetry-ingest', 'i1')},area="heap",id="G1 Old Gen"}`, values: '400x3' },
+          { series: `jvm_memory_used_bytes{${app('telemetry-ingest', 'i2')},area="heap",id="G1 Old Gen"}`, values: '700x3' },
+          { series: `jvm_memory_used_bytes{${app('telemetry-ingest', 'i2')},area="nonheap",id="Metaspace"}`, values: '9000x3' },
+        ], promql_expr_test: [
+          { expr: query('JVM heap 사용·committed·max', 'A'), eval_time: '2m', exp_samples: [
+            { labels: '{pod="g1",service="telemetry-gateway"}', value: 300 },
+            { labels: '{pod="i1",service="telemetry-ingest"}', value: 500 },
+            { labels: '{pod="i2",service="telemetry-ingest"}', value: 700 },
+          ] },
         ] },
         // 미실행·미수신은 0 이 아니라 빈 값이다.
         { interval: '1m', input_series: [], promql_expr_test: [

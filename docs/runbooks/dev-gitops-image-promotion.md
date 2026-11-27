@@ -89,6 +89,8 @@ apps는 t4g.large, ClickHouse는 m7g.large이며 후자는 request 1500m/6Gi, me
 CPU limit 없음이다. CPU 예산 8/4는 유지하며 정상 apps 2대·ClickHouse 1대는 고정 대수가 아니다.
 [ADR 0066](../adr/0066-dev-clickhouse-xlarge-memory.md)(PROJ-339)은 ClickHouse를 m7g.xlarge·1500m/13Gi·CPU 예산 8로 바꾼다.
 적용하면 ClickHouse 노드가 교체되며 몇 분 중단된다. 아래 절차의 1500m/6Gi는 그 값으로 읽는다.
+[ADR 0067](../adr/0067-dev-ingest-horizontal-scale.md)(PROJ-346)은 ingest만 replica 2·RollingUpdate·PDB로, apps CPU 예산을 12로 바꾼다.
+아래 "두 Pod"는 Gateway 1개와 ingest 2개, 세 Pod로 읽는다. 반영 순서는 [Argo 운영 런북 §3.1](dev-argocd-operations.md#31-관리-구성-변경)이다.
 
 ### 적용 전
 

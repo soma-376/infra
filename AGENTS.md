@@ -17,7 +17,7 @@ prod는 BFF 단일 프로세스 desired=1/min=0/max=100을 유지한다. dev는 
 기존 CDK 전용 테스트 규칙은 그대로 유지하고, 새 Terraform은 fmt·validate·mock test로 검증한다.
 기존 CDK 리소스를 Terraform에 import하거나 같은 리소스를 두 도구가 수정하지 않는다.
 실제 apply는 리뷰·머지 후 보호된 CI에서 수행한다. 최초 bootstrap CI 역할 준비는 관리자 작업이다. 이후 bootstrap 변경은 ADR-0050에 따라 develop에서 전용 plan/apply 역할과 Environment 승인을 거친다.
-다음 미사용 ADR은 **0067**이다. ADR 0054는 로컬 OIDC callback PR에서 예약했고 0055는 공유 Valkey다.
+다음 미사용 ADR은 **0068**이다. ADR 0054는 로컬 OIDC callback PR에서 예약했고 0055는 공유 Valkey다.
 
 [ADR-0044](docs/adr/0044-dev-waf-cli-oidc-loopback-query-exception.md)에 따라 정확한 CLI OIDC authorize GET과
 검증된 loopback query에만 SSRF·RFI 두 label의 후속 Block을 제외한다.
@@ -46,17 +46,30 @@ apps SG → 관측 SG 9090 규칙 하나와 Prometheus 수신 NetworkPolicy(dev 
 ## PROJ-341 dev ingest 배치 소비
 
 backend [ADR 0083](https://github.com/soma-376/pulsemetry-backend/blob/develop/docs/adr/)에 따라 dev ingest에 `PULSEMETRY_TELEMETRY_KAFKA_CONSUMER_BATCH_ENABLED=true`를 둔다.
-같은 consumer group·앱 Recreate·기존 S3 PutObject 범위(`eks/*`, 넘김 목록 `eks/handoff/`)를 그대로 쓴다. 로그 경보에 배치 event 4종을 더했다.
-되돌릴 때는 같은 값을 false로 바꾼다. 넘긴 레코드는 ClickHouse로 돌아오지 않으며 재적재는 별도 모듈 몫이다.
+같은 consumer group·기존 S3 PutObject 범위(`eks/*`, 넘김 목록 `eks/handoff/`)를 그대로 쓴다. 로그 경보에 배치 event 4종을 더했다.
+되돌릴 때는 같은 값을 false로 바꾼다. ingest가 replica 2·RollingUpdate라 값 변경과 `strategy: {type: Recreate}`를 한 커밋에 넣고
+다음 커밋에서 RollingUpdate로 되돌린다([workloads 안내](helm/dev/workloads/README.md#ingest-수평-확장과-처리-방식-전환-proj-346), ADR 0067).
+넘긴 레코드는 ClickHouse로 돌아오지 않으며 재적재는 별도 모듈 몫이다.
+
+## PROJ-346 dev ingest 수평 확장
+
+[ADR 0067](docs/adr/0067-dev-ingest-horizontal-scale.md)을 따른다. ingest만 replica 2 × Pod당 소비 스레드 3(소비자 6 = partition 6)이며
+RollingUpdate `maxSurge 0`·`maxUnavailable 1`과 PDB `minAvailable 1`을 둔다. 다른 앱은 replica 1·Recreate이고 chart가 다른 값을 거부한다.
+ingest끼리도 hostname 필수 anti-affinity로 다른 노드에 놓인다. apps 노드는 `t4g.large` 그대로이고 CPU 예산은 12다
+(부하 시험 때 Gateway·ingest 2·k6 4대 + 교체 여유 2대). 근거는 ⑧(2026-11-25) 노드 busy 1.82/2와 PROJ-344 JFR(2026-11-27)의 다른 Pod·커널 몫 0.11–0.13 core다.
+workloads AppProject에 PDB를 허용하므로 수동 release `argocd-management`를 workloads 변경보다 먼저 갱신한다
+([Argo 운영 런북 §3.1](docs/runbooks/dev-argocd-operations.md#31-관리-구성-변경)). PDB는 `prune=false`라 되돌릴 때 운영자가 지운다.
+처리 방식(단건↔배치) 전환은 Argo 자동 sync 중지·`kubectl scale` 없이 값 변경과 `Recreate`를 한 커밋에 넣고 다음 커밋에서 RollingUpdate로 되돌린다.
+코드·로컬 검증은 dev 반영·hold 500·Pod 삭제 시험의 증거가 아니다.
 
 ## PROJ-304 dev 파이프라인 자원 확대
 
 [ADR 0063](docs/adr/0063-dev-pipeline-resource-sizing.md)을 따른다. apps는 `t4g.large`, ClickHouse는
-`m7g.large`를 사용하며 CPU 예산은 8/4를 유지한다. Gateway·ingest 모두 request 500m/2Gi,
+`m7g.large`를 사용하며 CPU 예산은 8/4다(apps는 ADR 0067로 12). Gateway·ingest 모두 request 500m/2Gi,
 limit 2 CPU/4Gi이며 hostname 기준 필수 anti-affinity로 서로 다른 노드에 배치한다.
-replica 1·앱 Recreate와 ClickHouse의 기존 순차 교체는 유지한다. ClickHouse는 request 1500m/6Gi,
+replica 1·앱 Recreate와 ClickHouse의 기존 순차 교체는 유지한다(ingest는 ADR 0067로 replica 2·RollingUpdate). ClickHouse는 request 1500m/6Gi,
 메모리 limit 6Gi·CPU limit 없음이다. 공식 runtime의 `limits.cpu: null`이 Helm 기본 제한을 제거한다.
-정상 apps 2대는 예상치이며 모든 Pod의 동시 limit 사용을 보장하지 않는다. t4g CPU credit·메모리 압박·
+정상 apps 2대(ADR 0067 뒤 최소 3대)는 예상치이며 모든 Pod의 동시 limit 사용을 보장하지 않는다. t4g CPU credit·메모리 압박·
 실제 allocatable 검증은 배포 이후 별도다. Kafka·관측·다른 앱·perf는 변경하지 않는다.
 [ADR 0066](docs/adr/0066-dev-clickhouse-xlarge-memory.md)(PROJ-339, Proposed)은 부하 시험의 메모리 한도 초과에 따라 ClickHouse만
 `m7g.xlarge`·request/limit 13Gi·CPU 예산 8로 바꾼다. CPU request 1500m·CPU 제한 없음·순차 교체는 그대로다.
@@ -346,7 +359,7 @@ Pulsemetry는 Claude Code·Codex 등 개발 AI 도구의 사용량과 비용을 
 
 **ADR 우선 원칙은 이 레포의 기존 규칙과 같다** — 1장의 "코드와 ADR이 어긋나면 ADR이 기준이다"가
 전 레포 공통 규칙이며, 크로스레포 결정만 `../docs/adr/`가 소유한다. 스코프 판정은 `adr-new` 스킬이 안내한다.
-단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0067`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
+단일 레포 구현 ADR은 지금처럼 `docs/adr/`에 남는다. 새 ADR은 `0068`부터이고 `0020`은 프론트엔드 로그 정책에 사용했다(5장 (F)).
 기존 병행 브랜치의 ADR `0028`·`0029`·`0030`은 번호가 겹치므로 파일명과 링크를 보존한다.
 프론트엔드 Terraform 절은 프론트엔드 ADR을, dashboard·EKS·기존 CDK 절은 해당 백엔드 ADR을 가리킨다.
 인용할 때는 번호와 함께 범위·제목 또는 파일 링크를 사용하며, 전체 목록은 [ADR 인덱스](docs/adr/README.md)를 따른다.
@@ -673,7 +686,7 @@ ADR이 확정되기 전에는 현재 로그 그룹 구성을 운영 환경의 �
 ### (G) 인프라 코드를 추가/수정할 때의 순서
 
 1. 기존 ADR에 걸리는지 먼저 확인한다. 걸리면 **코드보다 ADR을 먼저** 처리한다.
-2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0067`**)를 쓰되 작성 직전 인덱스·예약을 확인한다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급, `0033`은 외부 ACM 기반 dev HTTPS, `0034`는 dev EKS SSM 릴레이 접근, `0035`는 MSK 배치와 dev EKS 전용 전환, `0036`은 telemetry Gateway·MSK IAM과 임시 blocked.certs 공급, `0037`은 관측 구성, `0038`은 dev DB 비공개 접근, `0039`는 Loki·Tempo·플랫폼 trace(Proposed), `0040`은 dev 공개 origin 영속화, `0041`은 dashboard 조회 권한 복구, `0042`는 프론트 관측 EC2, `0043`은 dev SES 초대 메일, `0044`는 정상 CLI OIDC loopback의 두 query label 예외, `0045`는 CLI token 교환의 두 Body label 예외, `0046`은 승인 태그 SES 수신 identity 권한, `0047`은 실제 진단 후 고정 발신 주소 SES identity 권한, `0048`은 dev CloudFormation CI/CD로 이미 쓰였다. `0020`은 프론트엔드 로그 정책이며, 프론트엔드 `0028`·`0029`·`0030`은 각각 Terraform 실행 환경·외부 DNS와 기존 인증서·독립 기반 상태를 다룬다. 중복 번호는 [ADR 인덱스](docs/adr/README.md)의 제목과 파일 링크로 구분하고, 기존 CDK 로그 정책 미결 사항은 위 (F)를 따른다.
+2. 새 결정이면 ADR을 **먼저** 쓰고 `docs/adr/README.md` 인덱스 표에 추가한다. 번호는 다음 미사용 번호(**`0068`**)를 쓰되 작성 직전 인덱스·예약을 확인한다. `0018`·`0019`는 런타임 계약, `0021`은 dev/prod 환경 분리, `0022`는 dev 인프라 토폴로지, `0023`은 dev auth-proxy(ADR-0026으로 대체), `0024`는 배포 역할과 ECS 물리 이름, `0025`는 dev ALB deregistration delay, `0026`은 dev 백엔드 3서비스 전환, `0027`은 dev ALB WAF, `0028`은 EKS Auto Mode, `0029`는 dashboard ECS/EKS 배포, `0030`은 dev 사용자 JWT 키 공급, `0031`은 dashboard·JWT Secret 원본 CDK 소유, `0032`는 OIDC client secret ECS/EKS 공급, `0033`은 외부 ACM 기반 dev HTTPS, `0034`는 dev EKS SSM 릴레이 접근, `0035`는 MSK 배치와 dev EKS 전용 전환, `0036`은 telemetry Gateway·MSK IAM과 임시 blocked.certs 공급, `0037`은 관측 구성, `0038`은 dev DB 비공개 접근, `0039`는 Loki·Tempo·플랫폼 trace(Proposed), `0040`은 dev 공개 origin 영속화, `0041`은 dashboard 조회 권한 복구, `0042`는 프론트 관측 EC2, `0043`은 dev SES 초대 메일, `0044`는 정상 CLI OIDC loopback의 두 query label 예외, `0045`는 CLI token 교환의 두 Body label 예외, `0046`은 승인 태그 SES 수신 identity 권한, `0047`은 실제 진단 후 고정 발신 주소 SES identity 권한, `0048`은 dev CloudFormation CI/CD로 이미 쓰였다. `0020`은 프론트엔드 로그 정책이며, 프론트엔드 `0028`·`0029`·`0030`은 각각 Terraform 실행 환경·외부 DNS와 기존 인증서·독립 기반 상태를 다룬다. 중복 번호는 [ADR 인덱스](docs/adr/README.md)의 제목과 파일 링크로 구분하고, 기존 CDK 로그 정책 미결 사항은 위 (F)를 따른다.
    형식은 `docs/adr/0000-adr-template.md`를 따른다.
 3. 상수는 **"이 값이 dev에서 달라야 할 이유가 있는가"**로 위치를 정한다 — 없으면 `lib/common/config.ts`, 운영 전용이면 `lib/prod/config.ts`, dev 전용이면 `lib/dev/config.ts`. 스택에서는 import만 한다 (4장).
 4. `test/prod/*.test.ts` / `test/dev/*.test.ts` / `test/cicd/*.test.ts`에 template assertion을 추가한다. 픽스처는 `test/helpers.ts`의 `buildApp()` / `MODE_A_EDGE`(prod), `buildDevApp()`(dev), `buildCicdApp()`(cicd)를 재사용한다.
@@ -775,7 +788,7 @@ release가 공식 Unix용 `blocked.certs` ConfigMap을 소유한다. 원본 prov
 파일 checksum은 runtime/JWT 활성 여부와 무관하게 Pod template에 들어간다.
 Gateway도 같은 chart를 사용한다. 앱 전용 mount를 기존 initContainer의 Secret·사용자 JWT·telemetry JWT mount와
 분리하고, telemetry JWT revision·Kafka 설정·9404 metrics를 유지한다. 배포 전 실제 네 이미지 digest를 검증한다.
-파일 갱신은 각 앱 재배포와 재시작을 요구하며 기존 replica 1·`Recreate` 중단을 감수한다.
+파일 갱신은 각 앱 재배포와 재시작을 요구하며 ingest 외 앱의 replica 1·`Recreate` 중단을 감수한다(ingest는 ADR 0067의 RollingUpdate로 한 Pod씩 바꾼다).
 
 원본 확보·해시 검증 실패를 빈 파일·임의 목록으로 대체하지 않는다. 패치된 Temurin 이미지 자체의
 차단 목록을 확인한 뒤 새 digest 배포와 임시 ConfigMap·mount·annotation 제거를 함께 진행한다.

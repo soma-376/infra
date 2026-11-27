@@ -22,7 +22,8 @@ const steps = [
 ];
 const iso = (seconds: number) => new Date(seconds * 1000).toISOString();
 // 가짜 Prometheus 의 상황. 기본은 정상이고, 시험마다 바꾼다.
-let mode: { restartAt?: string; staleLagAt?: string; chRestartAt?: string; chStartShiftAt?: string } = {};
+// ingestPods 는 창 내내 떠 있는 ingest Pod 수(기본 1), ingestReplacedAt 은 그 단계에서 Pod 하나가 바뀐 경우(RollingUpdate)다.
+let mode: { restartAt?: string; staleLagAt?: string; chRestartAt?: string; chStartShiftAt?: string; ingestPods?: number; ingestReplacedAt?: string } = {};
 const summary = {
   summaryVersion: 3, testid: 'pipeline-01', scenario: 'stair', campaign: 'camp-a', tenantId: '00000000-0000-4000-8000-0000000000aa', installations: 60,
   scenarioStart: iso(T0), plannedSeconds: 1020,
@@ -51,8 +52,8 @@ const instant = (query: string, time: number): number | null => {
   // 수집 증거(창 320s, scrape 10s → 최소 표본 31).
   if (query.startsWith('min(min_over_time(up{')) return 1;
   if (query.startsWith('min(count_over_time(up{')) return 32;
-  if (query.startsWith('count(count_over_time(process_start_time_seconds')) return 1;
-  if (query.startsWith('count(process_start_time_seconds')) return 1;
+  if (query.startsWith('count(count_over_time(process_start_time_seconds')) return (mode.ingestPods ?? 1) + (mode.ingestReplacedAt === s.step ? 1 : 0);
+  if (query.startsWith('count(process_start_time_seconds')) return mode.ingestPods ?? 1;
   if (query.startsWith('sum(changes(process_start_time_seconds')) return mode.restartAt === s.step ? 1 : 0;
   if (query.startsWith('sum(resets(ClickHouseAsyncMetrics_Uptime')) return mode.chRestartAt === s.step ? 1 : 0;
   if (query.startsWith('max(max_over_time((timestamp(ClickHouseAsyncMetrics_Uptime')) return mode.chStartShiftAt === s.step ? 5 : 0.9;
@@ -143,6 +144,10 @@ describe('부하 시험 결과 추출', () => {
     expect(received.some(line => line.includes('pulsemetry_pipeline_attempts_total') && line.includes('[320s]') && line.includes(' unless '))).toBe(true);
     expect(received.some(line => line.includes('k6_dropped_iterations_total'))).toBe(false);
     expect(received.every(line => !line.includes('$'))).toBe(true);
+    // 자원 값은 Pod 마다 계산한 뒤 최댓값이다(replica 여럿이면 서비스 합은 Pod 한도와 비교할 수 없다).
+    expect(received.some(line => line.startsWith('/api/v1/query ') && line.includes('max(max_over_time((sum by(service,pod)(jvm_memory_used_bytes{'))).toBe(true);
+    expect(received.some(line => line.startsWith('/api/v1/query ') && line.includes('sum by(pod)(rate(container_cpu_usage_seconds_total{'))).toBe(true);
+    expect(received.some(line => line.includes('sum by(service)(jvm_memory'))).toBe(false);
     // 가짜 서버는 PromQL 을 해석하지 않는다. 보낸 식을 실제 파서(promtool)로 검사한다.
     if (process.env.PROMTOOL_BIN) {
       const unique = [...new Set(received.map(line => line.slice(line.indexOf(' ') + 1)))];
@@ -177,6 +182,30 @@ describe('부하 시험 결과 추출', () => {
     expect(judgement.limits.pipeline).toEqual({ rps: 5, step: 's01', firstFailure: 's02' });
     expect(judgement.steps[1].pipeline.reasons).toEqual(['영구 거부 미수집(ingest 재시작)', '재시도 소진 미수집(ingest 재시작)']);
     expect(judgement.steps[1].values).toMatchObject({ permanent: null, retryExhausted: null, chDelayed: 0, chFailed: 0 });
+  });
+
+  test('ingest replica 2 가 창 내내 떠 있으면 Pod 1개와 같은 판정이다 — Pod 수만으로 미수집이 아니다', async () => {
+    inputs();
+    const baseline = resolve(work, 'one');
+    expect((await run(exportArgs(baseline))).code).toBe(0);
+    mode = { ingestPods: 2 };
+    const two = resolve(work, 'two');
+    expect((await run(exportArgs(two))).code).toBe(0);
+    const read = (dir: string) => JSON.parse(readFileSync(resolve(dir, 'judgement.json'), 'utf8'));
+    expect(read(two)).toEqual(read(baseline));
+    expect(read(two).steps.map((step: any) => step.values.notes)).toEqual([{}, {}, {}]);
+  });
+
+  test('ingest replica 2 에서 유지 구간 중 Pod 하나가 바뀌면(RollingUpdate) 그 단계의 영구 거부·재시도 소진이 미수집이다', async () => {
+    inputs();
+    mode = { ingestPods: 2, ingestReplacedAt: 's02' };
+    const out = resolve(work, 'result');
+    expect((await run(exportArgs(out))).code).toBe(0);
+    const judgement = JSON.parse(readFileSync(resolve(out, 'judgement.json'), 'utf8'));
+    expect(judgement.steps[1].pipeline.reasons).toEqual(['영구 거부 미수집(ingest Pod 교체)', '재시도 소진 미수집(ingest Pod 교체)']);
+    expect(judgement.steps[1].values).toMatchObject({ permanent: null, retryExhausted: null, chDelayed: 0, chFailed: 0 });
+    expect(judgement.steps[0].values).toMatchObject({ permanent: 0, retryExhausted: 0 });
+    expect(judgement.limits.pipeline).toEqual({ rps: 5, step: 's01', firstFailure: 's02' });
   });
 
   test('ClickHouse 가 재시작한 단계는 지연·실패 INSERT 가 미수집이다(재시작 전 수집 안 된 실패는 되살릴 수 없다)', async () => {

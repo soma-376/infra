@@ -746,13 +746,13 @@
         {
           "refId": "A",
           "expr": "max by (pod) (pulsemetry_pipeline_listener_running{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"$service\",pod=~\"$pod\"})",
-          "legendFormat": "{{{{pod}}}} listener",
+          "legendFormat": "{{pod}} listener",
           "range": true
         },
         {
           "refId": "B",
           "expr": "sum by (pod) (pulsemetry_pipeline_inflight{environment=\"$environment\",cluster=\"$cluster\",namespace=\"$namespace\",service=~\"$service\",pod=~\"$pod\"})",
-          "legendFormat": "{{{{pod}}}} 처리 중",
+          "legendFormat": "{{pod}} 처리 중",
           "range": true
         }
       ],

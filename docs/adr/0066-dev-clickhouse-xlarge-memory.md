@@ -4,7 +4,7 @@
 
 Proposed (PROJ-339; [ADR 0063](0063-dev-pipeline-resource-sizing.md)의 ClickHouse 노드 타입·메모리·CPU 예산만 부분 대체한다. 실제 dev 반영·재측정은 별도다.)
 
-ADR 0063의 Gateway·ingest 사양과 anti-affinity, apps NodePool(`t4g.large`, CPU 예산 8),
+ADR 0063의 Gateway·ingest 사양과 anti-affinity, apps NodePool(`t4g.large`, CPU 예산 8 — [ADR 0067](0067-dev-ingest-horizontal-scale.md)로 12),
 ClickHouse CPU request 1500m·CPU 제한 없음·단일 Pod StatefulSet 순차 교체·AZ·taint·PVC는 그대로 유효하다.
 
 ## Context

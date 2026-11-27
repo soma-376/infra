@@ -166,6 +166,12 @@ renderSuite('Argo 관리 chart의 적용·거부 범위', () => {
     expect(rootProject.spec.clusterResourceWhitelist).toEqual([]);
     const workload = projects.find(p => p.metadata.name === 'pulsemetry-dev-workloads');
     expect(workload.spec.destinations).toEqual([{ server: 'https://kubernetes.default.svc', namespace: 'pulsemetry-dev' }]);
+    // ADR 0067: spring-app chart가 replica 2 ingest의 PodDisruptionBudget을 렌더한다.
+    expect(workload.spec.namespaceResourceWhitelist).toEqual([
+      { group: '', kind: 'ConfigMap' }, { group: '', kind: 'Service' }, { group: '', kind: 'ServiceAccount' },
+      { group: 'apps', kind: 'Deployment' }, { group: 'policy', kind: 'PodDisruptionBudget' },
+      { group: 'elbv2.k8s.aws', kind: 'TargetGroupBinding' },
+    ]);
     expect(workload.spec.namespaceResourceWhitelist.map((v: any) => v.kind)).not.toContain('Secret');
     expect(workload.spec.namespaceResourceWhitelist).not.toContainEqual({ group: 'batch', kind: 'Job' });
     const platform = projects.find(p => p.metadata.name === 'pulsemetry-dev-platform');

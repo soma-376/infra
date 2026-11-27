@@ -3,6 +3,11 @@
 environment: dev
 workload: ""
 replicaCount: 1
+# ADR 0067: dev 앱은 Recreate가 기본이다. telemetry-ingest만 RollingUpdate(maxSurge 0·maxUnavailable 1)를 쓴다. perf는 Recreate만 받는다.
+# Helm은 values 층을 깊게 병합한다. 뒤 층에서 `type`만 덮거나 `strategy: {type: Recreate}`를 주면 앞 층의 rollingUpdate가 남고,
+# `rollingUpdate: null`도 null 값으로 남아 schema가 거부한다. strategy는 그 값을 정한 workload values 파일에서 블록째 바꾼다.
+strategy:
+  type: Recreate
 image:
   repository: ""
   digest: ""

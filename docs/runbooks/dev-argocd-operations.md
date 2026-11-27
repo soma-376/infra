@@ -95,6 +95,7 @@ node scripts/dev-argocd-management.mjs \
 
 `argocd-values.yaml`은 기존 bootstrap values 뒤에 더할 관리 overlay이고, `management-values.yaml`은
 수동 release `argocd-management`의 입력이다. 실제 게시 전 CMP digest를 운영값으로 꾸며 넣지 않는다.
+인계 뒤 AppProject·관리 RBAC 변경의 반영 순서는 §3.1을 따른다.
 관리 chart는 root/platform/workload Project와 controller Role·server 조회 Role을 분리한다.
 Argo 3.5의 cache는 등록 namespace 전체에서 같은 종류를 조회하므로, controller 전용
 `argocd-dev-cache-reader`가 `argocd`와 관리 namespace 6개에서 동일한 리소스 종류의 `get/list/watch`를
@@ -407,6 +408,104 @@ Namespace·CRD·PVC·Kafka·ClickHouse 삭제는 대상·데이터 영향·복�
 chart·runtime만 바뀐 경우에도 C/V를 새로 검증해 함께 선택한다. 가변 `develop` chart와 최신 values를
 따로 읽거나 Application parameter/`--set`으로 Git 바깥 값을 덧씌우지 않는다. `image.repository` +
 `image.digest`와 overlay 없는 구성을 유지하며 Image Updater·태그 감시는 도입하지 않는다.
+
+### 3.1 관리 구성 변경
+
+`helm/dev/platform/argocd/management/`(AppProject·관리 RBAC·연결 Secret)은 namespace `argocd`의 수동 release `argocd-management`다.
+root·child가 관리하지 않으므로 위 게시·Argo sync로는 바뀌지 않는다.
+AppProject 허용 목록이나 관리 RBAC가 바뀐 C는, 그 리소스를 쓰는 child를 sync하기 전에 운영자가 `argocd-management`를 먼저 갱신한다.
+순서를 어기면 child sync가 허용되지 않은 리소스에서 실패한다.
+
+갱신에는 live release의 values를 그대로 쓴다. chart 기본값(`reconciliationEnabled: false`)이나 §2.0.1 검토 생성기 출력으로
+upgrade하면 `templates/cluster.yaml`의 조건 때문에 `argocd-dev-in-cluster` Secret이 지워져 Argo 전체가 in-cluster 연결을 잃는다.
+`--reuse-values`나 임의 `--set`으로도 대신하지 않는다. 렌더(③)와 갱신(④)은 같은 values 파일 `VALUES_FILE`을 쓴다.
+기본은 ①에서 받은 live values다. 관리 RBAC 이름이 바뀌는 C는 live values로 갱신할 수 없으므로,
+§2.0.4 생성기 출력의 `management-values.yaml` 경로를 `VALUES_FILE`로 지정하고 실행한다.
+그 경우 아래 PROJ-346 관문은 쓰지 않고, diff가 그 C에서 의도한 RBAC 변경과 같은지 검토한다.
+
+**[운영자]** 아래 명령은 운영자가 실행한다. [설치 안내](../../helm/dev/platform/argocd/README.md#수동-설치)의
+Helm 3.22.0과 SSM 전용 kubeconfig·context를 준비하고, 새 C를 checkout한 infra 루트에서 실행한다.
+어느 검사든 실패하면 upgrade하지 않고 멈춘다.
+
+```bash
+set -euo pipefail
+: "${HELM_BIN:?검증한 Helm 3.22.0 실행 파일 경로}"
+: "${KUBECONFIG:?EKS SSM 전용 kubeconfig 경로}"
+: "${EKS_CONTEXT_NAME:?EKS 런북에서 준비한 dev SSM context 이름}"
+: "${INFRA_C:?적용할 infra C의 40자리 SHA}"
+test "$("$HELM_BIN" version --template '{{.Version}}')" = v3.22.0
+test "$(git rev-parse HEAD)" = "$INFRA_C"
+git diff --quiet HEAD -- helm/dev/platform/argocd/management
+HELM_CLUSTER=(--kubeconfig "$KUBECONFIG" --kube-context "$EKS_CONTEXT_NAME")
+umask 077
+MANAGEMENT_DIR="$(mktemp -d)"
+
+# ① live values를 파일로 받는다.
+"$HELM_BIN" "${HELM_CLUSTER[@]}" get values argocd-management --namespace argocd -o yaml \
+  > "$MANAGEMENT_DIR/live-values.yaml"
+# ② 렌더·갱신에 쓸 values를 정하고 연결이 켜진 values인지 본다. false이거나 없으면 여기서 멈춘다.
+#    관리 RBAC 이름이 바뀌는 C만 실행 전에 VALUES_FILE을 §2.0.4 출력 경로로 지정한다.
+VALUES_FILE="${VALUES_FILE:-$MANAGEMENT_DIR/live-values.yaml}"
+grep -qx 'reconciliationEnabled: true' "$VALUES_FILE"
+# ③ 같은 values로 새 C를 렌더해 live manifest와 비교한다. 빈 줄과 `# Source` 줄은 뺀다.
+"$HELM_BIN" "${HELM_CLUSTER[@]}" get manifest argocd-management --namespace argocd > "$MANAGEMENT_DIR/live.yaml"
+"$HELM_BIN" template argocd-management helm/dev/platform/argocd/management \
+  --namespace argocd -f "$VALUES_FILE" > "$MANAGEMENT_DIR/new.yaml"
+normalize() { grep -v -e '^# Source:' -e '^[[:space:]]*$' "$1"; }
+diff -U20 <(normalize "$MANAGEMENT_DIR/live.yaml") <(normalize "$MANAGEMENT_DIR/new.yaml") \
+  > "$MANAGEMENT_DIR/manifest.diff" || test $? -eq 1
+cat "$MANAGEMENT_DIR/manifest.diff"
+```
+
+③의 관문은 diff가 그 C에서 의도한 변경과 같은지다. 다른 줄이 하나라도 있으면 live release를 만든 C와 새 C 사이에
+다른 관리 구성 변경이 있다는 뜻이다. upgrade하지 않고 그 차이를 먼저 검토한다.
+PROJ-346의 C는 `VALUES_FILE` 없이(live values로) 실행하며, 바뀐 줄이 PDB 허용 두 줄뿐이어야 한다(아래 명령). `cat` 출력에서 그 hunk 위 문맥이 `name: pulsemetry-dev-workloads`인지 눈으로 확인한다.
+
+```bash
+# PROJ-346 관문: 바뀐 줄이 아래 두 줄과 다르면 diff가 실패해 여기서 멈춘다.
+grep -E '^[-+]' "$MANAGEMENT_DIR/manifest.diff" | grep -Ev '^(---|\+\+\+) ' > "$MANAGEMENT_DIR/changed.txt" || true
+printf '%s\n' '+    - group: "policy"' '+      kind: PodDisruptionBudget' | diff - "$MANAGEMENT_DIR/changed.txt"
+# ④ ③과 같은 values 파일로 갱신하고 연결 Secret과 workloads Project를 확인한다.
+"$HELM_BIN" "${HELM_CLUSTER[@]}" upgrade argocd-management helm/dev/platform/argocd/management \
+  --namespace argocd --reset-values -f "$VALUES_FILE"
+"$HELM_BIN" "${HELM_CLUSTER[@]}" history argocd-management --namespace argocd --max 3
+kubectl --kubeconfig "$KUBECONFIG" --context "$EKS_CONTEXT_NAME" -n argocd get secret argocd-dev-in-cluster -o name
+kubectl --kubeconfig "$KUBECONFIG" --context "$EKS_CONTEXT_NAME" -n argocd get appproject pulsemetry-dev-workloads \
+  -o jsonpath='{range .spec.namespaceResourceWhitelist[*]}{.group}/{.kind}{"\n"}{end}'
+```
+
+갱신 뒤 `secret/argocd-dev-in-cluster`가 그대로 있고 workloads Project 목록에 `policy/PodDisruptionBudget`이 있어야 한다.
+diff와 history는 비공개 증거로 남기고 `$MANAGEMENT_DIR`을 지운다.
+
+PROJ-346([ADR 0067](../adr/0067-dev-ingest-horizontal-scale.md))은 workloads Project(`pulsemetry-dev-workloads`)에
+`policy/PodDisruptionBudget`을 더한다. 관리 RBAC는 이미 PDB 쓰기(삭제 제외)를 갖는다. 반영 순서는 다음과 같다.
+
+1. **[운영자]** 위 절차로 `argocd-management`를 갱신한다.
+2. Dev CDK Deploy를 승인한다. `helm/**` 변경도 경로 필터에 들어가며 CDK가 no-op이어도 설정 게시를 수행한다([게시 런북 §3](dev-gitops-image-promotion.md#3-infra-설정-게시)).
+3. 게시가 C·V를 private main에 올린다.
+4. Argo 자동 sync가 base(apps CPU 예산 12)와 ingest(replica 2·RollingUpdate·PDB)를 반영한다.
+
+완료는 머지·승인·게시·Synced/Healthy·기능 성공을 따로 판정한다(ADR 0056). dev 확인 항목은 ADR 0067의 Acceptance Criteria다.
+
+ingest를 replica 1로 되돌리면 chart는 PDB를 렌더하지 않지만 클러스터의 PDB는 남는다. `prune=false`이고 controller에
+PDB 삭제 권한이 없기 때문이다(`helm/dev/platform/argocd/management/templates/rbac.yaml`의 PDB 동사는 `get·list·watch·create·update·patch`뿐이다).
+Git에 없는 리소스가 남은 ingest Application은 OutOfSync로 남는다. root health(`helm/dev/gitops/health/application.lua`)는
+Synced가 아닌 child를 Progressing으로 보므로, root sync가 ingest(wave 60)에서 기다려 Gateway(70)·dashboard(80)로 넘어가지 못한다.
+이 대기는 Argo의 prune·sync wave 일반 동작에서 추론한 것이며 dev에서 재현하지 않았다.
+남은 `minAvailable 1`은 Pod 하나의 축출도 막아 그 노드의 drain을 막는다. 그래서 되돌림 sync 직후 PDB를 바로 지운다.
+
+1. workloads 되돌림(replica 1·`Recreate`·`PULSEMETRY_TELEMETRY_KAFKA_CONSUMER_CONCURRENCY` `"6"`)을 일반 경로로 게시한다.
+   소비 스레드를 6으로 되돌리지 않으면 Pod 하나가 스레드 3개로 partition 6개를 맡아 병렬도가 절반이 된다. Deployment의 replica가 1이 된 것으로 반영을 확인한다.
+   이때 ingest Application은 남은 PDB 때문에 OutOfSync다. 반영 전에 PDB를 지우면 self-heal이 Git의 PDB를 다시 만든다.
+2. **[운영자]** PDB를 지우고 ingest Application이 Synced로 돌아오는지 본다.
+
+   ```bash
+   kubectl --kubeconfig "$KUBECONFIG" --context "$EKS_CONTEXT_NAME" -n pulsemetry-dev get deployment,pdb telemetry-ingest
+   kubectl --kubeconfig "$KUBECONFIG" --context "$EKS_CONTEXT_NAME" -n pulsemetry-dev delete pdb telemetry-ingest
+   ```
+
+3. (필요하면) 관리 구성에서 PDB 허용을 뺀 C를 위 절차로 반영한다. 기대 diff는 같은 두 줄의 삭제(`-`)다.
+   순서는 workloads 되돌림 → PDB 삭제 → 관리 구성이다.
 
 ## 4. 순차 적용과 성공 판정
 

@@ -56,7 +56,8 @@ spec:
       namespace: pulsemetry-dev
   clusterResourceWhitelist: []
   namespaceResourceWhitelist:
-    {{- range $item := list (list "" "ConfigMap") (list "" "Service") (list "" "ServiceAccount") (list "apps" "Deployment") (list "elbv2.k8s.aws" "TargetGroupBinding") }}
+    {{- /* ADR 0067: replica 2 ingest의 PodDisruptionBudget을 spring-app chart가 렌더한다. */}}
+    {{- range $item := list (list "" "ConfigMap") (list "" "Service") (list "" "ServiceAccount") (list "apps" "Deployment") (list "policy" "PodDisruptionBudget") (list "elbv2.k8s.aws" "TargetGroupBinding") }}
     - group: {{ index $item 0 | quote }}
       kind: {{ index $item 1 }}
     {{- end }}
