@@ -148,6 +148,8 @@ for (const dashboard of dashboards) {
     }
     for (const target of panel.targets ?? []) {
       const uid = targetUid(target, panel);
+      // Grafana 는 `{{{{pod}}}}` 를 label 로 바꾸지 않고 글자 `{{pod}}` 로 둔다 — replica 가 여럿이면 선을 구분할 수 없다.
+      if (target.legendFormat) assert.doesNotMatch(target.legendFormat, /\{\{\{|\}\}\}/, `${dashboard.uid}/${panel.title} legendFormat 중괄호 중복: ${target.legendFormat}`);
       if (uid === 'pulsemetry-loki') {
         // LogQL은 promtool로 검사하지 않는다. 환경·클러스터로 좁히고 허용 label만 쓴다.
         validateLokiSelector(target.expr, lokiLabels);
