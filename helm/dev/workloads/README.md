@@ -170,5 +170,5 @@ Argo 자동 sync 중지와 `kubectl scale`은 필요 없다. 다른 이유로 �
 
 ingest를 replica 1로 되돌리면 chart는 PDB를 렌더하지 않지만, `prune=false`이고 controller에 PDB 삭제 권한이 없어 기존 PDB가 남는다.
 남은 PDB는 ingest Application을 OutOfSync로 남겨 root의 다음 wave(Gateway 70·dashboard 80)를 기다리게 하고, Pod 하나의 drain을 막는다.
-되돌림 sync 직후 운영자가 바로 지운다. 순서는 workloads 되돌림 → PDB 삭제 → (필요하면) 관리 구성의 PDB 허용 제거이며
+되돌림 sync 직후 운영자가 바로 지운다. 순서는 workloads 되돌림(replica 1·`Recreate`·소비 스레드 `"6"`) → PDB 삭제 → (필요하면) 관리 구성의 PDB 허용 제거이며
 [Argo 운영 런북 §3.1](../../../docs/runbooks/dev-argocd-operations.md#31-관리-구성-변경)을 따른다.

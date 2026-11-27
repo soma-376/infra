@@ -418,8 +418,10 @@ AppProject 허용 목록이나 관리 RBAC가 바뀐 C는, 그 리소스를 쓰�
 
 갱신에는 live release의 values를 그대로 쓴다. chart 기본값(`reconciliationEnabled: false`)이나 §2.0.1 검토 생성기 출력으로
 upgrade하면 `templates/cluster.yaml`의 조건 때문에 `argocd-dev-in-cluster` Secret이 지워져 Argo 전체가 in-cluster 연결을 잃는다.
-`--reuse-values`나 임의 `--set`으로도 대신하지 않는다. 관리 RBAC 이름이 바뀌는 C는 live values로 갱신할 수 없다.
-§2.0.4 생성기로 values를 새로 만들고 아래 관문을 같은 방식으로 거친다.
+`--reuse-values`나 임의 `--set`으로도 대신하지 않는다. 렌더(③)와 갱신(④)은 같은 values 파일 `VALUES_FILE`을 쓴다.
+기본은 ①에서 받은 live values다. 관리 RBAC 이름이 바뀌는 C는 live values로 갱신할 수 없으므로,
+§2.0.4 생성기 출력의 `management-values.yaml` 경로를 `VALUES_FILE`로 지정하고 실행한다.
+그 경우 아래 PROJ-346 관문은 쓰지 않고, diff가 그 C에서 의도한 RBAC 변경과 같은지 검토한다.
 
 **[운영자]** 아래 명령은 운영자가 실행한다. [설치 안내](../../helm/dev/platform/argocd/README.md#수동-설치)의
 Helm 3.22.0과 SSM 전용 kubeconfig·context를 준비하고, 새 C를 checkout한 infra 루트에서 실행한다.
@@ -441,12 +443,14 @@ MANAGEMENT_DIR="$(mktemp -d)"
 # ① live values를 파일로 받는다.
 "$HELM_BIN" "${HELM_CLUSTER[@]}" get values argocd-management --namespace argocd -o yaml \
   > "$MANAGEMENT_DIR/live-values.yaml"
-# ② 연결이 켜진 values인지 본다. false이거나 없으면 여기서 멈춘다.
-grep -qx 'reconciliationEnabled: true' "$MANAGEMENT_DIR/live-values.yaml"
+# ② 렌더·갱신에 쓸 values를 정하고 연결이 켜진 values인지 본다. false이거나 없으면 여기서 멈춘다.
+#    관리 RBAC 이름이 바뀌는 C만 실행 전에 VALUES_FILE을 §2.0.4 출력 경로로 지정한다.
+VALUES_FILE="${VALUES_FILE:-$MANAGEMENT_DIR/live-values.yaml}"
+grep -qx 'reconciliationEnabled: true' "$VALUES_FILE"
 # ③ 같은 values로 새 C를 렌더해 live manifest와 비교한다. 빈 줄과 `# Source` 줄은 뺀다.
 "$HELM_BIN" "${HELM_CLUSTER[@]}" get manifest argocd-management --namespace argocd > "$MANAGEMENT_DIR/live.yaml"
 "$HELM_BIN" template argocd-management helm/dev/platform/argocd/management \
-  --namespace argocd -f "$MANAGEMENT_DIR/live-values.yaml" > "$MANAGEMENT_DIR/new.yaml"
+  --namespace argocd -f "$VALUES_FILE" > "$MANAGEMENT_DIR/new.yaml"
 normalize() { grep -v -e '^# Source:' -e '^[[:space:]]*$' "$1"; }
 diff -U20 <(normalize "$MANAGEMENT_DIR/live.yaml") <(normalize "$MANAGEMENT_DIR/new.yaml") \
   > "$MANAGEMENT_DIR/manifest.diff" || test $? -eq 1
@@ -455,15 +459,15 @@ cat "$MANAGEMENT_DIR/manifest.diff"
 
 ③의 관문은 diff가 그 C에서 의도한 변경과 같은지다. 다른 줄이 하나라도 있으면 live release를 만든 C와 새 C 사이에
 다른 관리 구성 변경이 있다는 뜻이다. upgrade하지 않고 그 차이를 먼저 검토한다.
-PROJ-346의 C는 바뀐 줄이 PDB 허용 두 줄뿐이어야 한다(아래 명령). `cat` 출력에서 그 hunk 위 문맥이 `name: pulsemetry-dev-workloads`인지 눈으로 확인한다.
+PROJ-346의 C는 `VALUES_FILE` 없이(live values로) 실행하며, 바뀐 줄이 PDB 허용 두 줄뿐이어야 한다(아래 명령). `cat` 출력에서 그 hunk 위 문맥이 `name: pulsemetry-dev-workloads`인지 눈으로 확인한다.
 
 ```bash
 # PROJ-346 관문: 바뀐 줄이 아래 두 줄과 다르면 diff가 실패해 여기서 멈춘다.
 grep -E '^[-+]' "$MANAGEMENT_DIR/manifest.diff" | grep -Ev '^(---|\+\+\+) ' > "$MANAGEMENT_DIR/changed.txt" || true
 printf '%s\n' '+    - group: "policy"' '+      kind: PodDisruptionBudget' | diff - "$MANAGEMENT_DIR/changed.txt"
-# ④ 같은 values 파일로 갱신하고 연결 Secret과 workloads Project를 확인한다.
+# ④ ③과 같은 values 파일로 갱신하고 연결 Secret과 workloads Project를 확인한다.
 "$HELM_BIN" "${HELM_CLUSTER[@]}" upgrade argocd-management helm/dev/platform/argocd/management \
-  --namespace argocd --reset-values -f "$MANAGEMENT_DIR/live-values.yaml"
+  --namespace argocd --reset-values -f "$VALUES_FILE"
 "$HELM_BIN" "${HELM_CLUSTER[@]}" history argocd-management --namespace argocd --max 3
 kubectl --kubeconfig "$KUBECONFIG" --context "$EKS_CONTEXT_NAME" -n argocd get secret argocd-dev-in-cluster -o name
 kubectl --kubeconfig "$KUBECONFIG" --context "$EKS_CONTEXT_NAME" -n argocd get appproject pulsemetry-dev-workloads \
@@ -490,7 +494,8 @@ Synced가 아닌 child를 Progressing으로 보므로, root sync가 ingest(wave 
 이 대기는 Argo의 prune·sync wave 일반 동작에서 추론한 것이며 dev에서 재현하지 않았다.
 남은 `minAvailable 1`은 Pod 하나의 축출도 막아 그 노드의 drain을 막는다. 그래서 되돌림 sync 직후 PDB를 바로 지운다.
 
-1. workloads 되돌림(replica 1·`Recreate`)을 일반 경로로 게시한다. Deployment의 replica가 1이 된 것으로 반영을 확인한다.
+1. workloads 되돌림(replica 1·`Recreate`·`PULSEMETRY_TELEMETRY_KAFKA_CONSUMER_CONCURRENCY` `"6"`)을 일반 경로로 게시한다.
+   소비 스레드를 6으로 되돌리지 않으면 Pod 하나가 스레드 3개로 partition 6개를 맡아 병렬도가 절반이 된다. Deployment의 replica가 1이 된 것으로 반영을 확인한다.
    이때 ingest Application은 남은 PDB 때문에 OutOfSync다. 반영 전에 PDB를 지우면 self-heal이 Git의 PDB를 다시 만든다.
 2. **[운영자]** PDB를 지우고 ingest Application이 Synced로 돌아오는지 본다.
 

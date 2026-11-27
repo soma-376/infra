@@ -116,7 +116,7 @@ apps 노드 타입 `t4g.large`, 다른 앱의 replica 1·`Recreate`는 그대로
   부족하면 ingest Hikari 최대 연결을 낮추는 env를 검토한다.
 - **PDB 정리.** Argo는 `prune=false`이고 관리 RBAC에 삭제 권한이 없다. replica 1로 되돌리면 Git에 없는 PDB가 남는다.
   ingest Application이 OutOfSync로 남아 root의 다음 wave(Gateway 70·dashboard 80)가 기다리고(Argo 일반 동작에서 추론),
-  Pod 하나의 drain도 막힌다. 되돌림 sync 직후 운영자가 바로 지운다. 순서는 workloads 되돌림 → PDB 삭제 →
+  Pod 하나의 drain도 막힌다. 되돌림 sync 직후 운영자가 바로 지운다. 순서는 workloads 되돌림(replica 1·`Recreate`·소비 스레드 `"6"`) → PDB 삭제 →
   (필요하면) 관리 구성의 PDB 허용 제거다([Argo 운영 런북 §3.1](../runbooks/dev-argocd-operations.md#31-관리-구성-변경)).
 - **PDB와 노드 교체.** 한 Pod가 Ready가 아니면 Ready인 다른 Pod는 축출되지 않아 그 노드의 drain(Auto Mode 교체 포함)이 막힌다.
   Ready가 아닌 Pod는 `AlwaysAllow`로 축출되므로 그 Pod의 노드는 drain된다. 두 Pod가 모두 Ready가 아니어도 두 노드 모두 drain된다.
