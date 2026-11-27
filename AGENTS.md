@@ -47,8 +47,9 @@ apps SG → 관측 SG 9090 규칙 하나와 Prometheus 수신 NetworkPolicy(dev 
 
 backend [ADR 0083](https://github.com/soma-376/pulsemetry-backend/blob/develop/docs/adr/)에 따라 dev ingest에 `PULSEMETRY_TELEMETRY_KAFKA_CONSUMER_BATCH_ENABLED=true`를 둔다.
 같은 consumer group·기존 S3 PutObject 범위(`eks/*`, 넘김 목록 `eks/handoff/`)를 그대로 쓴다. 로그 경보에 배치 event 4종을 더했다.
-되돌릴 때는 같은 값을 false로 바꾼다. ingest가 replica 2·RollingUpdate라 [workloads 안내](helm/dev/workloads/README.md#ingest-수평-확장과-처리-방식-전환-proj-346)의
-replica 0 전환 절차를 따른다(ADR 0067). 넘긴 레코드는 ClickHouse로 돌아오지 않으며 재적재는 별도 모듈 몫이다.
+되돌릴 때는 같은 값을 false로 바꾼다. ingest가 replica 2·RollingUpdate라 값 변경과 `strategy: {type: Recreate}`를 한 커밋에 넣고
+다음 커밋에서 RollingUpdate로 되돌린다([workloads 안내](helm/dev/workloads/README.md#ingest-수평-확장과-처리-방식-전환-proj-346), ADR 0067).
+넘긴 레코드는 ClickHouse로 돌아오지 않으며 재적재는 별도 모듈 몫이다.
 
 ## PROJ-346 dev ingest 수평 확장
 
@@ -58,6 +59,7 @@ ingest끼리도 hostname 필수 anti-affinity로 다른 노드에 놓인다. app
 (부하 시험 때 Gateway·ingest 2·k6 4대 + 교체 여유 2대). 근거는 ⑧(2026-11-25) 노드 busy 1.82/2와 PROJ-344 JFR(2026-11-27)의 다른 Pod·커널 몫 0.11–0.13 core다.
 workloads AppProject에 PDB를 허용하므로 수동 release `argocd-management`를 workloads 변경보다 먼저 갱신한다
 ([Argo 운영 런북 §3.1](docs/runbooks/dev-argocd-operations.md#31-관리-구성-변경)). PDB는 `prune=false`라 되돌릴 때 운영자가 지운다.
+처리 방식(단건↔배치) 전환은 Argo 자동 sync 중지·`kubectl scale` 없이 값 변경과 `Recreate`를 한 커밋에 넣고 다음 커밋에서 RollingUpdate로 되돌린다.
 코드·로컬 검증은 dev 반영·hold 500·Pod 삭제 시험의 증거가 아니다.
 
 ## PROJ-304 dev 파이프라인 자원 확대

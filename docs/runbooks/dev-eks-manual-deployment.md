@@ -572,7 +572,8 @@ kubectl -n pulsemetry-dev rollout status deployment/enrollment-api --timeout=5m
 helm upgrade --install telemetry-ingest helm/dev/workloads/spring-app --namespace pulsemetry-dev \
   --values helm/dev/workloads/telemetry-ingest.yaml \
   --values "$RUN_DIR/generated/telemetry-ingest.yaml" --wait --timeout 10m
-kubectl -n pulsemetry-dev rollout status deployment/telemetry-ingest --timeout=5m
+# ingest는 Pod 두 개를 차례로 바꾼다. Pod마다 종료(최대 90초)와 시작 검사(최대 240초)를 거쳐 5분이면 두 번째 Pod 중에 끊길 수 있다.
+kubectl -n pulsemetry-dev rollout status deployment/telemetry-ingest --timeout=10m
 kubectl -n pulsemetry-dev get pods,services,targetgroupbindings -o wide
 ```
 
@@ -997,7 +998,8 @@ for release in enrollment-api telemetry-ingest dashboard-api telemetry-gateway; 
   helm upgrade "$release" helm/dev/workloads/spring-app --namespace pulsemetry-dev \
     --values "helm/dev/workloads/$release.yaml" \
     --values "$RUN_DIR/generated/$release.yaml" --wait --timeout 10m
-  kubectl -n pulsemetry-dev rollout status "deployment/$release" --timeout=5m
+  # ingest는 Pod 두 개를 차례로 바꿔(ADR 0067) 5분이면 두 번째 Pod 중에 끊길 수 있다. 다른 앱도 같은 상한을 쓴다.
+  kubectl -n pulsemetry-dev rollout status "deployment/$release" --timeout=10m
 done
 ```
 

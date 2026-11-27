@@ -43,8 +43,9 @@ apps 노드 타입 `t4g.large`, 다른 앱의 replica 1·`Recreate`는 그대로
 1. **ingest만 수평 확장한다.** dev `telemetry-ingest`는 replica 2, Pod당 소비 스레드 3
    (`PULSEMETRY_TELEMETRY_KAFKA_CONSUMER_CONCURRENCY=3`)이다. 소비자 합 6이 partition 6과 같아 partition은 늘리지 않는다.
    다른 앱은 replica 1·`Recreate`이며 chart는 ingest 외 workload의 다른 값을 거부한다.
-2. **ingest는 RollingUpdate `maxSurge 0`·`maxUnavailable 1`이다.** 옛 Pod 하나를 먼저 내리고 비운 노드에 새 Pod를 올린다.
-   새 노드 없이 노드 예산 안에서 교체한다. chart가 받는 strategy는 `Recreate`와 이 조합 둘뿐이다.
+2. **ingest는 RollingUpdate `maxSurge 0`·`maxUnavailable 1`이다.** 옛 Pod 하나를 먼저 내리고 새 Pod를 올린다.
+   교체에 새 노드가 필수는 아니다. 종료 중 Pod가 anti-affinity 계산에 남아 Auto Mode가 잠깐 노드를 띄울 수 있고,
+   빈 노드는 `WhenEmpty` 5분 뒤 정리된다. chart가 받는 strategy는 `Recreate`와 이 조합 둘뿐이다.
 3. **PDB `minAvailable 1`을 둔다.** replica가 2 이상일 때만 렌더한다.
    `unhealthyPodEvictionPolicy: AlwaysAllow`로 Ready가 아닌 Pod는 예산과 관계없이 축출한다.
    workloads AppProject 허용 목록에 `policy/PodDisruptionBudget`을 더한다.
@@ -53,9 +54,11 @@ apps 노드 타입 `t4g.large`, 다른 앱의 replica 1·`Recreate`는 그대로
 5. **노드는 `t4g.large`를 유지하고 apps CPU 예산을 12로 올린다.** 부하 시험 때 정상 4대(Gateway·ingest 2·k6, 8 vCPU)에
    교체 여유 2대(4 vCPU)다. 기존 "정상 2대 + 여유 2대"와 같은 여유다.
    PROJ-344에서 다른 Pod·커널 몫이 0.2 core 미만이었다. 전용 노드로 격리해 얻는 CPU가 노드당 약 0.1 core라 노드 유형을 바꾸지 않는다.
-6. **처리 방식 전환 배포는 replica 0을 거친다.** 단건↔배치(`PULSEMETRY_TELEMETRY_KAFKA_CONSUMER_BATCH_ENABLED`)처럼
+6. **처리 방식 전환 배포는 `Recreate`를 한 번 거친다.** 단건↔배치(`PULSEMETRY_TELEMETRY_KAFKA_CONSUMER_BATCH_ENABLED`)처럼
    소비 방식이 바뀌는 배포를 RollingUpdate로 하면 옛·새 Pod가 같은 group에서 함께 소비한다.
-   Argo 자동 sync·self-heal을 멈추고 replica 0으로 줄인 뒤 값을 바꾸고 선언값 2로 되돌린다.
+   값 변경과 `strategy: {type: Recreate}`(블록 전체 교체)를 한 커밋에 넣는다. 그 rollout은 옛 Pod가 모두 끝난 뒤 새 Pod를 띄운다.
+   다음 커밋에서 RollingUpdate로 되돌린다. strategy는 Pod template 밖이라 rollout이 없다. 두 커밋은 따로 게시한다.
+   Argo 자동 sync 중지와 `kubectl scale`은 쓰지 않는다. 다른 이유로 소비를 멈출 때만 Argo 유지보수 경로를 쓴다.
    절차는 [workloads 안내](../../helm/dev/workloads/README.md#ingest-수평-확장과-처리-방식-전환-proj-346)를 따른다.
 
 ## Alternatives Considered
@@ -111,13 +114,16 @@ apps 노드 타입 `t4g.large`, 다른 앱의 replica 1·`Recreate`는 그대로
   (배치 끝에서만 확정, 재할당 뒤 옛 ack 건너뜀)과 ClickHouse `ReplacingMergeTree`·조회 `FINAL`이 정리한다.
 - **RDS 연결.** Pod 수만큼 는다(Hikari 최대 10 × 2). dev RDS(`db.t4g.micro`)의 `DatabaseConnections`를 반영 전후로 본다.
   부족하면 ingest Hikari 최대 연결을 낮추는 env를 검토한다.
-- **PDB 정리.** Argo는 `prune=false`이고 관리 RBAC에 삭제 권한이 없다. replica 1로 되돌리면 PDB가 남아 Pod 하나의 drain을 막는다.
-  운영자가 수동으로 지운다.
+- **PDB 정리.** Argo는 `prune=false`이고 관리 RBAC에 삭제 권한이 없다. replica 1로 되돌리면 Git에 없는 PDB가 남는다.
+  ingest Application이 OutOfSync로 남아 root의 다음 wave(Gateway 70·dashboard 80)가 기다리고(Argo 일반 동작에서 추론),
+  Pod 하나의 drain도 막힌다. 되돌림 sync 직후 운영자가 바로 지운다. 순서는 workloads 되돌림 → PDB 삭제 →
+  (필요하면) 관리 구성의 PDB 허용 제거다([Argo 운영 런북 §3.1](../runbooks/dev-argocd-operations.md#31-관리-구성-변경)).
 - **PDB와 노드 교체.** 한 Pod가 Ready가 아니면 Ready인 다른 Pod는 축출되지 않아 그 노드의 drain(Auto Mode 교체 포함)이 막힌다.
   Ready가 아닌 Pod는 `AlwaysAllow`로 축출되므로 그 Pod의 노드는 drain된다. 두 Pod가 모두 Ready가 아니어도 두 노드 모두 drain된다.
 - **관리 구성 선적용.** `argocd-management`는 수동 release다. 운영자가 workloads 변경보다 먼저 갱신해야 한다.
   빠뜨리면 ingest sync가 PDB에서 실패한다.
-- **처리 방식 전환.** 단건↔배치 전환 배포가 자동 sync를 멈추는 수동 절차가 된다.
+- **처리 방식 전환.** 단건↔배치 전환이 커밋 두 개(Recreate 전환·RollingUpdate 되돌림)로 나뉘고, 전환 rollout 동안 소비가 멈춘다.
+  두 커밋을 한 게시에 묶으면 최종 선언이 RollingUpdate라 방식이 섞인다.
 - **비용.** 상시 apps 노드가 1대 늘어 약 +$68/월이다(ADR 0063의 서울 On-Demand + Auto Mode 730시간 추정,
   `t4g.large` 1대 약 $68, `m7g.large` 1대 약 $82). 부하 시험 때는 k6를 포함해 4대다.
   두 ingest 노드가 baseline(노드당 0.6 vCPU)을 넘으면 unlimited 초과 credit이 과금된다.
@@ -138,7 +144,7 @@ apps 노드 타입 `t4g.large`, 다른 앱의 replica 1·`Recreate`는 그대로
   다른 앱은 replica 1·`Recreate`·PDB 없음이다. 다른 앱의 replica 2와 허용 밖 strategy는 거부한다.
 - platform base의 apps `cpuLimit`이 `"12"`이고, workloads AppProject 허용 목록에 `policy/PodDisruptionBudget`이 있다.
 - dev: ingest Pod 2개가 서로 다른 노드에 있다. `kubectl -n pulsemetry-dev get pdb`의 `ALLOWED DISRUPTIONS`가 1이다.
-  두 Pod 로그의 `partitions assigned`가 3·3이다.
+  Pod마다 로그의 `partitions assigned` 합이 3(스레드당 1, 기본 RangeAssignor)이다.
 
 ## References
 
@@ -149,4 +155,7 @@ apps 노드 타입 `t4g.large`, 다른 앱의 replica 1·`Recreate`는 그대로
   [Argo 운영 런북 §3.1](../runbooks/dev-argocd-operations.md#31-관리-구성-변경),
   [workloads 안내](../../helm/dev/workloads/README.md)
 - [Kubernetes Deployment RollingUpdate](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#rolling-update-deployment),
-  [PodDisruptionBudget](https://kubernetes.io/docs/tasks/run-application/configure-pdb/)
+  [Recreate](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#recreate-deployment),
+  [rollout 조건(Pod template 변경만)](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#updating-a-deployment),
+  [PodDisruptionBudget](https://kubernetes.io/docs/tasks/run-application/configure-pdb/),
+  [unhealthyPodEvictionPolicy](https://kubernetes.io/docs/tasks/run-application/configure-pdb/#unhealthy-pod-eviction-policy)
