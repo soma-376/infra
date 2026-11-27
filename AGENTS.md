@@ -51,7 +51,8 @@ backend [ADR 0083](https://github.com/soma-376/pulsemetry-backend/blob/develop/d
 다음 커밋에서 RollingUpdate로 되돌린다([workloads 안내](helm/dev/workloads/README.md#ingest-수평-확장과-처리-방식-전환-proj-346), ADR 0067).
 넘긴 레코드는 ClickHouse로 돌아오지 않으며 재적재는 별도 모듈 몫이다.
 PROJ-347은 배치 하나의 동시 S3 PUT 수를 `PULSEMETRY_TELEMETRY_KAFKA_CONSUMER_BATCH_ARCHIVE_CONCURRENCY=16`으로 둔다(backend 기본 8).
-S3 연결 풀은 backend가 `max(50, 소비자 수 × (동시 수 + 1))`로 맞추므로 그 backend 이미지가 먼저 반영돼야 한다. IAM·S3 동작은 그대로다.
+Pod당 동시 PUT은 3 × 16 = 48이고, backend(PROJ-347 이미지)가 S3 연결 풀을 `max(50, 소비자 수 × (동시 수 + 1))`로 잡는다.
+ingest를 replica 1·스레드 6으로 되돌릴 때는 이 값도 8로 되돌린다. IAM·S3 동작은 그대로다.
 
 ## PROJ-346 dev ingest 수평 확장
 
